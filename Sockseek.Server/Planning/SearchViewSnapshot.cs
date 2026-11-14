@@ -216,7 +216,7 @@ public sealed partial class SearchViewSnapshot
     }
 
     internal static SearchViewAlbumGroup Album(SearchViewSnapshot snapshot, AlbumRow row)
-        => new(row.Ref, row.Index, row.Query, row.ShareCount, row.OptionCount, snapshot.Directories[row.Representative].Value);
+        => new(row.Ref, row.Index, row.Query, row.ShareCount, row.SelectableOptionCount, row.Options.Count, snapshot.Directories[row.Representative].Value);
     public SearchViewAlbumGroupPage GetAlbumGroups(SearchViewAlbumGroupPosition? after, int limit, int initialFileLimit = 0, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

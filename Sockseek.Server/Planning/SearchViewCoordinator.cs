@@ -866,11 +866,11 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         }
         runtime.PublicationTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         long projectionStarted = Stopwatch.GetTimestamp();
-        // Publish the first small page promptly, then process larger batches
-        // when a burst has already arrived. Reads remain bounded
-        // and a sparse live stream still publishes without waiting to fill.
+        // Live searches benefit from a small first publication. Completed
+        // sources use the normal bounded batch: readers need the final view,
+        // so a tiny initial prefix only adds a read and an index publication.
         bool initialPublication = kernel.ConsumedSequence == 0;
-        int batchSize = initialPublication
+        int batchSize = initialPublication && runtime.Source.CanReceiveInputs
             ? Math.Min(InitialProjectionBatchSize, ProjectionBatchSize) : ProjectionBatchSize;
         using var preparation = ProjectionActivities.StartActivity("advance");
         preparation?.SetTag("view.id", runtime.ViewId);
@@ -880,7 +880,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             batch = await runtime.Source.ReadAsync(
                 kernel.ConsumedSequence, batchSize, cancellationToken).ConfigureAwait(false);
         preparation?.SetTag("input.count", batch.Items.Count);
-        bool complete = batch.IsComplete && batch.Items.Count < batchSize;
+        bool complete = batch.IsComplete;
         if (batch.Items.Count == 0 && !complete)
         {
             runtime.CatchingUp = false;
@@ -1389,6 +1389,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             ServerSnapshotMapper.ToSongQueryDto(query),
             row.ShareCount,
             row.SelectableOptionCount,
+            row.OptionCount,
             ToDto(row.Representative));
     }
 
@@ -1401,6 +1402,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             ServerSnapshotMapper.ToAlbumQueryDto(query),
             row.ShareCount,
             row.SelectableOptionCount,
+            row.OptionCount,
             ToDto(row.Representative));
     }
 
@@ -1448,6 +1450,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
 
     private abstract class RuntimeSource
     {
+        public virtual bool CanReceiveInputs => false;
         public abstract Task<SourceBatch> ReadAsync(long afterSequence, int limit, CancellationToken cancellationToken);
         public virtual bool IsSparseAndLive(long afterSequence, int batchSize) => false;
         public virtual void ReleaseLiveInputs() { }
@@ -1465,6 +1468,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
     private sealed class ObservedSource(Guid jobId, EngineSupervisor supervisor, PersistenceCoordinator persistence) : RuntimeSource
     {
         private SearchSession? liveInputs;
+        public override bool CanReceiveInputs => ObservationSession(jobId, supervisor, persistence)?.IsComplete == false;
         public override void ReleaseLiveInputs() => Interlocked.Exchange(ref liveInputs, null);
 
         public override bool IsSparseAndLive(long afterSequence, int batchSize)

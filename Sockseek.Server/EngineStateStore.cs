@@ -904,7 +904,7 @@ public sealed class EngineStateStore
         if (persistenceOwnsJobRetirement) return;
         Guid[] jobIds;
         lock (gate)
-            jobIds = jobState.WorkflowJobIds(change.WorkflowId);
+            jobIds = jobState.DurableWorkflowJobIds(change.WorkflowId);
         RetireJobProjections(change.WorkflowId, jobIds);
     }
 

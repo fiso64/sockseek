@@ -1,50 +1,62 @@
 import type { JobSummaryDto } from '../../api/types';
 import { formatCount, formatCountWithNoun } from '../../app/format';
 import { formatBytes } from '../presentation/items';
+import { jobOutcomeDetail } from './status';
 
-/** The list reads bounded daemon summary stats, never a collection of child details. */
-export function automaticJobListStats(job: JobSummaryDto): string[] {
+/** Summarize the current stage using only authoritative, bounded job facts. */
+export function automaticJobCountStats(job: JobSummaryDto): string[] {
   const stats = job.stats;
-  if (!stats) return [];
   const values: string[] = [];
-  const memberCount = stats.memberCount == null ? null : Number(stats.memberCount);
-  const hasProgress = memberCount != null && memberCount > 0 && stats.completedMemberCount != null;
-  if (hasProgress)
-    values.push(`${formatCount(stats.completedMemberCount)}/${formatCount(stats.memberCount)} complete`);
+  const terminal = job.lifecycleState === 'Terminal';
+  const discovering = job.lifecycleState === 'AwaitingSelection' || job.lifecycleState === 'Running'
+    && ['WaitingForSearchConcurrency', 'SearchRateLimited', 'Searching', 'ProcessingSearchResults'].includes(job.activityPhase ?? '');
+  const directory = job.kind === 'album' || job.kind === 'remote-directory';
+  const noun = directory ? 'file' : job.kind === 'song-groups' ? 'song'
+    : job.kind === 'album-groups' ? 'album' : job.kind === 'job-list' ? 'job' : null;
 
-  switch (job.kind) {
-    case 'song':
-      if (Number(stats.candidateCount) > 0) values.push(formatCountWithNoun(stats.candidateCount, 'candidate'));
-      break;
-    case 'album':
-      if (Number(stats.folderCount) > 0) values.push(`${formatCount(stats.folderCount)} folders`);
-      if (!hasProgress && Number(stats.fileCount) > 0)
-        values.push(`${formatCount(stats.fileCount)} files`);
-      break;
-    case 'song-groups':
-      if (!values.length && memberCount != null) values.push(`${formatCount(stats.memberCount)} songs`);
-      break;
-    case 'album-groups':
-      if (!values.length && memberCount != null) values.push(`${formatCount(stats.memberCount)} albums`);
-      break;
-    case 'job-list':
-      if (!values.length && memberCount != null) values.push(`${formatCount(stats.memberCount)} jobs`);
-      break;
-    case 'remote-file':
-      if (stats.knownBytes != null) values.push(formatBytes(Number(stats.knownBytes)));
-      break;
-    case 'remote-directory':
-      if (!values.length && stats.fileCount != null) values.push(`${formatCount(stats.fileCount)} files`);
-      break;
-    case 'retrieve-folder':
-      if (stats.newFilesFoundCount != null)
-        values.push(`${formatCount(stats.newFilesFoundCount)} new files`);
-      break;
+  if (discovering && (job.kind === 'song' || job.kind === 'album')) {
+    const count = job.kind === 'song' ? stats?.candidateCount : stats?.folderCount;
+    if (count != null && Number(count) > 0)
+      values.push(formatCountWithNoun(count, job.kind === 'song' ? 'candidate' : 'candidate folder'));
+  } else if (noun && stats) {
+    const total = stats.memberCount ?? (directory ? stats.fileCount : null);
+    const finished = stats.completedMemberCount;
+    // Zero before discovery finishes is not an empty download plan.
+    if (total != null && (Number(total) > 0 || job.kind === 'job-list'
+      || terminal && job.terminalOutcome === 'Succeeded')) {
+      const extent = formatCountWithNoun(total, noun);
+      const showProgress = finished != null && Number(total) > 0
+        && (terminal ? Number(finished) < Number(total) : job.lifecycleState !== 'Pending');
+      values.push(showProgress ? `${formatCount(finished)} / ${extent} finished` : extent);
+    }
+    if (job.lifecycleState !== 'Pending') {
+      if (directory) {
+        if (Number(stats.downloadedMemberCount) > 0) values.push(`${formatCount(stats.downloadedMemberCount)} downloaded`);
+        if (Number(stats.reusedMemberCount) > 0) values.push(`${formatCount(stats.reusedMemberCount)} reused`);
+      } else if (finished != null && stats.failedMemberCount != null && stats.skippedMemberCount != null) {
+        // These are mutually exclusive terminal categories. "Succeeded" does
+        // not imply every nested job performed a file transfer.
+        const succeeded = Number(finished) - Number(stats.failedMemberCount) - Number(stats.skippedMemberCount);
+        if (succeeded > 0) values.push(`${formatCount(succeeded)} succeeded`);
+      }
+      if (Number(stats.skippedMemberCount) > 0) values.push(`${formatCount(stats.skippedMemberCount)} skipped`);
+      // The server's failure aggregate includes cancellations and partial outcomes.
+      if (Number(stats.failedMemberCount) > 0) values.push(`${formatCount(stats.failedMemberCount)} unsuccessful`);
+    }
+  } else if (job.kind === 'remote-file' && stats?.knownBytes != null) {
+    values.push(formatBytes(Number(stats.knownBytes)));
+  } else if (job.kind === 'retrieve-folder' && stats?.newFilesFoundCount != null
+    && (terminal || Number(stats.newFilesFoundCount) > 0)) {
+    values.push(formatCountWithNoun(stats.newFilesFoundCount, 'new file'));
   }
-  if (Number(stats.downloadedMemberCount) > 0) values.push(`${formatCount(stats.downloadedMemberCount)} downloaded`);
-  if (Number(stats.skippedMemberCount) > 0) values.push(`${formatCount(stats.skippedMemberCount)} skipped`);
-  if (Number(stats.reusedMemberCount) > 0) values.push(`${formatCount(stats.reusedMemberCount)} reused`);
-  if (Number(stats.failedMemberCount) > 0) values.push(`${formatCount(stats.failedMemberCount)} failed`);
+
+  return values;
+}
+
+export function automaticJobListStats(job: JobSummaryDto): string[] {
+  const values = automaticJobCountStats(job);
+  const outcome = jobOutcomeDetail(job);
+  if (outcome) values.push(outcome);
   return values;
 }
 

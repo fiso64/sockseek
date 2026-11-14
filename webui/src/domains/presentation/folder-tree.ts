@@ -11,6 +11,7 @@ export interface FolderTreeNode {
   folders: Map<string, FolderTreeNode>;
   files: FolderTreeFile[];
   fileCount: number;
+  selectableFileCount: number;
   selectedCount: number;
   sizeBytes: number;
   unknownSizeCount: number;
@@ -48,7 +49,7 @@ export function buildFolderTreeRows(
   }
 
   const createNode = (name: string, relativePath: string): FolderTreeNode => ({
-    name, relativePath, folders: new Map(), files: [], fileCount: 0,
+    name, relativePath, folders: new Map(), files: [], fileCount: 0, selectableFileCount: 0,
     selectedCount: 0, sizeBytes: 0, unknownSizeCount: 0,
   });
   const root = createNode('', '');
@@ -70,17 +71,22 @@ export function buildFolderTreeRows(
 
   const summarize = (node: FolderTreeNode): void => {
     node.fileCount = node.files.length;
+    node.selectableFileCount = 0;
     node.selectedCount = 0;
     node.sizeBytes = 0;
     node.unknownSizeCount = 0;
     for (const { file } of node.files) {
-      if (selectedFileIds.has(file.id)) node.selectedCount++;
+      if (!file.locked) {
+        node.selectableFileCount++;
+        if (selectedFileIds.has(file.id)) node.selectedCount++;
+      }
       if (file.sizeUnknown) node.unknownSizeCount++;
       else node.sizeBytes += file.sizeBytes;
     }
     for (const child of node.folders.values()) {
       summarize(child);
       node.fileCount += child.fileCount;
+      node.selectableFileCount += child.selectableFileCount;
       node.selectedCount += child.selectedCount;
       node.sizeBytes += child.sizeBytes;
       node.unknownSizeCount += child.unknownSizeCount;

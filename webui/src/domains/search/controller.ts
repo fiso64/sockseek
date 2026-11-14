@@ -1,5 +1,5 @@
 import { randomUUID } from '../../app/uuid';
-import { DaemonApiClient, daemonApi, defaultPageSize, nestedPageSize, type SubmittedSearch } from '../../api/client';
+import { DaemonApiClient, daemonApi, searchFilePageSize, searchDirectoryPageSize, type SubmittedSearch } from '../../api/client';
 import type {
   CommitSearchViewSelectionResponseDto,
   Schema,
@@ -53,6 +53,7 @@ interface DirectoryFilesPage {
 
 export interface SearchViewState extends SearchSelectionState {
   groupOptions: GroupOptionsPanel | null;
+  optionSteps: ReadonlyMap<string, { loading: boolean; error: Error | null; position?: number; optionRef?: string; revision?: string }>;
   choiceValidationLoading: boolean;
   choiceValidationError: Error | null;
   retrievals: ReadonlyMap<string, { loading: boolean; error: Error | null }>;
@@ -89,6 +90,7 @@ export class SearchViewController {
   private readonly selection = new SearchSelection();
   private listeners = new Set<Listener>();
   private pages: SearchPage[] = [];
+  private optionPages = new Map<string, { revision: string; items: GroupOption[]; nextCursor: string | null; loaded: boolean }>();
   private retrievalJobs = new Map<string, string>();
   private retrievalInFlight = new Map<string, symbol>();
   private retrievalRequests = new Map<string, {
@@ -119,6 +121,7 @@ export class SearchViewController {
   private choiceRequestKey: string | null = null;
   private state: Omit<SearchViewState, keyof SearchSelectionState | 'canRetryPendingCommit'> = {
     groupOptions: null,
+    optionSteps: new Map(),
     choiceValidationLoading: false,
     choiceValidationError: null,
     retrievals: new Map(),
@@ -225,6 +228,7 @@ export class SearchViewController {
     this.stop();
     this.stopped = false;
     this.pages = [];
+    this.optionPages.clear();
     this.selection.reset();
     this.summaryError = null;
     this.directoryFileCounts.clear();
@@ -234,6 +238,7 @@ export class SearchViewController {
     this.state = {
       phase: 'loading',
       groupOptions: null,
+      optionSteps: new Map(),
       choiceValidationLoading: false,
       choiceValidationError: null,
       retrievals: new Map(),
@@ -345,10 +350,11 @@ export class SearchViewController {
       // A retrieval still belongs to this source search after a projection
       // change. Keep observing its job so completion can refresh the new view;
       // only its old view-bound spinner is cleared.
-      // Revision zero has no published projection. Keep the displayed view
-      // until the existing publication wait supplies a usable replacement.
-      while (sameWireInteger(view.revision, 0) && !view.isComplete) {
-        view = (await this.api.getSearchViewUpdate(view.viewId, view.revision, controller.signal)).summary;
+      // Keep the displayed view until a replacement is usable. Historical
+      // searches need the complete projection; live searches can show a prefix.
+      while (!view.isComplete && (sameWireInteger(view.revision, 0) || this.state.job?.lifecycleState === 'Terminal')) {
+        view = (await this.api.getSearchViewUpdate(view.viewId, view.revision, controller.signal,
+          this.state.job?.lifecycleState === 'Terminal' ? true : undefined)).summary;
         if (this.stopped || version !== this.refinementGeneration || controller.signal.aborted) return false;
       }
       // Publish rows/counts/selection together, avoiding a destructive empty frame.
@@ -442,7 +448,8 @@ export class SearchViewController {
       }
       const update = observed
         ? { summary: observed, hasNewRevision: !sameWireInteger(observed.revision, summary.revision) }
-        : await this.api.getSearchViewUpdate(summary.viewId, summary.revision, updateRequest.signal);
+        : await this.api.getSearchViewUpdate(summary.viewId, summary.revision, updateRequest.signal,
+          this.waitingForInitialResults() ? true : undefined);
       if (this.stopped || generation !== this.generation || updateRequest.signal.aborted) return;
       if (update.hasNewRevision || reloadPages || completed.length > 0 || this.pages.length === 0) {
         if (!await this.reloadVisiblePages(update.summary, Math.max(1, this.pages.length))) return;
@@ -484,7 +491,8 @@ export class SearchViewController {
       if (!this.stopped && generation === this.generation && !updateRequest.signal.aborted) {
         const previousSummaryError = this.summaryError;
         this.summaryError = asError(error);
-        this.state = { ...this.state, error: !this.state.error || this.state.error === previousSummaryError
+        this.state = { ...this.state, phase: this.state.phase === 'loading' ? 'failed' : this.state.phase,
+          error: !this.state.error || this.state.error === previousSummaryError
           ? this.summaryError : this.state.error };
         this.emit();
       }
@@ -555,7 +563,7 @@ export class SearchViewController {
       title: row.kind === 'track-group' ? row.value.query.title ?? 'Untitled track' : row.value.query.album ?? 'Untitled album',
       artist: row.value.query.artist ?? null,
       shareCount: Number(row.value.shareCount),
-      optionCount: Number(row.value.selectableOptionCount),
+      optionCount: Number(row.value.optionCount),
       representativeRef: row.kind === 'track-group'
         ? row.value.representative.ref : row.value.representative.ref.ref,
       revision,
@@ -601,13 +609,70 @@ export class SearchViewController {
   chooseGroupOption(groupRef: string, option: GroupOption): void {
     const panel = this.state.groupOptions;
     if (!panel || panel.groupRef !== groupRef || panel.kind !== option.kind
-      || !panel.items.some(item => item.ref === option.ref) || !this.selection.choose(groupRef, option)) return;
+      || !panel.items.some(item => item.ref === option.ref)) return;
+    const status = new Map(this.state.optionSteps);
+    status.set(groupRef, { loading: false, error: null, position: panel.items.findIndex(item => item.ref === option.ref) + 1,
+      optionRef: option.ref, revision: `${this.state.summary?.viewId}:${String(panel.revision)}` });
+    this.state = { ...this.state, optionSteps: status };
+    this.applyGroupOption(groupRef, option);
+  }
+
+  private applyGroupOption(groupRef: string, option: GroupOption, select = true): void {
+    if (!this.selection.choose(groupRef, option, select)) return;
     const directoryFiles = new Map(this.state.directoryFiles);
     if (option.kind === 'album') this.seedDirectoryPreview(option.value, directoryFiles);
     this.state = { ...this.state, directoryFiles, groupOptions: null, choiceValidationError: null, receipt: null };
     this.emit();
     if (this.state.summary) this.validateVisibleChoices(this.state.summary);
     if (option.kind === 'album' && !option.value.initialFiles) void this.loadDirectoryFiles(option.ref);
+  }
+
+  async stepGroupOption(groupRef: string, direction: -1 | 1): Promise<void> {
+    const summary = this.state.summary;
+    const row = this.state.rows.find(item => item.ref === groupRef);
+    if (!summary || !row || (row.kind !== 'track-group' && row.kind !== 'album-group') || this.state.optionSteps.get(groupRef)?.loading) return;
+    const generation = this.generation;
+    const revision = `${summary.viewId}:${String(summary.revision)}`;
+    const representative = row.kind === 'track-group' ? row.value.representative.ref : row.value.representative.ref.ref;
+    const chosen = this.selection.value.chosenOptions.get(groupRef);
+    const currentRef = chosen && this.selection.value.checkedChoiceRevisions.get(groupRef) === revision && !this.selection.value.staleChoices.has(groupRef) ? chosen.ref : representative;
+    let cache = this.optionPages.get(groupRef);
+    if (!cache || cache.revision !== revision) {
+      cache = { revision, items: [], nextCursor: null, loaded: false };
+      this.optionPages.set(groupRef, cache);
+    }
+    const setStatus = (status: { loading: boolean; error: Error | null; position?: number; optionRef?: string; revision?: string }) => {
+      this.state = { ...this.state, optionSteps: new Map(this.state.optionSteps).set(groupRef, { ...this.state.optionSteps.get(groupRef), ...status }) };
+      this.emit();
+    };
+    setStatus({ loading: true, error: null });
+    try {
+      let index = cache.items.findIndex(item => item.ref === currentRef);
+      while ((!cache.loaded || (cache.nextCursor && (index < 0 || (direction === 1 && index === cache.items.length - 1))))) {
+        const page = row.kind === 'track-group'
+          ? await this.api.getSearchViewTrackGroupOptions(summary.viewId, groupRef, summary.revision, cache.nextCursor)
+          : await this.api.getSearchViewAlbumGroupOptions(summary.viewId, groupRef, summary.revision, cache.nextCursor);
+        if (this.stopped || generation !== this.generation) return;
+        if (this.state.summary?.viewId !== summary.viewId || !sameWireInteger(this.state.summary.revision, summary.revision)) {
+          setStatus({ loading: false, error: null });
+          return;
+        }
+        if (!sameWireInteger(page.revision.revision, summary.revision) || page.groupRef !== groupRef) throw new Error('Group alternatives do not match the selected group and revision.');
+        const items: GroupOption[] = row.kind === 'track-group'
+          ? (page.items as Schema<'SearchViewFileDto'>[]).map(value => ({ kind: 'track', ref: value.ref, value }))
+          : (page.items as Schema<'SearchViewDirectoryDto'>[]).map(value => ({ kind: 'album', ref: value.ref.ref, value }));
+        cache.items.push(...items);
+        cache.nextCursor = page.nextCursor ?? null;
+        cache.loaded = true;
+        index = cache.items.findIndex(item => item.ref === currentRef);
+      }
+      const target = index >= 0 ? cache.items[index + direction] : undefined;
+      if (target && this.selection.value.chosenOptions.get(groupRef)?.ref === chosen?.ref) this.applyGroupOption(groupRef, target, false);
+      setStatus({ loading: false, error: null, position: target ? index + direction + 1 : index + 1,
+        optionRef: target?.ref ?? currentRef, revision });
+    } catch (error) {
+      if (!this.stopped && generation === this.generation) setStatus({ loading: false, error: asError(error) });
+    }
   }
 
   private hasVisibleDirectory(ref: string): boolean {
@@ -676,8 +741,8 @@ export class SearchViewController {
     const previous = this.state.directoryFiles.get(ref);
     if (!summary || this.stopped || previous?.loading || (previous && !previous.error && !previous.nextCursor)) return;
     const requestedCount = previous?.error
-      ? this.directoryFileCounts.get(ref) ?? previous.items.length + defaultPageSize
-      : Math.max(this.directoryFileCounts.get(ref) ?? 0, previous?.items.length ?? 0) + defaultPageSize;
+      ? this.directoryFileCounts.get(ref) ?? previous.items.length + searchFilePageSize
+      : Math.max(this.directoryFileCounts.get(ref) ?? 0, previous?.items.length ?? 0) + searchFilePageSize;
     this.directoryFileCounts.set(ref, requestedCount);
     const pending = { ...previous, items: previous?.items ?? [],
       nextCursor: previous?.nextCursor ?? null, loading: true, error: null };
@@ -775,7 +840,7 @@ export class SearchViewController {
     const directoryRef = choice?.kind === 'album' ? choice.ref : row.value.representative.ref.ref;
     const files = this.state.directoryFiles.get(directoryRef);
     const completeRefs = files && (!files.loading || files.refreshing) && !files.error && !files.nextCursor
-      ? files.items.map(file => file.ref) : undefined;
+      ? files.items.filter(file => file.file.visibility !== 'Locked').map(file => file.ref) : undefined;
     if (!this.selection.toggleAlbumFile(groupRef, row.value.representative, fileRef, selected, completeRefs)) return;
     this.state = { ...this.state, choiceValidationError: null, receipt: null };
     this.emit();
@@ -832,6 +897,14 @@ export class SearchViewController {
   private async reloadVisiblePages(summary: SearchViewSummaryDto, count: number,
     options?: { request?: AbortController; replaceProjection?: boolean; resetSelection?: boolean; sortOrder?: Schema<'ServerSearchViewSortOrder'> }): Promise<boolean> {
     this.cancelPageRequest();
+    // Opening a finished search rebuilds its projection from stored inputs.
+    // Observe that catch-up without fetching or displaying intermediate pages.
+    if (!options?.replaceProjection && this.pages.length === 0
+      && this.state.job?.lifecycleState === 'Terminal' && !summary.isComplete) {
+      this.state = { ...this.state, summary, phase: 'loading', error: null };
+      this.emit();
+      return true;
+    }
     const replacing = options?.replaceProjection ?? false;
     const request = options?.request ?? new AbortController();
     const order = options?.sortOrder ?? this.state.sortOrder;
@@ -898,15 +971,15 @@ export class SearchViewController {
   private loadPage(summary: SearchViewSummaryDto, cursor: string | null, sortOrder: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchPage> {
     const mode = this.state.draft?.resultMode;
     if (mode === 'generic' || mode === 'album') {
-      return this.api.getSearchViewDirectories(summary.viewId, summary.revision, cursor, nestedPageSize, sortOrder, signal);
+      return this.api.getSearchViewDirectories(summary.viewId, summary.revision, cursor, searchDirectoryPageSize, sortOrder, signal);
     }
     if (mode === 'song-groups') {
-      return this.api.getSearchViewTrackGroups(summary.viewId, summary.revision, cursor, nestedPageSize, signal);
+      return this.api.getSearchViewTrackGroups(summary.viewId, summary.revision, cursor, searchFilePageSize, signal);
     }
     if (mode === 'album-groups') {
-      return this.api.getSearchViewAlbumGroups(summary.viewId, summary.revision, cursor, nestedPageSize, signal);
+      return this.api.getSearchViewAlbumGroups(summary.viewId, summary.revision, cursor, searchDirectoryPageSize, signal);
     }
-    return this.api.getSearchViewFiles(summary.viewId, summary.revision, cursor, defaultPageSize, sortOrder, signal);
+    return this.api.getSearchViewFiles(summary.viewId, summary.revision, cursor, searchFilePageSize, sortOrder, signal);
   }
 
   private publishPages(summary: SearchViewSummaryDto, refreshedDirectories?: Map<string, DirectoryFilesPage>): void {
@@ -933,6 +1006,9 @@ export class SearchViewController {
       ? new Map(this.state.directoryFiles) : new Map<string, DirectoryFilesPage>());
     const retrievals = new Map(this.state.retrievals);
     for (const row of rows) {
+      const choice = this.selection.choiceIsCurrent(row.ref) ? this.selection.value.chosenOptions.get(row.ref) : null;
+      const value = row.kind === 'file' || row.kind === 'directory' ? row.value : choice?.value ?? row.value.representative;
+      this.selection.rememberResult(row.ref, value.visibility === 'Locked');
       if (row.kind === 'directory') {
         if (!directoryFiles.has(row.ref)) this.seedDirectoryPreview(row.value, directoryFiles);
         if (!retrievals.has(row.ref)
@@ -1089,6 +1165,11 @@ export class SearchViewController {
       nextCursor: preview.nextCursor ?? null, loading: false, error: null });
   }
 
+  private waitingForInitialResults(): boolean {
+    return this.state.job?.lifecycleState === 'Terminal' && !this.state.summary?.isComplete
+      && this.pages.length === 0 && !this.state.error;
+  }
+
   private schedulePoll(): void {
     if (this.timer) clearTimeout(this.timer);
     if (this.observation && this.retrievalJobs.size === 0) return;
@@ -1098,7 +1179,7 @@ export class SearchViewController {
       this.timer = null;
       await this.refresh();
       this.schedulePoll();
-    }, this.pollIntervalMs);
+    }, this.waitingForInitialResults() ? 0 : this.pollIntervalMs);
   }
 
   private emit(): void {

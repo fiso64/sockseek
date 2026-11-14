@@ -155,7 +155,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
     const detailReady = page.waitForFunction(count => {
       const start = performance.getEntriesByName('review-detail-start').at(-1);
       if (start && document.querySelector('.automatic-job-detail h1')?.textContent === 'large-review'
-        && document.querySelectorAll('.job-child-row').length === count)
+        && document.querySelectorAll('[data-testid="job-row"]').length === count)
         return { elapsedMs: performance.now() - start.startTime };
     }, Math.min(expectedCount, 100));
     await expect(root).toBeVisible();
@@ -172,7 +172,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
     expect(detailApiMs, 'Accepted root metadata must not scan its selected descendants.').toBeLessThan(100);
     const detail = JSON.parse(detailResponse.body) as Schema<'JobDetailDto'>;
     expect(detail.payload).toMatchObject({ kind: 'job-list', count: expectedCount });
-    await expect(page.locator('.job-child-row')).toHaveCount(Math.min(expectedCount, 100));
+    await expect(page.locator('[data-testid="job-row"]')).toHaveCount(Math.min(expectedCount, 100));
     console.log('PERF_REVIEW_PHASE ' + JSON.stringify({ allExcept, phase: 'accepted detail visible', elapsedMs: detailUiMs, jobReads }));
     if (allExcept) expect(detailUiMs, 'The accepted plan must appear without waiting for a one-second detail polling tick.')
       .toBeLessThan(1_000);
@@ -241,11 +241,11 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
         childCount: queuedDetail.childCount }));
       try {
         await page.getByRole('button', { name: 'Load more', exact: true }).click();
-        await expect(page.locator('.job-child-row')).toHaveCount(200);
+        await expect(page.locator('[data-testid="job-row"]')).toHaveCount(200);
       } finally {
         console.log('PERF_REVIEW_PAGING ' + JSON.stringify({ jobReads, childPages }));
       }
-      const queuedRow = page.locator('.job-child-row').nth(31);
+      const queuedRow = page.locator('[data-testid="job-row"]').nth(31);
       await queuedRow.scrollIntoViewIfNeeded();
       const queuedScreenshot = testInfo.outputPath('queued-members.png');
       await page.screenshot({ path: queuedScreenshot, animations: 'disabled' });

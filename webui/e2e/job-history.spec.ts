@@ -164,21 +164,21 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   });
   await daemon.command('wait-download-started');
   await page.goto(`/jobs/${latest!.jobId}`);
-  await expect(page.locator('.job-detail-heading-summary .search-status-badge')).toHaveText('Running');
-  await expect(page.locator('.job-child-row')).toHaveCount(100);
+  await expect(page.getByTestId('job-info-card').locator('.search-status-badge')).toHaveText('Running');
+  await expect(page.locator('[data-testid="job-row"]')).toHaveCount(100);
   const previousChildReads = childReads;
   await page.getByRole('button', { name: 'Load more', exact: true }).click();
-  await expect(page.locator('.job-child-row')).toHaveCount(101);
+  await expect(page.locator('[data-testid="job-row"]')).toHaveCount(101);
   expect(childReads).toBe(previousChildReads + 1);
   await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
   await daemon.command('release-download');
-  await expect(page.locator('.job-child-row .search-status-badge')).toHaveText(Array(101).fill('Complete'));
+  await expect(page.locator('[data-testid="job-row"] .search-status-badge')).toHaveText(Array(101).fill('Complete'));
   listing = true;
   const listingStarted = performance.now();
   await page.getByRole('button', { name: 'Jobs', exact: true }).click();
   await expect(page.locator('.search-history-query')).toHaveText(
     Array.from({ length: 100 }, (_, index) => `Paging parent ${101 - index}`));
-  await expect(page.locator('.search-history-row .search-status-badge')).toHaveCount(0);
+  await expect(page.locator('.search-history-row .search-status-badge.complete')).toHaveCount(100);
   await expect(page.getByRole('img', { name: 'Text import' })).toHaveCount(99);
   const initialListingMs = Math.round(performance.now() - listingStarted);
   expect(lookups).toEqual([99]);
@@ -194,7 +194,7 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   expect(historyReads).toBe(0);
   await expect(earlier).toHaveCount(0);
   await expect(page.getByRole('img', { name: 'Text import' })).toHaveCount(100);
-  await expect(page.locator('.search-history-row .search-status-badge')).toHaveCount(0);
+  await expect(page.locator('.search-history-row .search-status-badge.complete')).toHaveCount(101);
   expect(lookups).toEqual([99, 1]);
   expect(detailReads).toEqual([]);
 
@@ -214,10 +214,10 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
     status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Linked summaries temporarily unavailable' }),
   }), { times: 1 });
   await page.reload();
-  await expect(page.locator('.search-history-row .search-status-badge'))
+  await expect(page.locator('.search-history-row .search-status-badge.pending'))
     .toHaveText(Array(99).fill('Result unavailable'));
   await page.getByRole('button', { name: 'Retry', exact: true }).first().click();
-  await expect(page.locator('.search-history-row .search-status-badge')).toHaveCount(0);
+  await expect(page.locator('.search-history-row .search-status-badge.complete')).toHaveCount(100);
   expect(lookups).toEqual([99, 99]);
   expect(detailReads).toEqual([]);
 });
@@ -283,12 +283,12 @@ test('keeps completed Jobs through a delayed list snapshot and reconnect', async
     releaseList();
     const row = page.locator('.search-history-row').filter({ hasText: 'Delayed list fixture' });
     await expect(row).toBeVisible();
-    await expect(row.locator('.search-status-badge')).toHaveCount(0);
+    await expect(row.locator('.search-status-badge.complete')).toBeVisible();
     await expect(row.getByRole('button', { name: 'Remove Delayed list fixture', exact: true })).toBeVisible();
     expect(httpPages).toBe(0);
     await page.reload();
     await expect(row).toBeVisible();
-    await expect(row.locator('.search-status-badge')).toHaveCount(0);
+    await expect(row.locator('.search-status-badge.complete')).toBeVisible();
     expect(httpPages).toBe(0);
   } finally { releaseList(); }
 });

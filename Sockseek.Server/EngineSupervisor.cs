@@ -33,6 +33,7 @@ public sealed class EngineSupervisor : IDisposable
     private readonly Lock engineGate = new();
     private readonly PersistenceCoordinator? persistence;
     private readonly SearchResultReader searchResults;
+    private readonly TransientJobResults transientResults;
     private readonly ILoggerFactory loggerFactory;
     private readonly ILogger<EngineSupervisor> logger;
     private readonly bool retireTerminalWorkflows;
@@ -96,6 +97,7 @@ public sealed class EngineSupervisor : IDisposable
         ChatSettingsValidator.NormalizeAndValidate(engineSettings);
 
         StateStore = new EngineStateStore(persistenceOwnsJobRetirement: persistence?.IsEnabled == true);
+        transientResults = new(StateStore.RetireJobProjections);
         Runtime = new(this.options, engineSettings, StateStore, persistence, this.loggerFactory, peerRestrictions, () => restartCount);
         Submissions = new(this.options, engineSettings, persistence, StateStore, Runtime,
             EnqueueAccepted, inputArtifacts, this.loggerFactory);
@@ -105,6 +107,7 @@ public sealed class EngineSupervisor : IDisposable
 
     public void Dispose()
     {
+        transientResults.Dispose();
         if (persistence != null)
             persistence.JobProjectionHandoffCompleted -= StateStore.RetireJobProjections;
     }
@@ -695,6 +698,7 @@ public sealed class EngineSupervisor : IDisposable
             loggerFactory: loggerFactory,
             retireTerminalWorkflows: retireTerminalWorkflows);
         StateStore.SetJobPersistence(persistence?.CreateJobPersistence(engine));
+        engine.Events.WorkflowRetired += change => transientResults.Capture(engine.GetJobsByWorkflow(change.WorkflowId));
         StateStore.AttachEngine(engine);
         // A queued root is already readable, but its runtime owner remains here
         // until the engine actually registers it (not merely a snapshot update).
@@ -739,8 +743,11 @@ public sealed class EngineSupervisor : IDisposable
         lock (engineGate)
             engine = currentEngine;
 
-        return engine?.GetJob(jobId) as TJob;
+        return (engine?.GetJob(jobId) ?? transientResults.Find(jobId)) as TJob;
     }
+
+    internal bool ReleaseTransientResults(Guid submissionId, out int count)
+        => transientResults.Release(submissionId, out count);
 
     private static JobSummaryDto BuildSubmittedJobSummary(Job job, Guid? sourceJobId = null)
         => ServerSnapshotMapper.ToSubmittedJobSummary(job, sourceJobId);

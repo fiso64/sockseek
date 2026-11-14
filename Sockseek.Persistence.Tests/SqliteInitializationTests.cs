@@ -24,6 +24,45 @@ namespace Sockseek.Persistence.Tests;
 public sealed class SqliteInitializationTests
 {
     [TestMethod]
+    public async Task OperationRetentionUpgradeRemovesPrintHistoryAndAutomaticAlternatives()
+    {
+        await using var database = new TemporaryDatabase();
+        await using var context = await database.Factory.CreateDbContextAsync();
+        await context.GetService<IMigrator>().MigrateAsync("20261113210000_JobAppliedProfiles");
+        Guid runtime = Guid.NewGuid(), printSubmission = Guid.NewGuid(), downloadSubmission = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        context.RuntimeSessions.Add(new() { Id = runtime, Version = "migration" });
+        foreach (var id in new[] { printSubmission, downloadSubmission })
+            context.Submissions.Add(new() { Id = id, SpecificationSchemaVersion = 5, Revision = 1,
+                Specification = new() { Json = "{}" } });
+        var print = JobRow(Guid.NewGuid(), runtime, 1, "Terminal", now, now);
+        print.PrintOption = 6; print.SubmissionId = printSubmission;
+        var automatic = JobRow(Guid.NewGuid(), runtime, 2, "Terminal", now, now, "Album");
+        automatic.SubmissionId = downloadSubmission;
+        automatic.PayloadJson = """{"ResultCount":42}""";
+        var search = JobRow(Guid.NewGuid(), runtime, 3, "Terminal", now, now, "Search");
+        context.Jobs.AddRange(print, automatic, search);
+        foreach (var job in new[] { print, automatic, search })
+            context.SearchJobs.Add(new() { JobId = job.Id, Query = "query", Revision = 1,
+                ResultCount = 1, IsComplete = true, ResultPersistenceState = "Complete" });
+        await context.SaveChangesAsync();
+        await context.Database.ExecuteSqlRawAsync("""
+            INSERT INTO search_observation_sources(search_job_id) SELECT job_id FROM search_jobs;
+            INSERT INTO search_observations(source_id, source_sequence, source_revision, username,
+                response_file_count, filename, size_bytes, extension, observed_at_utc, visibility)
+                SELECT id, 1, 1, 'peer', 1, 'track.flac', 100, '.flac', 0, 'Public' FROM search_observation_sources;
+            """);
+        context.ChangeTracker.Clear();
+        await context.Database.MigrateAsync();
+        Assert.IsFalse(await context.Jobs.AnyAsync(job => job.Id == print.Id));
+        Assert.IsFalse(await context.Submissions.AnyAsync(row => row.Id == printSubmission));
+        Assert.AreEqual(automatic.PayloadJson, (await context.Jobs.SingleAsync(job => job.Id == automatic.Id)).PayloadJson);
+        Assert.IsTrue(await context.Submissions.AnyAsync(row => row.Id == downloadSubmission));
+        Assert.AreEqual(search.Id, (await context.SearchJobs.SingleAsync()).JobId);
+        Assert.AreEqual(search.Id, (await context.SearchResults.SingleAsync()).SearchJobId);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task FailureThresholdUpgradePreservesRetainedSettingsAndUserText(bool sharedSettings)
@@ -133,10 +172,13 @@ public sealed class SqliteInitializationTests
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
         await context.GetService<IMigrator>().MigrateAsync("20261107120000_RemoveArchives");
-        await context.Database.MigrateAsync();
+        await context.GetService<IMigrator>().MigrateAsync("20261113210000_JobAppliedProfiles");
         var rows = await context.Jobs.OrderBy(row => row.DisplayId).ToArrayAsync();
         Assert.AreEqual(6, rows[0].PrintOption);
         Assert.AreEqual(0, rows[1].PrintOption);
+        context.ChangeTracker.Clear();
+        await context.Database.MigrateAsync();
+        Assert.AreEqual(rows[1].Id, (await context.Jobs.SingleAsync()).Id);
     }
 
     [TestMethod]

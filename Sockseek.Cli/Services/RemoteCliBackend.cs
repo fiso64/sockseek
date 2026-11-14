@@ -10,6 +10,7 @@ namespace Sockseek.Cli;
 internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
 {
     private readonly HttpClient http;
+    private readonly ConcurrentDictionary<Guid, byte> transientSubmissions = [];
     private readonly SockseekApiClient api;
     private readonly SockseekLiveClient live;
     private readonly TaskCompletionSource<Exception> connectionFailure = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -55,14 +56,22 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await live.DisposeAsync();
-        http.Dispose();
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            foreach (Guid id in transientSubmissions.Keys)
+            {
+                try { await api.DeleteSubmissionAsync(id, timeout.Token).ConfigureAwait(false); }
+                catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or SockseekApiRequestException)
+                { /* Abandoned output is reclaimed by the daemon's idle lifetime. */ }
+            }
+        }
+        finally { await live.DisposeAsync(); http.Dispose(); }
     }
 
     public async Task<JobSummaryDto> SubmitExtractJobAsync(SubmitExtractJobRequestDto request, CancellationToken ct = default)
     {
-        SubmitExtractJobRequestDto prepared = await PrepareExtractRequestAsync(api, request, ct)
-            .ConfigureAwait(false);
+        SubmitExtractJobRequestDto prepared = await PrepareSubmissionInputAsync(request, ct).ConfigureAwait(false);
         return await SubmitAndSubscribeAsync(
             prepared.Options,
             options => api.SubmitExtractJobAsync(prepared with { Options = options }, ct),
@@ -146,6 +155,20 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
             cursor = page.NextCursor;
         }
         while (cursor != null);
+    }
+
+    internal static async Task<SubmitExtractJobRequestDto> PrepareSubmissionInputAsync(
+        SubmitExtractJobRequestDto request, CancellationToken ct)
+    {
+        if (request.Input == null || request.ArtifactId != null || request.InputText != null || !ShouldUploadLocalInput(request))
+            return request;
+        return request with
+        {
+            InputText = await File.ReadAllTextAsync(request.Input, ct).ConfigureAwait(false),
+            InputType = string.IsNullOrWhiteSpace(request.InputType)
+                || string.Equals(request.InputType, InputType.None.ToString(), StringComparison.OrdinalIgnoreCase)
+                    ? InputType.CSV.ToString() : request.InputType,
+        };
     }
 
     internal static async Task<SubmitExtractJobRequestDto> PrepareExtractRequestAsync(
@@ -247,6 +270,9 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 await live.RefreshWorkflowAsync(workflowId, ct);
         }
         var summary = await submit(scopedOptions);
+        if ((summary.PrintOption & (ServerPrintOption.Jobs | ServerPrintOption.Results | ServerPrintOption.Link | ServerPrintOption.Json)) != 0
+            && summary.SubmissionId is Guid submissionId)
+            transientSubmissions.TryAdd(submissionId, 0);
         if (live.Mode != LiveSubscriptionMode.Daemon && summary.WorkflowId != workflowId)
             await SubscribeWorkflowAsync(summary.WorkflowId, ct);
         return summary;

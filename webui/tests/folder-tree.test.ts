@@ -29,6 +29,21 @@ describe('folder tree projection', () => {
     ]);
   });
 
+  it('counts only public files toward selection in mixed and locked subfolders', () => {
+    const rows = buildFolderTreeRows([
+      { id: 'public', relativePath: 'Mixed/public.flac', sizeBytes: 1 },
+      { id: 'locked', relativePath: 'Mixed/Private/locked.flac', sizeBytes: 2, locked: true },
+    ], new Set(['public', 'locked']), 'tree');
+    const folders = rows.filter(row => row.kind === 'folder');
+    expect(folders.map(row => ({
+      path: row.relativePath, files: row.node.fileCount,
+      selectable: row.node.selectableFileCount, selected: row.node.selectedCount,
+    }))).toEqual([
+      { path: 'Mixed', files: 2, selectable: 1, selected: 1 },
+      { path: 'Mixed/Private', files: 1, selectable: 0, selected: 0 },
+    ]);
+  });
+
   it('leaves flat rows in source order without creating synthetic folders', () => {
     const rows = buildFolderTreeRows([
       { id: 'b', relativePath: 'B/one.txt', sizeBytes: 0, sizeUnknown: true },

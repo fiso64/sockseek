@@ -48,7 +48,8 @@
 </dialog>
 
 <style>
-  dialog { width: min(40rem, calc(100vw - 48px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--border-strong); border-radius: 13px; background: var(--surface); color: var(--text); box-shadow: 0 22px 60px #0005; overflow: hidden; }
+  /* Dialogs can live inside compact rows; their body type must not inherit the row's sizing. */
+  dialog { width: min(40rem, calc(100vw - 48px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--border-strong); border-radius: 13px; background: var(--surface); color: var(--text); font-size: .85rem; font-weight: 400; line-height: 1.5; box-shadow: 0 22px 60px #0005; overflow: hidden; }
   dialog[open] { display: flex; flex-direction: column; }
   dialog.wide { width: min(1000px, calc(100vw - 48px)); height: min(920px, calc(100dvh - 48px)); }
   dialog.compact { width: min(28rem, calc(100vw - 32px)); }

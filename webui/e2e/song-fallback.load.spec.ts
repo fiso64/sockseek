@@ -58,8 +58,8 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
     page.on('request', onRequest);
     await page.goto(`/jobs/${root.jobId}`);
     if (group) {
-      await expect(page.locator('.job-child-row')).toHaveCount(1);
-      await page.locator('.job-child-open').click();
+      await expect(page.locator('[data-testid="job-row"]')).toHaveCount(1);
+      await page.locator('[data-testid="job-open"]').click();
     }
     const songId = new URL(page.url()).pathname.split('/').at(-1)!;
     const card = page.locator('.file-item-card');
@@ -136,10 +136,10 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
         kind: 'song-groups', songCount: 1, completedSongCount: 1, succeededSongCount: 1, failedSongCount: 0,
       });
       await page.goto(`/jobs/${root.jobId}`);
-      await expect(page.locator('.job-run-progress-copy')).toContainText('1 of 1 complete');
-      await expect(page.locator('.job-child-row')).toHaveCount(1);
-      await expect(page.locator('.job-child-copy small')).toHaveText(/^Song ·/);
-      await expect(page.locator('.job-child-row .search-status-badge')).toHaveText('Complete');
+      await expect(page.getByTestId('job-info-card')).toHaveCount(0);
+      await expect(page.locator('[data-testid="job-row"]')).toHaveCount(1);
+      await expect(page.getByTestId('job-row')).toHaveAttribute('data-job-kind', 'song');
+      await expect(page.locator('[data-testid="job-row"] .search-status-badge')).toHaveText('Complete');
     }
 
     const timelineResponse = await measureApi(daemon.url, '/api/transfers?direction=download&limit=500');

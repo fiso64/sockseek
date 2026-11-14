@@ -13149,6 +13149,8 @@ export interface components {
             shareCount: number | string;
             /** Format: int64 */
             selectableOptionCount: number | string;
+            /** Format: int64 */
+            optionCount: number | string;
             representative: components["schemas"]["SearchViewDirectoryDto"];
         };
         SearchViewAlbumGroupOptionPageDto: {
@@ -13316,6 +13318,8 @@ export interface components {
             shareCount: number | string;
             /** Format: int64 */
             selectableOptionCount: number | string;
+            /** Format: int64 */
+            optionCount: number | string;
             representative: components["schemas"]["SearchViewFileDto"];
         };
         SearchViewTrackGroupOptionPageDto: {
@@ -15182,6 +15186,7 @@ export interface components {
             options?: null | components["schemas"]["SubmissionOptionsDto"];
             resultDownloadBehavior?: null | components["schemas"]["DownloadBehaviorPolicyDto"];
             artifactId?: null | string;
+            inputText?: null | string;
         };
         SubmitJobListRequestDto: {
             name?: null | string;

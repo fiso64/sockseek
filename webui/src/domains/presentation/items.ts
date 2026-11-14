@@ -75,7 +75,7 @@ export interface TransferPresentation {
   target?: Readonly<Schema<'PeerFileTargetDto'>>;
   group?: Readonly<Schema<'TransferGroupSummaryDto'>>;
   state: string;
-  tone?: 'active' | 'queued' | 'complete' | 'failed' | 'cancelled';
+  tone?: 'active' | 'queued' | 'complete' | 'partial' | 'failed' | 'cancelled';
   cancellable?: boolean;
   progressPercent?: number;
   progressText?: string;

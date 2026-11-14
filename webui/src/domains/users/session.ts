@@ -35,7 +35,6 @@ export interface ShareBrowserSession {
     excludedSelection: Set<string>;
     selectedParents: Map<string, string | null>;
     selectedDirectoryCounts: Map<string, number>;
-    selectedDirectoryTotals: Map<string, number>;
     selectedFileIsPublic: Map<string, boolean>;
   };
 }

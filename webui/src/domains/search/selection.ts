@@ -52,7 +52,9 @@ export function selectedSearchCount(state: DisplayedSelection): number {
   if (state.selectionCounts && state.summary
     && sameWireInteger(state.selectionCounts.revision,
       state.selectionRevision ?? state.summary.revision))
-    return Number(state.selectionCounts.selectedItemCount);
+    return Number(state.selectionCounts.publicFileCount) === 0 ? 0
+      : Number(state.summary.kind === 'Files' || state.summary.kind === 'TrackGroups'
+        ? state.selectionCounts.publicFileCount : state.selectionCounts.selectedItemCount);
   return requestedSearchCount(state);
 }
 
@@ -121,6 +123,7 @@ export class SearchSelection {
   // Child selections retain their parent even when the displayed page changes.
   private selectedFileParents = new Map<string, string>();
   private fileRelativePaths = new Map<string, string>();
+  private lockedRefs = new Set<string>();
   private pending: PendingSearchCommit | null = null;
   private countedSelection: string | null = null;
 
@@ -149,6 +152,7 @@ export class SearchSelection {
     this.pending = null;
     this.selectedFileParents.clear();
     this.fileRelativePaths.clear();
+    this.lockedRefs.clear();
   }
 
   observe(summary: SearchViewSummaryDto | null): void {
@@ -165,7 +169,15 @@ export class SearchSelection {
   }
 
   rememberFiles(files: readonly Schema<'SearchViewDirectoryFileDto'>[]): void {
-    for (const file of files) this.fileRelativePaths.set(file.ref, file.relativePath);
+    for (const file of files) {
+      this.fileRelativePaths.set(file.ref, file.relativePath);
+      this.rememberResult(file.ref, file.file.visibility === 'Locked');
+    }
+  }
+
+  rememberResult(ref: string, locked: boolean): void {
+    if (locked) this.lockedRefs.add(ref);
+    else this.lockedRefs.delete(ref);
   }
 
   private changed(): void {
@@ -207,7 +219,7 @@ export class SearchSelection {
       && this.isSelected(ref) && !this.choiceIsCurrent(ref));
   }
   toggle(ref: string, selected: boolean, parentRef?: string, child?: Schema<'SearchViewDirectoryFileDto'>): boolean {
-    if (this.selectionReadOnly()) return false;
+    if (this.selectionReadOnly() || (selected && this.lockedRefs.has(ref))) return false;
     const refs = new Set(this.state.selectionRefs);
     const excludedFiles = new Map(this.state.excludedFiles);
     const excludedFileIdentities = new Map(this.state.excludedFileIdentities);
@@ -321,7 +333,7 @@ export class SearchSelection {
   }
 
   isSelected(ref: string, parentRef?: string): boolean {
-    if (this.selectionReadOnly()) return false;
+    if (this.selectionReadOnly() || this.lockedRefs.has(ref)) return false;
     if (parentRef) {
       if (this.summary?.kind === 'GenericDirectories') {
         if (this.state.excludedFiles.has(ref)) return false;
@@ -414,15 +426,18 @@ export class SearchSelection {
     return this.state.selectionNeedsReview || selectionUsesEarlierRevision({ ...this.state, summary: this.summary });
   }
 
-  choose(groupRef: string, option: GroupOption): boolean {
-    if (this.selectionReadOnly()) return false;
+  choose(groupRef: string, option: GroupOption, select = true): boolean {
+    if (this.selectionReadOnly() || (select && option.value.visibility === 'Locked')) return false;
+    this.rememberResult(groupRef, option.value.visibility === 'Locked');
     const chosenOptions = new Map(this.state.chosenOptions).set(groupRef, option);
     const checkedChoiceRevisions = new Map(this.state.checkedChoiceRevisions);
     if (this.summary) checkedChoiceRevisions.set(groupRef, choiceRevisionKey(this.summary));
     const staleChoices = new Set(this.state.staleChoices);
     staleChoices.delete(groupRef);
     const refs = new Set(this.state.selectionRefs);
-    if (this.state.selectedAll) refs.delete(groupRef); else refs.add(groupRef);
+    if (select) {
+      if (this.state.selectedAll) refs.delete(groupRef); else refs.add(groupRef);
+    }
     const albumFileSelections = new Map(this.state.albumFileSelections);
     albumFileSelections.delete(groupRef);
     this.state = { ...this.state, chosenOptions, checkedChoiceRevisions, staleChoices,
@@ -433,7 +448,7 @@ export class SearchSelection {
 
   toggleAlbumFile(groupRef: string, representative: Schema<'SearchViewDirectoryDto'>,
     fileRef: string, selected: boolean, completeFileRefs?: readonly string[]): boolean {
-    if (this.selectionReadOnly()) return false;
+    if (this.selectionReadOnly() || (selected && this.lockedRefs.has(fileRef))) return false;
     const option = this.choiceIsCurrent(groupRef) ? this.state.chosenOptions.get(groupRef) : null;
     const chosenOptions = option?.kind === 'album' ? this.state.chosenOptions
       : new Map(this.state.chosenOptions).set(groupRef, {

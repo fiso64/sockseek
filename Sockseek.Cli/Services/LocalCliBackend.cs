@@ -161,7 +161,8 @@ internal sealed class LocalCliBackend
             (IJobSettingsResolver?)submissionOptionsResolver
                 ?? DefaultJobSettingsResolver.Instance);
         await planner.PrepareResolvedAsync(job, settings, ct).ConfigureAwait(false);
-        SubmissionIdentity.AssignAccepted(job, SubmissionSpecification.Create(job));
+        SubmissionIdentity.AssignAccepted(job, job.Retention == Sockseek.Core.Planning.JobRetention.Memory
+            ? null : SubmissionSpecification.Create(job));
         EnqueueAccepted(job, settings, settingsAreFinal: true);
         return stateStore.GetJobSummary(job.Id) ?? BuildSubmittedJobSummary(job);
     }

@@ -1,4 +1,5 @@
 using Sockseek.Api;
+using Sockseek.Core.Planning;
 
 namespace Sockseek.Server;
 
@@ -86,6 +87,7 @@ public sealed class JobReadState
         this.canCancel = canCancel;
         Revision = revision;
     }
+    internal JobRetention Retention { get; init; } = JobRetention.History;
     public Guid JobId => facts.JobId;
     public Guid Id => JobId;
     public Guid WorkflowId => facts.WorkflowId;
@@ -121,11 +123,12 @@ public sealed class JobReadState
     // only for a reader or the final coalesced transport value. Neither revision
     // changes nor stats updates can retain a mutable directory or job graph.
     internal JobReadState WithStats(JobSummaryStatsDto next)
-        => stats == next ? this : new(facts, next, Revision, canCancel);
+        => stats == next ? this : new(facts, next, Revision, canCancel) { Retention = Retention };
 
     internal JobReadState WithRevision(long nextRevision) => new(facts, stats, nextRevision, canCancel)
     {
         summary = Volatile.Read(ref summary),
+        Retention = Retention,
     };
 
     public JobStateDto ToDto()

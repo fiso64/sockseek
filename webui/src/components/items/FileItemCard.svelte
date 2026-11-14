@@ -3,6 +3,7 @@
   import TransferStateLabel from './TransferStateLabel.svelte';
   import RelativeTime from '../RelativeTime.svelte';
   import Icon from '../Icon.svelte';
+  import LockedIndicator from '../LockedIndicator.svelte';
   import type { AudioAttributes, TransferPresentation } from '../../domains/presentation/items';
   import { audioSummary, basename, formatBytes, formatLength, parentPath } from '../../domains/presentation/items';
 
@@ -44,11 +45,11 @@
 <article
   class="item-card result-card file-item-card"
   class:locked
-  class:selected
+  class:selected={selected && !locked}
   class:preferred
   data-keyboard-item={keyboardKey}
   tabindex="-1"
-  class:selectable
+  class:selectable={selectable && !locked}
   class:transfer-card={Boolean(transfer)}
   class:has-audio={Boolean(audio)}
 >
@@ -58,8 +59,8 @@
         <div class="folder-summary-select-target nonselectable">
           <div class="folder-heading-copy">
             <div class="folder-heading-identity">
+              {#if locked}<span class="locked-icon" role="img" aria-label="Locked" title="Locked"><Icon name="lock" /></span>{/if}
               <strong class="folder-heading-path file-transfer-path" title={path}><bdi dir="ltr"><span class="folder-path-ancestors">{parentPath(path)}</span><b class="file-transfer-name">{basename(path)}</b></bdi></strong>
-              {#if locked}<span class="locked-badge">Locked</span>{/if}
             </div>
             <div class="folder-heading-meta file-transfer-meta">
               {#if audio}
@@ -80,8 +81,10 @@
       </div>
     </div>
   {:else}
-    <svelte:element this={selectable ? 'label' : 'div'} class:clickable={selectable} class:nonselectable={!selectable} class="file-item-main file-result-row">
-      {#if selectable}
+    <svelte:element this={selectable && !locked ? 'label' : 'div'} class:clickable={selectable && !locked} class:nonselectable={!selectable && !locked} class="file-item-main file-result-row">
+      {#if locked}
+        <LockedIndicator />
+      {:else if selectable}
         <input
           type="checkbox"
           checked={selected}
@@ -90,17 +93,14 @@
         />
       {/if}
 
-      <div class="item-path-block result-path-block">
-        <div class="item-name-line result-name-line">
-          <strong class="folder-heading-path" title={path}><bdi dir="ltr"><span class="folder-path-ancestors">{parentPath(path)}</span><b>{basename(path)}</b></bdi></strong>
-          {#if locked}<span class="locked-badge">Locked</span>{/if}
-        </div>
+      <div class="item-path-block result-path-block item-name-line result-name-line">
+        <strong class="folder-heading-path" title={path}><bdi dir="ltr"><span class="folder-path-ancestors">{parentPath(path)}</span><b>{basename(path)}</b></bdi></strong>
       </div>
 
-      <div class="item-detail result-detail item-size-detail"><strong>{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong></div>
+      <strong class="item-detail result-detail item-size-detail">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong>
       {#if audio}
-        <div class="item-detail result-detail audio-detail"><strong>{audioSummary(audio)}</strong></div>
-        <div class="item-detail result-detail item-length-detail"><strong>{formatLength(audio.lengthSeconds)}</strong></div>
+        <strong class="item-detail result-detail audio-detail">{audioSummary(audio)}</strong>
+        <strong class="item-detail result-detail item-length-detail">{formatLength(audio.lengthSeconds)}</strong>
       {/if}
       {#if actions}
         <div class="item-card-action">{@render actions()}</div>

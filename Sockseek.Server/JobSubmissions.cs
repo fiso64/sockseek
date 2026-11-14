@@ -18,8 +18,8 @@ using Sockseek.Server.Planning;
 namespace Sockseek.Server;
 
 /// <summary>
-/// Composes submission settings, invokes the shared Core planner, and durably
-/// accepts exact work before handing it to execution. Review supplies its captured
+/// Composes submission settings, invokes the shared Core planner, and accepts
+/// exact work with its retention policy before handing it to execution. Review supplies its captured
 /// plan; accepting it never runs extraction again. Runtime queue ownership stays
 /// with EngineSupervisor, including the handoff across engine restarts.
 /// </summary>
@@ -114,6 +114,29 @@ public sealed class JobSubmissions
         CancellationToken ct)
     {
         var resolver = SettingsResolver;
+        if (request.InputText is not null)
+        {
+            if (request.ArtifactId is not null)
+                throw new ArgumentException("Supply either input text or an artifact, not both.");
+            if (!string.Equals(request.InputType, "CSV", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(request.InputType, "List", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("Input text requires CSV or List input type.");
+            // The shared file extractors consume this transport spool during planning.
+            // Accepted plans own the extracted entries; execution never needs the spool.
+            string path = Path.Combine(Path.GetTempPath(), "sockseek-input-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                await File.WriteAllTextAsync(path, request.InputText, ct).ConfigureAwait(false);
+                var immutable = new DownloadSettingsPatchDto(Extraction: new ExtractionSettingsPatchDto(RemoveTracksFromSource: false));
+                var inputOptions = (request.Options ?? new SubmissionOptionsDto()) with
+                {
+                    DownloadSettings = DownloadSettingsPatchDtoMapper.Combine(request.Options?.DownloadSettings, immutable),
+                };
+                return await SubmitJobAsync(JobRequestMapper.CreateExtractJob(request with
+                    { Input = path, InputText = null }), inputOptions, ct, resolver: resolver).ConfigureAwait(false);
+            }
+            finally { File.Delete(path); }
+        }
         if (request.ArtifactId == null)
         {
             var resolved = ResolveExtractInput(new ExtractJobDraftDto(request.Input, request.InputType), request.Options, resolver);
@@ -387,10 +410,11 @@ public sealed class JobSubmissions
 
         await new JobPlanner(resolver).PrepareResolvedAsync(job, settings, ct).ConfigureAwait(false);
         activity?.AddEvent(new("planned"));
-        SubmissionSpecification specification = SubmissionSpecification.Create(job);
+        SubmissionSpecification? specification = job.Retention == JobRetention.Memory
+            ? null : SubmissionSpecification.Create(job);
         SubmissionIdentity.AssignAccepted(
             job,
-            sourceRevision is null ? specification : specification with { SourceRevision = sourceRevision },
+            sourceRevision is null || specification is null ? specification : specification with { SourceRevision = sourceRevision },
             submissionId,
             artifactId: artifactId);
         activity?.AddEvent(new("captured"));
@@ -744,7 +768,7 @@ public sealed class JobSubmissions
         if (job.SubmissionId == null)
             SubmissionIdentity.AssignAccepted(job, settings);
         activity?.AddEvent(new("identity-retained"));
-        if (persistence?.Submissions != null)
+        if (job.Retention != JobRetention.Memory && persistence?.Submissions != null)
         {
             await persistence.Submissions.CreateAsync(
                 new SubmissionRegistration(

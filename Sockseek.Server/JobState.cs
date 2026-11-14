@@ -35,6 +35,8 @@ internal sealed class JobState
     internal bool HasWorkflow(Guid id) => workflows.ContainsKey(id);
     internal WorkflowStateDto? PublishedWorkflow(Guid id) => projectedWorkflows.GetValueOrDefault(id);
     internal JobReadState? PublishedJob(Guid id) => records.GetValueOrDefault(id)?.Published;
+    internal Guid[] DurableWorkflowJobIds(Guid id) => jobs.Values.Where(job => job.WorkflowId == id
+        && job.Retention != Sockseek.Core.Planning.JobRetention.Memory).Select(job => job.Id).ToArray();
     internal Guid[] WorkflowJobIds(Guid id) => CurrentJobs.Where(row => row.WorkflowId == id).Select(row => row.Id).ToArray();
 
     // Keep records and workflow group indexes in sync only through UpdateJobRecord.
@@ -541,7 +543,9 @@ internal sealed class JobState
 
     // HTTP pages and observed membership use the same owner/index semantics.
     internal bool MatchesQuery(JobReadState record, JobQuery query)
-        => (!query.ExcludeExtractResults
+        => (query.WorkflowId != null || query.SubmissionId != null || query.ParentJobId != null
+            || record.Retention != Sockseek.Core.Planning.JobRetention.Memory)
+        && (!query.ExcludeExtractResults
             || !(record.SourceJobId is Guid sourceId && IsCurrentExtract(sourceId, record.WorkflowId))
                 && !(extractJobIdsByResult.TryGetValue(record.Id, out Guid extractId)
                     && IsCurrentExtract(extractId, record.WorkflowId)))
@@ -1104,7 +1108,7 @@ internal sealed class JobState
         return new JobReadState(ServerSnapshotMapper.ToJobSummary(
             job, parentJobId, resultJobId, sourceJobId, EffectiveLifecycleState(job),
             EffectiveActivityPhase(job), EffectiveActivityUntilUtc(job), EffectiveTerminalOutcome(job),
-            stats, includeActions: false), job.Revision, job.CanCancel);
+            stats, includeActions: false), job.Revision, job.CanCancel) { Retention = job.Retention };
     }
 
     private JobLifecycleState EffectiveLifecycleState(JobSnapshot job)

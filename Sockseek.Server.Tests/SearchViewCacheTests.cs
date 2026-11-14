@@ -1499,6 +1499,7 @@ public sealed class SearchViewCacheTests
         var group = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroups(null, 100))!.Items.Single();
         Assert.AreEqual(3, group.ShareCount);
         Assert.AreEqual(2L, group.SelectableOptionCount);
+        Assert.AreEqual(3L, group.OptionCount);
         Assert.AreEqual(3L, view.Counters.ProjectedFileCount);
         Assert.AreEqual(0, (store.GetSnapshot(view.Id, hiddenRevision, default)?.GetFiles(null, 500))!.Items.Count);
         Assert.IsNull(store.GetSnapshot(view.Id, hiddenRevision, default)?.GetTrackGroupOptions(group.Ref, null, 500));
@@ -1554,6 +1555,12 @@ public sealed class SearchViewCacheTests
         SearchViewTrackGroup current = (store.GetSnapshot(view.Id, view.Revision, default)?.GetTrackGroups(null, 10))!.Items.Single();
         Assert.AreEqual(first.Ref, current.Ref);
         Assert.AreEqual(2, current.ShareCount);
+        Assert.AreEqual(1L, first.OptionCount);
+        Assert.AreEqual(2L, current.OptionCount);
+        var currentSnapshot = store.GetSnapshot(view.Id, view.Revision, default)!;
+        Assert.AreSame(current, currentSnapshot.GetTrackGroups(null, 10).Items.Single());
+        Assert.AreSame(current, currentSnapshot.ReadCommitItems(RefSelectionMode.Only,
+            new HashSet<string>([current.Ref])).Single().TrackGroup);
         Assert.AreEqual(new SearchViewSelectionCounts(1, 0, 1),
             store.GetSnapshot(view.Id, view.Revision, default)?.CountTopLevelSelection(RefSelectionMode.AllExcept, new HashSet<string>()));
         Assert.AreEqual(1, (store.GetSnapshot(view.Id, firstRevision, default)?.GetTrackGroupOptions(current.Ref, null, 10))!.Items.Count);

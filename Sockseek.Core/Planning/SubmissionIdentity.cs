@@ -11,6 +11,14 @@ public enum JobSemanticRole
     ExecutionChild,
 }
 
+// Retention follows the operation's intent, independently of execution kind.
+public enum JobRetention
+{
+    Memory,
+    History,
+    SearchResults,
+}
+
 public static class SubmissionIdentity
 {
     public static Guid AssignAccepted(
@@ -33,7 +41,7 @@ public static class SubmissionIdentity
 
     public static Guid AssignAccepted(
         Job root,
-        SubmissionSpecification specification,
+        SubmissionSpecification? specification,
         Guid? submissionId = null,
         DateTimeOffset? submittedAtUtc = null,
         Guid? rerunOfSubmissionId = null,
@@ -42,8 +50,9 @@ public static class SubmissionIdentity
     {
         Guid id = submissionId ?? Guid.NewGuid();
         DateTimeOffset created = submittedAtUtc ?? DateTimeOffset.UtcNow;
-        string specificationJson = SubmissionSpecificationCodec.Serialize(
-            specification.BindAcceptedJobIds(root));
+        string? specificationJson = root.Retention == JobRetention.Memory ? null
+            : SubmissionSpecificationCodec.Serialize((specification
+                ?? throw new ArgumentNullException(nameof(specification))).BindAcceptedJobIds(root));
         AssignTree(root, id, created, JobSemanticRole.UserRoot);
         root.SubmissionSpecificationJson = specificationJson;
         root.RerunOfSubmissionId = rerunOfSubmissionId;
@@ -58,7 +67,7 @@ public static class SubmissionIdentity
             result,
             source.SubmissionId,
             DateTimeOffset.UtcNow,
-            JobSemanticRole.SemanticResult);
+            JobSemanticRole.SemanticResult, source.Retention);
     }
 
     public static void AssignExecutionChild(Job parent, Job child)
@@ -68,15 +77,16 @@ public static class SubmissionIdentity
             child,
             parent.SubmissionId,
             DateTimeOffset.UtcNow,
-            JobSemanticRole.ExecutionChild);
+            JobSemanticRole.ExecutionChild, parent.Retention);
     }
 
     private static void AssignTree(
         Job job,
         Guid? submissionId,
         DateTimeOffset createdAtUtc,
-        JobSemanticRole role)
+        JobSemanticRole role, JobRetention? parentRetention = null)
     {
+        if (parentRetention == JobRetention.Memory) job.Retention = JobRetention.Memory;
         job.SubmissionId = submissionId;
         job.CreatedAtUtc ??= createdAtUtc;
         job.SemanticRole = job switch
@@ -92,27 +102,27 @@ public static class SubmissionIdentity
                     result,
                     submissionId,
                     createdAtUtc,
-                    JobSemanticRole.SemanticResult);
+                    JobSemanticRole.SemanticResult, job.Retention);
                 break;
             case JobList list:
                 foreach (Job child in list.Jobs)
-                    AssignTree(child, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild);
+                    AssignTree(child, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild, job.Retention);
                 break;
             case SongGroupsJob group:
                 foreach (SongJob song in group.Songs)
-                    AssignTree(song, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild);
+                    AssignTree(song, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild, job.Retention);
                 break;
             case AlbumGroupsJob group:
                 foreach (AlbumJob album in group.Albums)
-                    AssignTree(album, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild);
+                    AssignTree(album, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild, job.Retention);
                 break;
             case AlbumJob album:
                 foreach (SongJob song in album.TrackJobs)
-                    AssignTree(song, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild);
+                    AssignTree(song, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild, job.Retention);
                 break;
             case RemoteDirectoryJob directory:
                 foreach (RemoteFileJob file in directory.FileJobs)
-                    AssignTree(file, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild);
+                    AssignTree(file, submissionId, createdAtUtc, JobSemanticRole.ExecutionChild, job.Retention);
                 break;
         }
     }

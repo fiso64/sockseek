@@ -42,7 +42,7 @@ configured storage, and ordinary local administration are trusted.
 * Tests are a maintenance liability as well as an asset. Do not add tests automatically
   for every change. Prefer extending existing tests over new files. Test observable
   behavior and failure isolation rather than implementation details
-  or any prose/wording. Use stable test IDs for UI actions rather than coupling
+  or any prose/wording. Use stable IDs for UI actions rather than coupling
   behavioral tests to button text. Avoid polling and fixed waits, optimize setup, mark stress
   tests as `Load`, and remove low-value or obsolete tests while preserving meaningful
   behavioral coverage. Tests should suppress application logging unless they assert it.

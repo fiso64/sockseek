@@ -500,7 +500,7 @@ Index
   Search string
     A string input is a name of the track, album, or artist to search for. They come in these forms:
     1. Arbitrary search queries (like what you would type in the Soulseek search bar), e.g. sockseek
-    ""blah blah"".
+      ""blah blah"".
     This is equivalent to sockseek ""album=blah blah"" by default, and to sockseek ""title=blah
     blah"" when using -s/--song mode.
     2. An artist-album or artist-song combination, separated by a hyphen with spaces -:
@@ -511,8 +511,8 @@ Index
     This is equivalent to sockseek ""artist=Artist, album=Album"" in the first case, and to sockseek
     ""artist=Artist, title=Song"" in the second case.
     3. A comma-separated list of properties, like title=Song Name, artist=Artist Name, length=215.
-    With an album field (and no title) it's treated as an album download. With a title field it's
-    treated as a song download (even if it includes an album field).
+      With an album field (and no title) it's treated as an album download. With a title field it's
+      treated as a song download (even if it includes an album field).
     Accepted fields are:
     - Song title title
     - Artist name artist

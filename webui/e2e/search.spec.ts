@@ -108,9 +108,16 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
     await expect(page).toHaveURL(new RegExp(`submission=${receipt.submissionId}`));
     await expect(page.locator('.search-history-row')).toHaveCount(1);
     await page.locator('.search-history-open').click();
-    const sourceLink = page.getByRole('button', { name: 'Open source job', exact: true });
-    await expect(sourceLink).toBeVisible();
+    const sourceRow = page.locator('.job-related-section').getByTestId('job-row');
+    await expect(sourceRow).toHaveAttribute('data-job-kind', 'search');
+    await expect(sourceRow.getByTestId('job-stats')).toContainText('file');
+    await expect(page.locator('.job-detail-meta').getByRole('button', { name: 'Open source job', exact: true })).toHaveCount(0);
     const downloadJobUrl = page.url();
+    await sourceRow.getByTestId('job-open').click();
+    await expect(page.locator('.search-results-heading')).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/jobs/${view.sourceJobId}`));
+    await page.goBack();
+    await expect(sourceRow).toBeVisible();
     const source = await (await page.request.get(`/api/jobs/${view.sourceJobId}`)).json() as Schema<'JobDetailDto'>;
     if (source.summary.lifecycleState !== 'Terminal') await daemon.command(`wait-job-complete:${view.sourceJobId}`);
     expect(source.summary.submissionId).toBeTruthy();
@@ -121,12 +128,12 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
     const deleteUrl = `/api/submissions/${source.summary.submissionId}`;
     const deletion = await page.request.delete(deleteUrl);
     expect((await deletion.json()).rejectedSubmissionCount).toBe(0);
-    await expect(sourceLink).toHaveCount(0);
+    await expect(sourceRow).toHaveCount(0);
     expect(page.url()).toBe(downloadJobUrl);
     expect(reads).toEqual([]);
     await page.reload();
     await expect(page.locator('.job-detail-heading')).toBeVisible();
-    await expect(sourceLink).toHaveCount(0);
+    await expect(sourceRow).toHaveCount(0);
     await page.goto('/downloads');
     const file = page.locator('.file-item-card').filter({ hasText: 'Artist - Bare.flac' });
     await expect(file).toHaveCount(1);
@@ -340,12 +347,19 @@ test('applies projection-only sort and live track conditions through an all-exce
   await expect(page.locator('.file-item-card')).toHaveCount(3);
   await expect(page.locator('.file-item-card.locked')).toHaveCount(1);
   await expect(page.locator('.file-item-card.locked')).toContainText('03 - Locked - Track.flac');
+  const lockedTrack = page.locator('.file-item-card.locked');
+  await expect(lockedTrack.getByRole('checkbox')).toHaveCount(0);
+  await expect(lockedTrack.getByRole('img', { name: 'Locked', exact: true })).toBeVisible();
+  await lockedTrack.focus();
+  await page.keyboard.press('Space');
+  await expect(lockedTrack).not.toHaveClass(/selected/);
   await expect(page.locator('.file-item-card.preferred')).toHaveCount(1);
   await expect(page.locator('.search-results-summary .search-status-badge')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Deselect all', exact: true }).click();
   await page.locator('.file-item-card:not(.locked) input[type=checkbox]').first().check();
   await page.getByRole('button', { name: 'Select all', exact: true }).click();
+  await expect(lockedTrack).not.toHaveClass(/selected/);
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
   await daemon.command('finish-search');
   await expect(page.locator('.search-results-summary')).toBeVisible();
@@ -500,7 +514,7 @@ test.describe('live album conditions', () => {
       preferredFileCount: 1, otherFileCount: 5, topLevelItemCount: 2 });
     await page.setViewportSize({ width: 390, height: 900 });
     const toolbar = page.getByLabel('Selection actions');
-    await expect(toolbar).toContainText('6 selected · 2 locked');
+    await expect(toolbar).not.toContainText('locked');
     const bounds = await toolbar.locator('button, .floating-selection-detail').evaluateAll(elements => elements.map(element => {
       const box = element.getBoundingClientRect();
       return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
@@ -684,13 +698,12 @@ test('downloads only checked public files from a mixed chosen group album folder
   const intro = album.locator('.folder-file-row').filter({ hasText: 'Intro.flac' }).getByRole('checkbox');
   const finale = album.locator('.folder-file-row').filter({ hasText: 'Finale.flac' }).locator('input[type="checkbox"]');
   const lockedRow = album.locator('.folder-file-row').filter({ hasText: 'Locked.flac' });
-  const locked = lockedRow.getByRole('checkbox');
   await expect(lockedRow).toHaveClass(/locked/);
-  await expect(lockedRow.getByText('Locked', { exact: true })).toBeVisible();
-  await expect(locked).toBeChecked();
+  await expect(lockedRow.getByRole('img', { name: 'Locked', exact: true })).toBeVisible();
+  await expect(lockedRow.getByRole('checkbox')).toHaveCount(0);
   await expect(finale).toBeChecked();
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
-  await expect(page.locator('.floating-selection-detail')).toHaveText('3 selected · 1 locked');
+  await expect(page.locator('.floating-selection-detail')).toHaveCount(0);
   const allExceptCount = page.waitForResponse(response => response.ok()
     && new URL(response.url()).pathname.endsWith('/selection-counts')
     && Object.values((response.request().postDataJSON() as Schema<'CountSearchViewSelectionRequestDto'>).albumFileSelections ?? {})
@@ -700,24 +713,20 @@ test('downloads only checked public files from a mixed chosen group album folder
   const excludedCount = await (await allExceptCount).json() as Schema<'CountSearchViewSelectionResponseDto'>;
   expect(Number(excludedCount.publicFileCount)).toBe(1);
   expect(Number(excludedCount.lockedFileCount)).toBe(1);
-  await expect(page.locator('.floating-selection-detail')).toHaveText('2 selected · 1 locked');
+  await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
 
-  // Build the same exact child set with explicit Only refs, not just an
-  // all-except rule. The locked choice counts but must never enter execution.
+  // Explicit child selection includes only the checked public file.
   await page.locator('.floating-deselect-action').click();
   await expect(intro).not.toBeChecked();
-  await expect(locked).not.toBeChecked();
-  await intro.check();
-  await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
   const onlyCount = page.waitForResponse(response => response.ok()
     && new URL(response.url()).pathname.endsWith('/selection-counts')
     && Object.values((response.request().postDataJSON() as Schema<'CountSearchViewSelectionRequestDto'>).albumFileSelections ?? {})
-      .some(selection => selection.mode === 'Only' && selection.refs.length === 2));
-  await locked.check();
+      .some(selection => selection.mode === 'Only' && selection.refs.length === 1));
+  await intro.check();
   const includedCount = await (await onlyCount).json() as Schema<'CountSearchViewSelectionResponseDto'>;
   expect(Number(includedCount.publicFileCount)).toBe(1);
-  expect(Number(includedCount.lockedFileCount)).toBe(1);
-  await expect(page.locator('.floating-selection-detail')).toHaveText('2 selected · 1 locked');
+  expect(Number(includedCount.lockedFileCount)).toBe(0);
+  await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Download options', exact: true }).click();
   const downloadOptions = page.getByRole('region', { name: 'Download options' });
   await expect(downloadOptions.getByRole('checkbox', { name: 'Skip existing downloads' })).toBeVisible();
@@ -734,7 +743,7 @@ test('downloads only checked public files from a mixed chosen group album folder
   expect(expression.selection.refs).toHaveLength(1);
   expect(Object.values(expression.chosenOptions ?? {})).toHaveLength(1);
   expect(Object.values(expression.albumFileSelections ?? {})).toMatchObject([{ mode: 'Only' }]);
-  expect(Object.values(expression.albumFileSelections ?? {})[0]!.refs).toHaveLength(2);
+  expect(Object.values(expression.albumFileSelections ?? {})[0]!.refs).toHaveLength(1);
   const receipt = await commit.json() as Schema<'CommitSearchViewSelectionResponseDto'>;
   expect(Number(receipt.submittedCount)).toBe(1);
   expect(Number(receipt.rejectedCount)).toBe(0);
@@ -1132,8 +1141,8 @@ test('searches again from one conditioned child, including after a whole-submiss
       expect(root.submissionId).not.toBe(original.submissionId);
     }
     await page.goto(`/jobs/${root.jobId}`);
-    await expect(page.locator('.job-child-row')).toHaveCount(2);
-    await page.locator('.job-child-open').filter({ hasText: 'Fixture' }).click();
+    await expect(page.locator('[data-testid="job-row"]')).toHaveCount(2);
+    await page.locator('[data-testid="job-open"]').filter({ hasText: 'Fixture' }).click();
     await expect(page).toHaveURL(/\/jobs\/[^/]+\?results=/);
     const originalChildUrl = page.url();
     const originalChildId = new URL(originalChildUrl).pathname.split('/').at(-1)!;
@@ -1363,14 +1372,14 @@ test('retrieves complete folder contents with retry while preserving selection',
   const all = await page.request.get('/api/jobs');
   expect((await all.json()).some((job: Schema<'JobSummaryDto'>) => job.jobId === retrieval.jobId)).toBe(true);
   await page.goto(`/jobs/${retrieval.jobId}`);
-  const facts = page.locator('.job-detail-facts');
+  const info = page.getByTestId('job-info-card');
+  const facts = info.locator('dl');
   await expect(page.locator('.job-detail-heading-summary .search-status-badge')).toHaveCount(0);
-  await expect(page.locator('.job-detail-heading-summary')).toContainText('3 new files');
-  await expect(facts.locator('dt')).toHaveText(['From', 'Folder', 'Outcome', 'New files']);
-  await expect(facts.locator('dd')).toHaveText(['fixture-peer', 'Fixture', 'Completed', '3']);
-  await expect(facts.locator('dd').nth(1)).toHaveAttribute('title', 'Fixture');
+  await expect(info).toContainText('3 new files');
+  await expect(facts.locator('dt')).toHaveText(['From', 'Folder']);
+  await expect(facts.locator('dd')).toHaveText(['fixture-peer', 'Fixture']);
   await page.reload();
-  await expect(facts.locator('dd')).toHaveText(['fixture-peer', 'Fixture', 'Completed', '3']);
+  await expect(facts.locator('dd')).toHaveText(['fixture-peer', 'Fixture']);
   await facts.getByRole('button', { name: 'Actions for fixture-peer', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Shares', exact: true }).click();
   await expect(page).toHaveURL(/\/shares\/fixture-peer$/);

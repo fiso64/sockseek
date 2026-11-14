@@ -2,6 +2,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core;
 using Sockseek.Core.Events;
 using Sockseek.Core.Jobs;
+using Sockseek.Core.Planning;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Transfers.Downloads.JobTracking;
@@ -16,6 +17,80 @@ namespace Sockseek.Server.Tests;
 [TestClass]
 public sealed class EnginePersistenceTests
 {
+    [TestMethod]
+    public void TransientOutputIsReleasedExplicitlyOrAfterIdleExpiry()
+    {
+        var clock = new OutputClock { Now = DateTimeOffset.UtcNow };
+        var released = new List<Guid>();
+        using var results = new TransientJobResults((_, ids) => released.AddRange(ids), clock);
+        var first = new SongJob(new SongQuery { Title = "first" }) { Config = new() { PrintOption = PrintOption.Results } };
+        var second = new SongJob(new SongQuery { Title = "second" }) { Config = new() { PrintOption = PrintOption.Results } };
+        SubmissionIdentity.AssignAccepted(first, first.Config);
+        SubmissionIdentity.AssignAccepted(second, second.Config);
+        first.SetDone(); second.SetDone();
+        results.Capture([first, second]);
+        clock.Now += TransientJobResults.IdleLifetime - TimeSpan.FromSeconds(1);
+        Assert.AreSame(first, results.Find(first.Id));
+        clock.Now += TimeSpan.FromSeconds(2);
+        results.Prune();
+        CollectionAssert.AreEqual(new[] { second.Id }, released);
+        Assert.IsNull(results.Find(second.Id));
+        Assert.AreSame(first, results.Find(first.Id));
+        Assert.IsTrue(results.Release(first.SubmissionId!.Value, out int count));
+        Assert.AreEqual(1, count);
+        Assert.IsNull(results.Find(first.Id));
+        CollectionAssert.AreEquivalent(new[] { first.Id, second.Id }, released);
+    }
+
+    [TestMethod]
+    [DataRow("search", false, true)]
+    [DataRow("song", false, false)]
+    [DataRow("album", false, false)]
+    [DataRow("song", true, false)]
+    [DataRow("album", true, false)]
+    public void SearchPersistenceFollowsOperationIntent(string kind, bool print, bool rawHistory)
+    {
+        Job job = kind switch
+        {
+            "search" => new SearchJob("query"),
+            "album" => new AlbumJob(new AlbumQuery { Album = "query" }),
+            _ => new SongJob(new SongQuery { Title = "query" }),
+        };
+        job.Config = new Sockseek.Core.Settings.DownloadSettings { PrintOption = print ? PrintOption.Results : PrintOption.None };
+        var events = new DownloadEvents();
+        var sink = new CapturingSink();
+        AttachPersistence(events, Guid.NewGuid(), sink);
+        events.RaiseJobRegistered(job, null, null);
+        var session = new SearchSession(job.Id);
+        session.ChangePublished += events.RaiseSearchChange;
+        session.AddResponse(new SearchResponse("peer", 1, true, 1000, 0, [new Soulseek.File(1, "track.flac", 100, ".flac")]));
+        session.Complete();
+        job.SetDone();
+        events.RaiseJobStateChanged(job);
+        Assert.AreEqual(!print, sink.Mutations.OfType<JobPersistenceMutation>().Any());
+        Assert.AreEqual(rawHistory, sink.Mutations.OfType<SearchResultsPersistenceMutation>().Any());
+        Assert.AreEqual(rawHistory, sink.Mutations.OfType<SearchCompletionPersistenceMutation>().Any());
+    }
+
+    [TestMethod]
+    public void PrintOwnershipPropagatesToGeneratedResultsAndExecutionChildren()
+    {
+        var root = new ExtractJob("query") { Config = new Sockseek.Core.Settings.DownloadSettings { PrintOption = PrintOption.Jobs } };
+        SubmissionIdentity.AssignAccepted(root, root.Config);
+        var result = new AlbumJob(new AlbumQuery { Album = "album" });
+        SubmissionIdentity.AssignGeneratedResult(root, result);
+        var child = new SongJob(new SongQuery { Title = "child" });
+        SubmissionIdentity.AssignExecutionChild(result, child);
+        Assert.AreEqual(JobRetention.Memory, root.Retention);
+        Assert.AreEqual(JobRetention.Memory, result.Retention);
+        Assert.AreEqual(JobRetention.Memory, child.Retention);
+        var events = new DownloadEvents();
+        var sink = new CapturingSink();
+        AttachPersistence(events, Guid.NewGuid(), sink);
+        foreach (Job job in new Job[] { root, result, child }) events.RaiseJobRegistered(job, null, null);
+        Assert.HasCount(0, sink.Mutations);
+    }
+
     [TestMethod]
     [DataRow(16, true)]
     [DataRow(2, true)]
@@ -210,11 +285,13 @@ public sealed class EnginePersistenceTests
                     $@"Music\Track-{i}.flac", 8_000_000, ".flac")).ToArray()));
             return captured!;
         }
-        var change = Capture(100_000);
+        var search = new SearchJob("query");
+        var change = Capture(100_000) with { JobId = search.Id };
         var events = new DownloadEvents();
         var sink = new CapturingSink();
         AttachPersistence(events, Guid.NewGuid(), sink);
-        events.RaiseSearchChange(Capture(1)); // Exclude one-time dispatch/JIT setup.
+        events.RaiseJobRegistered(search, null, null);
+        events.RaiseSearchChange(change with { Results = change.Results.Take(1).ToArray() }); // Exclude dispatch/JIT setup.
         sink.Mutations.Clear();
 
         long before = GC.GetAllocatedBytesForCurrentThread();
@@ -850,7 +927,9 @@ public sealed class EnginePersistenceTests
         Assert.IsNotNull(state.GetJobDetail(song.Id));
         Assert.IsNotNull(state.GetLiveTransfer(transferId));
 
-        var session = new SearchSession(Guid.NewGuid());
+        var search = new SearchJob("query");
+        events.RaiseJobRegistered(search, null, null);
+        var session = search.Session;
         session.ChangePublished += events.RaiseSearchChange;
         SearchResponse Response(string path) => new("peer", 1, true, 1000, 0, [new Soulseek.File(1, path, 100, ".flac")]);
         session.AddResponse(Response("first.flac")); // Saturate real raw admission.

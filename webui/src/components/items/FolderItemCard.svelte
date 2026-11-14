@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import Icon from '../Icon.svelte';
+  import LockedIndicator from '../LockedIndicator.svelte';
   import LoadMoreButton from '../LoadMoreButton.svelte';
   import TransferStateLabel from './TransferStateLabel.svelte';
   import RelativeTime from '../RelativeTime.svelte';
@@ -73,7 +74,7 @@
   function selectFolderFiles(node: FolderTreeNode, checked: boolean): void {
     const folderFiles: FolderItemFile[] = [];
     const collect = (current: FolderTreeNode): void => {
-      for (const entry of current.files) folderFiles.push(entry.file);
+      for (const entry of current.files) if (!entry.file.locked) folderFiles.push(entry.file);
       for (const child of current.folders.values()) collect(child);
     };
     collect(node);
@@ -141,7 +142,6 @@
           {/each}
         </bdi>
       </strong>
-      {#if locked}<span class="locked-badge">Locked</span>{/if}
     </div>
     {#if totalFileCount !== 1}
       <div class="folder-heading-meta">
@@ -179,18 +179,18 @@
 <article
   class="item-card result-card folder-result-block folder-item-card"
   class:locked
-  class:selected
-  class:partial
+  class:selected={selected && !locked}
+  class:partial={partial && !locked}
   class:preferred
   data-keyboard-item={keyboardKey}
   tabindex="-1"
-  class:selectable
+  class:selectable={selectable && !locked}
   class:tree-layout={fileLayout === 'tree'}
   class:transfer-card={Boolean(transfer)}
 >
   <div class="folder-item-summary folder-result-summary" class:folder-transfer-summary={Boolean(transfer)}>
     <div class="folder-heading-primary">
-      {#if selectable}
+      {#if selectable && !locked}
         <label class="folder-summary-select-target clickable">
           <input
             type="checkbox"
@@ -202,7 +202,8 @@
           {@render folderIdentity()}
         </label>
       {:else}
-        <div class="folder-summary-select-target nonselectable">
+        <div class="folder-summary-select-target" class:nonselectable={!locked}>
+          {#if locked}<LockedIndicator />{/if}
           {@render folderIdentity()}
         </div>
       {/if}
@@ -239,16 +240,18 @@
     {#each buildFolderTreeRows(files, selectedFileIds, fileLayout) as row (row.key)}
       {#if row.kind === 'folder'}
         {@const rowSelected = isfolderselected
-          ? isfolderselected(row.relativePath) && row.node.selectedCount === row.node.fileCount
-          : row.node.fileCount > 0 && row.node.selectedCount === row.node.fileCount}
-        {@const rowPartial = row.node.selectedCount > 0 && (row.node.selectedCount < row.node.fileCount || !rowSelected)}
+          ? isfolderselected(row.relativePath) && row.node.selectedCount === row.node.selectableFileCount
+          : row.node.selectableFileCount > 0 && row.node.selectedCount === row.node.selectableFileCount}
+        {@const rowPartial = row.node.selectedCount > 0 && (row.node.selectedCount < row.node.selectableFileCount || !rowSelected)}
         <svelte:element
-          this={selectable ? 'label' : 'div'}
+          this={selectable && row.node.selectableFileCount > 0 ? 'label' : 'div'}
           class="folder-subfolder-row"
-          class:clickable={selectable}
+          class:clickable={selectable && row.node.selectableFileCount > 0}
           style={`--folder-tree-depth:${row.depth}`}
         >
-          {#if selectable}
+          {#if row.node.selectableFileCount === 0}
+            <LockedIndicator />
+          {:else if selectable}
             <input
               type="checkbox"
               checked={rowSelected}
@@ -273,7 +276,7 @@
         {@const fileDirectionClass = file.transfer?.direction ? `transfer-${file.transfer.direction}` : ''}
         {@const typeIcon = fileTypeIcon({ filename: file.relativePath, hasAudioMetadata: Boolean(file.audio) })}
         <svelte:element
-          this={selectable ? 'label' : 'div'}
+          this={selectable && !file.locked ? 'label' : 'div'}
           class:locked={file.locked}
           class:has-transfer={Boolean(file.transfer)}
           class:has-transfer-detail={needsTransferDetail(file.transfer)}
@@ -283,7 +286,9 @@
           class="folder-file-row"
           style={`--folder-tree-depth:${row.depth}`}
         >
-          {#if selectable}
+          {#if file.locked}
+            <LockedIndicator />
+          {:else if selectable}
             <input
               type="checkbox"
               checked={selectedFileIds.has(file.id)}
@@ -296,7 +301,6 @@
           {/if}
           <span class="folder-file-path" title={file.sourcePath ?? file.relativePath}>
             <strong>{row.displayName}</strong>
-            {#if file.locked}<small>Locked</small>{/if}
           </span>
           {#if file.audio}
             <span class="folder-file-audio">{audioSummary(file.audio)}</span>

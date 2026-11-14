@@ -1009,6 +1009,8 @@ public sealed class ReadServiceTests
             foreach (var job in imports) job.EnsureDisplayId();
             Register(live, liveExtract);
             Register(live, liveResult, liveExtract.Id);
+            var resultLinks = new List<JobPersistenceMutation>();
+            var inbox = (PersistenceInbox)persistence.MutationSink!;
             foreach (var job in imports)
             {
                 var source = job == liveResult ? liveExtract : job == retainedResult ? retainedExtract
@@ -1017,15 +1019,28 @@ public sealed class ReadServiceTests
                 // update; SourceJobId must still keep that result off the page.
                 Guid? result = job == liveExtract ? liveResult.Id : job == nestedExtract ? nestedResult.Id : null;
                 Guid? parent = job == nestedExtract || job == nestedResult ? jobs[0].Id : null;
-                Assert.IsTrue(persistence.MutationSink!.TryEnqueue(new JobPersistenceMutation(
+                var mutation = new JobPersistenceMutation(
                     runtimeId, ++sequence, DateTimeOffset.UtcNow, job.Id, 1, PersistenceMutationPriority.Structural,
                     workflowId, parent, job == liveResult ? null : source?.Id, result, job.DisplayId, job is ExtractJob ? "Extract" : "Song",
                     "Terminal", "None", null, "Succeeded", "None", "None", "None", null, null,
                     job is ExtractJob ? "Import" : "Song", null, 1,
                     job is ExtractJob ? RetainedJobPayloadCodec.Capture(CoreSnapshotFactory.CreateJob(job, 1).Payload) : null,
-                    SourceDetail: job is ExtractJob ? "Text import" : null)));
+                    SourceDetail: job is ExtractJob ? "Text import" : null);
+                // Register sources without forward links, then their results, as
+                // production does. Force separate commits so batching cannot hide
+                // an invalid relationship in this read-service fixture.
+                Assert.IsTrue(inbox.TryEnqueue(mutation with { ResultJobId = null }));
+                await inbox.FlushMutationsAsync();
+                if (result is not null) resultLinks.Add(mutation);
             }
-            await WaitForPersistedCountAsync(persistence, workflowId, expected: 10);
+            foreach (var link in resultLinks)
+                Assert.IsTrue(inbox.TryEnqueue(link with { Sequence = ++sequence, Revision = 2 }));
+            await inbox.FlushMutationsAsync();
+            Assert.AreEqual(0L, persistence.HealthSnapshot!.PermanentlyFailedMutationCount,
+                persistence.HealthSnapshot.LastFailure);
+            Assert.AreEqual(10, (await persistence.JobHistory!.GetJobsAsync(
+                new JobHistoryQuery(Limit: 100, WorkflowId: workflowId, IncludeAll: true))).Items.Count);
+
             var roots = new List<JobSummaryDto>();
             cursor = null;
             do

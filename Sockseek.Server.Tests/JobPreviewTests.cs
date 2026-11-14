@@ -103,7 +103,7 @@ public sealed class JobPreviewTests
                 MockFilesDir = Path.Combine(directory, "mock"),
                 LogLevel = Microsoft.Extensions.Logging.LogLevel.None,
             },
-            DefaultDownload = new DownloadSettings { PrintOption = PrintOption.Jobs },
+            DefaultDownload = new DownloadSettings(),
             Persistence = new ServerPersistenceOptions { Enabled = true, DataDirectory = Path.Combine(directory, "data") },
         };
         Directory.CreateDirectory(options.Engine.MockFilesDir!);
@@ -354,7 +354,7 @@ public sealed class JobPreviewTests
                 MockFilesDir = Path.Combine(directory, "mock"),
                 LogLevel = Microsoft.Extensions.Logging.LogLevel.None,
             },
-            DefaultDownload = new DownloadSettings { PrintOption = PrintOption.Jobs },
+            DefaultDownload = new DownloadSettings(),
             Persistence = new ServerPersistenceOptions
             {
                 Enabled = true,
@@ -479,7 +479,7 @@ public sealed class JobPreviewTests
                 MockFilesDir = Path.Combine(directory, "mock"),
                 LogLevel = Microsoft.Extensions.Logging.LogLevel.None,
             },
-            DefaultDownload = new DownloadSettings { PrintOption = PrintOption.Jobs },
+            DefaultDownload = new DownloadSettings(),
             Persistence = new ServerPersistenceOptions
             {
                 Enabled = true,

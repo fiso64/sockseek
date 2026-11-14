@@ -17,7 +17,8 @@
     class?: string;
   } = $props();
   let open = $state(false);
-  let classes = $derived(`${circular ? 'folder-file-state' : 'transfer-state'} ${transfer.tone ?? ''} transfer-${transfer.direction ?? 'download'} ${extraClass}`);
+  let message = $derived(transfer.detail ?? transfer.job?.failureMessage);
+  let classes = $derived(`status-label ${circular ? 'status-label-icon folder-file-state' : 'transfer-state'} ${transfer.tone ?? ''} transfer-${transfer.direction ?? 'download'} ${extraClass}`);
 
   type Field = [string, string | undefined];
   function date(value?: string | null): string | undefined {
@@ -98,10 +99,10 @@
 </button>
 {#if open}
   <Modal title="Transfer details" closeLabel="Close transfer details" onclose={() => { open = false; }}>
-    {#if transfer.detail || transfer.tone === 'failed'}
+    {#if message || transfer.tone === 'failed'}
       <section class="transfer-details-message">
         <h3>{transfer.tone === 'failed' ? 'Failure' : 'Details'}</h3>
-        <p>{transfer.detail ?? 'No further failure details were recorded.'}</p>
+        <p>{message ?? 'No further failure details were recorded.'}</p>
       </section>
     {/if}
     {#each sections() as section (section.title)}
@@ -111,18 +112,13 @@
       </section>
     {/each}
     {#if transfer.job?.appliedProfiles?.length}<section><h3>Profiles</h3><AppliedProfiles profiles={transfer.job.appliedProfiles} /></section>{/if}
-    {#if transfer.job?.failureDetail && transfer.job.failureDetail !== transfer.detail}
+    {#if transfer.job?.failureDetail && transfer.job.failureDetail !== message}
       <details><summary>Technical details</summary><p>{transfer.job.failureDetail}</p></details>
     {/if}
   </Modal>
 {/if}
 
 <style>
-  button { cursor: pointer; text-decoration: none; }
-  button.transfer-state { border: 0; }
-  button.folder-file-state { padding: 0; }
-  button:hover { box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent); background: color-mix(in srgb, currentColor 12%, var(--surface)); }
-  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   h3 { margin: 0 0 0.5rem; font-size: 0.85rem; }
   details { margin-top: 1rem; }
   summary { cursor: pointer; color: var(--muted); }

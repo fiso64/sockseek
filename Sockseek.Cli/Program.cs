@@ -452,7 +452,7 @@ internal static partial class Program
         {
             using var http = remoteSettings.CreateHttpClient();
             var api = new SockseekApiClient(http);
-            extractRequest = await RemoteCliBackend.PrepareExtractRequestAsync(api, extractRequest, cts.Token);
+            extractRequest = await RemoteCliBackend.PrepareSubmissionInputAsync(extractRequest, cts.Token);
             var detached = await api.SubmitExtractJobAsync(extractRequest, cts.Token);
             if (cliSettings.ProgressJson)
                 new JsonStreamProgressReporter(Console.Out).ReportWorkflowSubmitted(detached.WorkflowId);
@@ -490,16 +490,6 @@ internal static partial class Program
 
         try
         {
-            if (rootSettings.PrintJobs)
-            {
-                CliExitCode previewExit = await PrintRemoteJobPreviewAsync(
-                    backend,
-                    extractRequest,
-                    rootSettings.PrintOption,
-                    cts.Token).ConfigureAwait(false);
-                return LogCliSessionExit(logger, previewExit, remoteSettings);
-            }
-
             Guid workflowId = Guid.NewGuid();
             await backend.SubscribeWorkflowAsync(workflowId, cts.Token);
             using var terminalUpdateObserver = new WorkflowTerminalUpdateObserver(backend, workflowId);
@@ -597,84 +587,6 @@ internal static partial class Program
             await cts.CancelAsync();
             cliReporter?.Stop();
         }
-    }
-
-    internal static async Task<CliExitCode> PrintRemoteJobPreviewAsync(
-        RemoteCliBackend backend,
-        SubmitExtractJobRequestDto request,
-        PrintOption printOption,
-        CancellationToken ct,
-        TextWriter? output = null)
-    {
-        CreateJobPreviewResponseDto created = await backend.CreateJobPreviewAsync(request, ct)
-            .ConfigureAwait(false);
-        JobPreviewSummaryDto preview = await backend.WaitForJobPreviewAsync(
-            created.Preview.PreviewId,
-            ct).ConfigureAwait(false);
-        if (preview.State is JobPreviewState.Expired or JobPreviewState.Committing
-            or JobPreviewState.Committed)
-        {
-            throw new InvalidOperationException(
-                $"Job Preview entered unexpected state '{preview.State}' before it could be printed.");
-        }
-
-        using var outputScope = output is null ? null : Printing.RedirectOutput(output);
-        JobPrintFormatter.PrintHeader(preview.SelectableNodeCount);
-        int printed = 0;
-        await foreach (JobPreviewNodeDto node in backend.GetJobPreviewNodesAsync(
-            preview.PreviewId,
-            ct).ConfigureAwait(false))
-        {
-            if (!node.IsSelectable || ToPreviewPrintJob(node) is not { } job)
-                continue;
-            JobPrintFormatter.PrintJob(job, printOption, separate: printed > 0);
-            printed++;
-        }
-
-        if (printed != preview.SelectableNodeCount)
-        {
-            throw new InvalidOperationException(
-                "The daemon returned a Job Preview node kind that this CLI cannot render.");
-        }
-        if (preview.FailedNodeCount > 0)
-        {
-            Printing.WriteLine();
-            Printing.WriteLine(
-                $"Preview contains {preview.FailedNodeCount} failed planning "
-                + (preview.FailedNodeCount == 1 ? "entry." : "entries."));
-        }
-        return preview.State == JobPreviewState.Ready
-            ? CliExitCode.Success
-            : CliExitCode.WorkFailed;
-    }
-
-    private static Job? ToPreviewPrintJob(JobPreviewNodeDto node)
-    {
-        Job? job = node.Kind switch
-        {
-            ServerJobKind.Search when node.AlbumQuery != null =>
-                new SearchJob(ToAlbumQuery(node.AlbumQuery)),
-            ServerJobKind.Search when node.SongQuery != null =>
-                new SearchJob(ToSongQuery(node.SongQuery)),
-            ServerJobKind.Search when !string.IsNullOrWhiteSpace(node.QueryText) =>
-                new SearchJob(node.QueryText),
-            ServerJobKind.Song when node.SongQuery != null =>
-                new SongJob(ToSongQuery(node.SongQuery)),
-            ServerJobKind.Album when node.AlbumQuery != null =>
-                new AlbumJob(ToAlbumQuery(node.AlbumQuery)),
-            ServerJobKind.SongGroups when node.SongQuery != null =>
-                new SongGroupsJob(ToSongQuery(node.SongQuery)),
-            ServerJobKind.AlbumGroups when node.AlbumQuery != null =>
-                new AlbumGroupsJob(ToAlbumQuery(node.AlbumQuery)),
-            _ => null,
-        };
-        if (job != null)
-        {
-            job.ExtractorInfo = node.ExtractorInfo;
-            if (!string.IsNullOrWhiteSpace(node.ItemName))
-                job.ItemName = node.ItemName;
-        }
-        return job;
     }
 
     private static async Task<CliExitCode> RunRemoteMonitorAsync(

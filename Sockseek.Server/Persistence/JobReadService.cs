@@ -18,6 +18,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
     private async Task<bool> IsSourceJobAvailableAsync(Guid? sourceId, CancellationToken cancellationToken)
     {
         if (sourceId is not Guid id) return false;
+        if (live.IsJobAvailable(id)) return true;
         try
         {
             if (persistence.JobHistory is { } history)
@@ -74,8 +75,6 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         Guid submissionId,
         CancellationToken cancellationToken)
     {
-        if (persistence.Submissions == null)
-            throw new NotSupportedException("Submission deletion requires persistence.");
         var liveJobs = live.GetJobs(new JobQuery(
             null, null, null, null, IncludeAll: true, SubmissionId: submissionId));
         if (supervisor.GetPendingSubmissionIds().Contains(submissionId)
@@ -84,6 +83,10 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
 
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         await supervisor.WaitForSubmissionExecutionAsync(submissionId, cancellationToken).ConfigureAwait(false);
+        if (supervisor.ReleaseTransientResults(submissionId, out int released))
+            return new(submissionId, 1, released, 0, []);
+        if (persistence.Submissions == null)
+            throw new NotSupportedException("Submission deletion requires persistence.");
         var result = await persistence.Submissions.DeleteAsync(submissionId, cancellationToken).ConfigureAwait(false);
         if (result.RejectedSubmissionCount == 0)
         {
@@ -288,6 +291,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
 
     public async Task<JobDetailDto?> GetJobAsync(Guid jobId, CancellationToken cancellationToken = default)
     {
+        _ = supervisor.GetRuntimeJob<Sockseek.Core.Jobs.Job>(jobId); // Refresh transient output ownership.
         var liveDetail = live.GetJobDetail(jobId);
         if (liveDetail != null)
             return await WithSourceAvailabilityAsync(liveDetail, cancellationToken).ConfigureAwait(false);

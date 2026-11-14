@@ -47,6 +47,24 @@ function open(controller: SearchViewController, id: string) {
 }
 
 describe('Search View request isolation', () => {
+  it('keeps locked results unselected through direct, whole-view and group selection', () => {
+    const selection = new SearchSelection();
+    selection.observe(summary('view'));
+    selection.rememberResult('locked', true);
+    expect(selection.toggle('locked', true)).toBe(false);
+    expect(selection.isSelected('locked')).toBe(false);
+    selection.selectAll(true);
+    expect(selection.isSelected('public')).toBe(true);
+    expect(selection.isSelected('locked')).toBe(false);
+    selection.selectAll(false);
+    const directory = directorySummary('album');
+    expect(selection.choose('group', { kind: 'album', ref: 'locked-album',
+      value: { ...directory, visibility: 'Locked' } })).toBe(false);
+    expect(selection.toggleAlbumFile('group', directory, 'locked', true)).toBe(false);
+    expect(selection.isSelected('group')).toBe(false);
+    expect(selection.toggle('public', true)).toBe(true);
+  });
+
   it('recognizes explicit whole selections while retaining file and branch exclusions', () => {
     const view = { ...summary('view'), kind: 'GenericDirectories' as const,
       counters: { ...summary('view').counters, topLevelItemCount: 2, publicFileCount: 6, projectedPublicFileCount: 4 } };
@@ -203,6 +221,9 @@ describe('Search View request isolation', () => {
         return page(id, Number(revision));
       }
       override getSearchViewUpdate = vi.fn();
+      override async getJob(id: string) {
+        return { summary: { jobId: id, lifecycleState: 'Terminal' as const }, childCount: 0, sourceJobAvailable: false };
+      }
     }
     const api = new Api();
     const subscriptions: { next: (value: SearchViewSummaryDto) => void; complete: () => void; release: ReturnType<typeof vi.fn> }[] = [];
@@ -214,7 +235,7 @@ describe('Search View request isolation', () => {
     controller.subscribe(state => { if (state.summary?.revision === 3) displayed.resolve(); });
     controller.setLiveConnected(true);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' },
+      await controller.open({ job: { jobId: 'search', lifecycleState: 'Running' },
         view: { ...summary('search'), isComplete: false }, draft: { ...emptySearchDraft, resultMode: 'track' } });
       controller.pause();
       expect(subscriptions[0]!.release).toHaveBeenCalledOnce();
@@ -325,21 +346,115 @@ describe('Search View request isolation', () => {
     } finally { controller.stop(); }
   });
 
-  it('keeps the displayed selection while awaiting the first replacement projection and blocks new commits', async () => {
+  it.each(['track', 'generic', 'album', 'song-groups', 'album-groups'] as const)(
+    'opens finished %s searches only at a complete projection', async mode => {
+      const reads: (number | string)[] = [];
+      const ready: (number | string)[] = [];
+      class Api extends DaemonApiClient {
+        override async getSearchViewFiles(id: string, revision: number | string) {
+          reads.push(revision);
+          return { revision: summary(id, Number(revision)), items: [], nextCursor: null };
+        }
+        override getSearchViewDirectories = this.getSearchViewFiles;
+        override getSearchViewTrackGroups = this.getSearchViewFiles;
+        override getSearchViewAlbumGroups = this.getSearchViewFiles;
+      }
+      const controller = new SearchViewController(new Api(), 60_000);
+      controller.subscribe(state => { if (state.phase === 'ready') ready.push(state.summary!.revision); });
+      try {
+        await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' },
+          view: { ...summary('search'), isComplete: false }, draft: { ...emptySearchDraft, resultMode: mode } });
+        await controller.refresh(false, { ...summary('search', 2), isComplete: false });
+        expect(controller.current().phase).toBe('loading');
+        expect(reads).toEqual([]);
+        expect(ready).toEqual([]);
+        await controller.refresh(false, summary('search', 3));
+        expect(reads).toEqual([3]);
+        expect(ready).toEqual([3]);
+        expect(controller.current().phase).toBe('ready');
+      } finally { controller.stop(); }
+    });
+
+  it('retries failed historical catch-up and cancels its demand when hidden', async () => {
+    const pending = deferred<SearchViewUpdateDto>();
+    let signal: AbortSignal | undefined;
+    let fail = true;
+    const reads: (number | string)[] = [];
+    class Api extends DaemonApiClient {
+      override async getSearchViewUpdate(_id: string, _revision: number | string, requestSignal?: AbortSignal) {
+        if (fail) throw new Error('Catch-up unavailable');
+        signal = requestSignal;
+        return pending.promise;
+      }
+      override async getSearchViewFiles(id: string, revision: number | string) {
+        reads.push(revision);
+        return page(id, Number(revision));
+      }
+    }
+    const controller = new SearchViewController(new Api(), 60_000);
+    try {
+      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' },
+        view: { ...summary('search'), isComplete: false }, draft: { ...emptySearchDraft, resultMode: 'track' } });
+      await controller.refresh();
+      expect(controller.current().phase).toBe('failed');
+      expect(controller.current().error?.message).toBe('Catch-up unavailable');
+      fail = false;
+      const retry = controller.refresh();
+      controller.pause();
+      expect(signal?.aborted).toBe(true);
+      pending.resolve({ summary: summary('search', 2), hasNewRevision: true });
+      await retry;
+      expect(reads).toEqual([]);
+      await controller.resume();
+      expect(reads).toEqual([2]);
+      expect(controller.current().phase).toBe('ready');
+      expect(controller.current().error).toBeNull();
+    } finally { controller.stop(); }
+  });
+
+  it('long-polls historical catch-up immediately between revisions without the polling interval', async () => {
+    vi.useFakeTimers();
+    const updates: { revision: number | string; wait: boolean | undefined }[] = [];
+    class Api extends DaemonApiClient {
+      override async getSearchViewUpdate(id: string, revision: number | string, _signal?: AbortSignal, wait?: boolean) {
+        updates.push({ revision, wait });
+        return { summary: { ...summary(id, Number(revision) + 1), isComplete: Number(revision) === 2 }, hasNewRevision: true };
+      }
+      override async getSearchViewFiles(id: string, revision: number | string) { return page(id, Number(revision)); }
+    }
+    const controller = new SearchViewController(new Api(), 60_000);
+    try {
+      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' },
+        view: { ...summary('search'), isComplete: false }, draft: { ...emptySearchDraft, resultMode: 'track' } });
+      await vi.advanceTimersByTimeAsync(5);
+      expect(updates).toEqual([{ revision: 1, wait: true }, { revision: 2, wait: true }]);
+      expect(controller.current().phase).toBe('ready');
+    } finally { controller.stop(); vi.useRealTimers(); }
+  });
+
+  it('keeps the displayed selection until a historical replacement is complete and blocks new commits', async () => {
     const created = summary('refined', 0);
     created.kind = 'GenericDirectories';
     created.counters.topLevelItemCount = 0;
     created.isComplete = false;
-    const published = { ...created, revision: 1, sourceRevision: 1 };
+    const partial = { ...created, revision: 1, sourceRevision: 1,
+      counters: { ...created.counters, topLevelItemCount: 1 } };
+    const published = { ...created, revision: 2, sourceRevision: 2, isComplete: true };
     const requested = deferred<void>();
     const update = deferred<SearchViewUpdateDto>();
     const counts: Schema<'CountSearchViewSelectionRequestDto'>[] = [];
+    const reads: string[] = [];
     let commits = 0;
     class Api extends DaemonApiClient {
       override async createSearchView() { return created; }
       override async commitSearchView(): Promise<never> { commits++; throw new Error('Unpublished commit'); }
-      override getSearchViewUpdate() { requested.resolve(); return update.promise; }
+      override getSearchViewUpdate(_id: string, revision: number | string) {
+        if (Number(revision) === 0) return Promise.resolve({ summary: partial, hasNewRevision: true });
+        requested.resolve();
+        return update.promise;
+      }
       override async getSearchViewDirectories(id: string, revision: number | string) {
+        reads.push(`${id}:${revision}`);
         return { revision: { ...summary(id, Number(revision)), kind: 'GenericDirectories' as const },
           items: id === 'source' ? [directorySummary('folder')] : [], nextCursor: null };
       }
@@ -360,6 +475,7 @@ describe('Search View request isolation', () => {
         necessaryCond: { formats: { replace: ['pdf'] } },
       } });
       await requested.promise;
+      expect(reads).toEqual(['source:1']);
       expect(counts.some(count => Number(count.revision) === 0)).toBe(false);
       expect(controller.current().summary?.viewId).toBe('source');
       expect(controller.current().rows).toHaveLength(1);
@@ -370,6 +486,8 @@ describe('Search View request isolation', () => {
       expect(commits).toBe(0);
       update.resolve({ summary: published, hasNewRevision: true });
       await refining;
+      expect(reads).toEqual(['source:1']);
+      expect(controller.current().summary?.revision).toBe(2);
       expect(controller.current().selectionRevision).toBeNull();
       expect(controller.current().selectionRefs.has('folder')).toBe(true);
       expect(controller.current().selectionNeedsReview).toBe(true);
@@ -971,8 +1089,8 @@ describe('Search View request isolation', () => {
       await controller.refresh();
       expect(controller.current().directoryFiles.get('folder')?.items.map(item => item.ref)).toEqual(['arrived', 'first']);
       expect(reads).toEqual([
-        { revision: 1, cursor: 'preview-1', limit: 500 },
-        { revision: 2, cursor: 'preview-2', limit: 500 },
+        { revision: 1, cursor: 'preview-1', limit: 100 },
+        { revision: 2, cursor: 'preview-2', limit: 100 },
       ]);
       await controller.refresh();
       expect(reads).toHaveLength(2);
@@ -1030,10 +1148,10 @@ describe('Search View request isolation', () => {
       await controller.loadDirectoryFiles('folder');
       expect(controller.current().directoryFiles.get('folder')?.items.map(item => item.ref)).toEqual(['folder-3', 'continued-3']);
       expect(reads).toEqual([
-        { revision: 1, cursor: 'preview-1', limit: 500 },
-        { revision: 2, cursor: 'preview-2', limit: 500 },
-        { revision: 3, cursor: 'preview-3', limit: 500 },
-        { revision: 3, cursor: 'preview-3', limit: 500 },
+        { revision: 1, cursor: 'preview-1', limit: 100 },
+        { revision: 2, cursor: 'preview-2', limit: 100 },
+        { revision: 3, cursor: 'preview-3', limit: 100 },
+        { revision: 3, cursor: 'preview-3', limit: 100 },
       ]);
       await controller.open({ job: { jobId: 'fresh', lifecycleState: 'Terminal' }, view: summary('fresh'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
@@ -1112,7 +1230,7 @@ describe('Search View request isolation', () => {
       override async getSearchViewAlbumGroups(id: string, requested: number | string) {
         return { revision: summary(id, Number(requested)), items: [{ ref: 'group',
           query: { artist: 'Artist', album: 'Album', artistMaybeWrong: false }, shareCount: 2,
-          selectableOptionCount: 2, representative: directory('representative', requested) }], nextCursor: null };
+          selectableOptionCount: 2, optionCount: 2, representative: directory('representative', requested) }], nextCursor: null };
       }
       override async getSearchViewAlbumGroupOptions(id: string) {
         return { revision: summary(id), groupRef: 'group',
@@ -1205,7 +1323,7 @@ describe('Search View request isolation', () => {
     class Api extends DaemonApiClient {
       override async getSearchViewAlbumGroups(id: string) {
         return { revision: summary(id), items: [{ ref: 'group', query: { artist: 'Artist', album: 'Album',
-          artistMaybeWrong: false }, shareCount: 2, selectableOptionCount: 2, representative: first }], nextCursor: null };
+          artistMaybeWrong: false }, shareCount: 2, selectableOptionCount: 2, optionCount: 2, representative: first }], nextCursor: null };
       }
       override async getSearchViewAlbumGroupOptions(id: string) {
         return { revision: summary(id), groupRef: 'group', items: [first, second], nextCursor: null };
@@ -1257,7 +1375,7 @@ describe('Search View request isolation', () => {
       override async getSearchViewTrackGroups(id: string, revision: number | string) {
         return { revision: summary(id, Number(revision)), items: Number(revision) === 3 ? [] : [{
           ref: 'group', query: { artist: 'Artist', title: 'Title', artistMaybeWrong: false },
-          shareCount: 2, selectableOptionCount: 2, representative: first,
+          shareCount: 2, selectableOptionCount: 2, optionCount: 2, representative: first,
         }], nextCursor: null };
       }
       override getSearchViewTrackGroupOptions(id: string, _group: string, revision: number | string, cursor?: string | null) {
@@ -1310,10 +1428,10 @@ describe('Search View request isolation', () => {
     class Api extends DaemonApiClient {
       override async getSearchViewTrackGroups(id: string) {
         return { revision: summary(id), items: [{ ref: 'group', query: { artist: 'Artist', title: 'Title',
-          artistMaybeWrong: false }, shareCount: 2, selectableOptionCount: 2, representative: first }], nextCursor: null };
+          artistMaybeWrong: false }, shareCount: 2, selectableOptionCount: 1, optionCount: 2, representative: first }], nextCursor: null };
       }
-      override async getSearchViewTrackGroupOptions(id: string) {
-        return { revision: summary(id), groupRef: 'group', items: [first, second], nextCursor: null };
+      override async getSearchViewTrackGroupOptions(id: string, _group: string, _revision: number | string, cursor?: string | null) {
+        return { revision: summary(id), groupRef: 'group', items: cursor ? [second] : [first], nextCursor: cursor ? null : 'next' };
       }
       override async commitSearchView(...args: Parameters<DaemonApiClient['commitSearchView']>): Promise<Schema<'CommitSearchViewSelectionResponseDto'>> {
         requests.push(args);
@@ -1327,12 +1445,23 @@ describe('Search View request isolation', () => {
     try {
       await controller.open({ job: { jobId: 'search' }, view,
         draft: { ...emptySearchDraft, resultMode: 'song-groups' } });
+      await controller.stepGroupOption('group', 1);
+      expect(controller.current().chosenOptions.get('group')?.ref).toBe('second-option');
+      expect(controller.current().optionSteps.get('group')?.position).toBe(2);
+      expect(controller.isSelected('group')).toBe(false);
+      expect(controller.current().groupOptions).toBeNull();
+      await controller.stepGroupOption('group', -1);
+      expect(controller.current().chosenOptions.get('group')?.ref).toBe('first-option');
       await controller.openGroupOptions('group');
+      await controller.loadMoreGroupOptions();
       const panel = controller.current().groupOptions;
       expect(panel?.items.map(option => option.ref)).toEqual(['first-option', 'second-option']);
       controller.chooseGroupOption('group', panel!.items[1]!);
       expect(controller.current().chosenOptions.get('group')?.ref).toBe('second-option');
       expect(controller.selectedCount()).toBe(1);
+      await controller.stepGroupOption('group', -1);
+      expect(controller.isSelected('group')).toBe(true);
+      await controller.stepGroupOption('group', 1);
       await controller.commit();
       await controller.commit();
       expect(requests[0]?.[1].chosenOptions).toEqual({ group: 'second-option' });
@@ -1361,7 +1490,7 @@ describe('Search View request isolation', () => {
       override async getSearchViewTrackGroups(id: string, revision: number | string) {
         return { revision: summary(id, Number(revision)), items: [{
           ref: 'group', query: { artist: 'Artist', title: 'Title', artistMaybeWrong: false },
-          shareCount: 2, selectableOptionCount: 2, representative: first,
+          shareCount: 2, selectableOptionCount: 2, optionCount: 2, representative: first,
         }], nextCursor: null };
       }
       override async getSearchViewTrackGroupOptions(id: string, _group: string, revision: number | string) {
@@ -1429,7 +1558,7 @@ describe('Search View request isolation', () => {
       override async getSearchViewTrackGroups(id: string, revision: number | string) {
         return { revision: summary(id, Number(revision)), items: [{
           ref: 'group', query: { artist: 'Artist', title: 'Title', artistMaybeWrong: false },
-          shareCount: 1, selectableOptionCount: 1, representative: option,
+          shareCount: 1, selectableOptionCount: 1, optionCount: 1, representative: option,
         }], nextCursor: null };
       }
       override async getSearchViewTrackGroupOptions(id: string) {
@@ -1472,7 +1601,7 @@ describe('Search View request isolation', () => {
       override async getSearchViewTrackGroups(id: string, revision: number | string) {
         return { revision: summary(id, Number(revision)), items: Number(revision) === 1 ? [{
           ref: 'group', query: { artist: 'Artist', title: 'Title', artistMaybeWrong: false },
-          shareCount: 1, selectableOptionCount: 1, representative: option,
+          shareCount: 1, selectableOptionCount: 1, optionCount: 1, representative: option,
         }] : [], nextCursor: null };
       }
       override async getSearchViewTrackGroupOptions(id: string) {

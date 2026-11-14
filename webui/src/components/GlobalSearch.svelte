@@ -37,6 +37,7 @@
   let searchRoot: HTMLDivElement;
   let searchEngaged = $state(false);
   let conditionsResolved = $state(false);
+  let configurationCustomized = $state(false);
   $effect(() => { variant; modeMenuOpen = false; modeHelpOpen = false; });
 
   function submissionKey(): string {
@@ -276,12 +277,12 @@
       </div>
 
     </div>
-    <button type="button" class:active={settingsOpen} class="search-settings-button" aria-label="Search configuration" aria-expanded={settingsOpen} onclick={() => { settingsMounted = true; settingsOpen = !settingsOpen; }}><Icon name="sliders" /></button>
+    <button type="button" class:active={settingsOpen} class="search-settings-button" aria-label="Search configuration" aria-expanded={settingsOpen} onclick={() => { settingsMounted = true; settingsOpen = !settingsOpen; }}><Icon name="sliders" />{#if configurationCustomized}<i class="settings-disclosure-customized" aria-hidden="true"></i>{/if}</button>
     {/if}
   </div>
   {#if variant === 'content' && settingsMounted}
     <section data-shortcuts-blocked={settingsOpen} class="search-config-popover" aria-label="Search configuration" style="top: 62px; max-height: calc(100dvh - 87px)" style:display={settingsOpen ? undefined : 'none'}>
-      <SearchConfiguration draft={value} active={settingsOpen} bind:resolved={conditionsResolved} {onchange} onvalidation={(message, pending) => { configurationError = message; configurationPending = pending; }} onclose={() => settingsOpen = false} />
+      <SearchConfiguration draft={value} active={settingsOpen} bind:resolved={conditionsResolved} bind:customized={configurationCustomized} {onchange} onvalidation={(message, pending) => { configurationError = message; configurationPending = pending; }} onclose={() => settingsOpen = false} />
     </section>
   {/if}
   {#if variant === 'content' && settingsOpen}

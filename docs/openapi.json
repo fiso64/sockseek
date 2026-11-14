@@ -23210,6 +23210,7 @@
           "query",
           "shareCount",
           "selectableOptionCount",
+          "optionCount",
           "representative"
         ],
         "type": "object",
@@ -23229,6 +23230,14 @@
             "format": "int32"
           },
           "selectableOptionCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "optionCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
@@ -23927,6 +23936,7 @@
           "query",
           "shareCount",
           "selectableOptionCount",
+          "optionCount",
           "representative"
         ],
         "type": "object",
@@ -23946,6 +23956,14 @@
             "format": "int32"
           },
           "selectableOptionCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "optionCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
@@ -31817,6 +31835,12 @@
             ]
           },
           "artifactId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "inputText": {
             "type": [
               "null",
               "string"

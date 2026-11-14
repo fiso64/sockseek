@@ -4,13 +4,16 @@ namespace Sockseek.Api;
 
 /// <summary>
 /// Starts an extract job from a URL, list path, CSV path, or free-text query.
+/// InputText supplies CSV/List contents without creating an input artifact.
+/// Planning consumes a temporary file; source mutation is disabled.
 /// </summary>
 public sealed record SubmitExtractJobRequestDto(
     string? Input = null,
     string? InputType = null,
     SubmissionOptionsDto? Options = null,
     DownloadBehaviorPolicyDto? ResultDownloadBehavior = null,
-    string? ArtifactId = null);
+    string? ArtifactId = null,
+    string? InputText = null);
 
 /// <summary>
 /// Starts a generic Soulseek discovery job from raw query text.

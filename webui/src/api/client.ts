@@ -44,6 +44,8 @@ export interface CursorPage<T> {
 
 export const defaultPageSize = 500;
 export const nestedPageSize = 100;
+export const searchFilePageSize = 100;
+export const searchDirectoryPageSize = 50;
 
 export class DaemonApiClient {
   constructor(private readonly http = new DaemonHttpClient()) {}
@@ -428,43 +430,44 @@ export class DaemonApiClient {
     return this.http.get(`/search-views/${encodeURIComponent(viewId)}`, signal);
   }
 
-  getSearchViewUpdate(viewId: string, afterRevision: number | string, signal?: AbortSignal): Promise<SearchViewUpdateDto> {
+  getSearchViewUpdate(viewId: string, afterRevision: number | string, signal?: AbortSignal,
+    waitForChange = String(afterRevision) === '0'): Promise<SearchViewUpdateDto> {
     return this.http.get(
       `/search-views/${encodeURIComponent(viewId)}/updates${queryString({ afterRevision,
-        waitForChange: String(afterRevision) === '0' ? true : undefined })}`,
+        waitForChange: waitForChange ? true : undefined })}`,
       signal,
     );
   }
 
-  getSearchViewFiles(viewId: string, revision: number | string, cursor?: string | null, limit = defaultPageSize, sortOrder?: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchViewFilePageDto> {
+  getSearchViewFiles(viewId: string, revision: number | string, cursor?: string | null, limit = searchFilePageSize, sortOrder?: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchViewFilePageDto> {
     return this.http.get(
       `/search-views/${encodeURIComponent(viewId)}/files${queryString({ revision, cursor, limit, sortOrder })}`,
       signal,
     );
   }
 
-  getSearchViewDirectories(viewId: string, revision: number | string, cursor?: string | null, limit = nestedPageSize, sortOrder?: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchViewDirectoryPageDto> {
+  getSearchViewDirectories(viewId: string, revision: number | string, cursor?: string | null, limit = searchDirectoryPageSize, sortOrder?: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchViewDirectoryPageDto> {
     return this.http.get(
       `/search-views/${encodeURIComponent(viewId)}/directories${queryString({ revision, cursor, limit, sortOrder })}`,
       signal,
     );
   }
 
-  getSearchViewTrackGroups(viewId: string, revision: number | string, cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<SearchViewTrackGroupPageDto> {
+  getSearchViewTrackGroups(viewId: string, revision: number | string, cursor?: string | null, limit = searchFilePageSize, signal?: AbortSignal): Promise<SearchViewTrackGroupPageDto> {
     return this.http.get(
       `/search-views/${encodeURIComponent(viewId)}/track-groups${queryString({ revision, cursor, limit })}`,
       signal,
     );
   }
 
-  getSearchViewDirectoryFiles(viewId: string, directoryRef: string, revision: number | string, cursor?: string | null, limit = defaultPageSize, signal?: AbortSignal): Promise<Schema<'SearchViewDirectoryFilePageDto'>> {
+  getSearchViewDirectoryFiles(viewId: string, directoryRef: string, revision: number | string, cursor?: string | null, limit = searchFilePageSize, signal?: AbortSignal): Promise<Schema<'SearchViewDirectoryFilePageDto'>> {
     return this.http.get(
       `/search-views/${encodeURIComponent(viewId)}/directories/${encodeURIComponent(directoryRef)}/files${queryString({ revision, cursor, limit })}`,
       signal,
     );
   }
 
-  getSearchViewAlbumGroups(viewId: string, revision: number | string, cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<SearchViewAlbumGroupPageDto> {
+  getSearchViewAlbumGroups(viewId: string, revision: number | string, cursor?: string | null, limit = searchDirectoryPageSize, signal?: AbortSignal): Promise<SearchViewAlbumGroupPageDto> {
     return this.http.get(
       `/search-views/${encodeURIComponent(viewId)}/album-groups${queryString({ revision, cursor, limit })}`,
       signal,
@@ -476,12 +479,12 @@ export class DaemonApiClient {
   }
 
   getSearchViewTrackGroupOptions(viewId: string, groupRef: string, revision: number | string,
-    cursor?: string | null, limit = defaultPageSize, signal?: AbortSignal): Promise<Schema<'SearchViewTrackGroupOptionPageDto'>> {
+    cursor?: string | null, limit = searchFilePageSize, signal?: AbortSignal): Promise<Schema<'SearchViewTrackGroupOptionPageDto'>> {
     return this.http.get(`/search-views/${encodeURIComponent(viewId)}/track-groups/${encodeURIComponent(groupRef)}/alternatives${queryString({ revision, cursor, limit })}`, signal);
   }
 
   getSearchViewAlbumGroupOptions(viewId: string, groupRef: string, revision: number | string,
-    cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<Schema<'SearchViewAlbumGroupOptionPageDto'>> {
+    cursor?: string | null, limit = searchDirectoryPageSize, signal?: AbortSignal): Promise<Schema<'SearchViewAlbumGroupOptionPageDto'>> {
     return this.http.get(`/search-views/${encodeURIComponent(viewId)}/album-groups/${encodeURIComponent(groupRef)}/alternatives${queryString({ revision, cursor, limit })}`, signal);
   }
 

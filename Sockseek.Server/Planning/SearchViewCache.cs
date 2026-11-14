@@ -151,6 +151,7 @@ public sealed record SearchViewTrackGroup(
     SongQuery Query,
     int ShareCount,
     long SelectableOptionCount,
+    long OptionCount,
     SearchViewFile Representative);
 
 public sealed record SearchViewTrackGroupPosition(
@@ -175,6 +176,7 @@ public sealed record SearchViewAlbumGroup(
     AlbumQuery Query,
     int ShareCount,
     long SelectableOptionCount,
+    long OptionCount,
     SearchViewDirectory Representative);
 
 public sealed record SearchViewAlbumGroupPosition(
@@ -252,10 +254,16 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         ImmutableSortedSet<SearchViewDirectoryFilePosition> Children,
         long PublicCount, long LockedCount, long KnownBytes, long UnknownSizes,
         Guid? ObservationId = null, ImmutableDictionary<string, long?>? RetrievedSizes = null);
-    internal sealed record TrackRow(SearchViewTrackGroup Value,
-        ImmutableSortedSet<SearchViewFilePosition> Options);
+    internal sealed class TrackRow(string reference, int index, SongQuery query, int shareCount,
+        long selectableOptionCount, SearchViewFile representative,
+        ImmutableSortedSet<SearchViewFilePosition> options)
+    {
+        public SearchViewTrackGroup Value { get; } = new(reference, index, query, shareCount,
+            selectableOptionCount, options.Count, representative);
+        public ImmutableSortedSet<SearchViewFilePosition> Options { get; } = options;
+    }
     internal sealed record AlbumRow(string Ref, int Index, AlbumQuery Query, int ShareCount,
-        long OptionCount, string Representative, ImmutableHashSet<string> Options);
+        long SelectableOptionCount, string Representative, ImmutableHashSet<string> Options);
 
 
     public SearchViewInfo Create(Guid sourceJobId, SearchViewDefinition definition, TimeSpan? retention = null, CancellationToken cancellationToken = default)
@@ -438,9 +446,9 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
                     options = options.Add(Position(file.Value, file.Key));
                     AddParent(next, file.Value.Ref, key);
                 }
-                next.Tracks = next.Tracks.SetItem(key, new(new(key, group.Index,
+                next.Tracks = next.Tracks.SetItem(key, new(key, group.Index,
                     old?.Value.Query ?? group.Query, group.ShareCount,
-                    group.SelectableOptionCount, RequireFile(next, summary, group.Representative.Input).Value), options));
+                    group.SelectableOptionCount, RequireFile(next, summary, group.Representative.Input).Value, options));
                 changedTracks.Add(key);
             }
             foreach (var group in update.ChangedAlbumGroups ?? [])

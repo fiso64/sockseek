@@ -200,6 +200,13 @@ namespace Sockseek.Core.Jobs;
         // workflow may contain several independently accepted follow-up
         // submissions, while every generated node belongs to exactly one of them.
         public Guid? SubmissionId { get; set; }
+        private JobRetention? retention;
+        public JobRetention Retention
+        {
+            get => retention ?? ((EffectivePrintOption & (PrintOption.Jobs | PrintOption.Results | PrintOption.Link | PrintOption.Json)) != 0
+                ? JobRetention.Memory : this is SearchJob ? JobRetention.SearchResults : JobRetention.History);
+            internal set => retention = value;
+        }
         public JobSemanticRole SemanticRole { get; set; } = JobSemanticRole.UserRoot;
         public DateTimeOffset? CreatedAtUtc { get; set; }
         public string? SubmissionSpecificationJson { get; set; }
@@ -417,6 +424,7 @@ namespace Sockseek.Core.Jobs;
             CanBeSkippedOverride  = src.CanBeSkippedOverride;
             WorkflowId            = src.WorkflowId;
             SubmissionId          = src.SubmissionId;
+            retention             = src.retention;
             SemanticRole          = src.SemanticRole;
             CreatedAtUtc          = src.CreatedAtUtc;
             RerunOfSubmissionId   = src.RerunOfSubmissionId;

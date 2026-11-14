@@ -1,4 +1,5 @@
 <script lang="ts">
+  import JobRow from './JobRow.svelte';
   import PageTabs from '../../components/PageTabs.svelte';
   import { keyboardList } from '../../lib/keyboard';
   import type { JobsTab } from './job-list.svelte';
@@ -9,15 +10,8 @@
   import type { DaemonLiveClient } from '../../api/live';
   import { updatedJob } from '../../api/state.svelte';
   import { jobStateSummary } from '../../api/job-summary';
-  import { formatCount } from '../../app/format';
-  import Icon from '../../components/Icon.svelte';
-  import { jobStatusLabel as status, jobStatusClass as statusClass } from './status';
-  import { jobKindIcon, jobKindLabel, searchJobMode } from './kind';
-  import { searchModeLabel } from '../search/model';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import { canDeleteRoot } from './deletion';
-  import { searchJobStats } from './search-stats';
-  import { automaticJobListStats } from './list-stats';
   import { presentedJobs, sortPresentedJobsNewestFirst, type PresentedJob } from './presentation';
   import { readJobSummaries, jobSummaryRetryIds, type JobSummaryRead } from './details';
 
@@ -130,14 +124,6 @@
     readVersions = versions;
   }
 
-  function importContext(entry: PresentedJob): string {
-    return entry.root.sourceDetail ?? 'Import';
-  }
-
-  function title(job: JobSummaryDto): string {
-    return job.itemName ?? job.queryText ?? `${jobKindLabel(job.kind)} #${job.displayId ?? '?'}`;
-  }
-
 </script>
 
 <section bind:this={section} class="page page-search redesigned-search-page" use:keyboardList={{
@@ -150,12 +136,16 @@
   loadPage: onloadmore,
 }}>
   <header class="page-heading search-list-heading jobs-list-heading">
-    <div><h1>Jobs</h1></div>
+    <div class="page-heading-title">
+      <h1>Jobs</h1>
+      <div class="page-heading-tabs">
+        <PageTabs variant="segmented" id="jobs-tab" label="Jobs" value={tab} onchange={ontabchange}
+          items={[{ id: 'searches', label: 'Searches' }, { id: 'downloads', label: 'Download jobs' }]} />
+      </div>
+    </div>
     <button type="button" class="new-job-button" onclick={onnew}><span>+</span> New job</button>
   </header>
 
-  <PageTabs id="jobs-tab" label="Jobs" value={tab} onchange={ontabchange}
-    items={[{ id: 'searches', label: 'Searches' }, { id: 'downloads', label: 'Download jobs' }]} />
   {#if submissionId}<div class="jobs-filter">Showing one download request <button type="button" onclick={onclearfilter}>Show all download jobs</button></div>{/if}
   <div role="tabpanel" id="jobs-tab-panel" aria-labelledby={`jobs-tab-${tab}`}>
   {#if error && ordered.length}
@@ -172,41 +162,11 @@
     <div class="search-history-list">
       {#each ordered as entry (entry.root.jobId)}
         {@const job = entry.job}
-        {@const unavailable = Boolean(entry.missingResultId || entry.error)}
         {@const entryError = presentationError(entry)}
-        {@const searchStats = job.kind === 'search' ? searchJobStats(job) : []}
-        {@const automaticStats = job.kind === 'search' ? [] : automaticJobListStats(job)}
-        {@const searchMode = searchJobMode(job)}
-        {@const typeLabel = entry.root.kind === 'extract' ? importContext(entry) : searchMode ? searchModeLabel(searchMode) : jobKindLabel(job.kind)}
-        {@const statusLabel = unavailable ? entryError ? 'Result unavailable' : 'Loading result' : status(job)}
-        <div data-keyboard-item={entry.root.jobId} tabindex="-1" class="search-history-row" class:automatic-history-row={job.kind !== 'search'}>
-          <button type="button" data-keyboard-focus class="search-history-open" class:automatic-history-open={job.kind !== 'search'} onclick={() => onopen(job)}>
-            <span class="search-history-icon" role="img" aria-label={typeLabel} title={typeLabel}><Icon name={searchMode ?? jobKindIcon(job.kind)} /></span>
-            <span class="search-history-query">{title(entry.root)}</span>
-            {#if statusLabel !== 'Complete'}
-              <span class={`search-status-badge ${unavailable ? 'pending' : statusClass(job)}`}><i></i>{statusLabel}</span>
-            {/if}
-            {#if searchStats.length || automaticStats.length}
-              <span class="search-history-stats">
-                {#each searchStats as stat, index}
-                  {#if index}<span class="stat-separator">·</span>{/if}
-                  <span><strong>{formatCount(stat.count)}</strong> {stat.label}</span>
-                {/each}
-                {#each automaticStats as stat, index}
-                  {#if index}<span class="stat-separator">·</span>{/if}
-                  <span>{stat}</span>
-                {/each}
-              </span>
-            {/if}
-          </button>
-          {#if !unavailable && job.availableActions?.some((action) => action.kind === 'cancel')}
-            <button type="button" class="search-history-remove" aria-label={`Cancel ${title(entry.root)}`} title="Cancel" onclick={() => oncancel(job)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 6l8 8M14 6l-8 8" /></svg></button>
-          {:else if !unavailable && job.lifecycleState === 'Terminal' && canDeleteRoot(entry.root)}
-            <button type="button" class="search-history-remove" disabled={deletingSubmissions.has(job.submissionId!)} aria-label={`Remove ${title(entry.root)}`} title="Remove submission from history" onclick={() => ondelete(job)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 6l8 8M14 6l-8 8" /></svg></button>
-          {:else if job.kind !== 'search'}
-            <span class="automatic-history-action-space" aria-hidden="true"></span>
-          {/if}
-        </div>
+        <JobRow {job} root={entry.root}
+          resultState={entryError ? 'unavailable' : entry.missingResultId ? 'loading' : undefined}
+          deleting={deletingSubmissions.has(job.submissionId!)}
+          {onopen} {oncancel} ondelete={canDeleteRoot(entry.root) ? ondelete : undefined} />
         {#if entryError}<div class="resource-state-notice unavailable" role="alert"><span>Import unavailable: {entryError.message}</span><button type="button" onclick={() => retry(entry)}>Retry</button></div>{/if}
       {/each}
     </div>

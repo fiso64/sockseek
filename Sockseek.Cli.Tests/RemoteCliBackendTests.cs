@@ -1139,6 +1139,14 @@ public class RemoteCliBackendTests
                 CancellationToken.None,
                 output);
 
+            var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
+            await supervisor.WaitForSubmissionExecutionAsync(summary.SubmissionId!.Value, CancellationToken.None);
+            var persistence = app.Services.GetRequiredService<Sockseek.Server.Persistence.PersistenceCoordinator>();
+            Assert.IsNull(await persistence.Submissions!.GetSpecificationJsonAsync(summary.SubmissionId.Value));
+            Assert.IsNull(await persistence.JobHistory!.GetJobAsync(summary.JobId));
+            Assert.IsNull(await persistence.SearchHistory!.GetMetadataAsync(summary.JobId));
+            Assert.HasCount(0, await backend.GetJobsAsync(new JobQuery(null, null, null, null, IncludeAll: true)),
+                "Transient print output must not appear in the ordinary Jobs list.");
             string rendered = output.ToString();
             if (mode == "song") StringAssert.Contains(rendered, "Results for Artist - Track One");
             StringAssert.Contains(rendered, "Artist - Track One.mp3");
@@ -1279,7 +1287,7 @@ public class RemoteCliBackendTests
     }
 
     [TestMethod]
-    public async Task RemotePrintJobs_UsesPagedPreviewAndDoesNotCreateRuntimeJobs()
+    public async Task RemotePrintJobs_UsesSharedExecutionAndReleasesTransientOutput()
     {
         string inputPath = Path.Combine(
             Path.GetTempPath(),
@@ -1297,7 +1305,7 @@ public class RemoteCliBackendTests
             Engine = new EngineSettings { LogLevel = LogLevel.None },
             DefaultDownload = new DownloadSettings(),
             Profiles = ProfileCatalog.Empty,
-        }, url);
+        }, url, enablePersistence: false);
 
         try
         {
@@ -1307,19 +1315,19 @@ public class RemoteCliBackendTests
             await backend.StartAsync();
             using var output = new StringWriter();
 
-            Sockseek.Cli.Program.CliExitCode exit = await Sockseek.Cli.Program.PrintRemoteJobPreviewAsync(
-                backend,
-                new SubmitExtractJobRequestDto(
-                    inputPath,
-                    InputType.CSV.ToString(),
+            var summary = await backend.SubmitExtractJobAsync(
+                new SubmitExtractJobRequestDto(inputPath, InputType.CSV.ToString(),
                     Options: new SubmissionOptionsDto(
                         DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(
-                            [inputPath, "--input-type", "csv", "--print", "jobs-full"])))),
-                PrintOption.Jobs | PrintOption.Full,
-                CancellationToken.None,
-                output);
-
-            Assert.AreEqual(Sockseek.Cli.Program.CliExitCode.Success, exit);
+                            [inputPath, "--input-type", "csv", "--print", "jobs-full"])))));
+            await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
+            await Sockseek.Cli.Program.PrintRemoteRequestedOutputAsync(backend, summary.WorkflowId,
+                new DownloadSettings { PrintOption = PrintOption.Jobs | PrintOption.Full },
+                CancellationToken.None, output);
+            using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
+            var api = new SockseekApiClient(http);
+            var released = await api.DeleteSubmissionAsync(summary.SubmissionId!.Value);
+            Assert.IsTrue(released.AffectedJobCount > 205);
             string rendered = output.ToString();
             StringAssert.Contains(rendered, "205 jobs:");
             StringAssert.Contains(rendered, "Artist:             Artist 0");

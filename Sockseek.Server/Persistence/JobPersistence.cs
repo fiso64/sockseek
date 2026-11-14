@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Collections.Concurrent;
 using Sockseek.Core;
 using Sockseek.Core.Events;
+using Sockseek.Core.Planning;
 using Sockseek.Core.Models;
 using Sockseek.Core.Snapshots;
 using Sockseek.Persistence.Write;
@@ -22,9 +23,10 @@ internal sealed class JobPersistence(
     internal void WriteJob(JobSnapshotHeader job, CoreChange change,
         PersistenceMutationPriority priority, Guid? parentJobId, Guid? sourceJobId, Guid? resultJobId)
     {
+        if (job.Retention == JobRetention.Memory) return;
         handoffs?.RegisterJob(job.WorkflowId, job.Id);
         var pending = pendingJobs.GetValueOrDefault(job.Id)
-            ?? new PendingJob(job.WorkflowId, null, null, null);
+            ?? new PendingJob(job.WorkflowId, job.Retention, null, null, null);
         pending = pending with
         {
             StartedAtUtc = pending.StartedAtUtc ?? (job.LifecycleState != JobLifecycleState.Pending ? change.OccurredAtUtc : null),
@@ -82,22 +84,31 @@ internal sealed class JobPersistence(
             job.AppliedProfiles.Count == 0 ? "[]" : JsonSerializer.Serialize(job.AppliedProfiles)));
     }
 
+    private bool RetainsResults(Guid jobId)
+        => pendingJobs.TryGetValue(jobId, out var job) && job.Retention == JobRetention.SearchResults;
+
     internal void WriteResults(SearchResultsAddedChange change)
-        => sink.TryEnqueue(new SearchResultsPersistenceMutation(
-            runtimeId, change.Sequence, change.OccurredAtUtc, change.JobId, change.Revision, change.Results));
+    {
+        if (RetainsResults(change.JobId))
+            sink.TryEnqueue(new SearchResultsPersistenceMutation(
+                runtimeId, change.Sequence, change.OccurredAtUtc, change.JobId, change.Revision, change.Results));
+    }
 
     // Update handoff metadata with the other accepted job facts under the state
     // owner's gate. Bounded raw admission below must happen outside that gate.
     internal void RecordSearchCompletion(SearchCompletedChange change)
     {
-        if (pendingJobs.TryGetValue(change.JobId, out var pending))
+        if (RetainsResults(change.JobId) && pendingJobs.TryGetValue(change.JobId, out var pending))
             pendingJobs[change.JobId] = pending with { SearchCompletionRevision = change.Revision };
     }
 
     internal void WriteSearchCompletion(SearchCompletedChange change)
-        => sink.TryEnqueue(new SearchCompletionPersistenceMutation(runtimeId, change.Sequence,
-            change.OccurredAtUtc, change.JobId, change.Revision, change.QueryText,
-            change.ResultCount, change.LockedFileCount, "Complete", change.ObservedPeerCount));
+    {
+        if (RetainsResults(change.JobId))
+            sink.TryEnqueue(new SearchCompletionPersistenceMutation(runtimeId, change.Sequence,
+                change.OccurredAtUtc, change.JobId, change.Revision, change.QueryText,
+                change.ResultCount, change.LockedFileCount, "Complete", change.ObservedPeerCount));
+    }
     internal void RetireWorkflow(Guid workflowId)
     {
         var entries = pendingJobs.Where(pair => pair.Value.WorkflowId == workflowId).ToArray();
@@ -114,7 +125,7 @@ internal sealed class JobPersistence(
 
     internal int RetainedJobCount => pendingJobs.Count;
 
-    private sealed record PendingJob(Guid WorkflowId, DateTimeOffset? StartedAtUtc,
+    private sealed record PendingJob(Guid WorkflowId, JobRetention Retention, DateTimeOffset? StartedAtUtc,
         long? TerminalRevision, long? SearchCompletionRevision);
 
 }

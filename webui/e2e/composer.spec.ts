@@ -442,9 +442,9 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   await expect(importRow).toBeVisible();
   await importRow.locator('.search-history-open').click();
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('browser-input');
-  await expect(page.locator('.job-child-row')).toHaveCount(1);
-  await expect(page.locator('.job-child-row')).toContainText('Fixture CSV Song');
-  await expect(page.locator('.job-child-row')).not.toContainText('Second CSV Song');
+  await expect(page.locator('[data-testid="job-row"]')).toHaveCount(1);
+  await expect(page.locator('[data-testid="job-row"]')).toContainText('Fixture CSV Song');
+  await expect(page.locator('[data-testid="job-row"]')).not.toContainText('Second CSV Song');
   const jobsResponse = await page.request.get(`/api/jobs?submissionId=${receipt.submissionId}&includeAll=true`);
   expect(jobsResponse.ok()).toBeTruthy();
   const jobs = await jobsResponse.json() as Schema<'JobSummaryDto'>[];
@@ -474,8 +474,8 @@ test('pages a CSV Review and commits an item beyond the first preview page', asy
   const root = page.locator('.search-history-row').filter({ hasText: 'paged-review.csv' });
   await expect(root).toBeVisible();
   await root.locator('.search-history-open').click();
-  await expect(page.locator('.job-child-row')).toHaveCount(1);
-  await expect(page.locator('.job-child-row')).toContainText('Paged Item 101');
+  await expect(page.locator('[data-testid="job-row"]')).toHaveCount(1);
+  await expect(page.locator('[data-testid="job-row"]')).toContainText('Paged Item 101');
 });
 
 

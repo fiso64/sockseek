@@ -1,10 +1,10 @@
 <script lang="ts">
-  import AppliedProfiles from '../../components/AppliedProfiles.svelte';
+  import JobRow from './JobRow.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import TransferStateLabel from '../../components/items/TransferStateLabel.svelte';
-  import { audioAttributes, basename, type FolderItemFile, type TransferPresentation } from '../presentation/items';
+  import { audioAttributes, type TransferPresentation } from '../presentation/items';
   import { daemonApi, defaultPageSize, nestedPageSize } from '../../api/client';
   import { DaemonApiError } from '../../api/http';
   import type { JobStateDto, JobSummaryDto, Schema } from '../../api/types';
@@ -15,11 +15,10 @@
   import { selectedJobFile, jobFileTransfer } from './selected-file';
   import { directoryManifestFileRow, directoryKnownSize } from './directory-files';
   import { canReuseJobDetail, jobDetailVersion, startJobDetailRefresh, readJobSummaries, jobSummaryRetryIds, type JobSummaryRead } from './details';
-  import { completedExtract, presentedChildren, resolvePresentedJob, extractSourceLabel } from './presentation';
-  import { jobHeaderStats } from './header-stats';
-  import { automaticJobListStats, automaticJobProgressPercent } from './list-stats';
-  import { jobStatusLabel, jobStatusClass, jobTransferTone, jobSkipExplanation } from './status';
-  import { jobKindIcon, jobKindLabel } from './kind';
+  import { completedExtract, presentedChildren, resolvePresentedJob } from './presentation';
+  import { jobDetailInfo } from './detail-info';
+  import { jobStatusLabel, jobStatusClass, jobTransferTone } from './status';
+  import { jobKindLabel } from './kind';
   import { canDeleteSubmission } from './deletion';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import { loadJobAncestors } from './ancestors';
@@ -44,6 +43,15 @@
   } = $props();
   let detail = $state.raw<Schema<'JobDetailDto'> | null>(null);
   let observedSource = $state<{ jobId: string; sourceId: string | null; available: boolean } | null>(null);
+  let sourceRead = $state.raw<JobSummaryRead | null>(null);
+  let sourceRetry = $state(0);
+  let job = $derived(detail?.summary);
+  let sourceJobAvailable = $derived(observedSource?.jobId === jobId && observedSource.sourceId === job?.sourceJobId
+    ? observedSource.available : detail?.sourceJobAvailable === true);
+  // Extracted results already navigate through their source during route resolution.
+  // Only independently submitted follow-ups expose provenance as a related job.
+  let sourceJobId = $derived(job?.jobId === jobId && sourceJobAvailable
+    && job.role === 'user-root' && !job.parentJobId ? job.sourceJobId : null);
   let payload = $derived(detail?.payload);
   let ancestors = $state<JobSummaryDto[]>([]);
   let parent = $derived(ancestors.at(-1) ?? null);
@@ -109,6 +117,7 @@
   let transferRetry = $state(0);
   let liveTransfers = $derived([...scopedTransfers.values()]);
   let observedJobIds = $derived([...new Set([jobId,
+    ...(sourceJobId ? [sourceJobId] : []),
     ...children.map(child => child.jobId).filter((id): id is string => Boolean(id)),
     ...retrievalChildren.map(child => child.jobId).filter((id): id is string => Boolean(id)),
     ...linkedChildren.keys(),
@@ -153,9 +162,19 @@
   let childRefreshPending = false;
   let loadedChildCount = $state<number | string | null>(null);
   let lifetime: AbortController;
-  let job = $derived(detail?.summary);
-  let sourceJobAvailable = $derived(observedSource?.jobId === jobId && observedSource.sourceId === job?.sourceJobId
-    ? observedSource.available : detail?.sourceJobAvailable === true);
+  let sourceJob = $derived(sourceJobId && liveJobsById.has(sourceJobId)
+    ? jobStateSummary(liveJobsById.get(sourceJobId)!)
+    : sourceRead?.summary?.jobId === sourceJobId ? sourceRead?.summary ?? null : null);
+  $effect(() => {
+    const id = sourceJobId;
+    sourceRetry;
+    sourceRead = null;
+    if (!id) return;
+    const request = new AbortController();
+    void readJobSummaries([id], (ids, signal) => daemonApi.getJobSummaries(ids, signal), request.signal)
+      .then(reads => { if (!request.signal.aborted) sourceRead = reads.get(id) ?? null; });
+    return () => request.abort();
+  });
   let parentJobId = $derived(job?.parentJobId);
   $effect(() => {
     const id = parentJobId;
@@ -171,6 +190,11 @@
     return () => request.abort();
   });
   let parentTitle = $derived(parent?.itemName ?? parent?.queryText ?? 'parent job');
+  // A song's album is context when no album job already supplies that breadcrumb.
+  let albumContext = $derived(payload?.kind === 'song' && payload.query.album
+    && !ancestors.some(ancestor => ancestor.kind === 'album'
+      || (ancestor.itemName ?? ancestor.queryText) === payload.query.album)
+    ? payload.query.album : null);
   let relatedTotal = $derived.by(() => {
     if (payload?.kind === 'album')
       return retrievalLoaded && !retrievalCursor && !retrievalError ? relatedRows.length : null;
@@ -181,13 +205,17 @@
     if (declared != null && (Number(declared) > 0 || !Number(detail?.childCount))) return Number(declared);
     return loadedChildCount != null && !cursor && !childError ? childRows.length : null;
   });
-  let showRelatedJobs = $derived(Boolean(detail) && (
+  let showRelatedChildren = $derived(Boolean(detail) && (
     payload?.kind === 'job-list' || payload?.kind === 'song-groups' || payload?.kind === 'album-groups'
     // Album Song children are file members in the folder card; only real
     // Retrieve Folder operations belong in its separate related-jobs list.
     || payload?.kind === 'album' && relatedRows.length > 0
     || payload?.kind === 'extract' && (Number(detail?.childCount) > 0 || children.length > 0)
   ));
+  let showRelatedJobs = $derived(showRelatedChildren && (relatedTotal !== 0 || loading || Boolean(childError)) || Boolean(sourceJobId));
+  let displayedRelatedRows = $derived(showRelatedChildren ? relatedRows : []);
+  let displayedRelatedTotal = $derived((showRelatedChildren ? relatedTotal ?? relatedRows.length : 0)
+    + (sourceJobId ? 1 : 0));
   let planStateLabel = $derived(manifest ? undefined : job?.lifecycleState === 'Terminal'
     ? 'The accepted file plan is not available for this job.'
     : manifestLoading ? 'Loading the accepted file plan…' : 'Waiting for the accepted file plan.');
@@ -216,7 +244,6 @@
     const successful = Number(payload.directory.successfulFileCount);
     return {
       job: job ?? undefined, directory: payload.directory,
-      detail: job?.failureMessage ?? undefined,
       state: job ? jobStatusLabel(job) : humanizeStateValue(payload.directory.phase),
       tone: job?.lifecycleState !== 'Terminal' ? 'active' : jobTransferTone(job),
       direction: 'download',
@@ -238,23 +265,11 @@
   let skippedOutput = $derived(job?.terminalOutcome !== 'Skipped' ? null
     : payload?.kind === 'song' ? payload.file : payload?.kind === 'album' ? payload.directory : null);
   let title = $derived(job?.itemName ?? job?.queryText ?? jobKindLabel(job?.kind));
-  let progress = $derived(payload?.kind === 'job-list'
-    && payload.succeededJobCount != null && payload.failedJobCount != null
-    ? { total: payload.count, completed: payload.completedJobCount, failed: payload.failedJobCount, skipped: payload.skippedJobCount ?? 0 }
-    : payload?.kind === 'song-groups'
-      && payload.succeededSongCount != null && payload.failedSongCount != null
-      ? { total: payload.songCount, completed: payload.completedSongCount, failed: payload.failedSongCount, skipped: payload.skippedSongCount ?? 0 }
-      : payload?.kind === 'album-groups'
-        && payload.succeededAlbumCount != null && payload.failedAlbumCount != null
-        ? { total: payload.resultCount, completed: payload.completedAlbumCount, failed: payload.failedAlbumCount, skipped: payload.skippedAlbumCount ?? 0 }
-      : null);
-  let outcomeCountsUnavailable = $derived(payload?.kind === 'job-list'
-    ? payload.succeededJobCount == null || payload.failedJobCount == null
-    : payload?.kind === 'song-groups'
-      ? payload.succeededSongCount == null || payload.failedSongCount == null
-      : payload?.kind === 'album-groups'
-        ? payload.succeededAlbumCount == null || payload.failedAlbumCount == null
-        : false);
+  let hasContent = $derived(Boolean(selectedFile) || payload?.kind === 'remote-directory'
+    || payload?.kind === 'album' && !skippedOutput && Boolean(payload.resolvedFolderPath || manifest));
+  let info = $derived(job ? jobDetailInfo(job, payload, hasContent) : null);
+  let detailTransfer = $derived(selectedFile ? jobFileTransfer(job, selectedFile.file, selectedFile.target, activeFileTransfer)
+    : folderTransfer ?? jobFileTransfer(job, payload?.kind === 'song' ? payload.file : null));
 
   function childOutcomes(value: Schema<'JobPayloadDto'> | null | undefined): string {
     if (value?.kind === 'job-list') return JSON.stringify([value.activeJobCount, value.completedJobCount, value.succeededJobCount, value.failedJobCount]);
@@ -582,24 +597,24 @@
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5M7.5 10H16" /></svg>
     </button>
     <div class="job-detail-title">
-      {#if job}
-        <div class="job-detail-meta">
-          <span class="job-detail-kicker">{#each ancestors as ancestor (ancestor.jobId)}<button type="button" onclick={() => onopenjob(ancestor)}>{ancestor.itemName ?? ancestor.queryText ?? 'Parent job'}</button><span>/</span>{/each}<span>{jobKindLabel(job.kind)}</span></span>
-          {#if job.sourceDetail}<span>{job.sourceDetail}</span>{/if}
-          {#if payload?.kind === 'song' && payload.query.album}<span>Album: <strong>{payload.query.album}</strong></span>{/if}
-          {#if job.sourceJobId && sourceJobAvailable && job.role === 'user-root' && !job.parentJobId}<span><button type="button" class="job-detail-source-link" aria-label="Open source job" onclick={() => onopenjob({ jobId: job!.sourceJobId! })}>Source job ↗</button></span>{/if}
-        </div>
-      {/if}
       <h1>{detail ? title : 'Job'}</h1>
     </div>
     {#if job}
+      <div class="job-detail-meta">
+        {#each ancestors as ancestor (ancestor.jobId)}
+          {@const name = ancestor.itemName ?? ancestor.queryText ?? 'Parent job'}
+          <button type="button" title={name} onclick={() => onopenjob(ancestor)}>{name}</button><span aria-hidden="true">/</span>
+        {/each}
+        {#if albumContext}<span>{albumContext}</span><span aria-hidden="true">/</span>{/if}
+        <span>{jobKindLabel(job.kind)}</span>
+      </div>
+    {/if}
+
+    {#if job}
       {@const statusLabel = jobStatusLabel(job)}
       <div class="job-detail-heading-summary">
-        {#each jobHeaderStats(payload) as stat}<span class="job-detail-header-fact">{stat}</span>{/each}
         {#if job.createdAtUtc}<span class="job-detail-header-fact job-detail-age"><RelativeTime timestamp={job.createdAtUtc} /></span>{/if}
-        {#if statusLabel !== 'Complete'}
-          <span class={`search-status-badge ${jobStatusClass(job)}`}><i></i>{statusLabel}</span>
-        {/if}
+        {#if !info && !hasContent}<TransferStateLabel transfer={detailTransfer} class={`search-status-badge ${jobStatusClass(job)}`}>{statusLabel}</TransferStateLabel>{/if}
         {#if job.availableActions?.some((action) => action.kind === 'cancel')}
           <button type="button" class="delete-search-button quiet-cancel" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
         {:else if canDeleteSubmission(job)}
@@ -608,7 +623,6 @@
       </div>
     {/if}
   </header>
-  {#if job?.appliedProfiles?.length}<dl class="job-detail-facts"><div><dt>Profiles</dt><dd class="job-profile-list"><AppliedProfiles profiles={job.appliedProfiles} /></dd></div></dl>{/if}
   {#if !detail && !error}<LoadingIndicator label="Loading job" blocking />{/if}
   {#if error}<div class="resource-state-notice unavailable" role="alert">{error.message}</div>{/if}
   {#if transferError}<div class="resource-state-notice unavailable" role="alert"><span>Live file progress unavailable: {transferError.message}</span><button type="button" onclick={() => transferRetry++}>Retry</button></div>{/if}
@@ -618,31 +632,35 @@
   {#if manifestError}<div class="resource-state-notice unavailable" role="alert"><span>Directory files unavailable: {manifestError.message}</span><button type="button" disabled={manifestLoading} onclick={() => void loadManifest(true)}>Retry</button></div>{/if}
   {#if actionError}<div class="resource-state-notice unavailable" role="alert">{actionError.message}</div>{/if}
   {#if deleteError}<div class="resource-state-notice unavailable" role="alert"><strong>Job action failed</strong><span>{deleteError.message}</span></div>{/if}
-  {#if job?.failureMessage}<div class="job-detail-empty"><strong>{job.failureMessage}</strong><span>{job.failureDetail ?? ''}</span></div>{/if}
-  {#if payload?.kind === 'extract'}
-    <dl class="job-detail-facts">
-      <div><dt>Source</dt><dd>{extractSourceLabel(payload.inputType)}</dd></div>
-      <div><dt>Input</dt><dd title={payload.input}>{payload.input}</dd></div>
-    </dl>
-    {#if payload.resultJobId}
-      <button type="button" class="job-child-load-more" onclick={() => onopenjob({ jobId: payload?.kind === 'extract' ? payload.resultJobId ?? undefined : undefined })}>Open extracted job</button>
-    {:else}
-      {#if job?.lifecycleState === 'Terminal'}
-        <div class="job-detail-empty"><strong>{job.terminalOutcome === 'Failed' ? 'Extraction failed' : 'No extracted job'}</strong><span>The source did not produce a job.</span></div>
-      {:else}
-        <LoadingIndicator label="Extracting source" blocking />
+  {#if info && job}
+    <section class="job-info-card" class:warning={job.terminalOutcome === 'PartialSuccess'} class:failed={job.terminalOutcome === 'Failed'} data-testid="job-info-card" aria-label="Job information">
+      {#if info.message || info.counts.length || !hasContent}
+        <div class="job-info-heading">
+          {#if info.busy}<LoadingIndicator label={jobStatusLabel(job)} />{/if}
+          {#if info.message || info.counts.length}
+            <div class="job-info-copy">
+              {#if info.message}<strong>{info.message}</strong>{/if}
+              {#if info.counts.length}<div class="job-info-counts">{#each info.counts as count}<span>{count}</span>{/each}</div>{/if}
+            </div>
+          {/if}
+          {#if !hasContent}<TransferStateLabel transfer={detailTransfer} class={`search-status-badge ${jobStatusClass(job)}`}>{jobStatusLabel(job)}</TransferStateLabel>{/if}
+        </div>
       {/if}
-    {/if}
-  {:else if payload?.kind === 'generic'}
-    <dl class="job-detail-facts"><div><dt>Detail</dt><dd>{payload.text}</dd></div></dl>
-  {:else if payload?.kind === 'retrieve-folder'}
-    <dl class="job-detail-facts">
-      <div><dt>From</dt><dd><UsernameLink username={payload.username} actions={userActions} /></dd></div>
-      <div><dt>Folder</dt><dd title={payload.folderPath}>{payload.folderPath}</dd></div>
-      <div><dt>Outcome</dt><dd>{humanizeStateValue(payload.retrievalOutcome)}</dd></div>
-      <div><dt>New files</dt><dd>{formatCount(payload.newFilesFoundCount)}</dd></div>
-    </dl>
-  {:else if selectedFile}
+      {#if info.progress}
+        <div class="job-info-progress" role="progressbar" aria-label="Jobs finished" aria-valuemin={0} aria-valuemax={info.progress.total} aria-valuenow={info.progress.completed}>
+          <i style={`width:${info.progress.percent}%`}></i>
+        </div>
+      {/if}
+      {#if info.facts.length}
+        <dl class="job-info-facts">{#each info.facts as fact}<div><dt>{fact.label}</dt><dd>{#if fact.peer}<UsernameLink username={fact.value} actions={userActions} />{:else}{fact.value}{/if}</dd></div>{/each}</dl>
+      {/if}
+      {#if info.note}<p class="job-info-note">{info.note}</p>{/if}
+    </section>
+  {/if}
+  {#if payload?.kind === 'extract' && payload.resultJobId && !showRelatedChildren}
+    <button type="button" class="job-child-load-more" onclick={() => onopenjob({ jobId: payload?.kind === 'extract' ? payload.resultJobId ?? undefined : undefined })}>Open extracted job</button>
+  {/if}
+  {#if selectedFile}
     {@const target = selectedFile.target}
     {@const file = selectedFile.file}
     <section class="job-content-section">
@@ -659,35 +677,13 @@
         audio={audioAttributes(target)}
         transfer={jobFileTransfer(job, file, target, activeFileTransfer)} />
     </section>
-  {:else if skippedOutput}
-    <section class="job-content-section">
-      <div class="job-detail-empty"><strong>{jobSkipExplanation(job, skippedOutput.existingFileSource)}</strong></div>
-      {#if skippedOutput.downloadPath}
-        <dl class="job-detail-facts"><div><dt>Existing path</dt><dd title={skippedOutput.downloadPath}>{skippedOutput.downloadPath}</dd></div></dl>
-      {/if}
-      {#if payload?.kind === 'song'}<TransferStateLabel transfer={jobFileTransfer(job, payload.file)} />
-      {:else if folderTransfer}<TransferStateLabel transfer={folderTransfer} />{/if}
-    </section>
-  {:else if payload?.kind === 'song'}
-    {#if job?.lifecycleState === 'Terminal'}
-      <div class="job-detail-empty"><strong>{job.terminalOutcome === 'Failed' ? 'No matching file' : 'No selected file'}</strong><span>{job.terminalOutcome === 'Failed' ? 'No candidate satisfied this job.' : job.skipReason && job.skipReason !== 'None' ? humanizeStateValue(job.skipReason) : jobStatusLabel(job)}</span></div>
-    {:else}
-      <LoadingIndicator label="Finding a file" blocking />
-    {/if}
-    <TransferStateLabel transfer={jobFileTransfer(job, payload.file)} />
-  {:else if payload?.kind === 'album'}
+  {:else if payload?.kind === 'album' && !skippedOutput}
     {#if payload.resolvedFolderPath || manifest}
       <section class="job-content-section">
         {#if payload.resolvedFolderUsername}<div class="job-source-heading"><div class="job-source-summary"><span class="job-source-identity">From: <UsernameLink username={payload.resolvedFolderUsername} actions={userActions} /></span></div></div>{/if}
         <FolderItemCard path={(payload.resolvedFolderPath ?? manifest?.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} />
         {#if moreFolderFiles}<button type="button" class="job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
       </section>
-    {:else}
-      {#if job?.lifecycleState === 'Terminal'}
-        <div class="job-detail-empty"><strong>Folder details unavailable</strong><span>No selected folder plan is available for this job.</span></div>
-      {:else}
-        <LoadingIndicator label="Finding an album" blocking />
-      {/if}
     {/if}
   {:else if payload?.kind === 'remote-directory'}
     <section class="job-content-section">
@@ -695,49 +691,35 @@
       <FolderItemCard path={(payload.sourceFolderPath ?? manifest?.displayRoot ?? payload.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} />
       {#if moreFolderFiles}<button type="button" class="job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
     </section>
-  {:else if payload && payload.kind !== 'job-list' && payload.kind !== 'song-groups' && payload.kind !== 'album-groups'}
-    <div class="resource-state-notice unavailable">This job's detailed result presentation is not connected yet.</div>
-  {/if}
-  {#if progress}
-    <section class="job-run-progress" aria-label={`${progress.completed} of ${progress.total} complete`}>
-      <div class="job-run-progress-copy"><strong>{formatCount(progress.completed)} of {formatCount(progress.total)} complete</strong><span>{Number(progress.skipped) ? `${formatCount(progress.skipped)} skipped · ` : ''}{Number(progress.failed) ? `${formatCount(progress.failed)} failed · ` : ''}{formatCount(Math.max(0, Number(progress.total) - Number(progress.completed)))} remaining</span></div>
-      <div class="job-run-progress-track"><i style={`width:${Number(progress.total) > 0 ? Number(progress.completed) / Number(progress.total) * 100 : 0}%`}></i></div>
-    </section>
-  {/if}
-  {#if outcomeCountsUnavailable}
-    <div class="resource-state-notice degraded" role="status"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Outcome counts unavailable</strong><small>This job has no retained outcome totals; loaded children may be incomplete.</small></span></div>
   {/if}
   {#if showRelatedJobs}
     <section class="job-related-section">
-      <header class="job-section-heading"><h2>{payload?.kind === 'extract' ? 'Result' : payload?.kind === 'song-groups' ? 'Generated songs' : payload?.kind === 'album-groups' ? 'Generated albums' : payload?.kind === 'album' ? 'Related jobs' : 'Jobs'}</h2>
-        <span>{formatCount(relatedTotal ?? relatedRows.length)} {relatedTotal == null ? 'loaded ' : ''}{(relatedTotal ?? relatedRows.length) === 1 ? 'job' : 'jobs'}</span>
+      <header class="job-section-heading"><h2>{sourceJobId ? 'Related jobs' : payload?.kind === 'extract' ? 'Result' : payload?.kind === 'song-groups' ? 'Generated songs' : payload?.kind === 'album-groups' ? 'Generated albums' : payload?.kind === 'album' ? 'Related jobs' : 'Jobs'}</h2>
+        {#if !info?.counts.length || sourceJobId}<span>{formatCount(displayedRelatedTotal)} {showRelatedChildren && relatedTotal == null ? 'loaded ' : ''}{displayedRelatedTotal === 1 ? 'job' : 'jobs'}</span>{/if}
       </header>
       <div class="job-child-list">
-        {#each relatedRows as entry (entry.job.jobId)}
+        {#if sourceJobId}
+          {#if sourceJob}
+            <JobRow job={sourceJob} onopen={onopenjob} />
+          {:else if sourceRead}
+            <div class="resource-state-notice unavailable" role="alert"><span>Source job unavailable: {sourceRead.error?.message ?? 'The source job is no longer retained.'}</span><button type="button" onclick={() => sourceRetry++}>Retry</button></div>
+          {:else}
+            <LoadingIndicator label="Loading related job" />
+          {/if}
+        {/if}
+        {#each displayedRelatedRows as entry (entry.job.jobId)}
           {@const child = entry.job}
-          {@const unavailable = Boolean(entry.missingResultId || entry.error)}
-          {@const childTitle = child.itemName ?? child.queryText ?? jobKindLabel(child.kind)}
-          {@const childStats = automaticJobListStats(child)}
-          {@const percent = child.jobId && (child.kind === 'song' || child.kind === 'remote-file')
-            ? childFileProgress.get(child.jobId) : automaticJobProgressPercent(child)}
-          <div class="job-child-row" class:has-progress={percent !== undefined}>
-            <button type="button" class="job-child-open" onclick={() => onopenjob(child)}>
-              <span class="job-child-icon"><Icon name={jobKindIcon(child.kind)} /></span>
-              <span class="job-child-copy"><strong>{childTitle}</strong><small>{jobKindLabel(child.kind)}{#if child.createdAtUtc}{' · '}<RelativeTime timestamp={child.createdAtUtc} />{/if}</small></span>
-              <span class="job-child-meta">{#if childStats.length}<span class="job-child-stat">{childStats[0]}</span><span class="stat-separator">·</span>{/if}<span class={`search-status-badge ${unavailable ? 'pending' : jobStatusClass(child)}`}><i></i>{unavailable ? 'Result unavailable' : jobStatusLabel(child)}</span></span>
-              {#if percent !== undefined}<span class="job-child-progress" aria-label={`${Math.round(percent)}% complete`}><i style={`width:${percent}%`}></i></span>{/if}
-            </button>
-            {#if !unavailable && child.jobId && child.availableActions?.some((action) => action.kind === 'cancel')}
-              <button type="button" class="job-row-action" aria-label={`Cancel ${childTitle}`} title="Cancel" onclick={() => void cancel(child.jobId)}><Icon name="x" /></button>
-            {:else if !unavailable && canDeleteSubmission(child)}
-              <button type="button" class="job-row-action" aria-label={`Remove ${childTitle}`} title="Remove submission from history" disabled={deletingSubmissions.has(child.submissionId!)} onclick={() => ondelete(child)}><Icon name="x" /></button>
-            {/if}
-          </div>
+          <JobRow job={child} root={entry.root}
+            resultState={entry.error || entry.missingResultId && linkedChildren.has(entry.missingResultId)
+              ? 'unavailable' : entry.missingResultId ? 'loading' : undefined}
+            progressPercent={child.jobId ? childFileProgress.get(child.jobId) : undefined}
+            deleting={deletingSubmissions.has(child.submissionId!)}
+            onopen={onopenjob} oncancel={job => void cancel(job.jobId)} {ondelete} />
           {#if entry.error || entry.missingResultId && linkedChildren.has(entry.missingResultId)}
             <div class="resource-state-notice unavailable" role="alert"><span>Extracted result unavailable: {entry.error?.message ?? linkedChildren.get(entry.missingResultId!)?.error?.message ?? 'The linked job is not retained.'}</span>{#if entry.missingResultId}<button type="button" onclick={() => void retryChildResult(entry.missingResultId!)}>Retry</button>{/if}</div>
           {/if}
         {:else}
-          {#if !loading && !cursor && !childError}
+          {#if !sourceJobId && !loading && !cursor && !childError}
             <div class="job-detail-empty"><strong>No child jobs</strong></div>
           {/if}
         {/each}

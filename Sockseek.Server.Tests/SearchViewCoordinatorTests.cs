@@ -76,7 +76,9 @@ public sealed class SearchViewCoordinatorTests
             // second durable source or a promise that every observed row committed.
             command.CommandText = "UPDATE search_jobs SET is_complete=1,result_persistence_state='Incomplete' WHERE job_id=$source;";
             await command.ExecuteNonQueryAsync();
-            await using var restarted = global::Tests.TestServerHost.Build([], Options(directory, ControllableSearchClientProxy.Create().Client), "http://127.0.0.1:0");
+            var replayOptions = Options(directory, ControllableSearchClientProxy.Create().Client);
+            replayOptions.Persistence.SearchResultFlushCount = 2;
+            await using var restarted = global::Tests.TestServerHost.Build([], replayOptions, "http://127.0.0.1:0");
             await restarted.StartAsync();
             try
             {
@@ -84,6 +86,7 @@ public sealed class SearchViewCoordinatorTests
                 var fresh = (await historical.CreateAsync(source.JobId, new(ServerSearchViewProjectionKind.Files,
                     new SongQueryDto(Title: "Track"), IncludeFullResults: true), CancellationToken.None))!;
                 var retained = await WaitForConditionViewAsync(historical, fresh.ViewId, value => value.IsComplete, () => { });
+                Assert.AreEqual(1L, retained.Revision, "A complete full batch must not need an empty follow-up publication.");
                 Assert.AreEqual(SearchViewRetentionState.Incomplete, retained.RetentionState);
                 var files = (historical.GetFiles(retained.ViewId, retained.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items;
                 CollectionAssert.AreEquivalent(new[] { @"Music\Track-1.flac", @"Music\Track-3.flac" },

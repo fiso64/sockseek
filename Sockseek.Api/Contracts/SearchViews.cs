@@ -154,6 +154,7 @@ public sealed record SearchViewTrackGroupDto(
     SongQueryDto Query,
     int ShareCount,
     long SelectableOptionCount,
+    long OptionCount,
     SearchViewFileDto Representative);
 
 public sealed record SearchViewTrackGroupPageDto(
@@ -172,6 +173,7 @@ public sealed record SearchViewAlbumGroupDto(
     AlbumQueryDto Query,
     int ShareCount,
     long SelectableOptionCount,
+    long OptionCount,
     SearchViewDirectoryDto Representative);
 
 public sealed record SearchViewAlbumGroupPageDto(

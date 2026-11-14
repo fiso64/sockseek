@@ -30,9 +30,11 @@ export function soulseekStatusLabel(
   return values.length ? values.map(humanizeStateValue).join(', ') : 'None';
 }
 
+const countFormatter = new Intl.NumberFormat();
+
 export function formatCount(value: number | string | null | undefined): string {
-  if (typeof value === 'string' && /^-?\d+$/.test(value)) return BigInt(value).toLocaleString();
-  return Number(value ?? 0).toLocaleString();
+  if (typeof value === 'string' && /^-?\d+$/.test(value)) return countFormatter.format(BigInt(value));
+  return countFormatter.format(Number(value ?? 0));
 }
 
 export function formatCountWithNoun(value: number | string | null | undefined, singular: string, plural = `${singular}s`): string {

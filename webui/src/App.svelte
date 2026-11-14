@@ -86,7 +86,8 @@
   let liveStatus = $state<LiveConnectionStatus>('connecting');
   let liveError = $state<Error | null>(null);
   const liveState = liveClient.reducer.state;
-  let searchState = $state<SearchViewState>(searchController.current());
+  // The controller publishes replacement snapshots; result DTOs need no deep proxies.
+  let searchState = $state.raw<SearchViewState>(searchController.current());
   let deletingSubmissionIds = $state(new Set<string>());
   let deferSearchRender = $state(false);
   let searchRenderFrame: number | null = null;
@@ -581,11 +582,18 @@
           onremove={() => void removeActiveSearch()}
           searchAgainAvailable={canRerunSearch}
           searchAgainPending={rerunningSearch}
-          isselected={(ref, parentRef) => searchController.isSelected(ref, parentRef)}
+          isselected={(ref, parentRef) => {
+            // Controller queries must react to each published selection snapshot.
+            searchState;
+            return searchController.isSelected(ref, parentRef);
+          }}
           selectedCount={selectedSearchCount}
           ontoggle={(ref, selected, parentRef) => searchController.toggle(ref, selected, parentRef)}
           onselectfolder={(directoryRef, relativePath, selected) => searchController.toggleDirectoryPath(directoryRef, relativePath, selected)}
-          isfolderselected={(directoryRef, relativePath) => searchController.isDirectoryPathSelected(directoryRef, relativePath)}
+          isfolderselected={(directoryRef, relativePath) => {
+            searchState;
+            return searchController.isDirectoryPathSelected(directoryRef, relativePath);
+          }}
           onselectall={(selected) => searchController.selectAll(selected)}
           ondownload={(options) => void searchController.commit(options)}
           onresolvesettings={(options) => searchController.resolveSelectionSettings(options)}
@@ -597,6 +605,7 @@
           onloaddirectory={(ref) => void searchController.loadDirectoryFiles(ref)}
           onretrievedirectory={(ref) => void searchController.retrieveDirectory(ref)}
           onopenoptions={(ref) => void searchController.openGroupOptions(ref)}
+          onstepoption={(ref, direction) => void searchController.stepGroupOption(ref, direction)}
           oncloseoptions={() => searchController.closeGroupOptions()}
           onloadoptions={() => void searchController.loadMoreGroupOptions()}
           onchooseoption={(ref, option) => searchController.chooseGroupOption(ref, option)}

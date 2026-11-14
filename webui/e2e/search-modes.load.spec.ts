@@ -793,8 +793,8 @@ for (const mode of modes) {
         expect(heldRootApiMs, 'Automatic root metadata must not wait for peer indexing or held transfers.').toBeLessThan(100);
         if (group) {
           await expect(page.getByRole('heading', { name: 'Generated albums', exact: true })).toBeVisible();
-          await expect(page.locator('.job-child-row')).toHaveCount(10);
-          await expect(page.locator('.job-child-copy small')).toHaveText(Array(10).fill(/^Album ·/));
+          await expect(page.locator('[data-testid="job-row"]')).toHaveCount(10);
+          await expect(page.locator('[data-testid="job-row"][data-job-kind="album"]')).toHaveCount(10);
           await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
         } else {
           await expect(page.locator('.folder-item-card .folder-file-row')).toHaveCount(11, { timeout: 30_000 });

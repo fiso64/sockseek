@@ -73,6 +73,7 @@ public sealed class SubmissionCommitCoordinator(
     {
         var started = Stopwatch.StartNew();
         ISubmissionStore? store = persistence.Submissions;
+        bool durablyAccepted = false;
         try
         {
             if (store != null)
@@ -84,6 +85,7 @@ public sealed class SubmissionCommitCoordinator(
                 {
                     if (!StringComparer.Ordinal.Equals(existing.CommitFingerprint, fingerprint))
                         throw new IdempotencyConflictException();
+                    durablyAccepted = true;
                     return existing.CommitReceiptJson
                         ?? throw new InvalidOperationException(
                             "The submission was accepted but its commit receipt is not yet available.");
@@ -95,6 +97,10 @@ public sealed class SubmissionCommitCoordinator(
                 .ConfigureAwait(false);
             long receiptStartMs = started.ElapsedMilliseconds;
             string receiptJson = SerializeReceipt(receipt!);
+            // A valid print-only or empty selection has no durable submission.
+            // Confirm ownership before dropping the single-flight receipt.
+            durablyAccepted = store != null && await store.GetCommitReceiptAsync(
+                idempotencyKey, CancellationToken.None).ConfigureAwait(false) != null;
             long durationMs = started.ElapsedMilliseconds;
             ServerLogMessages.SubmissionCommitCompleted(log, idempotencyKey, durationMs);
             ServerLogMessages.SubmissionCommitTiming(log, idempotencyKey,
@@ -103,9 +109,9 @@ public sealed class SubmissionCommitCoordinator(
         }
         finally
         {
-            // Durable acceptance already owns the receipt. Keep only in-flight
-            // work here, including when its original HTTP caller disconnected.
-            if (store != null) entries.TryRemove(idempotencyKey, out _);
+            // Durable acceptance owns ordinary receipts; transient responses use
+            // this owner's existing bounded lifetime, including disconnected callers.
+            if (durablyAccepted) entries.TryRemove(idempotencyKey, out _);
         }
     }
 

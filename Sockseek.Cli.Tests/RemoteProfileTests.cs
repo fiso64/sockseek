@@ -218,10 +218,10 @@ public class RemoteProfileTests
                 var previewExit = await Sockseek.Cli.Program.Main([.. args, "--print", "jobs"])
                     .WaitAsync(TimeSpan.FromSeconds(15));
                 Assert.AreEqual((int)Sockseek.Cli.Program.CliExitCode.Success, previewExit, stderr.ToString());
-                Assert.IsNotNull(previewRequest);
-                Assert.IsNull(((ExtractJobDraftDto)previewRequest.Job).Input,
-                    "Review must let the daemon resolve its profile input, just like direct submission.");
-                Assert.IsNull(submittedRequest, "Printing a preview must not submit runtime work.");
+                Assert.IsNull(previewRequest, "Printing uses the shared execution path, not a database-backed preview.");
+                Assert.IsNotNull(submittedRequest);
+                Assert.IsNull(submittedRequest.Input, "Print must let the daemon resolve its profile input.");
+                completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 stdout.GetStringBuilder().Clear();
             }
             var exit = await Sockseek.Cli.Program.Main(args.ToArray()).WaitAsync(TimeSpan.FromSeconds(15));
@@ -252,7 +252,8 @@ public class RemoteProfileTests
             var source = (ExtractJobPayloadDto)detail.Payload!;
             if (explicitInput)
             {
-                Assert.IsNotNull(submittedRequest.ArtifactId);
+                Assert.IsNull(submittedRequest.ArtifactId);
+                Assert.AreEqual(await File.ReadAllTextAsync(overrideInput), submittedRequest.InputText);
                 var accepted = await api.GetSubmissionAsync(summary.SubmissionId!.Value);
                 Assert.IsNotNull(accepted);
                 Assert.AreEqual(submittedRequest.ArtifactId, accepted.Summary.ArtifactId);

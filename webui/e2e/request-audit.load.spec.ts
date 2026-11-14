@@ -432,12 +432,12 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
   const root = JSON.parse(accepted.body) as Schema<'JobSummaryDto'>;
   const navigation = performance.now();
   await page.goto(`/jobs/${root.jobId}`);
-  await expect(page.locator('.job-child-open').filter({ hasText: 'Large directory' })).toBeVisible();
+  await expect(page.locator('[data-testid="job-open"]').filter({ hasText: 'Large directory' })).toBeVisible();
   const rootNavigationMs = Math.round(performance.now() - navigation);
   const displayTiming = await page.evaluateHandle(() => {
     let clickedAt: number | null = null, readyMs: number | null = null;
     const clicked = (event: MouseEvent) => {
-      if ((event.target as Element)?.closest('.job-child-open')) clickedAt ??= performance.now();
+      if ((event.target as Element)?.closest('[data-testid="job-open"]')) clickedAt ??= performance.now();
     };
     document.addEventListener('click', clicked, true);
     const observer = new MutationObserver(() => {
@@ -448,7 +448,7 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
     return { finish: () => { observer.disconnect(); document.removeEventListener('click', clicked, true); return readyMs; } };
   });
   const opening = performance.now();
-  await page.locator('.job-child-open').filter({ hasText: 'Large directory' }).click();
+  await page.locator('[data-testid="job-open"]').filter({ hasText: 'Large directory' }).click();
   const directoryId = new URL(page.url()).pathname.split('/').at(-1)!;
   const folder = page.locator('.folder-item-card');
   await expect(folder.locator('.folder-file-row')).toHaveCount(500);

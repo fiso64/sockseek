@@ -370,7 +370,7 @@ public sealed class SockseekApiClient
         Guid viewId,
         long revision,
         string? cursor = null,
-        int limit = ServerProtocol.DefaultNestedPageSize,
+        int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewTrackGroupPageDto>(
             $"api/search-views/{viewId}/track-groups"

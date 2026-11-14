@@ -179,7 +179,7 @@ static string ToPlainText(string markdown)
                 break;
 
             case ListBlock list:
-                var listCounter = 0;
+                var listCounter = list.IsOrdered && int.TryParse(list.OrderedStart, out int start) ? start - 1 : 0;
                 foreach (var item in list)
                 {
                     listCounter++;

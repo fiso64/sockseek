@@ -9,6 +9,7 @@
   import type { BrowseDirectoryEntryDto, BrowseFileEntryDto, BrowseSearchPageDto, Schema } from '../../api/types';
   import { formatBytes, formatCount } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
+  import LockedIndicator from '../../components/LockedIndicator.svelte';
   import ResultFilterControl from '../../components/ResultFilterControl.svelte';
   import SelectionToolbar from '../../components/SelectionToolbar.svelte';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
@@ -49,7 +50,6 @@
   // Retain only selected entries and their ancestors across filtered page changes.
   let selectedParents = $state<Map<string, string | null>>(saved?.selectedParents ?? new Map());
   let selectedDirectoryCounts = $state<Map<string, number>>(saved?.selectedDirectoryCounts ?? new Map());
-  let selectedDirectoryTotals = $state<Map<string, number>>(saved?.selectedDirectoryTotals ?? new Map());
   let selectedFileIsPublic = $state<Map<string, boolean>>(saved?.selectedFileIsPublic ?? new Map());
   let optionsOpen = $state(false);
   let optionsLoading = $state(false);
@@ -99,10 +99,7 @@
     return entries;
   });
   let selectionProjection = $derived(projectSelection(selected, excludedSelection, selectionParent, selectionSize));
-  let publicSelectionProjection = $derived(projectSelection(selected, excludedSelection, selectionParent, publicSelectionSize));
   let selectedCount = $derived(selectionProjection.total);
-  let downloadableCount = $derived(publicSelectionProjection.total);
-  let lockedCount = $derived(Math.max(0, selectedCount - downloadableCount));
   $effect(() => {
     const query = filterText.trim();
     const browseId = browse.browseId;
@@ -136,7 +133,7 @@
       directories, childDirectoryIds, filesByDirectory,
       pageStates: new Map([...pageStates].map(([key, page]) => [key, { ...page, loading: false }])),
       expanded, filterText, filterKey, filterPage, filterItems, collapsedFiltered,
-      selected, excludedSelection, selectedParents, selectedDirectoryCounts, selectedDirectoryTotals, selectedFileIsPublic,
+      selected, excludedSelection, selectedParents, selectedDirectoryCounts, selectedFileIsPublic,
     };
   });
   $effect(() => {
@@ -150,7 +147,6 @@
     excludedSelection = new Set();
     selectedParents = new Map();
     selectedDirectoryCounts = new Map();
-    selectedDirectoryTotals = new Map();
     selectedFileIsPublic = new Map();
     mutation = { phase: 'idle' };
     commitKey = null;
@@ -246,6 +242,7 @@
   }
 
   function toggleSelection(key: string, checked: boolean): void {
+    if (checked && selectionSize(key) === 0) return;
     const inherited = hasSelectedAncestor(key);
     const next = new Set(selected);
     const exclusions = new Set(excludedSelection);
@@ -277,12 +274,6 @@
       Number(directories.get(key.slice(2))?.recursiveFileCount
         ?? filterDirectory(key)?.publicSubtreeFileCount ?? selectedDirectoryCounts.get(key) ?? 0),
     ]));
-    selectedDirectoryTotals = new Map([...next, ...excludedSelection].filter(key => key.startsWith('d:')).map(key => [key,
-      Number(directories.get(key.slice(2))?.totalRecursiveFileCount
-        ?? filterDirectory(key)?.totalSubtreeFileCount
-        ?? selectedDirectoryTotals.get(key)
-        ?? selectedDirectoryCounts.get(key) ?? 0),
-    ]));
     selectedFileIsPublic = new Map([...next, ...excludedSelection].filter(key => key.startsWith('f:')).map(key => [key,
       loadedFiles.get(key.slice(2))?.isPublic
         ?? (filteredEntries.get(key) ? filteredEntries.get(key)!.visibility === 'public' : undefined)
@@ -293,17 +284,6 @@
   }
 
   function selectionSize(key: string): number {
-    return key.startsWith('d:')
-      ? Number(directories.get(key.slice(2))?.totalRecursiveFileCount
-        ?? filterDirectory(key)?.totalSubtreeFileCount
-        ?? selectedDirectoryTotals.get(key)
-        ?? directories.get(key.slice(2))?.recursiveFileCount
-        ?? filterDirectory(key)?.publicSubtreeFileCount
-        ?? selectedDirectoryCounts.get(key) ?? 0)
-      : 1;
-  }
-
-  function publicSelectionSize(key: string): number {
     if (key.startsWith('d:')) return Number(directories.get(key.slice(2))?.recursiveFileCount
       ?? filterDirectory(key)?.publicSubtreeFileCount ?? selectedDirectoryCounts.get(key) ?? 0);
     const filtered = filteredEntries.get(key);
@@ -350,6 +330,7 @@
   }
 
   function isSelectionChecked(key: string): boolean {
+    if (selectionSize(key) === 0) return false;
     if (!key.startsWith('d:')) return !excludedSelection.has(key) && (selected.has(key) || hasSelectedAncestor(key));
     const total = selectionSize(key);
     return total > 0 && selectedSize(key) === total;
@@ -385,7 +366,7 @@
       ? { kind: 'directory' as const, directoryId: key.slice(2) }
       : { kind: 'file' as const, fileId: key.slice(2) });
     const requestId = commitKey ??= randomUUID();
-    mutation = { phase: 'pending', label: `Requesting ${downloadableCount} shared file${downloadableCount === 1 ? '' : 's'}…` };
+    mutation = { phase: 'pending', label: `Requesting ${selectedCount} shared file${selectedCount === 1 ? '' : 's'}…` };
     try {
       const response = await source.download(requestId, selections, [...excludedSelection].filter(key => key.startsWith('f:')).map(key => key.slice(2)), [...excludedSelection].filter(key => key.startsWith('d:')).map(key => key.slice(2)), downloadOptions);
       // Selection changes invalidate the receipt's presentation, not the accepted
@@ -450,9 +431,8 @@
             <span class="shares-filter-count">{formatCount(matchingCount)} matching {matchingCount === 1 ? 'file' : 'files'}</span>
           {/if}
         </div>
-        {#if source.download}<SelectionToolbar {selectedCount} floatingLabel={`Download ${downloadableCount}`}
-          detail={lockedCount ? `${selectedCount} selected · ${lockedCount} locked` : undefined}
-          actionDisabled={downloadableCount === 0 || mutation.phase === 'pending' || optionsLoading || Boolean(optionsError)}
+        {#if source.download}<SelectionToolbar {selectedCount} floatingLabel={`Download ${selectedCount}`}
+          actionDisabled={selectedCount === 0 || mutation.phase === 'pending' || optionsLoading || Boolean(optionsError)}
           optionsOpen={optionsOpen} optionsCustomized={Object.keys(downloadOptions).length > 0} onoptions={toggleOptions}
           onclear={clearSelection} onaction={() => void downloadSelection()}/>{/if}
 
@@ -488,23 +468,23 @@
                 {#if item.kind === 'directory'}
                   {@const count = Number(item.totalSubtreeFileCount ?? item.publicSubtreeFileCount ?? 0)}
                   <div data-keyboard-item={key} tabindex="-1" class="share-tree-row folder" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
-                    {#if source.download}<input type="checkbox" use:indeterminate={isFolderPartial(key)} aria-label={`Select ${item.displayPath}`} checked={isSelectionChecked(key)}  onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>{/if}
+                    {#if item.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" use:indeterminate={isFolderPartial(key)} aria-label={`Select ${item.displayPath}`} checked={isSelectionChecked(key)}  onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>{/if}
                     <button type="button" class="share-tree-folder-button" aria-label={`${collapsedFiltered.has(String(item.entryId)) ? 'Expand' : 'Collapse'} ${item.name}`} aria-expanded={!collapsedFiltered.has(String(item.entryId))} onclick={() => toggleFilteredDirectory(String(item.entryId))}>
                       <span class="share-tree-toggle" class:expanded={!collapsedFiltered.has(String(item.entryId))} aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></span>
                       <span class="share-tree-icon"><Icon name="folder"/></span>
                       <strong class="share-tree-name" title={item.displayPath}>{item.name}</strong>
-                      {#if item.visibility !== 'public'}<span class={`share-visibility ${item.visibility}`}>{item.visibility === 'locked' ? 'Locked' : 'Mixed'}</span>{/if}
+                      {#if item.visibility === 'mixed'}<span class="share-visibility mixed">Mixed</span>{/if}
                       <span class="share-tree-folder-meta">{formatCount(count)} {item.totalSubtreeFileCount == null ? 'public ' : ''}{count === 1 ? 'file' : 'files'}</span>
                       <span class="share-tree-size">{formatBytes(item.totalSubtreeBytes ?? item.publicSubtreeBytes)}</span>
                     </button>
                   </div>
                 {:else}
                   <label data-keyboard-item={key} tabindex="-1" class="share-tree-row file" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
-                    {#if source.download}<input type="checkbox" checked={isSelectionChecked(key)}  onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>{/if}
+                    {#if item.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" checked={isSelectionChecked(key)}  onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>{/if}
                     <span class="share-tree-toggle-spacer"></span>
                     <span class="share-tree-icon"><Icon name={fileTypeIcon({ extension: item.extension, filename: item.name })}/></span>
                     <strong class="share-tree-name" title={item.displayPath}>{item.name}</strong>
-                    {#if item.visibility !== 'public'}<span class={`share-visibility ${item.visibility}`}>{item.visibility === 'locked' ? 'Locked' : 'Mixed'}</span>{/if}
+                    {#if item.visibility === 'mixed'}<span class="share-visibility mixed">Mixed</span>{/if}
                     <span class="share-tree-size">{formatBytes(item.fileSize)}</span>
                   </label>
                 {/if}
@@ -524,7 +504,7 @@
                 {@const count = Number(row.entry.totalRecursiveFileCount ?? row.entry.recursiveFileCount)}
                 <div data-keyboard-item={key} tabindex="-1" class="share-tree-row folder" style={`--share-depth:${row.depth}`}
                   title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
-                  {#if source.download}<input type="checkbox" use:indeterminate={isFolderPartial(key)}
+                  {#if row.entry.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" use:indeterminate={isFolderPartial(key)}
                     checked={isSelectionChecked(key)} aria-label={`Select ${row.entry.displayPath}`}
                     onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>{/if}
                   <button type="button" class="share-tree-folder-button"
@@ -535,8 +515,8 @@
                     </span>
                     <span class="share-tree-icon"><Icon name="folder"/></span>
                     <strong class="share-tree-name" title={row.entry.displayPath}>{row.entry.name}</strong>
-                    {#if row.entry.visibility !== 'public'}
-                      <span class={`share-visibility ${row.entry.visibility}`}>{row.entry.visibility === 'locked' ? 'Locked' : 'Mixed'}</span>
+                    {#if row.entry.visibility === 'mixed'}
+                      <span class="share-visibility mixed">Mixed</span>
                     {/if}
                     <span class="share-tree-folder-meta">{formatCount(count)} {row.entry.totalRecursiveFileCount == null ? 'public ' : ''}{count === 1 ? 'file' : 'files'}</span>
                     <span class="share-tree-size">{formatBytes(row.entry.totalRecursiveFileBytes ?? row.entry.recursiveFileBytes)}</span>
@@ -558,16 +538,13 @@
                 {@const key = `f:${row.entry.fileId}`}
                 <label data-keyboard-item={key} tabindex="-1" class="share-tree-row file" style={`--share-depth:${row.depth}`}
                   title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
-                  {#if source.download}<input type="checkbox" checked={isSelectionChecked(key)}
+                  {#if row.entry.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" checked={isSelectionChecked(key)}
                     onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>{/if}
                   <span class="share-tree-toggle-spacer"></span>
                   <span class="share-tree-icon">
                     <Icon name={fileTypeIcon({ extension: row.entry.file.extension, filename: row.entry.file.name })}/>
                   </span>
                   <strong class="share-tree-name" title={row.path}>{row.entry.file.name}</strong>
-                  {#if row.entry.visibility !== 'public'}
-                    <span class={`share-visibility ${row.entry.visibility}`}>Locked</span>
-                  {/if}
                   <span class="share-tree-size">{formatBytes(row.entry.file.size)}</span>
                 </label>
               {/if}

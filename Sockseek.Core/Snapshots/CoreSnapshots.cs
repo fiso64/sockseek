@@ -384,7 +384,8 @@ public record JobSnapshotHeader(
     IReadOnlyList<Sockseek.Core.Settings.AppliedProfile> AppliedProfiles,
     PrintOption PrintOption,
     bool CanCancel,
-    string? SourceDetail = null);
+    string? SourceDetail = null,
+    JobRetention Retention = JobRetention.History);
 
 public sealed record JobSnapshot : JobSnapshotHeader
 {

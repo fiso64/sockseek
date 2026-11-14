@@ -274,7 +274,7 @@ public static class CoreSnapshotFactory
                 SnapshotCollections.Freeze(job.EffectiveProfiles),
                 job.EffectivePrintOption,
                 CanCancel(job, state),
-                SourceDetail(job));
+                SourceDetail(job), job.Retention);
     }
 
     public static string? JobTitle(Job job)

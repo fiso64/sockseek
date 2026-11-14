@@ -59,7 +59,13 @@
 
 <section class="page system-page">
   <header class="page-heading settings-heading">
-    <h1>System</h1>
+    <div class="page-heading-title">
+      <h1>System</h1>
+      <div class="page-heading-tabs">
+        <PageTabs variant="segmented" id="system-tab" label="System sections" value={tab} onchange={ontabchange}
+          items={[{ id: 'status', label: 'Status' }, { id: 'shares', label: 'Shares' }, { id: 'management', label: 'Management' }, { id: 'api', label: 'API' }]} />
+      </div>
+    </div>
     <div class="settings-actions">
       <button class="auth-button" onclick={() => void rescan()} disabled={scanDisabled}
         title={sharing?.state === 'Disabled' ? 'Configure shared folders before rescanning.' : undefined}>
@@ -70,8 +76,6 @@
       {/if}
     </div>
   </header>
-  <PageTabs id="system-tab" label="System sections" value={tab} onchange={ontabchange}
-    items={[{ id: 'status', label: 'Status' }, { id: 'shares', label: 'Shares' }, { id: 'management', label: 'Management' }, { id: 'api', label: 'API' }]} />
   <div role="tabpanel" id="system-tab-panel" aria-labelledby={`system-tab-${tab}`}>
   {#if error}<Notice variant="unavailable" ondismiss={() => error = null}>{error}</Notice>{/if}
   {#if configuration?.reloadFailed}

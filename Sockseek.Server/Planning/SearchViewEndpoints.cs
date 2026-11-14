@@ -320,7 +320,7 @@ internal static class SearchViewEndpoints
     {
         try
         {
-            SearchViewTrackGroupPageDto? page = coordinator.GetTrackGroups(viewId, revision, cursor, limit ?? ServerProtocol.DefaultNestedPageSize, cancellationToken);
+            SearchViewTrackGroupPageDto? page = coordinator.GetTrackGroups(viewId, revision, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
             return page == null
                 ? NotFound("The track-group revision was not found.")
                 : Results.Ok(page);

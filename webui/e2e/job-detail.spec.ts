@@ -42,17 +42,19 @@ for (const mode of ['song', 'album'] as const) {
         expect(detail.summary.terminalOutcome).toBe('Succeeded');
         firstPath = output!.downloadPath;
         expect(firstPath).toBeTruthy();
+        await page.goto(`/jobs/${job.jobId}`);
+        await expect(page.getByTestId('job-info-card')).toHaveCount(0);
         continue;
       }
       expect(detail.summary.terminalOutcome).toBe('Skipped');
       expect(output!.existingFileSource).toBe('CompletionHistory');
       expect(output!.downloadPath).toBe(firstPath);
       await page.goto(`/jobs/${job.jobId}`);
-      const existingPath = page.locator('.job-content-section dd');
+      const existingPath = page.getByTestId('job-info-card').locator('dd');
       await expect(existingPath).toHaveText(firstPath!);
       await page.reload();
       await expect(existingPath).toHaveText(firstPath!);
-      await page.locator('.job-content-section .transfer-state').click();
+      await page.getByTestId('job-info-card').getByRole('button').click();
       await expect(page.getByRole('dialog').locator('dd').filter({ hasText: firstPath! })).toHaveCount(1);
     }
   });
@@ -94,7 +96,7 @@ test('removes a terminal user root from detail, preserving rejected actions and 
   await page.goto(`/jobs/${root.jobId}`);
   const remove = page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true });
   await expect(remove).toBeVisible();
-  await page.locator('.job-child-open').click();
+  await page.locator('[data-testid="job-open"]').click();
   await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
   await expect(page.locator('.job-detail-meta')).not.toContainText('fixture-peer');
   await expect(page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
@@ -126,7 +128,7 @@ test('removes a terminal user root from detail, preserving rejected actions and 
   await expect(alert).toContainText('nonterminal-jobs');
   await expect(page).toHaveURL(new RegExp(`/jobs/${root.jobId}$`));
   await expect(remove).toBeEnabled();
-  await expect(page.locator('.job-child-row')).toHaveCount(1);
+  await expect(page.locator('[data-testid="job-row"]')).toHaveCount(1);
   rejectDeletion = false;
   await remove.click();
   await expect(page).toHaveURL(/\/jobs\?tab=downloads$/);
@@ -184,11 +186,12 @@ test('retains a child-page failure through active and terminal detail and recove
   await page.goto(`/jobs/${root.jobId}`);
   const alert = page.getByRole('alert').filter({ hasText: 'Child jobs unavailable' });
   await expect(alert).toBeVisible();
+  await expect(page.getByTestId('job-info-card').getByRole('progressbar')).toHaveAttribute('aria-valuemax', '1');
   await page.waitForResponse((reply) => new URL(reply.url()).pathname === `/api/jobs/${root.jobId}` && reply.ok());
   await expect(alert).toBeVisible();
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Retry fixture');
   await daemon.command('release-download');
-  await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0);
+  await expect(page.locator('.job-detail-heading-summary > .search-status-badge.complete')).toBeVisible();
   await expect(alert).toBeVisible();
   interrupted = false;
   await alert.getByRole('button', { name: 'Retry', exact: true }).click();
@@ -242,7 +245,7 @@ test('reconciles an open job when a recovery snapshot misses its entire live wor
     history.pushState({}, '', path);
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, `/jobs/${target.jobId}`);
-  await expect(page.locator('.job-child-row .search-status-badge')).toHaveText('Running');
+  await expect(page.locator('[data-testid="job-row"] .search-status-badge')).toHaveText('Downloading');
   let observed!: () => void, release!: () => void;
   const captured = new Promise<void>(resolve => { observed = resolve; });
   const released = new Promise<void>(resolve => { release = resolve; });
@@ -276,8 +279,8 @@ test('reconciles an open job when a recovery snapshot misses its entire live wor
     expect(snapshots).toBe(2);
   } finally { release(); }
   await page.clock.runFor(100); // Paint, without advancing the fallback second.
-  await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0);
-  await expect(page.locator('.job-child-row .search-status-badge')).toHaveText('Complete');
+  await expect(page.locator('.job-detail-heading-summary > .search-status-badge.complete')).toBeVisible();
+  await expect(page.locator('[data-testid="job-row"] .search-status-badge')).toHaveText('Complete');
   expect(reads, 'Recovery must reconcile once even when both live maps omit the target.').toBe(2);
   await daemon.command('release-download');
 });
@@ -297,9 +300,9 @@ test('shows the accepted remote-directory files and keeps them after completion'
   expect(response.status()).toBe(202);
   const root = await response.json() as Schema<'JobSummaryDto'>;
   await page.goto(`/jobs/${root.jobId}`);
-  await expect(page.locator('.job-child-row .job-child-stat')).toHaveText('0/2 complete');
-  await expect(page.locator('.job-child-row .job-child-progress')).toHaveAttribute('aria-label', /\d+% complete/);
-  await page.locator('.job-child-open').filter({ hasText: 'Fixture' }).click();
+  await expect(page.locator('[data-testid="job-row"] [data-testid="job-stats"]')).toContainText('0 / 2 files finished');
+  await expect(page.locator('[data-testid="job-row"] [data-testid="job-progress"]')).toHaveAttribute('aria-valuenow', /\d+/);
+  await page.locator('[data-testid="job-open"]').filter({ hasText: 'Fixture' }).click();
   await expect(page.locator('.job-detail-meta')).toContainText('Remote Directory');
   await expect(page.locator('.job-detail-meta')).not.toContainText('fixture-peer');
   await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
@@ -396,18 +399,18 @@ test('isolates a directory file failure and retains both independent outcomes', 
   expect(response.status(), await response.text()).toBe(202);
   const root = await response.json() as Schema<'JobSummaryDto'>;
   await page.goto(`/jobs/${root.jobId}`);
-  await page.locator('.job-child-open').filter({ hasText: 'Fixture' }).click();
+  await page.locator('[data-testid="job-open"]').filter({ hasText: 'Fixture' }).click();
   const folder = page.locator('.folder-item-card');
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
   await expect(folder.locator('.folder-transfer-footer').getByLabel('50% complete', { exact: true })).toBeVisible();
   await daemon.command('release-download');
-  await expect(folder.locator('.transfer-state').first()).toHaveText('Partial Success');
-  await expect(folder.locator('.folder-transfer-footer')).toHaveClass(/failed/);
+  await expect(folder.locator('.transfer-state').first()).toHaveText('Partially complete');
+  await expect(folder.locator('.folder-transfer-footer')).toHaveClass(/partial/);
   await expect(folder.locator('.folder-file-row').filter({ hasText: 'Fails.txt' })).toContainText('Failed');
   await expect(folder.locator('.folder-file-row').filter({ hasText: 'Selected.txt' }).getByLabel('Complete', { exact: true })).toBeVisible();
   await page.reload();
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
-  await expect(folder.locator('.transfer-state').first()).toHaveText('Partial Success');
+  await expect(folder.locator('.transfer-state').first()).toHaveText('Partially complete');
   await expect(folder.locator('.folder-file-row').filter({ hasText: 'Fails.txt' })).toContainText('Failed');
   await expect(folder.locator('.folder-file-row').filter({ hasText: 'Selected.txt' }).getByLabel('Complete', { exact: true })).toBeVisible();
 });
@@ -440,7 +443,7 @@ test('retains named album outputs and pages appended artwork through missing his
   // The browser presents the daemon's active state with the prototype's label.
   await expect(art.getByLabel('Downloading', { exact: true })).toBeVisible();
   await expect(art.getByLabel('50% complete', { exact: true })).toBeVisible();
-  await expect(page.locator('.job-detail-heading-summary')).toContainText('3 files');
+  await expect(folder).toContainText('3 files');
   const manifestResponse = await page.request.get(`/api/jobs/${job.jobId}/directory-files`);
   expect(manifestResponse.ok()).toBeTruthy();
   const manifest = await manifestResponse.json() as Schema<'DirectoryManifestPageDto'>;
@@ -490,7 +493,7 @@ test('retains named album outputs and pages appended artwork through missing his
   await page.reload();
   const alert = page.getByRole('alert').filter({ hasText: 'Directory files unavailable' });
   await expect(alert).toBeVisible();
-  await expect(page.locator('.job-detail-heading-summary')).toContainText('3 files');
+  await expect(folder).toContainText('3 files');
   pageState = 'ready';
   await alert.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(art).toContainText('Cover.jpg');
@@ -526,7 +529,7 @@ test('retains named album outputs and pages appended artwork through missing his
   await page.reload();
   await expect(folder.locator('.folder-file-row')).toHaveCount(3);
   await expect(folder).toContainText('01 - Intro.flac');
-  await expect(page.locator('.job-detail-heading-summary')).toContainText('3 files');
+  await expect(folder).toContainText('3 files');
   const unavailableArt = folder.locator('.folder-file-row').filter({ hasText: 'File details unavailable' });
   await expect(unavailableArt).toContainText('Outcome unavailable');
   await expect(unavailableArt).not.toContainText('Complete');

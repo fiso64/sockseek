@@ -189,7 +189,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load @Pe
     const firstManifest = page.waitForResponse(response => response.ok()
       && new URL(response.url()).pathname.endsWith('/directory-files'));
     await page.goto(`/jobs/${accepted.workflow.jobId}`);
-    await expect(page.locator('.job-child-row')).toHaveCount(0);
+    await expect(page.locator('[data-testid="job-row"]')).toHaveCount(0);
     const first = await firstManifest;
     const firstPage = await first.json() as Schema<'DirectoryManifestPageDto'>;
     expect(new URL(first.url()).searchParams.get('limit')).toBe('500');

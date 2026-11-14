@@ -15,8 +15,8 @@
   import Icon from '../../components/Icon.svelte';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import PeerItemGroup from '../../components/items/PeerItemGroup.svelte';
+  import PeerSlot from '../../components/items/PeerSlot.svelte';
   import UsernameLink from '../../components/UsernameLink.svelte';
-  import AppliedProfiles from '../../components/AppliedProfiles.svelte';
   import ProfilePicker from '../../components/ProfilePicker.svelte';
   import { rebaseOptions } from '../jobs/download-options';
   import DownloadOptionsPanel from '../../components/DownloadOptionsPanel.svelte';
@@ -63,6 +63,7 @@
     onloaddirectory: (ref: string) => void;
     onretrievedirectory: (ref: string) => void;
     onopenoptions: (ref: string) => void;
+    onstepoption: (ref: string, direction: -1 | 1) => void;
     oncloseoptions: () => void;
     onloadoptions: () => void;
     onchooseoption: (groupRef: string, option: GroupOption) => void;
@@ -100,6 +101,7 @@
     onloaddirectory,
     onretrievedirectory,
     onopenoptions,
+    onstepoption,
     oncloseoptions,
     onloadoptions,
     onchooseoption,
@@ -306,8 +308,8 @@
     if (row.kind !== 'directory') return isselected(row.ref);
     const children = viewState.directoryFiles.get(row.ref);
     const files = children ? children.items.map(child => child.file) : [row.value.bestChild];
-    return ordinaryDirectorySelection(row.ref, files.length,
-      files.filter(file => isselected(file.ref, row.ref)).length).selected;
+    return ordinaryDirectorySelection(row.ref, files.filter(file => file.visibility !== 'Locked').length,
+      files.filter(file => file.visibility !== 'Locked' && isselected(file.ref, row.ref)).length).selected;
   }
 
   function toggleKeyboardResult(ref: string): void {
@@ -573,7 +575,19 @@
   <div class="group-peer-summary">
     <span class="group-peer-username"><UsernameLink username={peer.username} actions={userActions} /></span>
     {#if peer.uploadSpeed != null}<span class="group-peer-speed"><strong>{(Number(peer.uploadSpeed) / 1_000_000).toFixed(1)} MB/s</strong></span>{/if}
-    <span class="group-peer-slot"><strong class:available={peer.hasFreeUploadSlot === true} class:unavailable={peer.hasFreeUploadSlot === false}>{peer.hasFreeUploadSlot == null ? '—' : peer.hasFreeUploadSlot ? 'Yes' : 'No'}</strong><small>free slot</small></span>
+    <PeerSlot available={peer.hasFreeUploadSlot} />
+  </div>
+{/snippet}
+
+{#snippet groupOptionControls(ref: string, count: number | string)}
+  {@const step = viewState.optionSteps.get(ref)}
+  {@const revision = `${viewState.summary?.viewId}:${String(viewState.summary?.revision)}`}
+  {@const choice = choiceIsCurrent(ref) ? viewState.chosenOptions.get(ref) : undefined}
+  {@const position = choice ? (step?.revision === revision && step.optionRef === choice.ref ? step.position : undefined) : 1}
+  <div class="group-result-stats">
+    <button type="button" class="group-option-step" aria-label="Previous option" title="Previous option" disabled={selectionReadOnly || position === 1 || step?.loading} onclick={() => onstepoption(ref, -1)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 5-5 5 5 5" /></svg></button>
+    <button type="button" class="group-options-button" disabled={step?.loading} onclick={() => onopenoptions(ref)}>{position ? formatCount(position) : '—'} / {formatCount(count)} {Number(count) === 1 ? 'option' : 'options'}</button>
+    <button type="button" class="group-option-step" aria-label="Next option" title="Next option" disabled={selectionReadOnly || position === Number(count) || step?.loading} onclick={() => onstepoption(ref, 1)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5" /></svg></button>
   </div>
 {/snippet}
 
@@ -582,11 +596,12 @@
     {@const representative = trackRepresentative(row.ref, row.value.representative)}
     <section class:selected={isselected(row.ref)} class="group-result-group" data-keyboard-item={row.ref} tabindex="-1">
       <header class="group-result-header">
-        <button type="button" class="group-header-select-button" disabled={selectionReadOnly} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
+        <button type="button" class="group-header-select-button" disabled={selectionReadOnly || representative.visibility === 'Locked'} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
         <div class="group-result-identity"><strong>{row.value.query.title ?? 'Untitled track'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
         <div class="group-result-source">{@render groupPeerSummary(representative.peer)}</div>
-        <div class="group-result-stats"><button type="button" class="group-options-button" onclick={() => onopenoptions(row.ref)}>{formatCount(row.value.selectableOptionCount)} {Number(row.value.selectableOptionCount) === 1 ? 'option' : 'options'}</button></div>
+        {@render groupOptionControls(row.ref, row.value.optionCount)}
       </header>
+      {#if viewState.optionSteps.get(row.ref)?.error}<div class="resource-state-notice unavailable" role="alert">Could not load option: {viewState.optionSteps.get(row.ref)?.error?.message}</div>{/if}
       {#if viewState.chosenOptions.has(row.ref) && !choiceIsCurrent(row.ref)}
         <div class="resource-state-notice degraded group-choice-notice" role="status">
           <span class="resource-state-dot"></span>
@@ -609,11 +624,12 @@
     {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
     <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="group-result-group" data-keyboard-item={row.ref} tabindex="-1">
       <header class="group-result-header">
-        <button type="button" class="group-header-select-button" disabled={selectionReadOnly} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
+        <button type="button" class="group-header-select-button" disabled={selectionReadOnly || directory.visibility === 'Locked'} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
         <div class="group-result-identity"><strong>{row.value.query.album ?? 'Untitled album'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
         <div class="group-result-source">{@render groupPeerSummary(directory.peer)}</div>
-        <div class="group-result-stats"><button type="button" class="group-options-button" onclick={() => onopenoptions(row.ref)}>{formatCount(row.value.selectableOptionCount)} {Number(row.value.selectableOptionCount) === 1 ? 'option' : 'options'}</button></div>
+        {@render groupOptionControls(row.ref, row.value.optionCount)}
       </header>
+      {#if viewState.optionSteps.get(row.ref)?.error}<div class="resource-state-notice unavailable" role="alert">Could not load option: {viewState.optionSteps.get(row.ref)?.error?.message}</div>{/if}
       {#if viewState.chosenOptions.has(row.ref) && !choiceIsCurrent(row.ref)}
         <div class="resource-state-notice degraded group-choice-notice" role="status">
           <span class="resource-state-dot"></span>
@@ -638,7 +654,7 @@
         selected={albumFull(row.ref)}
         partial={albumPartial(row.ref)}
         selectable={!selectionReadOnly}
-        selectedFileIds={new Set(files.filter((file) => isselected(file.id, row.ref)).map((file) => file.id))}
+        selectedFileIds={new Set(files.filter((file) => !file.locked && isselected(file.id, row.ref)).map((file) => file.id))}
         onselectall={(checked) => ontoggle(row.ref, checked)}
         onselectfile={(file, checked) => ontogglealbumfile(row.ref, file.id, checked)}
       />
@@ -661,13 +677,13 @@
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5M7.5 10H16" /></svg>
     </button>
     <div class="search-results-title">
-      <p class="eyebrow">{viewState.draft ? searchModeLabel(viewState.draft.resultMode) : 'Search'}</p>
       <h1>{queryTitle()}</h1>
-      {#if viewState.job?.appliedProfiles?.length}<AppliedProfiles profiles={viewState.job.appliedProfiles} />{/if}
     </div>
+    <p class="search-results-meta">{viewState.draft ? searchModeLabel(viewState.draft.resultMode) : 'Search'}</p>
     <div class="search-results-summary">
+      {#if viewState.phase === 'ready'}
       {#if statusLabel !== 'Complete'}
-        <span class={`search-status-badge ${isActive ? 'searching' : retentionNotice ? '' : 'complete'}`}><i></i>{statusLabel}</span>
+        <span class={`status-label search-status-badge ${isActive ? 'searching' : retentionNotice ? '' : 'complete'}`}>{statusLabel}</span>
       {/if}
       {#if (!retentionNotice && !viewUnavailable) || viewState.rows.length > 0}
       {#if viewState.draft?.resultMode === 'generic'}<span>{formatCountWithNoun(viewState.summary?.counters.topLevelItemCount, hasBareFileGroups ? 'group' : 'directory', hasBareFileGroups ? 'groups' : 'directories')}</span>{/if}
@@ -675,6 +691,7 @@
       <span>{formatCountWithNoun(viewState.summary?.counters.publicFileCount, 'file')}</span>
       <span>{formatCount(viewState.summary?.counters.lockedFileCount)} locked</span>
       <span>{formatCountWithNoun(viewState.summary?.counters.observedPeerCount, 'peer')}</span>
+      {/if}
       {/if}
     </div>
     <div class="search-results-actions">
@@ -799,9 +816,7 @@
     floatingLabel={viewState.committing ? 'Requesting…' : viewState.canRetryPendingCommit ? 'Retry download request' : viewState.selectionCounts
       && BigInt(viewState.selectionCounts.publicFileCount) > 0n
       ? `Download ${formatCount(viewState.selectionCounts.publicFileCount)}` : 'Download selected'}
-    detail={viewState.selectionCounts && Number(viewState.selectionCounts.lockedFileCount) > 0
-      ? `${formatCount(String(BigInt(viewState.selectionCounts.publicFileCount) + BigInt(viewState.selectionCounts.lockedFileCount)))} selected · ${formatCount(viewState.selectionCounts.lockedFileCount)} locked`
-      : viewState.selectionCountsLoading ? 'Counting selected files…'
+    detail={viewState.selectionCountsLoading ? 'Counting selected files…'
       : viewState.selectionCountsError ? viewState.selectionCountsError.message : undefined}
     actionDisabled={downloadOptionsLoading || Boolean(downloadOptionsError) || viewState.committing || (!viewState.canRetryPendingCommit && (refinementPending
       || viewState.selectionCountsLoading || hasUnreadySelectedChoice()
@@ -930,8 +945,8 @@
                   {:else}
                     {@const children = viewState.directoryFiles.get(row.ref)}
                     {@const files = children ? children.items.map((child) => folderFile(child.file, child.relativePath)) : [folderFile(row.value.bestChild)]}
-                    {@const selectedFileIds = new Set(files.filter((file) => isselected(file.id, row.ref)).map((file) => file.id))}
-                    {@const folderSelection = ordinaryDirectorySelection(row.ref, files.length, selectedFileIds.size)}
+                    {@const selectedFileIds = new Set(files.filter((file) => !file.locked && isselected(file.id, row.ref)).map((file) => file.id))}
+                    {@const folderSelection = ordinaryDirectorySelection(row.ref, files.filter(file => !file.locked).length, selectedFileIds.size)}
                     {@const totals = directoryTotals(row.value)}
                     {@const retrieval = viewState.retrievals.get(row.ref)}
                     <FolderItemCard
@@ -991,18 +1006,18 @@
           <div class:current={(choiceIsCurrent(panel.groupRef) ? viewState.chosenOptions.get(panel.groupRef)?.ref : panel.representativeRef) === option.ref} class="group-option">
             <div class="group-option-toolbar">
               {@render groupPeerSummary(peer)}
-              <button type="button" class="group-use-option" disabled={selectionReadOnly} onclick={() => onchooseoption(panel.groupRef, option)}>Use this option</button>
+              <button type="button" class="group-use-option" disabled={selectionReadOnly || option.value.visibility === 'Locked'} onclick={() => onchooseoption(panel.groupRef, option)}>Use this option</button>
             </div>
             <div class="group-option-card-wrap">
               {#if option.kind === 'track'}
-                <button type="button" class="group-option-card-picker" disabled={selectionReadOnly} aria-label={`Use ${option.value.remoteFilename}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
+                <button type="button" class="group-option-card-picker" disabled={selectionReadOnly || option.value.visibility === 'Locked'} aria-label={`Use ${option.value.remoteFilename}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
                 <FileItemCard path={option.value.remoteFilename} sizeBytes={Number(option.value.file.size)} audio={audio(option.value.file)} locked={option.value.visibility === 'Locked'} />
               {:else}
                 {@const children = viewState.directoryFiles.get(option.ref)}
                 {@const directory = children?.directorySummary ?? option.value}
                 {@const totals = directoryTotals(directory)}
                 {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
-                <button type="button" class="group-option-card-picker" disabled={selectionReadOnly} aria-label={`Use ${directory.ref.folderPath || 'Files without a folder'}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
+                <button type="button" class="group-option-card-picker" disabled={selectionReadOnly || option.value.visibility === 'Locked'} aria-label={`Use ${directory.ref.folderPath || 'Files without a folder'}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
                 <FolderItemCard
                   contentsState={!directory.ref.folderPath ? undefined : retrieval?.loading ? 'retrieving' : retrieval?.error ? 'failed' : directory.retrievalState === 'Complete' ? 'complete' : 'partial'}
                   onloadfullcontents={() => onretrievedirectory(directory.ref.ref)}
