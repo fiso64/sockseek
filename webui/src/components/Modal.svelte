@@ -49,12 +49,12 @@
 
 <style>
   /* Dialogs can live inside compact rows; their body type must not inherit the row's sizing. */
-  dialog { width: min(40rem, calc(100vw - 48px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--border-strong); border-radius: 13px; background: var(--surface); color: var(--text); font-size: .85rem; font-weight: 400; line-height: 1.5; box-shadow: 0 22px 60px #0005; overflow: hidden; }
+  dialog { width: min(40rem, calc(100vw - 48px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--border-strong); border-radius: 13px; background: var(--panel-face); color: var(--text); font-size: .85rem; font-weight: 400; line-height: 1.5; box-shadow: inset 0 1px var(--edge-light), 0 22px 60px #0009; overflow: hidden; }
   dialog[open] { display: flex; flex-direction: column; }
   dialog.wide { width: min(1000px, calc(100vw - 48px)); height: min(920px, calc(100dvh - 48px)); }
   dialog.compact { width: min(28rem, calc(100vw - 32px)); }
   dialog::backdrop { background: color-mix(in srgb, var(--bg) 74%, transparent); backdrop-filter: blur(3px); }
-  header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+  header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid var(--edge-dark); background: var(--face); box-shadow: inset 0 1px var(--edge-light); }
   h2 { margin: 0; font-size: 1.08rem; font-weight: 650; }
   .modal-close { width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); color: var(--muted); }
   .modal-close :global(.app-icon) { --app-icon-size: 16px; }

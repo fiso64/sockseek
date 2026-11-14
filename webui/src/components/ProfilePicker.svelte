@@ -65,10 +65,10 @@
 
 <style>
   .profile-picker { flex-shrink: 0; }
-  .profile-trigger { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 5px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: .72rem; cursor: pointer; }
-  .profile-trigger:hover, .profile-trigger[aria-expanded="true"] { background: var(--surface-subtle); color: var(--text); }
+  .profile-trigger { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--face); color: var(--text); box-shadow: var(--button-shadow); font-size: .72rem; cursor: pointer; }
+  .profile-trigger:hover, .profile-trigger[aria-expanded="true"] { background: var(--surface-raised); color: var(--text); }
   .profile-trigger :global(svg) { width: 14px; height: 14px; }
-  .profile-popout { position: fixed; inset: auto; width: min(250px, calc(100vw - 24px)); box-sizing: border-box; margin: 0; padding: 5px; overflow-y: auto; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-raised); color: var(--text); box-shadow: 0 10px 30px rgb(0 0 0 / .22); }
+  .profile-popout { position: fixed; inset: auto; width: min(250px, calc(100vw - 24px)); box-sizing: border-box; margin: 0; padding: 5px; overflow-y: auto; border: 1px solid var(--border); border-radius: 9px; background: var(--panel-face); color: var(--text); box-shadow: inset 0 1px var(--edge-light), 0 12px 32px #0007; }
   .profile-option { position: relative; display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 5px; cursor: pointer; font-size: .76rem; }
   .profile-option:hover, .profile-option:has(input:focus-visible) { background: var(--surface-subtle); }
   .profile-option:has(input:focus-visible) { outline: 1px solid var(--accent); }

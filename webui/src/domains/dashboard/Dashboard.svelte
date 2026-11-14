@@ -275,7 +275,6 @@
         <div class="chart-x-labels">
           {#each labels as label}<span>{label}</span>{/each}
         </div>
-      </div>
       {#if hoveredBucket}
         <div class="chart-tooltip" role="tooltip" bind:offsetWidth={tooltipWidth} style:left={`clamp(0px, ${hoveredX * 100}% - ${tooltipWidth / 2}px, calc(100% - ${tooltipWidth}px))`}>
           <strong class="chart-tooltip-interval">
@@ -286,6 +285,7 @@
           <span class="upload">Uploaded <b>{formatBytes(hoveredBucket.uploadBytes)}</b></span>
         </div>
       {/if}
+      </div>
     </div>
     <div class="chart-legend">
       <span><i class="download"></i>Download</span>

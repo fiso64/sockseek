@@ -66,8 +66,8 @@
     <Sidebar {activePage} {downloadCount} {uploadCount} {unreadChats} {onnavigate} />
     <div class="sidebar-spacer"></div>
 
-    <div class="connection-status" aria-label="Connection status">
-      <div>
+    <div class="connection-status">
+      <div aria-label="Connection status">
         <span class:warning={daemonReachable && !liveState.daemon?.soulseekClient.isReady} class:offline={!daemonReachable} class="status-dot"></span>
         <strong>{connectionLabel}</strong>
       </div>

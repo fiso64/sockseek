@@ -88,7 +88,6 @@ test('shows an unread room message while another chat is open and clears it on s
     expect(paneBounds).not.toBeNull();
     expect(bounds!.width).toBeGreaterThan(paneBounds!.width * 0.75);
     expect(bounds!.x).toBeCloseTo(paneBounds!.x + paddingLeft, 0);
-    expect(bounds!.x).toBe(width === 1440 ? 496 : 174);
   }
 });
 

@@ -102,9 +102,9 @@
 
 <style>
   .status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-  .status-card { padding: 18px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; min-width: 0; }
-  h2 { margin: 0; font-size: .9rem; font-weight: 600; }
-  dl { margin: 14px 0 0; display: grid; gap: 12px; font-size: .8125rem; }
+  .status-card { padding: 20px 22px; background: var(--panel-face); border: 1px solid var(--edge-dark); border-radius: 12px; box-shadow: inset 0 1px var(--edge-light), var(--lift); min-width: 0; }
+  h2 { margin: 0; padding-bottom: 12px; border-bottom: 1px solid var(--border); font-size: .95rem; font-weight: 650; }
+  dl { margin: 14px 0 0; display: grid; gap: 12px; font-size: .8125rem; line-height: 1.4; }
   dl > div { display: grid; grid-template-columns: minmax(100px, .85fr) minmax(0, 1.15fr); gap: 14px; }
   dt { color: var(--muted); }
   dd { margin: 0; overflow-wrap: anywhere; }

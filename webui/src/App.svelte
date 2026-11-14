@@ -1,5 +1,6 @@
 <script lang="ts">
   import LoadingIndicator from './components/LoadingIndicator.svelte';
+  import Icon from './components/Icon.svelte';
   import LazyView from './components/LazyView.svelte';
   import { ViewLoader } from './app/view-loader.svelte';
   import { onMount, untrack } from 'svelte';
@@ -706,7 +707,7 @@
         </LazyView>
       {/key}
     {:else}
-      <section class="page user-browser-page"><header class="user-browser-heading"><div><h1>{activePage === 'shares' ? 'Shares' : 'Users'}</h1></div></header><div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>{activePage === 'shares' ? 'No shares to display' : 'No user to display'}</strong></span></div></section>
+      <section class="page user-browser-page"><header class="user-browser-heading"><div><h1>{activePage === 'shares' ? 'Shares' : 'Users'}</h1></div></header><div class="resource-state-notice empty blocking" role="status"><span class="empty-state-icon" aria-hidden="true"><Icon name={activePage === 'shares' ? 'folder' : 'user'} /></span><span class="resource-state-copy"><strong>{activePage === 'shares' ? 'No shares to display' : 'No user to display'}</strong></span></div></section>
     {/if}
   {:else if activePage === 'chat'}
     <LazyView view={chatPage}>

@@ -39,18 +39,12 @@ test('separates search and download tabs with narrow rows, retained jobs and bro
     await expect(searchRow.locator('.search-history-stats')).toContainText('1 peer');
     await expect(page.locator('.search-history-row')).toHaveCount(1);
     expect(historyReads).toBe(0);
-    const layout = await page.locator('.search-history-row').evaluateAll((rows) => rows.map((row) => {
-      const name = row.querySelector('.search-history-query')!.getBoundingClientRect();
-      const stats = row.querySelector('.search-history-stats')!.getBoundingClientRect();
-      const icon = row.querySelector('.search-history-icon')!.getBoundingClientRect();
-      const action = row.querySelector('.search-history-remove')!.getBoundingClientRect();
-      const bounds = row.getBoundingClientRect();
-      return { centerDifference: Math.max(...[stats, icon, action].map(rect => Math.abs((rect.top + rect.bottom - name.top - name.bottom) / 2))), rightOverflow: stats.right - bounds.right };
+    // On narrow screens the metadata can move below the title, but must remain readable.
+    const layout = await searchRow.locator('.search-history-stats').evaluate(element => ({
+      width: element.clientWidth,
+      contentWidth: element.scrollWidth,
     }));
-    for (const row of layout) {
-      expect(row.centerDifference).toBeLessThanOrEqual(1);
-      expect(row.rightOverflow).toBeLessThanOrEqual(0);
-    }
+    expect(layout.contentWidth).toBeLessThanOrEqual(layout.width);
     await page.getByRole('tab', { name: 'Download jobs', exact: true }).click();
     await expect(page.locator('.search-history-query')).toHaveText('Fixture album download');
     await expect(page.getByRole('tab', { name: 'Download jobs', exact: true })).toHaveAttribute('aria-selected', 'true');

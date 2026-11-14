@@ -1009,6 +1009,13 @@ test('keeps search configuration resolved when splitting and merging', async ({ 
   await page.getByRole('button', { name: 'merge', exact: true }).click();
   await expect(panel.getByRole('button', { name: 'Ranking', exact: true })).toBeVisible();
   expect(requests).toBe(0);
+  await page.setViewportSize({ width: 390, height: 900 });
+  const bounds = await panel.boundingBox();
+  const workspace = await page.locator('.workspace').boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(workspace).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(workspace!.x);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(workspace!.x + workspace!.width);
 });
 
 test('merges empty album and artist fields without losing input or focus', async ({ page }) => {
