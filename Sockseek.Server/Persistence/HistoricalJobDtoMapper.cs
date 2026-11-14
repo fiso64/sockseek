@@ -154,6 +154,7 @@ internal static class HistoricalJobDtoMapper
         PeerFileTargetDto? target = snapshot.Payload switch
         {
             RemoteFileJobSnapshotPayload file => ServerSnapshotMapper.ToPeerFileTargetDto(file.Target),
+            SongJobSnapshotPayload { DownloadSource: SongDownloadSource.Fallback } or SongJobSnapshotPayload { Fallback: not null } => null,
             SongJobSnapshotPayload { ResolvedTarget: { } file } => ServerSnapshotMapper.ToPeerFileTargetDto(file),
             SongJobSnapshotPayload { ExactTarget: { } file } => ServerSnapshotMapper.ToPeerFileTargetDto(file),
             SongJobSnapshotPayload { LastAttemptedCandidate: { } file } => ServerSnapshotMapper.ToPeerFileTargetDto(file),

@@ -541,3 +541,43 @@ test('retains named album outputs and pages appended artwork through missing his
   expect(detailRequests.filter(path => path === `/api/jobs/${artId}`),
     'Supplemental file targets and state come in the same bounded file page.').toHaveLength(0);
 });
+
+test('shows fallback stages and retained output without a fictitious peer or stale progress', async ({ page }) => {
+  const jobId = '00000000-0000-4000-8000-000000000099';
+  const detail: Schema<'JobDetailDto'> = {
+    summary: { jobId, kind: 'song', itemName: 'Artist - Song', lifecycleState: 'Running',
+      activityPhase: 'SearchingFallback', availableActions: [] },
+    payload: { kind: 'song', query: { artistMaybeWrong: false }, candidateCount: 1,
+      fallback: { provider: 'Fixture provider', title: 'Source recording', reference: 'source-id' },
+      lastAttemptedFile: { peer: { username: 'Previous peer' }, target: { username: 'Previous peer', filename: 'old.flac', size: 128 } },
+      file: { reused: false, downloadPath: null, bytesTransferred: 64, fileSize: 128, progressPercent: 50 } },
+    childCount: 0, sourceJobAvailable: false,
+  };
+  await page.route(`**/api/jobs/${jobId}`, route => route.fulfill({ json: detail }));
+  const card = page.locator('.job-content-section .file-item-card');
+  for (const phase of ['SearchingFallback', 'DownloadingFallback', 'ProcessingFallback'] as const) {
+    detail.summary.activityPhase = phase;
+    await page.goto(`/jobs/${jobId}`);
+    await expect(page.locator('.job-source-summary')).toContainText('Fixture provider');
+    await expect(page.locator('.job-source-summary a')).toHaveCount(0);
+    await expect(card).toContainText('Source recording');
+    await expect(card.locator('.transfer-state')).toContainText(phase.replace('Fallback', ' fallback'));
+    await expect(card.locator('[role="progressbar"]')).toHaveCount(0);
+    await expect(card).not.toContainText('old.flac');
+  }
+  detail.summary.lifecycleState = 'Terminal';
+  detail.summary.terminalOutcome = 'Succeeded';
+  detail.summary.activityPhase = 'None';
+  if (detail.payload?.kind !== 'song') throw new Error('Expected song fixture');
+  detail.payload.downloadSource = 'Fallback';
+  detail.payload.file = { reused: false, downloadPath: '/music/actual.opus', bytesTransferred: 512,
+    fileSize: 512, progressPercent: 100 };
+  await page.reload();
+  await expect(card).toContainText('actual.opus');
+  await expect(card.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
+  await expect(page.getByTestId('job-info-card')).toHaveCount(0);
+  await card.getByRole('button', { name: 'Complete', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Fixture provider');
+  await expect(page.getByRole('dialog')).toContainText('/music/actual.opus');
+  await expect(page.getByRole('dialog')).not.toContainText('Previous peer');
+});

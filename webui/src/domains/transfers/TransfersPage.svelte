@@ -475,7 +475,7 @@
           <div class="result-peer-header compact">
             <button type="button" class="peer-header-toggle" aria-label={`${collapsedPeers.has(group.key) ? 'Expand' : 'Collapse'} ${group.peer} transfers`} aria-expanded={!collapsedPeers.has(group.key)} onclick={() => togglePeer(group.key)}></button>
             <svg class:collapsed={collapsedPeers.has(group.key)} class="peer-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5l6 5-6 5" /></svg>
-            <span class="peer-identity">{#if group.username}<UsernameLink username={group.username} actions={userActions}/>{:else}Unknown peer{/if}</span>
+            <span class="peer-identity">{#if group.username}<UsernameLink username={group.username} actions={userActions}/>{:else}{group.peer}{/if}</span>
             <span class="peer-metadata"><span class="peer-result-count">{group.transferCount} {group.transferCount === 1 ? direction : `${direction}s`}</span></span>
           </div>
           {#if !collapsedPeers.has(group.key)}

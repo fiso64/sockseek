@@ -581,6 +581,8 @@ internal sealed class SongDownloadExecutor
         }
         else
         {
+            song.FileSize = size;
+            song.BytesTransferred = size;
             context.Events.RaiseFallbackTransferCompleted(
                 pending.TransferId,
                 song,

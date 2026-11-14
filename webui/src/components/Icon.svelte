@@ -79,9 +79,9 @@
     <path d="m7.5 7.5 9 9" />
     <path d="m16.5 7.5-9 9" />
   {:else if name === 'more'}
-    <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
-    <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
-    <circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" />
+    <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
   {:else if name === 'generic'}
     <path d="M6.5 3.5h6l4 4V18H6.5z" />
     <path d="M12.5 3.5V8h4" />

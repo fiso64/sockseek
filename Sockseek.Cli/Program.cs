@@ -1854,6 +1854,9 @@ internal static partial class Program
             ServerJobActivityPhase.Organizing => JobActivityPhase.Organizing,
             ServerJobActivityPhase.RunningOnComplete => JobActivityPhase.RunningOnComplete,
             ServerJobActivityPhase.RunningFallback => JobActivityPhase.RunningFallback,
+            ServerJobActivityPhase.SearchingFallback => JobActivityPhase.SearchingFallback,
+            ServerJobActivityPhase.DownloadingFallback => JobActivityPhase.DownloadingFallback,
+            ServerJobActivityPhase.ProcessingFallback => JobActivityPhase.ProcessingFallback,
             _ => JobActivityPhase.None,
         };
 

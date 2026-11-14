@@ -195,6 +195,15 @@ it('shows transfer speed only while a file is active, even if a terminal snapsho
   } as unknown as TransferStateDto;
   expect(liveTransferPresentation(live).speed).toBe('128 B/s');
   expect(liveTransferPresentation(live)).toMatchObject({ state: 'Uploading', progressText: '50%' });
+  const finalizing = liveTransferPresentation({ ...live,
+    identity: { ...live.identity, direction: 'Download' },
+    status: { ...live.status, state: 'AttemptCompleted' },
+    progress: { ...live.progress, bytesTransferred: 128 },
+  });
+  expect(finalizing.state).toBe('Finalizing');
+  expect(finalizing.speed).toBeUndefined();
+  expect(finalizing.eta).toBeUndefined();
+
   const completed = { ...live,
     progress: { ...live.progress, bytesTransferred: 128 },
     status: { ...live.status, state: 'Completed', isTerminal: true, terminalOutcome: 'Succeeded' },
@@ -605,4 +614,25 @@ it.each(['live', 'retained'])('renders planned nested paths for a custom directo
     expect(folder.files[0]!.relativePath).toBe('Artwork/cover.jpg');
     expect(folder.sourceTransferIds).toEqual(['nested']);
   }
+});
+
+
+it('groups fallback providers independently and presents their titles without inventing peers', () => {
+  const rows = ['Provider A', 'Provider B'].map((provider, index): TransferStateDto => ({
+    transferId: String(index), revision: 1, createdAtUtc: new Date(index).toISOString(),
+    identity: { direction: 'Download', source: 'Fallback', username: null, remotePath: 'opaque-id',
+      fallback: { provider, title: 'Source title', reference: 'opaque-id' } },
+    status: { state: 'AttemptStarted', isTerminal: false, attemptCount: 1 },
+    scheduling: { requestedAtUtc: new Date(0).toISOString(), startedAtUtc: new Date(0).toISOString() },
+    progress: { bytesTransferred: 0, totalBytes: 0 },
+  }));
+  const groups = buildTransferGroups(rows, [], 'download');
+  expect(groups).toHaveLength(2);
+  expect(new Set(groups.map(group => group.peer))).toEqual(new Set(['Provider A', 'Provider B']));
+  for (const group of groups) {
+    expect(group.username).toBeNull();
+    expect(group.items[0]).toMatchObject({ path: 'Source title', transfer: { state: 'Running fallback' } });
+  }
+  expect(liveTransferPresentation({ ...rows[0]!, status: { ...rows[0]!.status, state: 'AttemptCompleted' } }).state)
+    .toBe('Finalizing');
 });

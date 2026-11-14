@@ -48,7 +48,8 @@ public sealed record JobPreviewNodeDto(
     int SelectableSubtreeCount = 0,
     string? SourceDetail = null,
     string? SourceLabel = null,
-    string? ExtractorInfo = null);
+    string? ExtractorInfo = null,
+    string? InputType = null);
 
 public sealed record CreateJobPreviewResponseDto(JobPreviewSummaryDto Preview);
 

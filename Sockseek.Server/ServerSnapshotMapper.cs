@@ -304,8 +304,12 @@ public static class ServerSnapshotMapper
             ToServerJobCancellationSource(job.CancellationSource),
             ToServerSongDownloadSource(song.DownloadSource),
             song.ExactTarget == null ? null : ToPeerFileTargetDto(song.ExactTarget),
-            ToAttemptedSongFileDto(song.LastAttemptedCandidate));
+            ToAttemptedSongFileDto(song.LastAttemptedCandidate),
+            ToFallbackSourceDto(song.Fallback));
     }
+
+    internal static FallbackSourceDto? ToFallbackSourceDto(FallbackSource? source)
+        => source == null ? null : new(source.Provider, source.Title, source.Reference);
 
     internal static AttemptedSongFileDto? ToAttemptedSongFileDto(FileCandidateSnapshot? candidate)
         => candidate == null ? null : new(
@@ -425,6 +429,9 @@ public static class ServerSnapshotMapper
             JobActivityPhase.Organizing => ServerJobActivityPhase.Organizing,
             JobActivityPhase.RunningOnComplete => ServerJobActivityPhase.RunningOnComplete,
             JobActivityPhase.RunningFallback => ServerJobActivityPhase.RunningFallback,
+            JobActivityPhase.SearchingFallback => ServerJobActivityPhase.SearchingFallback,
+            JobActivityPhase.DownloadingFallback => ServerJobActivityPhase.DownloadingFallback,
+            JobActivityPhase.ProcessingFallback => ServerJobActivityPhase.ProcessingFallback,
             _ => throw new ArgumentOutOfRangeException(nameof(phase), phase, null),
         };
 

@@ -268,7 +268,7 @@
   let hasContent = $derived(Boolean(selectedFile) || payload?.kind === 'remote-directory'
     || payload?.kind === 'album' && !skippedOutput && Boolean(payload.resolvedFolderPath || manifest));
   let info = $derived(job ? jobDetailInfo(job, payload, hasContent) : null);
-  let detailTransfer = $derived(selectedFile ? jobFileTransfer(job, selectedFile.file, selectedFile.target, activeFileTransfer)
+  let detailTransfer = $derived(selectedFile ? jobFileTransfer(job, selectedFile.file, selectedFile.target, activeFileTransfer, payload?.kind === 'song' ? payload.fallback : null)
     : folderTransfer ?? jobFileTransfer(job, payload?.kind === 'song' ? payload.file : null));
 
   function childOutcomes(value: Schema<'JobPayloadDto'> | null | undefined): string {
@@ -666,16 +666,16 @@
     <section class="job-content-section">
       <div class="job-source-heading">
         <div class="job-source-summary">
-          <span class="job-source-identity">From: <UsernameLink username={target.username} actions={userActions} /></span>
-          {#if payload?.kind === 'song'}
+          <span class="job-source-identity">From: {#if target}<UsernameLink username={target.username} actions={userActions} />{:else}{selectedFile.sourceName}{/if}</span>
+          {#if target && payload?.kind === 'song'}
             {#if selectedPeerUploadSpeed != null}<span>{(Number(selectedPeerUploadSpeed) / 1_000_000).toFixed(1)} MB/s</span>{/if}
             {#if selectedPeerHasFreeUploadSlot != null}<span class:available={selectedPeerHasFreeUploadSlot}>{selectedPeerHasFreeUploadSlot ? 'Free slot' : 'No free slot'}</span>{/if}
           {/if}
         </div>
       </div>
-      <FileItemCard path={target.filename} sizeBytes={file.fileSize == null && target.size == null ? null : Number(file.fileSize ?? target.size)}
+      <FileItemCard path={selectedFile.path} sizeBytes={file.fileSize == null && target?.size == null ? null : Number(file.fileSize ?? target?.size)}
         audio={audioAttributes(target)}
-        transfer={jobFileTransfer(job, file, target, activeFileTransfer)} />
+        transfer={detailTransfer} />
     </section>
   {:else if payload?.kind === 'album' && !skippedOutput}
     {#if payload.resolvedFolderPath || manifest}

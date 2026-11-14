@@ -5,7 +5,8 @@ import type { TransferPresentation } from '../presentation/items';
 
 export function selectedJobFileTransfer(live: TransferStateDto): TransferPresentation {
   const transfer = liveTransferPresentation(live);
-  if (transfer.tone !== 'active') return transfer;
+  if (transfer.tone !== 'active' || live.identity.source === 'Fallback'
+    || live.status.state === 'AttemptCompleted') return transfer;
   // The selected-file detail shows only the determinate percentage, while the
   // shared transfer timeline also includes transferred bytes.
   return {
@@ -21,23 +22,62 @@ export function selectedJobFileTransfer(live: TransferStateDto): TransferPresent
 /** Job outcomes own skip/finalization/cancellation facts that a network attempt cannot describe. */
 export function jobFileTransfer(job: Schema<'JobSummaryDto'> | null | undefined,
   file: Schema<'FileDownloadStateDto'> | null | undefined,
-  target?: Schema<'PeerFileTargetDto'> | null, live?: TransferStateDto): TransferPresentation {
+  target?: Schema<'PeerFileTargetDto'> | null, live?: TransferStateDto, source?: Schema<'FallbackSourceDto'> | null): TransferPresentation {
   const current = live ? selectedJobFileTransfer(live) : undefined;
   const terminal = job?.lifecycleState === 'Terminal';
+  // A transport describes the job only while it is transferring. Finalization,
+  // fallback and search are owned by the job, even if an attempt is still open.
+  const transferring = !job || job.lifecycleState === 'Running' && job.activityPhase === 'Downloading';
+  const showTransfer = !terminal && transferring && current != null;
+  const showProgress = terminal || transferring;
+  // Fallback phases already hide progress through showProgress. An unscoped
+  // fallback transport must also not inherit an earlier peer's file progress.
+  const fileProgress = live?.identity.source === 'Fallback' || file?.progressPercent == null
+    ? undefined : Number(file.progressPercent);
+  let state: string;
+  if (terminal && file?.reused) state = 'Reused';
+  else if (showTransfer) state = current.state;
+  else state = job ? jobStatusLabel(job) : 'Pending';
   return {
     ...current, job: job ?? undefined, file: file ?? undefined, target: target ?? undefined,
-    state: terminal && file?.reused ? 'Reused' : terminal || !current ? job ? jobStatusLabel(job) : 'Pending' : current.state,
-    tone: terminal || !current ? jobTransferTone(job) : current.tone,
+    fallback: source ?? live?.identity.fallback ?? undefined,
+    state,
+    tone: showTransfer ? current.tone : jobTransferTone(job),
+    progressText: showTransfer ? current.progressText : undefined,
     direction: 'download',
-    speed: terminal ? undefined : current?.speed,
-    eta: terminal ? undefined : current?.eta,
+    speed: showTransfer ? current.speed : undefined,
+    eta: showTransfer ? current.eta : undefined,
     detail: job?.failureMessage ?? (terminal ? undefined : current?.detail),
-    progressPercent: job?.terminalOutcome === 'Skipped' || file?.reused ? undefined
-      : current?.progressPercent ?? (file?.progressPercent == null ? undefined : Number(file.progressPercent)),
+    progressPercent: !showProgress || job?.terminalOutcome === 'Skipped' || file?.reused ? undefined
+      : current?.progressPercent ?? fileProgress,
   };
 }
 
 export function selectedJobFile(payload: Schema<'JobPayloadDto'> | null | undefined, live?: TransferStateDto): {
+  path: string;
+  target?: Schema<'PeerFileTargetDto'>;
+  sourceName?: string;
+  file: Schema<'FileDownloadStateDto'>;
+  peer?: Schema<'PeerInfoDto'>;
+} | null {
+  if (live?.identity.source === 'Fallback' || payload?.kind === 'song' &&
+    (payload.downloadSource === 'Fallback' || payload.fallback != null)) {
+    const source = live?.identity.fallback ?? (payload?.kind === 'song' ? payload.fallback : null);
+    const file = payload?.kind === 'song' ? payload.file : null;
+    const complete = payload?.kind === 'song' && payload.downloadSource === 'Fallback';
+    return {
+      path: (complete ? file?.downloadPath : null) ?? source?.title ?? source?.reference ?? 'Fallback download',
+      sourceName: source?.provider ?? 'Fallback',
+      file: { reused: false, downloadPath: complete ? file?.downloadPath : null,
+        fileSize: complete ? file?.fileSize : null, bytesTransferred: complete ? file?.bytesTransferred ?? 0 : 0,
+        progressPercent: complete ? file?.progressPercent : null },
+    };
+  }
+  const peerFile = selectedPeerFile(payload, live);
+  return peerFile ? { ...peerFile, path: peerFile.target.filename } : null;
+}
+
+function selectedPeerFile(payload: Schema<'JobPayloadDto'> | null | undefined, live?: TransferStateDto): {
   target: Schema<'PeerFileTargetDto'>;
   file: Schema<'FileDownloadStateDto'>;
   peer?: Schema<'PeerInfoDto'>;

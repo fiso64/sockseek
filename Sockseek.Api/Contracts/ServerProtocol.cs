@@ -83,6 +83,9 @@ public enum ServerJobActivityPhase
     Organizing,
     RunningOnComplete,
     RunningFallback,
+    SearchingFallback,
+    DownloadingFallback,
+    ProcessingFallback,
 }
 
 /// <summary>Terminal result for completed jobs.</summary>

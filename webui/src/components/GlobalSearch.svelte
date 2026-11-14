@@ -310,6 +310,7 @@
         <li>Artist and the song/album title affect how results are filtered, ranked, and grouped. Separate them with a hyphen, for example Casiopea - Mint Jams.</li>
         <li>You can change the default search mode by setting web-default-search-mode in the config.</li>
         <li>Switch between search modes using up and down arrow keys.</li>
+        <li>Press Control+Enter while the search bar is focused to create an automatic download job.</li>
       </ul>
     </section>
   </Modal>

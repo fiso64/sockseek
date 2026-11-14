@@ -1,10 +1,12 @@
 import type { JobSummaryDto, Schema } from '../../api/types';
-import { humanizeStateValue } from '../../app/format';
 import type { TransferPresentation } from '../presentation/items';
 
-/** Terminal file/folder cards use the same outcome colours as transfer history. */
+const resumeTimeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+/** File/folder cards use the same activity and outcome colours as transfer history. */
 export function jobTransferTone(job: JobSummaryDto | null | undefined): TransferPresentation['tone'] {
-  if (job?.lifecycleState !== 'Terminal') return undefined;
+  if (!job || job.lifecycleState === 'Pending') return undefined;
+  if (job.lifecycleState !== 'Terminal') return 'active';
   switch (job.terminalOutcome) {
     case 'Succeeded': return 'complete';
     case 'Cancelled': return 'cancelled';
@@ -26,14 +28,14 @@ export function jobStatusLabel(job: JobSummaryDto): string {
     }
   }
   if (job.lifecycleState === 'AwaitingSelection') return 'Awaiting selection';
-  if (job.kind === 'search') return humanizeStateValue(job.activityPhase && job.activityPhase !== 'None'
-    ? job.activityPhase : job.lifecycleState ?? 'Pending');
   if (job.lifecycleState !== 'Running') return 'Pending';
   switch (job.activityPhase) {
-    case 'WaitingForSearchConcurrency': return 'Waiting to search';
-    case 'SearchRateLimited': return 'Waiting to search';
+    case 'WaitingForSearchConcurrency': return 'Waiting for search capacity';
+    case 'SearchRateLimited': return job.activityUntilUtc
+      ? `Search resumes at ${resumeTimeFormat.format(new Date(job.activityUntilUtc))}`
+      : 'Search rate limited';
     case 'Searching': return 'Searching';
-    case 'ProcessingSearchResults': return 'Choosing results';
+    case 'ProcessingSearchResults': return job.kind === 'search' ? 'Preparing results' : 'Choosing results';
     case 'Extracting': return 'Importing';
     case 'Downloading': return 'Downloading';
     case 'RetrievingFolder': return 'Reading folder';
@@ -41,6 +43,9 @@ export function jobStatusLabel(job: JobSummaryDto): string {
     case 'Organizing': return 'Organizing files';
     case 'RunningOnComplete': return 'Running completion command';
     case 'RunningFallback': return 'Running fallback';
+    case 'SearchingFallback': return 'Searching fallback';
+    case 'DownloadingFallback': return 'Downloading fallback';
+    case 'ProcessingFallback': return 'Processing fallback';
     default: return 'Running';
   }
 }

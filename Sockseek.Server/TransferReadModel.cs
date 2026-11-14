@@ -54,7 +54,8 @@ internal static class TransferReadModel
                 transfer.GroupDisplayPath,
                 transfer.Candidate?.Peer.UploadSpeed,
                 transfer.Candidate?.Peer.HasFreeUploadSlot,
-                transfer.GroupRelativePath, (Sockseek.Api.TransferGroupKind)transfer.GroupKind),
+                transfer.GroupRelativePath, (Sockseek.Api.TransferGroupKind)transfer.GroupKind,
+                ServerSnapshotMapper.ToFallbackSourceDto(transfer.Fallback)),
             previous is not null && (fields & TransferFields.Status) == 0 ? previous.Status : new TransferStatusFieldsDto(
                 transfer.State ?? "",
                 transfer.LocalPath,

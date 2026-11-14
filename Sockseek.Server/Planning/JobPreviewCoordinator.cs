@@ -781,7 +781,7 @@ public sealed class JobPreviewCoordinator(
             node.State == PlannedJobState.Ready.ToString(),
             node.IsSelectable,
             Enum.Parse<ServerJobKind>(node.Kind),
-            node.ItemName,
+            node.ItemName ?? command?.Input,
             node.QueryText,
             node.DirectChildCount,
             JsonSerializer.Deserialize<AppliedProfileDto[]>(node.AppliedProfilesJson) ?? [],
@@ -796,7 +796,8 @@ public sealed class JobPreviewCoordinator(
             node.SelectableSubtreeCount,
             command?.SourceInfo?.PreviewDetail,
             command?.SourceInfo?.CollectionDescription(node.SelectableSubtreeCount),
-            command?.ExtractorInfo);
+            command?.ExtractorInfo,
+            command?.InputType is { } inputType && inputType != InputType.None ? inputType.ToInputName() : null);
     }
 
     private static CreateJobPreviewRequestDto WithoutCredentials(

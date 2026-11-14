@@ -22,6 +22,12 @@ test('keeps private-chat presence live without loading the full profile', async 
     const topGap = await page.locator('.chat-messages').evaluate((messages) =>
       messages.firstElementChild!.getBoundingClientRect().top - messages.getBoundingClientRect().top);
     expect(topGap).toBeLessThan(50);
+    const bubbleClearance = await page.locator('.direct-message-row.mine .direct-message-bubble').first().evaluate(bubble => {
+      const pane = bubble.closest('.chat-messages')!;
+      return pane.getBoundingClientRect().left + pane.clientWidth - bubble.getBoundingClientRect().right;
+    });
+    expect(bubbleClearance).toBeGreaterThanOrEqual(12);
+
   }
   const composer = page.getByRole('textbox', { name: 'Message', exact: true });
   expect(await composer.evaluate((node) => node.getBoundingClientRect().height)).toBe(38);

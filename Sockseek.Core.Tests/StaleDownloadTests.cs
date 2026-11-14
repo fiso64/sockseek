@@ -737,7 +737,6 @@ public class StaleDownloadTests
         {
             transferStarting?.Invoke(new FallbackTransferDescriptor(
                 "blocking-fallback",
-                song.Query.ToString(),
                 organizer.GetSavePathNoExt(song.Query.ToString() + ".mp3")));
             started.TrySetResult();
             await release.Task.WaitAsync(ct);

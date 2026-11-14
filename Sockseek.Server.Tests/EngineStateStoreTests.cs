@@ -1732,6 +1732,7 @@ public class EngineStateStoreTests
     {
         var store = new EngineStateStore();
         var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" });
+        song.Fallback = new FallbackSource("Another provider", "Source title", "source-reference");
         song.SetDone("C:/music/track.mp3", downloadSource: SongDownloadSource.Fallback);
 
         Register(store, song);
@@ -1739,6 +1740,7 @@ public class EngineStateStoreTests
         var payload = store.GetJobDetail(song.Id)?.Payload as SongJobPayloadDto;
         Assert.IsNotNull(payload);
         Assert.AreEqual(ServerSongDownloadSource.Fallback, payload.DownloadSource);
+        Assert.AreEqual(new FallbackSourceDto("Another provider", "Source title", "source-reference"), payload.Fallback);
     }
 
     [TestMethod]

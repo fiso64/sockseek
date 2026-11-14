@@ -168,7 +168,10 @@ public sealed record SongJobPayloadDto(
     ServerJobCancellationSource CancellationSource = ServerJobCancellationSource.None,
     ServerSongDownloadSource DownloadSource = ServerSongDownloadSource.None,
     PeerFileTargetDto? ExactTarget = null,
-    AttemptedSongFileDto? LastAttemptedFile = null) : JobPayloadDto;
+    AttemptedSongFileDto? LastAttemptedFile = null,
+    FallbackSourceDto? Fallback = null) : JobPayloadDto;
+
+public sealed record FallbackSourceDto(string Provider, string? Title = null, string? Reference = null);
 
 /// <summary>
 /// Payload for album search/download jobs.

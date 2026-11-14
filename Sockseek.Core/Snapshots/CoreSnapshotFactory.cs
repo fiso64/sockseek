@@ -179,7 +179,8 @@ public static class CoreSnapshotFactory
             totalBytes,
             attemptCount,
             Candidate: null,
-            Target: null);
+            Target: null,
+            Fallback: song.Fallback);
 
     private static TransferFileMetadataSnapshot CreateTransferFileMetadata(
         FileCandidateSnapshot candidate)
@@ -366,7 +367,8 @@ public static class CoreSnapshotFactory
                 song.DownloadSource,
                 CreateFileDownloadState(song),
                 song.ExecutedSearchDefinition,
-                song.LastAttemptedCandidate == null ? null : CreateFileCandidate(song.LastAttemptedCandidate)),
+                song.LastAttemptedCandidate == null ? null : CreateFileCandidate(song.LastAttemptedCandidate),
+                song.Fallback),
             RemoteFileJob remoteFile => new RemoteFileJobSnapshotPayload(
                 remoteFile.Target,
                 remoteFile.OutputPath,

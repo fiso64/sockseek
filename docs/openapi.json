@@ -15314,6 +15314,29 @@
           }
         }
       },
+      "FallbackSourceDto": {
+        "required": [
+          "provider"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reference": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "FileAttributeDto": {
         "required": [
           "type",
@@ -17788,7 +17811,10 @@
                                 "RunningChildren",
                                 "Organizing",
                                 "RunningOnComplete",
-                                "RunningFallback"
+                                "RunningFallback",
+                                "SearchingFallback",
+                                "DownloadingFallback",
+                                "ProcessingFallback"
                               ]
                             },
                             "activityUntilUtc": {
@@ -18209,7 +18235,10 @@
                             "RunningChildren",
                             "Organizing",
                             "RunningOnComplete",
-                            "RunningFallback"
+                            "RunningFallback",
+                            "SearchingFallback",
+                            "DownloadingFallback",
+                            "ProcessingFallback"
                           ]
                         },
                         "activityUntilUtc": {
@@ -18653,6 +18682,29 @@
                                 "Files"
                               ],
                               "default": "Directory"
+                            },
+                            "fallback": {
+                              "required": [
+                                "provider"
+                              ],
+                              "type": "object",
+                              "properties": {
+                                "provider": {
+                                  "type": "string"
+                                },
+                                "title": {
+                                  "type": [
+                                    "null",
+                                    "string"
+                                  ]
+                                },
+                                "reference": {
+                                  "type": [
+                                    "null",
+                                    "string"
+                                  ]
+                                }
+                              }
                             }
                           }
                         },
@@ -20621,6 +20673,16 @@
                 "$ref": "#/components/schemas/AttemptedSongFileDto"
               }
             ]
+          },
+          "fallback": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FallbackSourceDto"
+              }
+            ]
           }
         }
       },
@@ -20737,6 +20799,12 @@
             ]
           },
           "extractorInfo": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "inputType": {
             "type": [
               "null",
               "string"
@@ -24198,7 +24266,10 @@
           "RunningChildren",
           "Organizing",
           "RunningOnComplete",
-          "RunningFallback"
+          "RunningFallback",
+          "SearchingFallback",
+          "DownloadingFallback",
+          "ProcessingFallback"
         ]
       },
       "ServerJobCancellationSource": {
@@ -26135,7 +26206,10 @@
                             "RunningChildren",
                             "Organizing",
                             "RunningOnComplete",
-                            "RunningFallback"
+                            "RunningFallback",
+                            "SearchingFallback",
+                            "DownloadingFallback",
+                            "ProcessingFallback"
                           ]
                         },
                         "activityUntilUtc": {
@@ -26556,7 +26630,10 @@
                         "RunningChildren",
                         "Organizing",
                         "RunningOnComplete",
-                        "RunningFallback"
+                        "RunningFallback",
+                        "SearchingFallback",
+                        "DownloadingFallback",
+                        "ProcessingFallback"
                       ]
                     },
                     "activityUntilUtc": {
@@ -27000,6 +27077,29 @@
                             "Files"
                           ],
                           "default": "Directory"
+                        },
+                        "fallback": {
+                          "required": [
+                            "provider"
+                          ],
+                          "type": "object",
+                          "properties": {
+                            "provider": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            },
+                            "reference": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
                         }
                       }
                     },
@@ -29237,7 +29337,10 @@
                                 "RunningChildren",
                                 "Organizing",
                                 "RunningOnComplete",
-                                "RunningFallback"
+                                "RunningFallback",
+                                "SearchingFallback",
+                                "DownloadingFallback",
+                                "ProcessingFallback"
                               ]
                             },
                             "activityUntilUtc": {
@@ -29658,7 +29761,10 @@
                             "RunningChildren",
                             "Organizing",
                             "RunningOnComplete",
-                            "RunningFallback"
+                            "RunningFallback",
+                            "SearchingFallback",
+                            "DownloadingFallback",
+                            "ProcessingFallback"
                           ]
                         },
                         "activityUntilUtc": {
@@ -30102,6 +30208,29 @@
                                 "Files"
                               ],
                               "default": "Directory"
+                            },
+                            "fallback": {
+                              "required": [
+                                "provider"
+                              ],
+                              "type": "object",
+                              "properties": {
+                                "provider": {
+                                  "type": "string"
+                                },
+                                "title": {
+                                  "type": [
+                                    "null",
+                                    "string"
+                                  ]
+                                },
+                                "reference": {
+                                  "type": [
+                                    "null",
+                                    "string"
+                                  ]
+                                }
+                              }
                             }
                           }
                         },
@@ -32613,6 +32742,16 @@
           },
           "groupKind": {
             "$ref": "#/components/schemas/TransferGroupKind"
+          },
+          "fallback": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FallbackSourceDto"
+              }
+            ]
           }
         }
       },

@@ -398,6 +398,10 @@ namespace Tests.Core
                 Assert.IsNotNull(transferCompleted);
                 Assert.AreEqual(transferStarted.Transfer.Id, transferCompleted.Transfer.Id);
                 Assert.AreEqual(TransferSnapshotSource.Fallback, transferCompleted.Transfer.Source);
+                Assert.AreEqual("Test provider", transferCompleted.Transfer.Fallback?.Provider);
+                Assert.AreEqual(song.Fallback, transferCompleted.Transfer.Fallback);
+                Assert.AreEqual(new FileInfo(song.DownloadPath!).Length, song.FileSize);
+                Assert.AreEqual(song.FileSize, song.BytesTransferred);
                 Assert.IsNull(transferCompleted.Transfer.Candidate);
                 Assert.AreEqual(song.DownloadPath, transferCompleted.FinalLocalPath);
                 Assert.IsTrue(finalPathExistedAtTerminalPublication, "Fallback completion must be published only after the final path exists.");
@@ -1783,8 +1787,9 @@ namespace Tests.Core
             {
                 Calls++;
                 ObservedPhase = song.ActivityPhase;
+                song.Fallback = new FallbackSource("Test provider", song.Query.ToString(), "fake");
                 var path = outputPath ?? organizer.GetSavePathNoExt($"{song.Query.Artist} - {song.Query.Title}.mp3") + ".mp3";
-                transferStarting?.Invoke(new FallbackTransferDescriptor("fake", song.Query.ToString(), path));
+                transferStarting?.Invoke(new FallbackTransferDescriptor("fake", path));
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 System.IO.File.WriteAllBytes(path, TestHelpers.EmptyMp3Bytes);
                 return Task.FromResult<JobOutcome?>(JobOutcome.Done(path, downloadSource: SongDownloadSource.Fallback));

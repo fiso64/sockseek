@@ -2,12 +2,59 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Diagnostics;
 using Sockseek.Core.Extractors;
 using Sockseek.Core.Services;
+using Sockseek.Core;
+using Sockseek.Core.Jobs;
+using Sockseek.Core.Models;
+using Sockseek.Core.Settings;
 
 namespace Tests.Core;
 
 [TestClass]
 public class YtDlpInterfaceTests
 {
+    [TestMethod]
+    public async Task ProviderReportsSourceAndSearchDownloadProcessingPhases()
+    {
+        var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Song" });
+        var settings = new DownloadSettings();
+        settings.YtDlp.UseYtdlp = true;
+        var organizer = new FileManager(song, settings.Output, settings.Extraction,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance);
+        var provider = new YtDlpSongDownloadFallback(new PhaseClient(song));
+        var started = false;
+        var result = await provider.TryDownloadAsync(song, settings, organizer, ExtractorContext.None.Log,
+            CancellationToken.None, descriptor =>
+            {
+                started = true;
+                Assert.AreEqual(JobActivityPhase.DownloadingFallback, song.ActivityPhase);
+                Assert.AreEqual("source-id", descriptor.SourceReference);
+                Assert.AreEqual(new FallbackSource("yt-dlp", "Source title", "source-id"), song.Fallback);
+            });
+        Assert.IsTrue(started);
+        Assert.AreEqual(JobActivityPhase.ProcessingFallback, song.ActivityPhase);
+        Assert.AreEqual(SongDownloadSource.Fallback, result?.DownloadSource);
+        Assert.AreEqual("output.opus", result?.DownloadPath);
+    }
+
+    private sealed class PhaseClient(SongJob song) : IYtDlpClient
+    {
+        public Task<IReadOnlyList<YtDlpSearchResult>> SearchAsync(SongQuery query, IJobLog? log, CancellationToken ct)
+        {
+            Assert.AreEqual(JobActivityPhase.SearchingFallback, song.ActivityPhase);
+            Assert.AreEqual("yt-dlp", song.Fallback?.Provider);
+            return Task.FromResult<IReadOnlyList<YtDlpSearchResult>>([new(180, "source-id", "Source title")]);
+        }
+        public Task<string> DownloadAsync(string id, string savePathNoExt, string ytdlpArgument,
+            IJobLog? log, CancellationToken ct, Action? processing = null)
+        {
+            Assert.AreEqual(JobActivityPhase.DownloadingFallback, song.ActivityPhase);
+            Assert.IsNotNull(processing);
+            processing();
+            Assert.AreEqual(JobActivityPhase.ProcessingFallback, song.ActivityPhase);
+            return Task.FromResult("output.opus");
+        }
+    }
+
     [TestMethod]
     [DataRow(0)]
     [DataRow(7)]
@@ -30,7 +77,9 @@ public class YtDlpInterfaceTests
             start.ArgumentList.Add("-c");
             start.ArgumentList.Add($"printf 'first\\n'; printf diagnostic >&2; printf last; exit {exitCode}");
         }
-        var result = await YtDlpCommand.RunAsync(start, ExtractorContext.None.Log);
+        var observed = new List<string>();
+        var result = await YtDlpCommand.RunAsync(start, ExtractorContext.None.Log, output: observed.Add);
+        CollectionAssert.AreEqual(new[] { "first", "last" }, observed);
         Assert.AreEqual(exitCode, result.ExitCode);
         CollectionAssert.AreEqual(new[] { "first", "last" }, result.Stdout.ToArray());
         Assert.AreEqual("diagnostic", result.Stderr.Single().Trim());

@@ -73,6 +73,7 @@ export interface TransferPresentation {
   file?: Readonly<Schema<'FileDownloadStateDto'>>;
   directory?: Readonly<Schema<'DirectoryDownloadStateDto'>>;
   target?: Readonly<Schema<'PeerFileTargetDto'>>;
+  fallback?: Readonly<Schema<'FallbackSourceDto'>>;
   group?: Readonly<Schema<'TransferGroupSummaryDto'>>;
   state: string;
   tone?: 'active' | 'queued' | 'complete' | 'partial' | 'failed' | 'cancelled';

@@ -228,21 +228,22 @@ function arrangeRows(
   }
 
   const groups: TransferPeerLayout[] = [];
-  const peerOccurrences = new Map<string | null, number>();
+  const peerOccurrences = new Map<string, number>();
   for (const entry of projection.keepLayouts(entries)) {
     const row = entry.rows[0]!;
     const count = entry.kind === 'folder' ? Number(entry.summary?.fileCount ?? entry.rows.length) : 1;
     const previous = groups.at(-1);
-    if (previous?.username === row.username) {
+    if (previous?.username === row.username && previous.peer === row.peer) {
       previous.items.push(entry);
       previous.transferCount += count;
     } else {
       // A new head card or an unrelated peer must not recreate this peer's
       // whole section (or reset its collapse state). Repeated chronological
       // runs still need distinct keys; exact usernames also distinguish null.
-      const occurrence = peerOccurrences.get(row.username) ?? 0;
-      peerOccurrences.set(row.username, occurrence + 1);
-      groups.push({ key: JSON.stringify([direction, row.username, occurrence]), peer: row.peer,
+      const identity = JSON.stringify([row.username, row.peer]);
+      const occurrence = peerOccurrences.get(identity) ?? 0;
+      peerOccurrences.set(identity, occurrence + 1);
+      groups.push({ key: JSON.stringify([direction, identity, occurrence]), peer: row.peer,
         username: row.username, transferCount: count, items: [entry] });
     }
   }
@@ -306,12 +307,14 @@ export function isQueuedTransfer(transfer?: TransferPresentation): boolean {
 }
 
 function fromTransfer(value: TransferStateDto): UnifiedTransfer {
-  const path = value.identity.remotePath ?? value.status.localPath ?? value.file?.name ?? 'Unknown file';
+  const fallback = value.identity.source === 'Fallback';
+  const path = (fallback ? value.status.isTerminal && value.status.localPath || value.identity.fallback?.title : null)
+    ?? value.identity.remotePath ?? value.status.localPath ?? value.file?.name ?? 'Unknown file';
   const createdAt = value.createdAtUtc;
   return {
     id: value.transferId,
     revision: value.revision,
-    peer: value.identity.username ?? 'Unknown peer',
+    peer: value.identity.username ?? (fallback ? value.identity.fallback?.provider ?? 'Fallback' : 'Unknown peer'),
     username: value.identity.username ?? null,
     path,
     groupRef: value.identity.groupRef ?? null,
@@ -336,17 +339,22 @@ export function liveTransferPresentation(value: TransferStateDto, createdAt?: st
     value.status.state, transferred, value.scheduling?.startedAtUtc);
   const direction = value.identity.direction.toLowerCase() === 'upload' ? 'upload' : 'download';
   const percent = total > 0 ? clamp(transferred / total * 100) : undefined;
+  const finalizing = transferTone === 'active' && value.status.state === 'AttemptCompleted';
+  const transferring = transferTone === 'active' && !finalizing;
+  let state: string;
+  if (finalizing) state = 'Finalizing';
+  else if (transferring) state = value.identity.source === 'Fallback' ? 'Running fallback' : activeTransferState(direction);
+  else state = transferState(value.status.state, value.status.terminalOutcome ?? 'None');
   return {
     record: value,
-    state: transferTone === 'active' ? activeTransferState(direction)
-      : transferState(value.status.state, value.status.terminalOutcome ?? 'None'),
+    state,
     tone: transferTone,
     cancellable: value.status.availableActions?.some((action) => action.kind === 'cancel') ?? false,
     progressPercent: percent,
     progressText: direction === 'download' && transferTone === 'complete' && !completedAt
       ? 'Complete' : fileProgressText(direction, transferTone, transferred, percent),
-    speed: transferTone === 'active' && speed > 0 ? `${formatBytes(speed)}/s` : undefined,
-    eta: transferTone === 'active' ? remainingEta(total - transferred, speed) : undefined,
+    speed: transferring && speed > 0 ? `${formatBytes(speed)}/s` : undefined,
+    eta: transferring ? remainingEta(total - transferred, speed) : undefined,
     detail: value.status.failureMessage || undefined,
     direction,
     createdAt,

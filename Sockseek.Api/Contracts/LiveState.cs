@@ -428,7 +428,8 @@ public sealed record TransferIdentityFieldsDto(
     int? PeerUploadSpeed = null,
     bool? PeerHasFreeUploadSlot = null,
     string? GroupRelativePath = null,
-    TransferGroupKind GroupKind = TransferGroupKind.Directory);
+    TransferGroupKind GroupKind = TransferGroupKind.Directory,
+    FallbackSourceDto? Fallback = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<TransferTerminalOutcome>))]
 public enum TransferTerminalOutcome

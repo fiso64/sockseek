@@ -175,7 +175,8 @@ public sealed record TransferSnapshot(
     string? GroupDisplayPath = null,
     string? GroupRelativePath = null,
     DateTimeOffset? CompletedAtUtc = null,
-    TransferGroupKind GroupKind = TransferGroupKind.Directory);
+    TransferGroupKind GroupKind = TransferGroupKind.Directory,
+    FallbackSource? Fallback = null);
 
 public sealed record FileSearchProjectionSnapshot(SongQuerySnapshot Query, bool IncludeFullResults);
 
@@ -233,7 +234,8 @@ public sealed record SongJobSnapshotPayload(
     SongDownloadSource DownloadSource,
     FileDownloadStateSnapshot File,
     SearchDefinition? Definition,
-    FileCandidateSnapshot? LastAttemptedCandidate = null) : JobExecutionPayload;
+    FileCandidateSnapshot? LastAttemptedCandidate = null,
+    FallbackSource? Fallback = null) : JobExecutionPayload;
 
 public sealed record AlbumJobSnapshotPayload(
     AlbumQuerySnapshot Query,

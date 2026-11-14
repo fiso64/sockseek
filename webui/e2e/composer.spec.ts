@@ -359,12 +359,22 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   expect(originalRequest.options?.downloadSettings?.extraction).toEqual({ offset: 0 });
   await expect(page.locator('.new-job-start-button')).toBeEnabled();
   await expect(page.locator('.job-preview-row').first()).toContainText('browser-input.csv');
-  await expect(page.locator('.job-preview-copy small').first()).toHaveText('Import · Uploaded artifact');
+  await expect(page.locator('.job-preview-details').first().locator(':scope > span')).toHaveText(['2 jobs', '·', 'CSV']);
   // The real paged hierarchy expands automatically when the complete plan is small.
   await expect(page.locator('.job-preview-row').filter({ hasText: 'browser-input' })).toHaveCount(2);
-  await expect(page.locator('.job-preview-row').filter({ hasText: 'browser-input' }).last().locator('.job-preview-copy small')).toHaveText('Job List · Mixed jobs');
-  await expect(page.locator('.job-preview-row').filter({ hasText: 'Fixture CSV Song' }).locator('.job-preview-copy small')).toHaveText('Song · CSV row 2');
+  await expect(page.locator('.job-preview-row').filter({ hasText: 'browser-input' }).last().locator('.job-preview-details > span')).toHaveText(['2 jobs', '·', 'Job List']);
+  await expect(page.locator('.job-preview-row').filter({ hasText: 'Fixture CSV Song' }).locator('.job-preview-details')).toHaveText('Song');
   await expect(page.locator('.new-job-preview .job-preview-tree')).toHaveCount(1);
+  const rowLayout = await page.locator('.job-preview-row').first().evaluate(row => {
+    const title = row.querySelector('.job-preview-title')!.getBoundingClientRect();
+    const details = row.querySelector('.job-preview-details')!.getBoundingClientRect();
+    return { titleMiddle: title.top + title.height / 2, detailsMiddle: details.top + details.height / 2,
+      titleRight: title.right, detailsLeft: details.left, height: row.getBoundingClientRect().height };
+  });
+  expect(Math.abs(rowLayout.titleMiddle - rowLayout.detailsMiddle)).toBeLessThan(1);
+  expect(rowLayout.titleRight).toBeLessThan(rowLayout.detailsLeft);
+  expect(rowLayout.height).toBeLessThan(40);
+
   await expect(page.locator('.job-preview-children').getByRole('button', { name: 'Load jobs', exact: true })).toHaveCount(0);
 
   // Keep the uploaded artifact and non-default mapping, but make the reviewed
@@ -515,6 +525,8 @@ test('reviews and starts daemon CSV and list paths without uploading', async ({ 
     if (choice === 'list') {
       // The nested CSV stays a collection even though it contains only one song.
       expect(nodes[4]!.isSelectable).toBe(false);
+      expect(nodes[4]!.inputType).toBe('CSV');
+      await expect(page.locator('.job-preview-row').filter({ hasText: 'songs.csv' }).locator('.job-preview-details')).toContainText('CSV');
       expect(Number(nodes[4]!.selectableSubtreeCount)).toBe(1);
       await expect(page.locator('.job-preview-row').filter({ hasText: 'Fixture Album' })).toHaveCount(1);
       await page.getByTestId('new-job-selection-toggle').click();

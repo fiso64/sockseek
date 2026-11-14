@@ -48,7 +48,7 @@ internal static class CliJobStatusPresenter
         if (lifecycle == ServerJobLifecycleState.Terminal)
             return Terminal(outcome, skipReason, failureReason);
 
-        if (TryTransferState(transferState, out var transfer))
+        if (activity == ServerJobActivityPhase.Downloading && TryTransferState(transferState, out var transfer))
             return transfer;
 
         return activity switch
@@ -64,6 +64,9 @@ internal static class CliJobStatusPresenter
             ServerJobActivityPhase.Organizing => Active("organizing"),
             ServerJobActivityPhase.RunningOnComplete => Active("on-complete"),
             ServerJobActivityPhase.RunningFallback => Active("fallback"),
+            ServerJobActivityPhase.SearchingFallback => Active("searching fallback"),
+            ServerJobActivityPhase.DownloadingFallback => Active("downloading fallback"),
+            ServerJobActivityPhase.ProcessingFallback => Active("processing fallback"),
             _ => lifecycle switch
             {
                 ServerJobLifecycleState.Pending => new("queued", ConsoleColor.Gray, CliJobStatusCategory.Queued),

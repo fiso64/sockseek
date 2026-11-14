@@ -28,7 +28,7 @@ it('shares prototype lifecycle labels without presenting skipped jobs as failed'
   expect(jobTransferTone({ lifecycleState: 'Terminal', terminalOutcome: 'Failed' })).toBe('failed');
   expect(jobTransferTone({ lifecycleState: 'Terminal', terminalOutcome: 'PartialSuccess' })).toBe('partial');
   expect(jobTransferTone({ lifecycleState: 'Terminal', terminalOutcome: 'Skipped' })).toBeUndefined();
-  expect(jobTransferTone({ lifecycleState: 'Running' })).toBeUndefined();
+  expect(jobTransferTone({ lifecycleState: 'Running' })).toBe('active');
 });
 
 it('only adds information to successful results when context is missing', () => {

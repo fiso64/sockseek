@@ -11334,6 +11334,11 @@ export interface components {
             inputType?: null | string;
             source?: null | string;
         };
+        FallbackSourceDto: {
+            provider: string;
+            title?: null | string;
+            reference?: null | string;
+        };
         FileAttributeDto: {
             type: string;
             /** Format: int32 */
@@ -11841,7 +11846,7 @@ export interface components {
                             /** @enum {unknown} */
                             lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
                             /** @enum {unknown} */
-                            activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                            activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback" | "SearchingFallback" | "DownloadingFallback" | "ProcessingFallback";
                             /** Format: date-time */
                             activityUntilUtc?: null | string;
                             /** @enum {unknown} */
@@ -11935,7 +11940,7 @@ export interface components {
                         /** @enum {unknown} */
                         lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
                         /** @enum {unknown} */
-                        activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                        activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback" | "SearchingFallback" | "DownloadingFallback" | "ProcessingFallback";
                         /** Format: date-time */
                         activityUntilUtc?: null | string;
                         /** @enum {unknown} */
@@ -12042,6 +12047,11 @@ export interface components {
                              * @enum {unknown}
                              */
                             groupKind: "Directory" | "Files";
+                            fallback?: {
+                                provider: string;
+                                title?: null | string;
+                                reference?: null | string;
+                            };
                         };
                         status: {
                             state: string;
@@ -12517,6 +12527,7 @@ export interface components {
                 attributes?: components["schemas"]["FileAttributeDto"][] | null;
             };
             lastAttemptedFile?: null | components["schemas"]["AttemptedSongFileDto"];
+            fallback?: null | components["schemas"]["FallbackSourceDto"];
         };
         JobPreviewNodeDto: {
             ref: string;
@@ -12542,6 +12553,7 @@ export interface components {
             sourceDetail?: null | string;
             sourceLabel?: null | string;
             extractorInfo?: null | string;
+            inputType?: null | string;
         };
         JobPreviewSelectionOverrideDto: {
             ref: string;
@@ -13381,7 +13393,7 @@ export interface components {
         };
         ServerInputType: number;
         /** @enum {unknown} */
-        ServerJobActivityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+        ServerJobActivityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback" | "SearchingFallback" | "DownloadingFallback" | "ProcessingFallback";
         /** @enum {unknown} */
         ServerJobCancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
         /** @enum {unknown} */
@@ -13817,7 +13829,7 @@ export interface components {
                         /** @enum {unknown} */
                         lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
                         /** @enum {unknown} */
-                        activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                        activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback" | "SearchingFallback" | "DownloadingFallback" | "ProcessingFallback";
                         /** Format: date-time */
                         activityUntilUtc?: null | string;
                         /** @enum {unknown} */
@@ -13911,7 +13923,7 @@ export interface components {
                     /** @enum {unknown} */
                     lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
                     /** @enum {unknown} */
-                    activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                    activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback" | "SearchingFallback" | "DownloadingFallback" | "ProcessingFallback";
                     /** Format: date-time */
                     activityUntilUtc?: null | string;
                     /** @enum {unknown} */
@@ -14018,6 +14030,11 @@ export interface components {
                          * @enum {unknown}
                          */
                         groupKind: "Directory" | "Files";
+                        fallback?: {
+                            provider: string;
+                            title?: null | string;
+                            reference?: null | string;
+                        };
                     };
                     status: {
                         state: string;
@@ -14560,7 +14577,7 @@ export interface components {
                             /** @enum {unknown} */
                             lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
                             /** @enum {unknown} */
-                            activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                            activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback" | "SearchingFallback" | "DownloadingFallback" | "ProcessingFallback";
                             /** Format: date-time */
                             activityUntilUtc?: null | string;
                             /** @enum {unknown} */
@@ -14654,7 +14671,7 @@ export interface components {
                         /** @enum {unknown} */
                         lifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
                         /** @enum {unknown} */
-                        activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback";
+                        activityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback" | "SearchingFallback" | "DownloadingFallback" | "ProcessingFallback";
                         /** Format: date-time */
                         activityUntilUtc?: null | string;
                         /** @enum {unknown} */
@@ -14761,6 +14778,11 @@ export interface components {
                              * @enum {unknown}
                              */
                             groupKind: "Directory" | "Files";
+                            fallback?: {
+                                provider: string;
+                                title?: null | string;
+                                reference?: null | string;
+                            };
                         };
                         status: {
                             state: string;
@@ -15362,6 +15384,7 @@ export interface components {
             peerHasFreeUploadSlot?: null | boolean;
             groupRelativePath?: null | string;
             groupKind?: components["schemas"]["TransferGroupKind"];
+            fallback?: null | components["schemas"]["FallbackSourceDto"];
         };
         TransferLookupRequestDto: {
             transferIds: string[];

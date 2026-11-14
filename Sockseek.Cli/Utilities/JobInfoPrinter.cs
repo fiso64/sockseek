@@ -57,9 +57,16 @@ internal static class JobInfoPrinter
         var queryText = FormatSongQuery(p.Query);
         if (queryText != null) Field("Query", queryText);
 
-        if (p.ResolvedUsername != null)
+        var fallback = p.Fallback != null || p.DownloadSource == ServerSongDownloadSource.Fallback;
+        if (fallback)
+        {
+            Field("From", p.Fallback?.Provider ?? "Fallback", ConsoleColor.DarkCyan);
+            if (p.Fallback?.Title != null) Field("Source title", p.Fallback.Title);
+            if (p.Fallback?.Reference != null) Field("Source reference", p.Fallback.Reference);
+        }
+        if (!fallback && p.ResolvedUsername != null)
             Field("From", p.ResolvedUsername, ConsoleColor.DarkCyan);
-        if (p.ResolvedFilename != null)
+        if (!fallback && p.ResolvedFilename != null)
             Field("Remote path", PeerIdentityValidator.ToDisplayText(p.ResolvedFilename));
         if (p.File.DownloadPath != null)
             Field("Saved to", p.File.DownloadPath);
@@ -71,12 +78,12 @@ internal static class JobInfoPrinter
             var pct = p.File.ProgressPercent is double pv ? $" ({pv:F0}%)" : "";
             Field("Transfer", $"{xfer} of {total}{pct}");
         }
-        else if (p.ResolvedSize > 0)
+        else if (!fallback && p.ResolvedSize > 0)
         {
             Field("Size", FormatBytes(p.ResolvedSize.Value));
         }
 
-        var attrs = FormatAttributes(p.ResolvedAttributes, p.ResolvedSampleRate, null);
+        var attrs = fallback ? null : FormatAttributes(p.ResolvedAttributes, p.ResolvedSampleRate, null);
         if (attrs != null) Field("Attributes", attrs);
 
         if (p.CandidateCount is int c && c > 0)

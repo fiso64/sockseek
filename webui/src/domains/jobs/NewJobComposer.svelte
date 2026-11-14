@@ -22,6 +22,7 @@
   import { selectedPreviewCount, selectedSubtreeCount, toggleSubtree, type SubtreeRule } from './preview-selection';
   import { buildJobPreviewRequest, buildJobSettingsRequest, createNewJobDraft, newJobDraftFromSearch, type NewJobChoice, type NewJobDraft } from './submission';
   import { jobKindIcon, jobKindLabel } from './kind';
+  import { basename } from '../presentation/items';
 
   let { initialSearch = null, onstarted, oncommittingchange }: { initialSearch?: SearchDraft | null; onstarted: () => void; oncommittingchange: (committing: boolean) => void } = $props();
   const initial = untrack(() => initialSearch);
@@ -98,15 +99,18 @@
       const title = [node.albumQuery.artist, node.albumQuery.album].filter(Boolean).join(' — ');
       if (title) return title;
     }
-    return node.queryText ?? node.itemName ?? jobKindLabel(node.kind);
+    const title = node.queryText ?? node.itemName;
+    if (node.kind === 'extract' && title && (node.inputType === 'CSV' || node.inputType === 'List')) return basename(title);
+    return title ?? previewNodeType(node);
   }
 
-  function previewNodeDetail(node: Schema<'JobPreviewNodeDto'>, depth: number): string {
-    if (node.failureMessage) return node.failureMessage;
-    if (depth === 0 && node.kind === 'extract' && draft.fileInput === 'upload' && (draft.choice === 'csv' || draft.choice === 'list'))
-      return 'Import · Uploaded artifact';
-    const kind = jobKindLabel(node.kind);
-    return node.sourceDetail ? `${kind} · ${node.sourceDetail}` : kind;
+  function previewNodeType(node: Schema<'JobPreviewNodeDto'>): string {
+    if (node.kind !== 'extract') return jobKindLabel(node.kind);
+    switch (node.inputType) {
+      case 'String': return 'Text';
+      case 'soulseek-link': return 'Soulseek link';
+      default: return node.inputType ?? 'Source';
+    }
   }
 
   $effect(() => {
@@ -363,8 +367,12 @@
         <label class="job-preview-row">
           <input type="checkbox" disabled={!count} checked={selected === count && count > 0} use:indeterminate={selected > 0 && selected < count} onchange={(event) => toggle(node.ref, event.currentTarget.checked)} />
           <span class="job-preview-icon"><Icon name={jobKindIcon(node.kind)} /></span>
-          <span class="job-preview-copy"><strong>{previewNodeTitle(node)}</strong><small>{previewNodeDetail(node, depth)}</small></span>
-          {#if Number(node.directChildCount) > 0}<span class="job-preview-count">{count} {count === 1 ? 'job' : 'jobs'}</span>{/if}
+          <strong class="job-preview-title" title={previewNodeTitle(node)}>{previewNodeTitle(node)}</strong>
+          <span class="job-preview-details" title={node.failureMessage ?? undefined}>
+            {#if node.failureMessage}<span class="job-preview-error">{node.failureMessage}</span><span>·</span>{/if}
+            {#if Number(node.directChildCount) > 0}<span>{count} {count === 1 ? 'job' : 'jobs'}</span><span>·</span>{/if}
+            <span>{previewNodeType(node)}</span>
+          </span>
         </label>
         {#if Number(node.directChildCount) > 0}
           <div class="job-preview-children">{@render branch(node.ref, depth + 1)}</div>

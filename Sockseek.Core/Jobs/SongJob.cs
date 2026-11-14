@@ -2,11 +2,27 @@ using Sockseek.Core;
 using Sockseek.Core.Models;
 
 namespace Sockseek.Core.Jobs;
+
+    public sealed record FallbackSource(string Provider, string? Title = null, string? Reference = null);
     // Unified song job. Used for both search+download and pre-resolved downloads.
     // If ResolvedTarget is non-null the engine skips the search phase.
     public class SongJob : FileDownloadJob, IUpgradeable
     {
         public SongQuery Query { get; set; }
+
+        // Provider-owned provenance, retained independently of peer candidates.
+        private FallbackSource? fallback;
+        public FallbackSource? Fallback
+        {
+            get => fallback;
+            set
+            {
+                if (fallback == value) return;
+                fallback = value;
+                NotifyExecutionChanged();
+                OnPropertyChanged();
+            }
+        }
 
         public override SongQuery QueryTrack => Query;
         // A selected peer file is an exact request, not a music-history lookup.

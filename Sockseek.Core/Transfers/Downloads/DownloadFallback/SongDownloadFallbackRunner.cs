@@ -30,6 +30,9 @@ internal sealed class SongDownloadFallbackRunner
         if (!context.SongDownloadFallback.CanRun(song, config))
             return null;
 
+        // A new provider attempt must not inherit progress from a failed peer.
+        song.BytesTransferred = 0;
+        song.FileSize = null;
         song.UpdateActivity(JobActivityPhase.RunningFallback);
         context.Events.RaiseJobMessage(
             song,

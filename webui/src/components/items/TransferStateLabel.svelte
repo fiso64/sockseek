@@ -36,6 +36,7 @@
     const group = transfer.group;
     const job = transfer.job;
     const file = transfer.file;
+    const fallback = transfer.fallback ?? row?.identity.fallback;
     const directory = transfer.directory;
     const sources = folderSources(files ?? [], filesComplete);
     const remoteFolders = sources.folders;
@@ -50,7 +51,10 @@
         ['Status', transfer.state],
         ['Direction', meaningful(transfer.direction)],
         ['Peer', peer ?? undefined],
-        [files ? 'Folder' : 'Remote path', files ? path : transfer.target?.filename ?? row?.identity.remotePath ?? path],
+        ['Provider', fallback?.provider],
+        ['Source title', fallback?.title ?? undefined],
+        ['Source reference', fallback?.reference ?? undefined],
+        [files ? 'Folder' : 'Remote path', fallback ? undefined : files ? path : transfer.target?.filename ?? row?.identity.remotePath ?? path],
         [sources.complete ? remoteFolders.length === 1 ? 'Remote folder' : 'Remote folders' : 'Remote folders (loaded files)', remoteFolders.length ? remoteFolders.join('\n') : undefined],
         [job?.skipReason === 'AlreadyExists' ? 'Existing path' : 'Local path', localPath ?? undefined],
         ['Size', total == null ? undefined : formatBytes(total)],

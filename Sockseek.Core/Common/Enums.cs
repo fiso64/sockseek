@@ -25,6 +25,9 @@ namespace Sockseek.Core;
         Organizing = 9,
         RunningOnComplete = 10,
         RunningFallback = 11,
+        SearchingFallback = 12,
+        DownloadingFallback = 13,
+        ProcessingFallback = 14,
     }
 
     public enum JobTerminalOutcome

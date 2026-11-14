@@ -503,6 +503,12 @@ public sealed class EnginePersistenceTests
             FileSize = 128,
         };
         cancelledSong.SetCancelled(JobCancellationSource.UserRequestedJob);
+        var fallbackSong = new SongJob(new SongQuery { Title = "Fallback track" })
+        {
+            Fallback = new FallbackSource("Other provider", "Source title", "source-reference"),
+            LastAttemptedCandidate = cancelledSong.LastAttemptedCandidate,
+        };
+        fallbackSong.SetDone("/music/actual.opus", downloadSource: SongDownloadSource.Fallback);
         var remoteFile = new RemoteFileJob(exactTarget, new RelativeOutputPath(["Folder", "File.bin"]));
         var resolvedPlan = new DirectoryTransferPlan("Selection", [
             new DirectoryTransferEntry(exactTarget, ["Folder"]),
@@ -522,6 +528,7 @@ public sealed class EnginePersistenceTests
             (new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" }), typeof(SearchJobPayloadDto)),
             (new SearchJob(new AlbumQuery { Artist = "Artist", Album = "Album" }), typeof(SearchJobPayloadDto)),
             (exactSong, typeof(SongJobPayloadDto)),
+            (fallbackSong, typeof(SongJobPayloadDto)),
             (cancelledSong, typeof(SongJobPayloadDto)),
             (new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" }), typeof(AlbumJobPayloadDto)),
             (new SongGroupsJob(new SongQuery { Artist = "Artist", Title = "Track" }), typeof(SongGroupsJobPayloadDto)),
@@ -570,6 +577,12 @@ public sealed class EnginePersistenceTests
         Assert.AreEqual("Exact Peer", songPayload.ExactTarget.Username);
         Assert.AreEqual(@"Share\Folder\File.bin", songPayload.ExactTarget.Filename);
         Assert.IsNull(songPayload.ResolvedUsername);
+
+        var retainedFallback = ToPersistedJob(mutations[fallbackSong.Id]);
+        var fallbackPayload = (SongJobPayloadDto)HistoricalJobDtoMapper.ToPayload(retainedFallback);
+        Assert.AreEqual(new FallbackSourceDto("Other provider", "Source title", "source-reference"), fallbackPayload.Fallback);
+        Assert.AreEqual("/music/actual.opus", fallbackPayload.File.DownloadPath);
+        Assert.IsNull(HistoricalJobDtoMapper.ToSelectedFileTarget(retainedFallback));
 
         var cancelledPayload = (SongJobPayloadDto)HistoricalJobDtoMapper.ToPayload(
             ToPersistedJob(mutations[cancelledSong.Id]));
