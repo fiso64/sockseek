@@ -574,7 +574,7 @@ public sealed class SearchViewCoordinatorTests
             // This second View represents a refinement/another reader. Its
             // publication is also a barrier through the single projection worker.
             var active = await CreateAndObserveAsync(views, source.JobId, request);
-            if (evictIdleKernel) clock.Advance(TimeSpan.FromMinutes(3));
+            if (evictIdleKernel) clock.AdvanceAndFireMaintenance(TimeSpan.FromMinutes(3));
             receive(Response("Péér B", [File(@"Artist\Album\01 - Artist - Track.flac")],
                 [File(@"Artist\Album\02 - Artist - Locked.flac")]));
             active = await WaitForConditionViewAsync(views, active.ViewId,
@@ -606,7 +606,7 @@ public sealed class SearchViewCoordinatorTests
             var activeFiles = (views.GetFiles(active.ViewId, active.Revision, null, 500, cancellationToken: CancellationToken.None))!.Items;
             CollectionAssert.AreEqual(activeFiles.Select(file => file.Ref).ToArray(), resumedFiles.Select(file => file.Ref).ToArray(),
                 "Evicting a working kernel must preserve this View's workflow-local ranking facts.");
-            clock.Advance(TimeSpan.FromMinutes(16));
+            clock.AdvanceAndFireMaintenance(TimeSpan.FromMinutes(16));
             // A publication behind the timer's queued work is a deterministic
             // worker barrier. Creation/read requests themselves do no pruning.
             await CreateAndObserveAsync(views, source.JobId, request);
@@ -631,9 +631,10 @@ public sealed class SearchViewCoordinatorTests
         public override DateTimeOffset GetUtcNow() => new(Interlocked.Read(ref ticks), TimeSpan.Zero);
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
         public override long GetTimestamp() => Interlocked.Read(ref ticks);
-        public void Advance(TimeSpan interval)
+        public void Advance(TimeSpan interval) => Interlocked.Add(ref ticks, interval.Ticks);
+        public void AdvanceAndFireMaintenance(TimeSpan interval)
         {
-            Interlocked.Add(ref ticks, interval.Ticks);
+            Advance(interval);
             maintenance?.Fire();
         }
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
@@ -956,6 +957,8 @@ public sealed class SearchViewCoordinatorTests
                         if (activity.OperationName != (latePrune ? "directory-files" : "snapshot")
                             || activity.GetTagItem("view.id") is not Guid id
                             || id != stored.Id || Interlocked.Exchange(ref armed, 0) == 0) return;
+                        // Prune at this exact planning boundary; do not also queue
+                        // background maintenance that could remove the View first.
                         clock.Advance(TimeSpan.FromMinutes(16));
                         pruned = repository.PruneExpired();
                     },
