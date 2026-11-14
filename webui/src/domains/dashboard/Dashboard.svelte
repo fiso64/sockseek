@@ -324,7 +324,7 @@
       {:else if rankingTab === 'content'}
         <div class="dashboard-ranking-table content-table">
           <div class="dashboard-ranking-row heading">
-            <span>#</span><span>Folder</span><span>Downloads</span><span>Peers</span>
+            <span>#</span><span>Folder</span><span>Uploads</span><span>Peers</span>
           </div>
           {#each data?.content ?? [] as item, index}
             <div class="dashboard-ranking-row">

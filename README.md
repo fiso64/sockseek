@@ -174,33 +174,7 @@ See [CSV options](#csv-file-options) for all options.
 
 ### YouTube
 
-## Index
- - [Input types](#input-types)
-   - [CSV file](#csv-file)
-   - [YouTube](#youtube)
-   - [Spotify](#spotify)
-   - [Bandcamp](#bandcamp)
-   - [MusicBrainz](#musicbrainz)
-   - [Soulseek Link](#soulseek-link)
-   - [Search string](#search-string)
-   - [List file](#list-file)
- - [Download modes](#download-modes)
-   - [Song](#song)
-   - [Album](#album)
-   - [Album Groups](#album-groups)
-   - [Song Groups](#song-groups)
- - [Daemon / remote mode](#daemon--remote-mode)
- - [Configuration](#configuration)
- - [File conditions](#file-conditions)
- - [Name format](#name-format)
- - [Variables](#variables)
- - [On-Complete Actions](#on-complete-actions)
- - [Shortcuts \& interactive mode](#shortcuts--interactive-mode)
- - [Examples](#examples)
- - [Notes](#notes)
- - [Tips](#tips)
- - [Options reference](#options-reference)
- - [Docker](docs/docker.md)
+A YouTube playlist URL.
 
 The default method to retrieve playlists might not reliably return all videos. If you're having issues, you can use the official API by providing a key with `--youtube-key`. A key can be obtained at https://console.cloud.google.com (create a new project, click 'Enable API' and search for 'YouTube Data', then follow the prompts).
 

@@ -400,27 +400,12 @@ Input types
     See CSV options for all options.
 
   YouTube
-
-Index
-  - Input types
-  - Download modes
-  - Daemon / remote mode
-  - Configuration
-  - File conditions
-  - Name format
-  - Variables
-  - On-Complete Actions
-  - Shortcuts & interactive mode
-  - Examples
-  - Notes
-  - Tips
-  - Options reference
-  - Docker
-  The default method to retrieve playlists might not reliably return all videos. If you're having
-  issues, you can use the official API by providing a key with --youtube-key. A key can be obtained
-  at https://console.cloud.google.com (create a new project, click 'Enable API' and search for
-  'YouTube Data', then follow the prompts).
-  See YouTube options for all options.
+    A YouTube playlist URL.
+    The default method to retrieve playlists might not reliably return all videos. If you're having
+    issues, you can use the official API by providing a key with --youtube-key. A key can be
+    obtained at https://console.cloud.google.com (create a new project, click 'Enable API' and
+    search for 'YouTube Data', then follow the prompts).
+    See YouTube options for all options.
 
   Spotify
     Spotify inputs support:
