@@ -199,7 +199,9 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   expect(detailReads).toEqual([]);
 
   await page.locator('.page-content').evaluate(element => { element.scrollTop = 400; element.dispatchEvent(new Event('scroll')); });
-  await page.getByRole('tab', { name: 'Searches', exact: true }).click({ force: true });
+  // The tabs live in the scrolling header. Playwright's click (even forced)
+  // scrolls an offscreen tab into view first, replacing the position under test.
+  await page.getByRole('tab', { name: 'Searches', exact: true }).dispatchEvent('click');
   await expect(page.getByText('No searches yet', { exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Download jobs', exact: true }).click();
   await expect(page.locator('.search-history-row')).toHaveCount(101);

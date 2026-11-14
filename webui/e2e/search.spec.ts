@@ -778,9 +778,12 @@ test('pages album alternative files without hiding the card picker', async ({ pa
   await page.locator('#global-search-simple').press('Enter');
   await page.locator('.group-options-button').click();
   const dialog = page.getByRole('dialog', { name: /Fixture Album.*options/i });
+  await expect(dialog.locator('.group-option')).toHaveCount(50);
+  await dialog.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(dialog.locator('.group-option')).toHaveCount(100);
-  await page.getByRole('button', { name: 'Load more', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Load more', exact: true }).click();
   await expect(dialog.locator('.group-option')).toHaveCount(101);
+  await expect(dialog.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
   const alternative = dialog.locator('.group-option').filter({ hasText: 'second-peer' });
   await expect(alternative.locator('.folder-file-row')).toHaveCount(25);
   await alternative.locator('.group-option-card-picker').click();
@@ -873,8 +876,11 @@ test('distinguishes waiting for peers from a completed search with no returned f
   holdUpdates = true;
   try {
     await page.reload();
-    await expect(page.locator('.search-results-summary .search-status-badge')).toHaveText('Updating results');
     await expect(loading).toHaveAttribute('aria-label', 'Loading search results');
+    // A retained search waits for its complete projection before showing any
+    // result summary or empty state; catch-up must not flash partial results.
+    await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
+    await expect(page.locator('.search-results-empty')).toHaveCount(0);
     await expect(loading).toHaveText('');
     await expect(page.getByText('Searching', { exact: true })).toHaveCount(0);
   } finally {

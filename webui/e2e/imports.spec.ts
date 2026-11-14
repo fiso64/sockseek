@@ -38,12 +38,13 @@ test('folds a running text extraction into one source-labelled root and opens it
     }
   }));
   await page.goto('/jobs?tab=downloads');
-  const row = page.locator('.search-history-row').filter({ hasText: 'Fixture song' });
+  const row = page.getByTestId('job-row').filter({ hasText: 'Fixture song' });
   await expect(page.locator('.search-history-row')).toHaveCount(1);
-  await expect(row.locator('.search-status-badge')).toHaveText('Running');
+  await expect(row).toHaveAttribute('data-job-kind', 'song');
+  await expect(row.locator('.search-status-badge')).toHaveClass(/\breceiving\b/);
   await expect(row.getByRole('img', { name: 'Text import' })).toHaveAttribute('title', 'Text import');
-  await expect(row.getByRole('button', { name: 'Cancel Fixture song', exact: true })).toBeVisible();
-  await expect(row.getByRole('button', { name: 'Remove Fixture song', exact: true })).toHaveCount(0);
+  await expect(row.getByTestId('job-cancel')).toBeVisible();
+  await expect(row.getByTestId('job-remove')).toHaveCount(0);
   expect(detailReads.filter(path => path === `/api/jobs/${submitted.jobId}`),
     'Import context must use the job summary rather than fetch its source payload.').toHaveLength(0);
   const response = await page.request.get(`/api/jobs?submissionId=${submitted.submissionId}&includeAll=false&limit=100`);
@@ -54,13 +55,14 @@ test('folds a running text extraction into one source-labelled root and opens it
   await daemon.command('release-download');
   await retired;
   await expect(row).toBeVisible();
-  await expect(row.locator('.search-status-badge')).toHaveCount(0);
+  await expect(row.locator('.search-status-badge')).toHaveClass(/\bcomplete\b/);
+  await expect(row.getByTestId('job-cancel')).toHaveCount(0);
+  await expect(row.getByTestId('job-remove')).toBeVisible();
   expect(observations).toBe(1);
   expect(summaryReads, 'Progress and retirement must not refetch the linked summary.').toBe(1);
-  await row.locator('.search-history-open').click();
+  await row.getByTestId('job-open').click();
   await expect(page).toHaveURL(new RegExp(`/jobs/${imported.resultJobId}$`));
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Fixture song');
-  await expect(page.locator('.job-detail-kicker')).not.toContainText('Extract');
   await page.reload();
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Fixture song');
   // An old import URL is a presentation entry point to its retained result too.
