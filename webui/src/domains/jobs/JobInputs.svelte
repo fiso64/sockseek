@@ -38,14 +38,24 @@
   <label><span>Artist <small>(optional)</small></span><input value={draft.artist} placeholder="Artist…" oninput={(event) => setField('artist', event)} /></label>
   <label><span>Album</span><input value={draft.album} placeholder="Album title…" oninput={(event) => setField('album', event)} /></label>
 {:else if draft.choice === 'csv' || draft.choice === 'list'}
-  <label class:dragging class="new-job-drop-zone" ondragover={(event) => { event.preventDefault(); dragging = true; }} ondragleave={() => (dragging = false)} ondrop={drop}>
-    <input type="file" accept={draft.choice === 'csv' ? '.csv,text/csv' : '.txt,.list,text/plain'} onchange={chooseFile} />
-    <Icon name="upload-file" />
-    <span>
-      <strong>{fileName || `Drop a ${draft.choice === 'csv' ? 'CSV' : 'list'} file here`}</strong>
-      {#if !fileName}<small>or click to choose a local file</small>{/if}
-    </span>
-  </label>
+  <div class="new-job-source-mode">
+    <div class="new-job-segmented" role="group" aria-label="File source">
+      <button type="button" data-testid="job-file-upload" aria-pressed={draft.fileInput === 'upload'} class:active={draft.fileInput === 'upload'} onclick={() => onchange({ ...draft, fileInput: 'upload' })}>Upload file</button>
+      <button type="button" data-testid="job-file-path" aria-pressed={draft.fileInput === 'path'} class:active={draft.fileInput === 'path'} onclick={() => onchange({ ...draft, fileInput: 'path' })}>Server path</button>
+    </div>
+  </div>
+  {#if draft.fileInput === 'path'}
+    <label class="new-job-source-field"><span>File path on the server</span><input data-testid="job-file-path-input" value={draft.source} placeholder={draft.choice === 'csv' ? '/path/to/albums.csv' : '/path/to/wishlist.txt'} oninput={(event) => setField('source', event)} /></label>
+  {:else}
+    <label class:dragging class="new-job-drop-zone" ondragover={(event) => { event.preventDefault(); dragging = true; }} ondragleave={() => (dragging = false)} ondrop={drop}>
+      <input type="file" accept={draft.choice === 'csv' ? '.csv,text/csv' : '.txt,.list,text/plain'} onchange={chooseFile} />
+      <Icon name="upload-file" />
+      <span>
+        <strong>{fileName || `Drop a ${draft.choice === 'csv' ? 'CSV' : 'list'} file here`}</strong>
+        {#if !fileName}<small>or click to choose a local file</small>{/if}
+      </span>
+    </label>
+  {/if}
 {:else}
   {#if draft.choice === 'spotify'}
     <div class="new-job-source-mode">

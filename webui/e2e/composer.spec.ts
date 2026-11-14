@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures';
 import type { Schema } from '../src/api/types';
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, stat, mkdir, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 test('uses filtering and output settings for a direct Start download', async ({ page, daemon }, testInfo) => {
@@ -225,13 +225,29 @@ test('blocks stale settings after a failed refresh and retries the shared resolv
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
   await expect(page.getByLabel('Output directory', { exact: true })).toBeVisible();
+  const output = page.getByLabel('Output directory', { exact: true });
+  const originalControl = await output.elementHandle();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let requested!: () => void;
+  const pending = new Promise<void>(resolve => { requested = resolve; });
   let attempts = 0;
   await page.route('**/api/jobs/effective-settings', async route => {
     attempts++;
-    if (attempts === 1) await route.abort();
-    else await route.continue();
+    if (attempts === 1) {
+      requested();
+      await held;
+      await route.abort();
+    } else await route.continue();
   });
   await page.getByPlaceholder('Song title…').fill('Retry settings fixture');
+  await pending;
+  try {
+    await expect(output).toBeVisible();
+    expect(await originalControl!.evaluate(node => node.isConnected)).toBe(true);
+    await output.fill('/tmp/edited-during-settings-refresh');
+    await expect(page.locator('.new-job-start-button')).toBeDisabled();
+  } finally { release(); }
   await page.locator('#new-job-options-filtering').click();
   const filtering = page.locator('#new-job-options-panel');
   await expect(filtering.getByRole('alert')).toBeVisible();
@@ -240,6 +256,8 @@ test('blocks stale settings after a failed refresh and retries the shared resolv
   await expect(filtering.getByRole('button', { name: 'FLAC', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeEnabled();
   expect(attempts).toBe(2);
+  await page.locator('#new-job-options-download').click();
+  await expect(output).toHaveValue('/tmp/edited-during-settings-refresh');
 });
 
 test('clears source-specific drafts and resets the options tab when choosing a job type', async ({ page }) => {
@@ -458,4 +476,57 @@ test('pages a CSV Review and commits an item beyond the first preview page', asy
   await root.locator('.search-history-open').click();
   await expect(page.locator('.job-child-row')).toHaveCount(1);
   await expect(page.locator('.job-child-row')).toContainText('Paged Item 101');
+});
+
+
+test('reviews and starts daemon CSV and list paths without uploading', async ({ page }, testInfo) => {
+  const folder = testInfo.outputPath('daemon inputs');
+  await mkdir(folder, { recursive: true });
+  let uploads = 0;
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/input-artifacts') uploads++;
+  });
+  for (const choice of ['csv', 'list'] as const) {
+    const path = join(folder, choice === 'csv' ? 'songs.csv' : 'wishlist.txt');
+    await writeFile(path, choice === 'csv'
+      ? 'artist,title\nFixture Artist,Fixture Song\n'
+      : ['s:"Fixture Artist - Fixture Song"', 'a:"Fixture Artist - Fixture Album"',
+        'slsk://fixture-peer/Fixture/', 'slsk://fixture-peer/Fixture/Other.flac',
+        `"${join(folder, 'songs.csv')}"`, ''].join('\n'));
+    await page.goto('/jobs');
+    await page.getByRole('button', { name: 'New job', exact: false }).click();
+    await page.getByTestId(`job-type-${choice}`).click();
+    await page.getByTestId('job-file-path').click();
+    await expect(page.locator('.new-job-start-button')).toBeDisabled();
+    await page.getByTestId('job-file-path-input').fill(path);
+    const planned = page.waitForResponse(reply => reply.request().method() === 'POST'
+      && new URL(reply.url()).pathname === '/api/job-previews');
+    const firstPage = page.waitForResponse(reply => new URL(reply.url()).pathname.endsWith('/nodes')
+      && new URL(reply.url()).searchParams.get('parentRef') === '0/result');
+    await page.locator('.new-job-review-button').click();
+    const response = await planned;
+    expect(response.ok()).toBeTruthy();
+    expect(response.request().postDataJSON().job).toEqual({ kind: 'extract', input: path, inputType: choice });
+    await expect(page.locator('.job-preview-row').filter({ hasText: 'Fixture Song' }).last()).toBeVisible();
+    await expect(page.locator('.new-job-start-button')).toBeEnabled();
+    const nodes = await (await firstPage).json() as Schema<'JobPreviewNodeDto'>[];
+    expect(nodes.map(node => node.kind)).toEqual(choice === 'csv'
+      ? ['song'] : ['song', 'album', 'remote-directory', 'remote-file', 'extract']);
+    if (choice === 'list') {
+      // The nested CSV stays a collection even though it contains only one song.
+      expect(nodes[4]!.isSelectable).toBe(false);
+      expect(Number(nodes[4]!.selectableSubtreeCount)).toBe(1);
+      await expect(page.locator('.job-preview-row').filter({ hasText: 'Fixture Album' })).toHaveCount(1);
+      await page.getByTestId('new-job-selection-toggle').click();
+      await page.locator('.job-preview-row').filter({ hasText: 'Fixture Song' }).first().locator('input').check();
+    }
+    const committed = page.waitForResponse(reply => reply.request().method() === 'POST'
+      && /\/api\/job-previews\/[^/]+\/commit$/.test(new URL(reply.url()).pathname));
+    await page.locator('.new-job-start-button').click();
+    const accepted = await committed;
+    expect(accepted.status()).toBe(202);
+    expect(Number((await accepted.json()).submittedCount)).toBe(1);
+    await expect(page.locator('.new-job-composer')).toHaveCount(0);
+  }
+  expect(uploads).toBe(0);
 });

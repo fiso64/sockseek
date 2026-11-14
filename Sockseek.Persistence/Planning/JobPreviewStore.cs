@@ -390,40 +390,40 @@ public sealed class JobPreviewStore(
             throw new ArgumentOutOfRangeException(nameof(limit), "Page size must be positive.");
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        // Planner refs are slash-delimited paths. For a ref r, [r, r + "0")
-        // contains r and its descendants, but no sibling (including r + "0").
-        // The preview/ref primary key makes this a bounded index range per row.
-        command.CommandText = parentRef == null
-            ? """
-                SELECT n.*, settings.settings_json AS effective_settings_json,
-                       settings.credential_bindings_json AS credential_bindings_json,
-                       (SELECT COUNT(*) FROM job_preview_nodes descendant
-                        WHERE descendant.preview_id = n.preview_id
-                          AND descendant.node_ref >= n.node_ref
-                          AND descendant.node_ref < n.node_ref || '0'
-                          AND descendant.is_selectable = 1) AS selectable_subtree_count
-                FROM job_preview_nodes n
-                LEFT JOIN job_preview_effective_settings settings
-                  ON settings.preview_id = n.preview_id
-                 AND settings.settings_ref = n.effective_settings_ref
-                WHERE n.preview_id = $preview AND n.parent_ref IS NULL AND n.ordinal > $after
-                ORDER BY ordinal LIMIT $limit;
-                """
-            : """
-                SELECT n.*, settings.settings_json AS effective_settings_json,
-                       settings.credential_bindings_json AS credential_bindings_json,
-                       (SELECT COUNT(*) FROM job_preview_nodes descendant
-                        WHERE descendant.preview_id = n.preview_id
-                          AND descendant.node_ref >= n.node_ref
-                          AND descendant.node_ref < n.node_ref || '0'
-                          AND descendant.is_selectable = 1) AS selectable_subtree_count
-                FROM job_preview_nodes n
-                LEFT JOIN job_preview_effective_settings settings
-                  ON settings.preview_id = n.preview_id
-                 AND settings.settings_ref = n.effective_settings_ref
-                WHERE n.preview_id = $preview AND n.parent_ref = $parent AND n.ordinal > $after
-                ORDER BY ordinal LIMIT $limit;
-                """;
+        // Present a nested extraction that produced one executable leaf as that
+        // leaf. Collection results (including one-item lists/groups) retain their
+        // wrappers. Keep the execution tree untouched for commit assembly, and page by
+        // the original sibling ordinal so collapsing wrappers cannot skip entries.
+        // Both joins use existing indexes; no per-entry reads or extra UI requests.
+        command.CommandText = $$"""
+            WITH page AS (
+                SELECT * FROM job_preview_nodes
+                WHERE preview_id = $preview
+                  AND {{(parentRef is null ? "parent_ref IS NULL" : "parent_ref = $parent")}}
+                  AND ordinal > $after
+                ORDER BY ordinal LIMIT $limit
+            )
+            SELECT n.*, page.ordinal AS display_ordinal, page.parent_ref AS display_parent_ref,
+                   settings.settings_json AS effective_settings_json,
+                   settings.credential_bindings_json AS credential_bindings_json,
+                   (SELECT COUNT(*) FROM job_preview_nodes descendant
+                    WHERE descendant.preview_id = n.preview_id
+                      AND descendant.node_ref >= n.node_ref
+                      AND descendant.node_ref < n.node_ref || '0'
+                      AND descendant.is_selectable = 1) AS selectable_subtree_count
+            FROM page
+            LEFT JOIN job_preview_nodes leaf
+              ON leaf.preview_id = page.preview_id AND leaf.parent_ref = page.node_ref
+             AND page.parent_ref IS NOT NULL AND page.kind = 'Extract'
+             AND page.state = 'Ready' AND page.direct_child_count = 1
+             AND leaf.is_selectable = 1 AND leaf.direct_child_count = 0
+             AND leaf.kind IN ('Song', 'Album', 'RemoteFile', 'RemoteDirectory')
+            JOIN job_preview_nodes n
+              ON n.preview_id = page.preview_id AND n.node_ref = COALESCE(leaf.node_ref, page.node_ref)
+            LEFT JOIN job_preview_effective_settings settings
+              ON settings.preview_id = n.preview_id AND settings.settings_ref = n.effective_settings_ref
+            ORDER BY page.ordinal;
+            """;
         Add(command, "$preview", previewId);
         Add(command, "$parent", parentRef);
         Add(command, "$after", afterOrdinal);
@@ -433,6 +433,8 @@ public sealed class JobPreviewStore(
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             rows.Add(ReadNode(reader) with
             {
+                Ordinal = reader.GetInt64(reader.GetOrdinal("display_ordinal")),
+                ParentRef = Text(reader, "display_parent_ref"),
                 SelectableSubtreeCount = reader.GetInt32(reader.GetOrdinal("selectable_subtree_count")),
             });
         return rows;

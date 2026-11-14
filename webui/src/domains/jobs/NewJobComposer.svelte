@@ -79,7 +79,7 @@
   const controller = new PreviewController();
   let valid = $derived(draft.choice === 'song' ? Boolean(draft.title.trim())
     : draft.choice === 'album' ? Boolean(draft.album.trim())
-    : draft.choice === 'csv' || draft.choice === 'list' ? Boolean(draft.artifactId)
+    : draft.choice === 'csv' || draft.choice === 'list' ? (draft.fileInput === 'path' ? Boolean(draft.source.trim()) : Boolean(draft.artifactId))
     : draft.choice === 'spotify' && draft.spotifyInput !== 'url' || Boolean(draft.source.trim()));
   let busy = $derived(uploading || settingsLoading || Boolean(settingsError) || preview.loading || preview.summary?.state === 'Planning' || Boolean(preview.committing));
   $effect(() => oncommittingchange(Boolean(preview.committing)));
@@ -103,7 +103,7 @@
 
   function previewNodeDetail(node: Schema<'JobPreviewNodeDto'>, depth: number): string {
     if (node.failureMessage) return node.failureMessage;
-    if (depth === 0 && node.kind === 'extract' && (draft.choice === 'csv' || draft.choice === 'list'))
+    if (depth === 0 && node.kind === 'extract' && draft.fileInput === 'upload' && (draft.choice === 'csv' || draft.choice === 'list'))
       return 'Import · Uploaded artifact';
     const kind = jobKindLabel(node.kind);
     return node.sourceDetail ? `${kind} · ${node.sourceDetail}` : kind;
@@ -116,10 +116,11 @@
     const carriedSettings = carriedSearchSettings;
     const requestFamily: ConditionFamily = requestDraft.choice === 'song' ? 'track' : requestDraft.choice === 'album' ? 'album' : 'mixed';
     const abort = new AbortController();
-    untrack(() => {
+    const timer = untrack(() => {
       settingsLoading = true;
       settingsError = null;
-      void (async () => {
+      // Coalesce typing, but keep submission blocked until the current draft resolves.
+      return setTimeout(async () => {
         try {
           const resolved = await daemonApi.resolveEffectiveSettings({ ...buildJobSettingsRequest(requestDraft),
             options: { profileNames: requestedProfiles, ...(carriedSettings ? { downloadSettings: { search: carriedSettings } } : {}) } }, abort.signal);
@@ -150,9 +151,9 @@
         } catch (cause) {
           if (!abort.signal.aborted) settingsError = cause instanceof Error ? cause : new Error(String(cause));
         } finally { if (!abort.signal.aborted) settingsLoading = false; }
-      })();
+      }, downloadBaseline ? 200 : 0);
     });
-    return () => abort.abort();
+    return () => { clearTimeout(timer); abort.abort(); };
   });
 
   $effect(() => {
@@ -182,7 +183,10 @@
   function change(next: NewJobDraft): void {
     if (preview.committing) return;
     invalidatePreview();
-    if (next.choice !== draft.choice) { upload?.abort(); uploading = false; fileName = ''; next = { ...next, artifactId: null }; }
+    if (next.choice !== draft.choice || next.fileInput !== draft.fileInput) {
+      upload?.abort(); upload = null; uploading = false; fileName = '';
+      next = { ...next, artifactId: null };
+    }
     draft = next;
   }
 
@@ -193,13 +197,13 @@
     uploading = false;
     fileName = '';
     optionsTab = 'download';
-    const next = { ...draft, choice, artifactId: null };
+    const next = { ...draft, choice, artifactId: null, fileInput: 'upload' as const };
     if (choice === 'song' || choice === 'album') {
       next.artist = '';
       next.title = '';
       next.album = '';
       next.expectedLength = undefined;
-    } else if (choice !== 'csv' && choice !== 'list') {
+    } else {
       next.source = '';
       if (choice === 'spotify') next.spotifyInput = 'url';
     }
@@ -308,7 +312,7 @@
                 <section class="new-job-preview">
                   {@render branch(null, 0)}
                 </section>
-              {:else if settingsLoading}<LoadingIndicator label="Loading effective settings" />
+              {:else if settingsLoading && !downloadBaseline}<LoadingIndicator label="Loading effective settings" />
               {:else if settingsError}<p role="alert">{settingsError.message}</p><button type="button" data-testid="new-job-settings-retry" onclick={() => settingsRetry++}>Retry settings</button>
               {:else if optionsTab === 'import'}
                 <ImportOptionsPanel value={importOptions} onchange={(value) => { invalidatePreview(); importOptions = value; }} />

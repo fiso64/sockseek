@@ -51,7 +51,7 @@
 
 {#snippet choices(group: (typeof groups)[number])}
   {#each group.choices as choice (choice.value)}
-    <button type="button" class:active={value === choice.value} class="new-job-type-choice" onclick={() => onchange(choice.value)}>
+    <button type="button" class:active={value === choice.value} class="new-job-type-choice" data-testid={`job-type-${choice.value}`} onclick={() => onchange(choice.value)}>
       <Icon name={choice.icon} />
       <span><strong>{choice.label}</strong></span>
     </button>

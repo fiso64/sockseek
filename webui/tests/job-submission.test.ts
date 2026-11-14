@@ -18,8 +18,17 @@ describe('New Job submission', () => {
 
   it('requires a real uploaded artifact instead of treating the browser filename as a server path', () => {
     const draft = { ...createNewJobDraft(), choice: 'csv' as const, source: 'private.csv' };
-    expect(() => buildJobPreviewRequest(draft)).toThrow('Upload a source file');
+    expect(() => buildJobPreviewRequest(draft)).toThrow();
     expect(buildJobPreviewRequest({ ...draft, artifactId: 'uploaded-artifact' }).job).toEqual({ kind: 'extract', input: '', inputType: 'csv', artifactId: 'uploaded-artifact' });
     expect(buildJobSettingsRequest(draft).job).toEqual({ kind: 'extract', input: '', inputType: 'csv', artifactId: undefined });
   });
+  it.each(['csv', 'list'] as const)('uses an explicit daemon path for %s without uploading', (choice) => {
+    const draft = { ...createNewJobDraft(), choice, fileInput: 'path' as const,
+      source: '/srv/music inputs/wishlist.txt', artifactId: 'unused-upload' };
+    const job = { kind: 'extract', input: draft.source, inputType: choice };
+    expect(buildJobPreviewRequest(draft).job).toEqual(job);
+    expect(buildJobSettingsRequest(draft).job).toEqual(job);
+    expect(() => buildJobPreviewRequest({ ...draft, source: '  ' })).toThrow();
+  });
+
 });

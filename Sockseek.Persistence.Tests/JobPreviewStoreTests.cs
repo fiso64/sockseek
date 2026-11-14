@@ -387,6 +387,44 @@ public sealed class JobPreviewStoreTests
         Assert.AreEqual(0, missing.SelectedNodes.Count);
     }
 
+    [TestMethod]
+    public async Task PreviewCollapsesSingleResultsWithoutChangingPagingOrAcceptedAncestry()
+    {
+        await using var directory = new TemporaryDirectory();
+        await using var store = new JobPreviewStore(Path.Combine(directory.Path, "job-previews.db"));
+        await store.InitializeAsync();
+        var preview = await store.CreateAsync("{}");
+        StoredJobPreviewNode Wrapper(string reference, string? parent, string kind, int children)
+            => Node(preview.Id, reference, parent, selectable: true) with
+            { Kind = kind, IsSelectable = false, DirectChildCount = children };
+        await store.AppendNodesAsync(preview.Id,
+        [
+            Wrapper("0", null, "JobList", 4),
+            Wrapper("0/0", "0", "Extract", 1),
+            Node(preview.Id, "0/0/result", "0/0", selectable: true),
+            Wrapper("0/1", "0", "Extract", 1),
+            Node(preview.Id, "0/1/result", "0/1", selectable: true) with { Kind = "RemoteDirectory" },
+            Wrapper("0/2", "0", "Extract", 1),
+            Wrapper("0/2/result", "0/2", "JobList", 1),
+            Node(preview.Id, "0/2/result/0", "0/2/result", selectable: true),
+            Node(preview.Id, "0/3", "0", selectable: false, state: "Failed") with { Kind = "Extract" },
+        ]);
+        preview = await store.CompleteAsync(preview.Id);
+        var first = await store.GetNodesAsync(preview.Id, "0", -1, 2);
+        CollectionAssert.AreEqual(new[] { "0/0/result", "0/1/result" }, first.Select(n => n.Ref).ToArray());
+        Assert.IsTrue(first.All(n => n.ParentRef == "0" && n.IsSelectable && n.SelectableSubtreeCount == 1));
+        var second = await store.GetNodesAsync(preview.Id, "0", first[^1].Ordinal, 2);
+        CollectionAssert.AreEqual(new[] { "0/2", "0/3" }, second.Select(n => n.Ref).ToArray());
+        Assert.AreEqual("Failed", second[1].State);
+        Assert.AreEqual("JobList", (await store.GetNodesAsync(preview.Id, "0/2", -1, 2)).Single().Kind);
+        Assert.AreEqual(0, (await store.GetNodesAsync(preview.Id, "0", second[^1].Ordinal, 2)).Count);
+
+        var commit = (await store.ResolveCommitAsync(preview.Id, preview.Revision, "Only",
+            first.Select(n => n.Ref).ToHashSet(StringComparer.Ordinal)))!;
+        CollectionAssert.AreEquivalent(new[] { "0/0", "0/1" }, commit.SelectedNodes.Select(n => n.ParentRef).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "0", "0/0", "0/1" }, commit.AncestorNodes.Select(n => n.Ref).ToArray());
+    }
+
     private static StoredJobPreviewNode Node(
         Guid previewId,
         string nodeRef,
