@@ -45,7 +45,7 @@
     </div>
   </div>
   {#if draft.fileInput === 'path'}
-    <label class="new-job-source-field"><span>File path on the server</span><input data-testid="job-file-path-input" value={draft.source} placeholder={draft.choice === 'csv' ? '/path/to/albums.csv' : '/path/to/wishlist.txt'} oninput={(event) => setField('source', event)} /></label>
+    <label class="new-job-source-field"><span>File path on the server</span><input data-testid="job-file-path-input" value={draft.source} placeholder={draft.choice === 'csv' ? '/path/to/music.csv' : '/path/to/list.txt'} oninput={(event) => setField('source', event)} /></label>
   {:else}
     <label class:dragging class="new-job-drop-zone" ondragover={(event) => { event.preventDefault(); dragging = true; }} ondragleave={() => (dragging = false)} ondrop={drop}>
       <input type="file" accept={draft.choice === 'csv' ? '.csv,text/csv' : '.txt,.list,text/plain'} onchange={chooseFile} />
