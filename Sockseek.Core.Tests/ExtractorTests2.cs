@@ -165,22 +165,25 @@ namespace Tests.ExtractorTests2
             var config = TestHelpers.CreateDefaultSettings().Download;
             var result = await extractor.GetTracks("slsk://someuser/Music/Artist/Song.mp3", config.Extraction);
 
-            var slj = (SongJob)result;
-            Assert.IsNotNull(slj.ResolvedTarget);
+            Assert.IsInstanceOfType<RemoteFileJob>(result);
+            var remote = (RemoteFileJob)result;
+            Assert.AreEqual("someuser", remote.Target.Username);
+            Assert.AreEqual(@"Music\Artist\Song.mp3", remote.Target.Filename);
         }
 
         [TestMethod]
-        public async Task GetTracks_FolderLink_CreatesAlbumType()
+        public async Task GetTracks_FolderLink_CreatesRemoteDirectory()
         {
             var extractor = new SoulseekExtractor();
             var config = TestHelpers.CreateDefaultSettings().Download;
             var result = await extractor.GetTracks("slsk://someuser/Music/Artist/Album/", config.Extraction);
 
-            Assert.IsInstanceOfType(result, typeof(AlbumJob));
-            var album = (AlbumJob)result;
-            Assert.IsNotNull(album.ResolvedTarget);
-            Assert.IsTrue(album.ResolvedTargetNeedsInitialFolderRetrieval);
-            Assert.IsFalse(album.AllowBrowseResolvedTarget);
+            Assert.IsInstanceOfType<RemoteDirectoryJob>(result);
+            var remote = (RemoteDirectoryJob)result;
+            Assert.IsInstanceOfType<RemoteDirectorySource.PeerDirectory>(remote.Source);
+            var source = (RemoteDirectorySource.PeerDirectory)remote.Source;
+            Assert.AreEqual("someuser", source.Directory.Username);
+            Assert.AreEqual(@"Music\Artist\Album", source.Directory.FolderPath);
         }
 
         [TestMethod]
@@ -201,10 +204,24 @@ namespace Tests.ExtractorTests2
             var config = TestHelpers.CreateDefaultSettings().Download;
             var result = await extractor.GetTracks("slsk://myuser/Music/folder/track.mp3", config.Extraction);
 
-            var song = (SongJob)result;
-            Assert.IsNotNull(song.Candidates);
-            Assert.IsTrue(song.Candidates.Count > 0);
-            Assert.AreEqual("myuser", song.Candidates[0].Response.Username);
+            Assert.IsInstanceOfType<RemoteFileJob>(result);
+            var remote = (RemoteFileJob)result;
+            Assert.AreEqual("myuser", remote.Target.Username);
+            Assert.AreEqual(@"Music\folder\track.mp3", remote.Target.Filename);
+        }
+
+        [TestMethod]
+        public async Task GetTracks_EncodedControlInRemotePath_PreservesExactDecodedIdentity()
+        {
+            var extractor = new SoulseekExtractor();
+            var config = TestHelpers.CreateDefaultSettings().Download;
+
+            Job result = await extractor.GetTracks(
+                "slsk://myuser/Music/folder/track%1B%0A.mp3",
+                config.Extraction);
+
+            var remote = (RemoteFileJob)result;
+            Assert.AreEqual("Music\\folder\\track\u001B\n.mp3", remote.Target.Filename);
         }
 
         [TestMethod]
@@ -331,7 +348,7 @@ namespace Tests.ExtractorTests2
             var list = (JobList)result;
 
             Assert.AreEqual(1, list.Jobs.Count);
-            Assert.IsTrue(list.Jobs[0] is AlbumJob || list.Jobs[0] is AlbumAggregateJob);
+            Assert.IsTrue(list.Jobs[0] is AlbumJob || list.Jobs[0] is AlbumGroupsJob);
         }
 
         [TestMethod]
@@ -474,6 +491,37 @@ namespace Tests.ExtractorTests2
             Assert.AreEqual(Utils.NormalizedPath(_tempCsv), song.SourceMutation?.Source);
             Assert.AreEqual(2, song.SourceMutation?.LineNumber);
             Assert.AreEqual(2, song.SourceMutation?.CsvColumnCount);
+        }
+
+        [TestMethod]
+        public async Task SourceRemovalDeduplicatesWithinWorkflowButAllowsLaterRuns()
+        {
+            var mutations = new Sockseek.Core.Transfers.Downloads.SourceMutations.SourceMutationCoordinator(
+                new DownloadEvents(), Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                    Sockseek.Core.Transfers.Downloads.SourceMutations.SourceMutationCoordinator>.Instance);
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            config.Extraction.RemoveTracksFromSource = true;
+            var first = new SongJob(new SongQuery { Title = "First" })
+            {
+                SourceMutation = SourceMutation.ClearCsvRow(_tempCsv, 2, 1, 2),
+            };
+            var second = new SongJob(new SongQuery { Title = "Later" }) { SourceMutation = first.SourceMutation };
+            File.WriteAllText(_tempCsv, "artist,title\nArtist,First\n");
+            await mutations.ApplyIfNeededAsync(first, config);
+            Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1]);
+
+            File.WriteAllText(_tempCsv, "artist,title\nArtist,Later\n");
+            await mutations.ApplyIfNeededAsync(first, config);
+            Assert.AreEqual("Artist,Later", File.ReadAllLines(_tempCsv)[1], "Duplicate completion must not mutate the source twice.");
+            await mutations.ApplyIfNeededAsync(second, config);
+            Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1], "A new workflow must process a repopulated row.");
+            Assert.AreEqual(2, mutations.RetainedWorkflowCount);
+            mutations.RetireWorkflow(first.WorkflowId);
+            mutations.RetireWorkflow(second.WorkflowId);
+            Assert.AreEqual(0, mutations.RetainedWorkflowCount);
+            File.WriteAllText(_tempCsv, "artist,title\nArtist,Successor\n");
+            await mutations.ApplyIfNeededAsync(first, config);
+            Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1], "A successor generation can reuse a retired workflow identity.");
         }
 
         [TestMethod]
@@ -621,7 +669,7 @@ namespace Tests.ExtractorTests2
         }
 
         [TestMethod]
-        public async Task CsvInput_AggregateChildrenFail_RemoveFromSource_DoesNotClearRow()
+        public async Task CsvInput_GroupChildrenFail_RemoveFromSource_DoesNotClearRow()
         {
             var csvPath = Path.GetTempFileName() + ".csv";
             File.WriteAllText(csvPath, "artist,title\nFail,Song\n");
@@ -635,8 +683,8 @@ namespace Tests.ExtractorTests2
             dl.Extraction.Input = csvPath;
             dl.Extraction.InputType = InputType.CSV;
             dl.Extraction.RemoveTracksFromSource = true;
-            dl.Search.IsAggregate = true;
-            dl.Search.MinSharesAggregate = 1;
+            dl.Search.GroupResults = true;
+            dl.Search.MinGroupShares = 1;
 
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-test-csv-agg-rfs-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -649,13 +697,13 @@ namespace Tests.ExtractorTests2
                 app.CompleteEnqueue();
                 await app.RunAsync(CancellationToken.None);
 
-                var aggregateJob = app.Queue.AllJobs().OfType<AggregateJob>().FirstOrDefault();
-                Assert.IsNotNull(aggregateJob);
-                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
+                var songGroupsJob = app.Queue.AllJobs().OfType<SongGroupsJob>().FirstOrDefault();
+                Assert.IsNotNull(songGroupsJob);
+                Assert.IsTrue(songGroupsJob.IsUnsuccessfulTerminal);
 
                 var lines = File.ReadAllLines(csvPath);
                 Assert.AreEqual("artist,title", lines[0]);
-                Assert.AreEqual("Fail,Song", lines[1], "Aggregate CSV row should NOT be cleared when its child download fails.");
+                Assert.AreEqual("Fail,Song", lines[1], "SongGroups CSV row should NOT be cleared when its child download fails.");
             }
             finally
             {
@@ -665,7 +713,7 @@ namespace Tests.ExtractorTests2
         }
 
         [TestMethod]
-        public async Task CsvInput_AlbumAggregateChildrenFail_RemoveFromSource_DoesNotClearRow()
+        public async Task CsvInput_AlbumGroupsChildrenFail_RemoveFromSource_DoesNotClearRow()
         {
             var csvPath = Path.GetTempFileName() + ".csv";
             File.WriteAllText(csvPath, "artist,title,album\nFail,,Album\n");
@@ -679,8 +727,8 @@ namespace Tests.ExtractorTests2
             dl.Extraction.Input = csvPath;
             dl.Extraction.InputType = InputType.CSV;
             dl.Extraction.RemoveTracksFromSource = true;
-            dl.Search.IsAggregate = true;
-            dl.Search.MinSharesAggregate = 1;
+            dl.Search.GroupResults = true;
+            dl.Search.MinGroupShares = 1;
             dl.Search.NoBrowseFolder = true;
 
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-test-csv-album-agg-rfs-" + Guid.NewGuid());
@@ -694,15 +742,15 @@ namespace Tests.ExtractorTests2
                 app.CompleteEnqueue();
                 await app.RunAsync(CancellationToken.None);
 
-                var aggregateJob = app.Queue.AllJobs().OfType<AlbumAggregateJob>().FirstOrDefault();
-                Assert.IsNotNull(aggregateJob);
+                var songGroupsJob = app.Queue.AllJobs().OfType<AlbumGroupsJob>().FirstOrDefault();
+                Assert.IsNotNull(songGroupsJob);
                 Assert.IsTrue(
-                    aggregateJob.Albums.Any(album => album.IsUnsuccessfulTerminal),
+                    songGroupsJob.Albums.Any(album => album.IsUnsuccessfulTerminal),
                     "At least one generated album child should have failed.");
 
                 var lines = File.ReadAllLines(csvPath);
                 Assert.AreEqual("artist,title,album", lines[0]);
-                Assert.AreEqual("Fail,,Album", lines[1], "Album aggregate CSV row should NOT be cleared when its child album fails.");
+                Assert.AreEqual("Fail,,Album", lines[1], "Album group CSV row should NOT be cleared when its child album fails.");
             }
             finally
             {
@@ -729,7 +777,7 @@ namespace Tests.ExtractorTests2
         public void GetMatchingExtractor_SlskUrl_ReturnsSoulseekExtractor()
         {
             var (type, extractor) = ExtractorRegistry.GetMatchingExtractor("slsk://user/file.mp3", InputType.None, _dl);
-            Assert.AreEqual(InputType.Soulseek, type);
+            Assert.AreEqual(InputType.SoulseekLink, type);
             Assert.IsInstanceOfType(extractor, typeof(SoulseekExtractor));
         }
 
@@ -751,9 +799,28 @@ namespace Tests.ExtractorTests2
         [TestMethod]
         public void GetMatchingExtractor_ExplicitInputType_ReturnsCorrectExtractor()
         {
-            var (type, extractor) = ExtractorRegistry.GetMatchingExtractor("anything", InputType.Soulseek, _dl);
-            Assert.AreEqual(InputType.Soulseek, type);
+            var (type, extractor) = ExtractorRegistry.GetMatchingExtractor("anything", InputType.SoulseekLink, _dl);
+            Assert.AreEqual(InputType.SoulseekLink, type);
             Assert.IsInstanceOfType(extractor, typeof(SoulseekExtractor));
+        }
+
+        [TestMethod]
+        public void TryResolveInputType_UsesTheSameAutomaticClassificationAsExtraction()
+        {
+            Assert.IsTrue(ExtractorRegistry.TryResolveInputType(
+                "https://www.youtube.com/playlist?list=test",
+                InputType.None,
+                out InputType youtube));
+            Assert.AreEqual(InputType.YouTube, youtube);
+
+            Assert.IsTrue(ExtractorRegistry.TryResolveInputType(
+                "slsk://Peer/Share/File.bin",
+                InputType.None,
+                out InputType soulseek));
+            Assert.AreEqual(InputType.SoulseekLink, soulseek);
+
+            Assert.IsFalse(ExtractorRegistry.TryResolveInputType(null, InputType.None, out InputType none));
+            Assert.AreEqual(InputType.None, none);
         }
     }
 }

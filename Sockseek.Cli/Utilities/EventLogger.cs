@@ -6,29 +6,48 @@ namespace Sockseek.Cli;
 
 internal sealed class EventLogger
 {
-    internal static readonly IReadOnlySet<string> HandledEventTypes = JobActivityLogFormatter.HandledEventTypes;
+    internal static readonly IReadOnlySet<string> HandledEventTypes = JobActivityLogFormatter.HandledActivityTypes;
 
     private readonly ICliBackend _backend;
+    private readonly CliOutputController _output;
     private readonly bool _includeDiagnosticDetails;
     private readonly JobActivityLogFormatter _formatter = new();
 
-    public EventLogger(ICliBackend backend, bool includeDiagnosticDetails = true)
+    public EventLogger(
+        ICliBackend backend,
+        CliOutputController output,
+        bool includeDiagnosticDetails = true)
     {
         _backend = backend;
+        _output = output;
         _includeDiagnosticDetails = includeDiagnosticDetails;
     }
 
     public void Attach()
     {
-        _backend.EventReceived += HandleEvent;
+        _backend.StateUpdated += HandleStateUpdate;
+        _backend.ActivityReceived += HandleActivity;
     }
 
-    private void HandleEvent(ServerEventEnvelopeDto envelope)
+    private void HandleStateUpdate(DaemonClientUpdate update)
     {
-        if (envelope.Type == "diagnostic.error" && !_includeDiagnosticDetails)
+        if (update.Status != DaemonClientApplyStatus.Applied)
             return;
 
-        var entry = _formatter.Format(envelope);
+        foreach (var summary in update.ChangedJobs)
+        {
+            var entry = _formatter.Format(summary);
+            if (entry != null)
+                Write(entry);
+        }
+    }
+
+    private void HandleActivity(ActivityEventDto activity)
+    {
+        if (activity.Payload is DiagnosticActivityDto && !_includeDiagnosticDetails)
+            return;
+
+        var entry = _formatter.Format(activity, _backend.ClientStore);
         if (entry == null)
             return;
 
@@ -37,17 +56,18 @@ internal sealed class EventLogger
 
     private void Write(ActivityLogEntry entry)
     {
-        var context = entry.Display is { } display
+        CliOutputEvent? context = entry.Display is { } display
             ? new CliOutputEvent.JobLog(
                 new TerminalLogLine(TerminalKind(display.Kind), "", display.DisplayId, display.JobType, display.Message, display.Source, display.Highlight, display.ShowInLive),
                 entry.Level)
             : null;
 
-        SockseekLog.Write(new SockseekLog.StructuredLogEntry(
-            entry.Level,
-            entry.CategoryName,
-            entry.Message,
-            Context: context));
+        _output.WriteOutput(context ?? new CliOutputEvent.ProcessLog(
+            new TerminalProcessLogLine(
+                entry.Level,
+                entry.CategoryName,
+                entry.Message,
+                CliProcessLogPresentation.Decorated)));
     }
 
     private static TerminalLogKind TerminalKind(ActivityLogDisplayKind kind)

@@ -2,23 +2,37 @@ using Sockseek.Core;
 using Sockseek.Core.Models;
 
 namespace Sockseek.Core.Jobs;
+
+    public sealed record FallbackSource(string Provider, string? Title = null, string? Reference = null);
     // Unified song job. Used for both search+download and pre-resolved downloads.
     // If ResolvedTarget is non-null the engine skips the search phase.
-    public class SongJob : Job, IUpgradeable
+    public class SongJob : FileDownloadJob, IUpgradeable
     {
         public SongQuery Query { get; set; }
 
-        // YouTube-specific display metadata (title + uploader JSON). Not a search hint.
-        public string? Other { get; set; }
+        // Provider-owned provenance, retained independently of peer candidates.
+        private FallbackSource? fallback;
+        public FallbackSource? Fallback
+        {
+            get => fallback;
+            set
+            {
+                if (fallback == value) return;
+                fallback = value;
+                NotifyExecutionChanged();
+                OnPropertyChanged();
+            }
+        }
 
         public override SongQuery QueryTrack => Query;
-        protected override bool  DefaultCanBeSkipped => true;
+        // A selected peer file is an exact request, not a music-history lookup.
+        protected override bool DefaultCanBeSkipped => ExactTarget == null;
 
         // True for non-audio files inside album folders (cover art, .txt, etc.).
         // Prefer the remote candidate classification, but fall back to a known local
         // path for already-existing/index-restored standalone files.
-        public bool IsNotAudio => ResolvedTarget != null
-            ? !Utils.IsMusicFile(ResolvedTarget.Filename)
+        public bool IsNotAudio => ResolvedPeerTarget != null
+            ? !Utils.IsMusicFile(ResolvedPeerTarget.Filename)
             : !string.IsNullOrWhiteSpace(DownloadPath)
                 ? !Utils.IsMusicFile(DownloadPath)
                 : false;
@@ -32,22 +46,38 @@ namespace Sockseek.Core.Jobs;
         public FileCandidate? ResolvedTarget
         {
             get => _resolvedTarget;
-            set { if (_resolvedTarget != value) { _resolvedTarget = value; OnPropertyChanged(); OnPropertyChanged(nameof(ChosenCandidate)); } }
+            set { if (_resolvedTarget != value) { _resolvedTarget = value; OnPropertyChanged(); OnPropertyChanged(nameof(ResolvedPeerTarget)); } }
         }
 
-        // Alias kept for consumer compat — same backing field as ResolvedTarget.
-        public FileCandidate? ChosenCandidate
+        // Execution-scoped evidence for the current exact-file attempt. This is
+        // not a resolved target: a failed candidate must not change discovery or
+        // the retained outcome, but live transfer snapshots may show its peer.
+        internal FileCandidate? ActiveCandidate { get; set; }
+
+        // Observed execution evidence, never a discovery/preselection input.
+        // Unlike ActiveCandidate it survives failure/cancellation for diagnostics.
+        private FileCandidate? lastAttemptedCandidate;
+        public FileCandidate? LastAttemptedCandidate
         {
-            get => _resolvedTarget;
-            set => ResolvedTarget = value;
+            get => lastAttemptedCandidate;
+            internal set
+            {
+                if (lastAttemptedCandidate == value) return;
+                lastAttemptedCandidate = value;
+                OnPropertyChanged();
+            }
         }
 
-        private string? _downloadPath;
-        public string? DownloadPath
+        // Exact preselection without invented search-response evidence. Search-selected
+        // songs continue to expose their search-selected ResolvedTarget.
+        private PeerFileTarget? _exactTarget;
+        public PeerFileTarget? ExactTarget
         {
-            get => _downloadPath;
-            set { if (_downloadPath != value) { _downloadPath = value; OnPropertyChanged(); } }
+            get => _exactTarget;
+            set { if (_exactTarget != value) { _exactTarget = value; OnPropertyChanged(); OnPropertyChanged(nameof(ResolvedPeerTarget)); } }
         }
+
+        public PeerFileTarget? ResolvedPeerTarget => ResolvedTarget?.Target ?? ExactTarget;
 
         private SongDownloadSource _downloadSource = SongDownloadSource.None;
         public SongDownloadSource DownloadSource
@@ -56,37 +86,10 @@ namespace Sockseek.Core.Jobs;
             set { if (_downloadSource != value) { _downloadSource = value; OnPropertyChanged(); } }
         }
 
-        private long _bytesTransferred;
-        public long BytesTransferred
-        {
-            get => _bytesTransferred;
-            set
-            {
-                if (_bytesTransferred != value)
-                {
-                    _bytesTransferred = value;
-                    OnPropertyChanged();
-                    OnPropertyChanged(nameof(Progress));
-                }
-            }
-        }
-
-        private long _fileSize;
-        public long FileSize
-        {
-            get => _fileSize;
-            set { if (_fileSize != value) { _fileSize = value; OnPropertyChanged(); OnPropertyChanged(nameof(Progress)); } }
-        }
-
-        public double Progress => FileSize > 0 ? (double)BytesTransferred / FileSize : 0;
-
         public SongJob(SongQuery query)
         {
             Query = query;
         }
-
-        public override void SetDone()
-            => SetDone(downloadPath: null);
 
         public void SetDone(
             string? downloadPath,
@@ -94,7 +97,7 @@ namespace Sockseek.Core.Jobs;
             SongDownloadSource downloadSource = SongDownloadSource.None)
         {
             if (candidate != null)
-                ChosenCandidate = candidate;
+                ResolvedTarget = candidate;
             if (downloadPath != null)
                 DownloadPath = downloadPath;
             if (downloadSource != SongDownloadSource.None)
@@ -104,24 +107,14 @@ namespace Sockseek.Core.Jobs;
             base.SetDone();
         }
 
-        public override void SetAlreadyExists()
-            => SetAlreadyExists(path: null);
-
-        public void SetAlreadyExists(string? path)
-        {
-            if (path != null)
-                DownloadPath = path;
-            base.SetAlreadyExists();
-        }
-
         public override string ToString(bool noInfo) => Query.ToString(noInfo);
         public override string ToString()             => Query.ToString();
 
-        public IEnumerable<Job> Upgrade(bool album, bool aggregate)
+        public IEnumerable<Job> Upgrade(bool album, bool group)
         {
-            if (album && aggregate)
+            if (album && group)
             {
-                var newJob = new AlbumAggregateJob(AlbumQuery.FromSongQuery(Query));
+                var newJob = new AlbumGroupsJob(AlbumQuery.FromSongQuery(Query));
                 newJob.CopySharedFieldsFrom(this);
                 if (Query.Title.Length > 0)
                 {
@@ -143,9 +136,9 @@ namespace Sockseek.Core.Jobs;
                 newJob.UpgradeSources.Add(new SongQuery(Query));
                 yield return newJob;
             }
-            else if (aggregate)
+            else if (group)
             {
-                var newJob = new AggregateJob(Query);
+                var newJob = new SongGroupsJob(Query);
                 newJob.CopySharedFieldsFrom(this);
                 newJob.ItemName ??= newJob.ToString(noInfo: true);
                 yield return newJob;

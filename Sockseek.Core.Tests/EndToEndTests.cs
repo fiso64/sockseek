@@ -17,9 +17,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-mock-music-" + Guid.NewGuid());
             var albumDir  = Path.Combine(musicRoot, "Main", "TestArtist", "TestAlbum");
@@ -73,9 +70,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = System.Text.Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-playlist-test-music-" + Guid.NewGuid());
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-playlist-test-out-" + Guid.NewGuid());
@@ -126,9 +120,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = System.Text.Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-index-test-music-" + Guid.NewGuid());
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-index-test-out-" + Guid.NewGuid());
@@ -388,7 +379,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task NestedListCsv_DefaultOutputDir_DownloadsSongsInsideAllContainerFolders()
+        public async Task NestedMixedLists_ShareOutputHierarchyAndSkipCompletedWorkOnRerun()
         {
             var tempRoot = Path.Combine(Path.GetTempPath(), "slsk-nested-default-folder-" + Guid.NewGuid());
             var sourceDir = Path.Combine(tempRoot, "source");
@@ -397,39 +388,44 @@ namespace Tests.EndToEnd
             Directory.CreateDirectory(sourceDir);
             Directory.CreateDirectory(musicRoot);
             Directory.CreateDirectory(outputDir);
-
-            var csvPath = Path.Combine(sourceDir, "songs.csv");
-            var listPath = Path.Combine(sourceDir, "wishlist.txt");
-            File.WriteAllText(csvPath, "artist,title\nTest Artist,First Song\n");
-            File.WriteAllText(listPath, $"\"{csvPath}\"\n");
-            File.WriteAllBytes(Path.Combine(musicRoot, "Test Artist - First Song.mp3"), TestHelpers.EmptyMp3Bytes);
-
             try
             {
+                var csvPath = Path.Combine(sourceDir, "songs.csv");
+                var listPath = Path.Combine(sourceDir, "wishlist.txt");
+                var remoteFolder = Path.Combine(musicRoot, "Selected");
+                var nestedFolder = Path.Combine(remoteFolder, "Nested");
+                Directory.CreateDirectory(nestedFolder);
+                var remoteFile = Path.Combine(musicRoot, "readme.txt");
+                await File.WriteAllBytesAsync(remoteFile, [1, 2, 3]);
+                await File.WriteAllBytesAsync(Path.Combine(nestedFolder, "file.bin"), [4, 5, 6]);
+                await File.WriteAllBytesAsync(Path.Combine(musicRoot, "Test Artist - First Song.mp3"), TestHelpers.EmptyMp3Bytes);
+                await File.WriteAllTextAsync(csvPath, "artist,title\nTest Artist,First Song\n");
+                await File.WriteAllTextAsync(listPath, $"\"{csvPath}\"\n\"slsk://local/{remoteFile}\"\n\"slsk://local/{remoteFolder}/\"\n");
+
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
-                var settings = new DownloadSettings();
-                settings.Extraction.Input = listPath;
-                settings.Extraction.InputType = InputType.List;
-                settings.Output.ParentDir = outputDir;
+                var settings = new DownloadSettings { Output = { ParentDir = outputDir } };
+                for (int run = 0; run < 2; run++)
+                {
+                    var client = Tests.ClientTests.MockSoulseekClient.FromLocalPaths(useTags: false, musicRoot);
+                    await using var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
+                    app.Enqueue(new JobList("batch", [new ExtractJob(listPath, InputType.List)]), settings);
+                    app.CompleteEnqueue();
+                    await app.RunAsync(CancellationToken.None);
+                    Assert.AreEqual(run == 0 ? 3 : 0, client.DownloadCallCount);
+                    Assert.AreEqual(1, client.BrowseCallCount);
+                }
 
-                var client = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, musicRoot);
-                var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
-                app.Enqueue(new ExtractJob(listPath, InputType.List), settings);
-                app.CompleteEnqueue();
-
-                await app.RunAsync(CancellationToken.None);
-
-                var expectedPath = Path.Combine(outputDir, "wishlist", "songs", "Test Artist - First Song.mp3");
-                var tree = string.Join("\n", Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
-                    .Select(path => Path.GetRelativePath(outputDir, path)));
-
-                Assert.IsTrue(File.Exists(expectedPath), $"Expected nested container song at '{expectedPath}'. Actual tree:\n{tree}");
+                string[] expected = [Path.Combine("batch", "wishlist", "songs", "Test Artist - First Song.mp3"),
+                    Path.Combine("batch", "wishlist", "readme.txt"),
+                    Path.Combine("batch", "wishlist", "Selected", "Nested", "file.bin")];
+                var outputs = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
+                    .Where(path => Path.GetFileName(path) != "_index.csv")
+                    .Select(path => Path.GetRelativePath(outputDir, path)).ToArray();
+                CollectionAssert.AreEquivalent(expected, outputs);
+                CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(Path.Combine(outputDir, expected[1])));
+                CollectionAssert.AreEqual(new byte[] { 4, 5, 6 }, File.ReadAllBytes(Path.Combine(outputDir, expected[2])));
             }
-            finally
-            {
-                if (Directory.Exists(tempRoot))
-                    Directory.Delete(tempRoot, true);
-            }
+            finally { Directory.Delete(tempRoot, recursive: true); }
         }
 
         [TestMethod]
@@ -437,9 +433,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var tempRoot  = Path.Combine(Path.GetTempPath(), "slsk-nested-index-" + Guid.NewGuid());
             var sourceDir = Path.Combine(tempRoot, "src");
@@ -609,6 +602,59 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
+        public async Task AutoProfile_AutoDetectedInputTypeAndConcreteMode_MatchExtractedChild()
+        {
+            string csvPath = Path.Combine(Path.GetTempPath(), "slsk-auto-profile-input-type-" + Guid.NewGuid() + ".csv");
+            await File.WriteAllTextAsync(csvPath, "artist,title\nTest Artist,Test Track\n");
+
+            try
+            {
+                var eng = new EngineSettings { Username = "u", Password = "p" };
+                var rootSettings = new DownloadSettings();
+                rootSettings.Extraction.Input = csvPath;
+
+                var autoProfile = new SettingsProfile
+                {
+                    Name = "csv-song",
+                    Condition = "input-type == \"csv\" && download-mode == \"song\"",
+                    Download = new SettingsPatch([new("Search.MaxStaleTime", 4242)]),
+                };
+
+                var resolver = new ProfileJobSettingsResolver(
+                    rootSettings,
+                    defaultProfile: null,
+                    autoProfiles: [autoProfile],
+                    namedProfiles: [],
+                    cliProfile: null,
+                    normalize: SettingsNormalizer.Normalize);
+
+                var extract = new ExtractJob(csvPath, InputType.None);
+                var app = new DownloadEngine(
+                    eng,
+                    TestHelpers.CreateMockClientManager(new ClientTests.MockSoulseekClient([]), eng),
+                    resolver);
+                app.Enqueue(extract, rootSettings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(InputType.CSV, extract.InputType);
+                Assert.AreEqual(InputType.CSV, extract.Config.Extraction.InputType);
+                Assert.IsNotNull(extract.Result);
+                var song = extract.Result is JobList list
+                    ? list.Jobs.OfType<SongJob>().Single()
+                    : (SongJob)extract.Result;
+                CollectionAssert.Contains(song.Config.AppliedAutoProfiles.ToList(), "csv-song");
+                Assert.AreEqual(4242, song.Config.Search.MaxStaleTime);
+            }
+            finally
+            {
+                if (File.Exists(csvPath))
+                    File.Delete(csvPath);
+            }
+        }
+
+        [TestMethod]
         public async Task AutoProfile_ListAlbumLines_LogsNewProfilesOnceAndDebugSummary()
         {
             var listPath = Path.Combine(Path.GetTempPath(), "slsk-auto-profile-list-" + Guid.NewGuid() + ".txt");
@@ -642,8 +688,8 @@ namespace Tests.EndToEnd
 
                 var messages = new List<(string Scope, LogLevel Level, string Message)>();
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(new ClientTests.MockSoulseekClient([]), eng), resolver);
-                app.Events.JobMessage += (_, level, _, message) => messages.Add(("job", level, message));
-                app.Events.WorkflowMessage += (_, level, _, message) => messages.Add(("workflow", level, message));
+                app.Events.JobMessage += change => messages.Add(("job", change.Level, change.Message));
+                app.Events.WorkflowMessage += change => messages.Add(("workflow", change.Level, change.Message));
                 app.Enqueue(new ExtractJob(listPath, InputType.List), rootSettings);
                 app.CompleteEnqueue();
 
@@ -1047,9 +1093,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var testClient = new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex());
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-e2e", Guid.NewGuid().ToString());
@@ -1102,9 +1145,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-list-format-music-" + Guid.NewGuid());
             var albumDir  = Path.Combine(musicRoot, "Artist", "Album2");
@@ -1162,9 +1202,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-list-strict-album-music-" + Guid.NewGuid());
             var albumDir  = Path.Combine(musicRoot, "Artist", "Album", "Disc 1");
@@ -1222,9 +1259,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-list-strict-count-out-" + Guid.NewGuid());
             var listPath  = Path.GetTempFileName();
@@ -1289,9 +1323,10 @@ namespace Tests.EndToEnd
                     normalize: SettingsNormalizer.Normalize);
                 var app = new DownloadEngine(engineSettings, clientManager, resolver);
                 AlbumJob? albumJob = null;
-                app.Events.JobRegistered += (job, _) =>
+                app.Events.JobRegistered += change =>
                 {
-                    if (job is AlbumJob aj)
+                    if (change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Album
+                        && app.GetJob(change.Job.Id) is AlbumJob aj)
                         albumJob = aj;
                 };
                 app.Enqueue(new ExtractJob(listPath, InputType.List), rootSettings);
@@ -1331,9 +1366,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-list-track-count-browse-out-" + Guid.NewGuid());
             var listPath  = Path.GetTempFileName();
@@ -1383,9 +1415,10 @@ namespace Tests.EndToEnd
                     normalize: SettingsNormalizer.Normalize);
                 var app = new DownloadEngine(engineSettings, clientManager, resolver);
                 AlbumJob? albumJob = null;
-                app.Events.JobRegistered += (job, _) =>
+                app.Events.JobRegistered += change =>
                 {
-                    if (job is AlbumJob aj)
+                    if (change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Album
+                        && app.GetJob(change.Job.Id) is AlbumJob aj)
                         albumJob = aj;
                 };
                 app.Enqueue(new ExtractJob(listPath, InputType.List), rootSettings);
@@ -1417,9 +1450,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Error);
 
             var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-preselected-music-" + Guid.NewGuid());
             var albumDir  = Path.Combine(musicRoot, "Artist", "Chosen Album");
@@ -1441,7 +1471,7 @@ namespace Tests.EndToEnd
                 rootSettings.Search.NoBrowseFolder = true;
 
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
-                var registry = TestHelpers.CreateUserSuccessTracker();
+                var registry = TestHelpers.CreatePeerFailureTracker();
                 var searcher = new Searcher(testClient, registry, new DownloadEvents(), 10, 10);
                 var seedJob = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Chosen Album" });
                 await searcher.SearchAlbum(seedJob, rootSettings.Search, new ResponseData(), CancellationToken.None);
@@ -1450,7 +1480,7 @@ namespace Tests.EndToEnd
                 var concreteJob = new AlbumJob(new AlbumQuery { Artist = "Wrong Artist", Album = "Wrong Album" })
                 {
                     ResolvedTarget = selected,
-                    AllowBrowseResolvedTarget = false,
+                    DirectoryResolutionPolicy = AlbumDirectoryResolutionPolicy.UseSelectedSnapshot,
                     Results = [selected],
                 };
 
@@ -1478,9 +1508,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Error);
 
             var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-preselected-song-music-" + Guid.NewGuid());
             var songDir   = Path.Combine(musicRoot, "Artist");
@@ -1500,7 +1527,7 @@ namespace Tests.EndToEnd
                 rootSettings.Output.NameFormat = "{filename}";
 
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
-                var registry = TestHelpers.CreateUserSuccessTracker();
+                var registry = TestHelpers.CreatePeerFailureTracker();
                 var searcher = new Searcher(testClient, registry, new DownloadEvents(), 10, 10);
                 var seedSong = new SongJob(new SongQuery { Artist = "Artist", Title = "Real Track" });
                 await searcher.SearchSong(seedSong, rootSettings.Search, new ResponseData(), CancellationToken.None);
@@ -1530,10 +1557,10 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task PrintJobs_AggregateJob_DoesNotSearchOrDownload()
+        public async Task PrintJobs_SongGroupsJob_DoesNotSearchOrDownload()
         {
             var testClient = new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex());
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-print-jobs-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-print-jobs-group-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             try
@@ -1543,7 +1570,7 @@ namespace Tests.EndToEnd
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.PrintOption = PrintOption.Jobs;
 
-                var aggregateJob = new AggregateJob(new SongQuery { Artist = "testartist" });
+                var songGroupsJob = new SongGroupsJob(new SongQuery { Artist = "testartist" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
                 var searched = false;
@@ -1553,14 +1580,14 @@ namespace Tests.EndToEnd
                         searched = true;
                 };
 
-                app.Enqueue(aggregateJob, rootSettings);
+                app.Enqueue(songGroupsJob, rootSettings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggregateJob.TerminalOutcome);
-                Assert.IsFalse(searched, "Print-jobs mode should not search, even for aggregate jobs.");
-                Assert.AreEqual(0, aggregateJob.Songs.Count, "Print-jobs mode should not populate aggregate search results.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songGroupsJob.TerminalOutcome);
+                Assert.IsFalse(searched, "Print-jobs mode should not search, even for group jobs.");
+                Assert.AreEqual(0, songGroupsJob.Songs.Count, "Print-jobs mode should not populate group search results.");
                 Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
                     "Print-jobs mode should not download files.");
             }
@@ -1642,7 +1669,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task PrintResults_AlbumAggregateJob_SearchesWithoutDownloading()
+        public async Task PrintResults_AlbumGroupsJob_SearchesWithoutDownloading()
         {
             var lengthOne = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 120);
             var lengthTwo = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 180);
@@ -1672,7 +1699,7 @@ namespace Tests.EndToEnd
                     ]),
             };
             var testClient = new ClientTests.MockSoulseekClient(index);
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-print-album-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-print-album-groups-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             try
@@ -1682,27 +1709,28 @@ namespace Tests.EndToEnd
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.PrintOption = PrintOption.Results;
 
-                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+                var songGroupsJob = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
                 var searchedAlbumJobs = 0;
-                app.Events.JobStateChanged += job =>
+                app.Events.JobStateChanged += change =>
                 {
-                    if (job.ActivityPhase == JobActivityPhase.Searching && job is AlbumJob)
+                    if (change.ActivityPhase == JobActivityPhase.Searching
+                        && change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Album)
                         searchedAlbumJobs++;
                 };
-                app.Enqueue(aggregateJob, rootSettings);
+                app.Enqueue(songGroupsJob, rootSettings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggregateJob.TerminalOutcome);
-                Assert.IsTrue(aggregateJob.Albums.Count > 0, "Print-results mode should retain album-aggregate candidates for printing.");
-                Assert.AreEqual(4, aggregateJob.Discovery?.RawResultCount, "Live discovery count should remain the raw file-hit count, not the projected album-bucket count.");
-                Assert.IsTrue(aggregateJob.Albums.Count < aggregateJob.Discovery?.RawResultCount, "This fixture must keep projected album buckets fewer than raw file hits.");
-                Assert.AreEqual(0, searchedAlbumJobs, "Print-results mode should not re-search album-aggregate candidate albums.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songGroupsJob.TerminalOutcome);
+                Assert.IsTrue(songGroupsJob.Albums.Count > 0, "Print-results mode should retain album-groups candidates for printing.");
+                Assert.AreEqual(4, songGroupsJob.Discovery?.RawResultCount, "Live discovery count should remain the raw file-hit count, not the projected album-bucket count.");
+                Assert.IsTrue(songGroupsJob.Albums.Count < songGroupsJob.Discovery?.RawResultCount, "This fixture must keep projected album buckets fewer than raw file hits.");
+                Assert.AreEqual(0, searchedAlbumJobs, "Print-results mode should not re-search album-groups candidate albums.");
                 Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length,
-                    "Print-results mode should not download album-aggregate files.");
+                    "Print-results mode should not download album-groups files.");
             }
             finally
             {
@@ -1712,7 +1740,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task AlbumAggregateJob_DownloadsResolvedAlbumCandidatesWithoutResearchingThem()
+        public async Task AlbumGroupsJob_DownloadsResolvedAlbumCandidatesWithoutResearchingThem()
         {
             var lengthOne = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 120);
             var lengthTwo = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 180);
@@ -1742,7 +1770,7 @@ namespace Tests.EndToEnd
                     ]),
             };
             var testClient = new ClientTests.MockSoulseekClient(index);
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-download-album-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-download-album-groups-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             try
@@ -1752,29 +1780,31 @@ namespace Tests.EndToEnd
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.Search.NoBrowseFolder = true;
 
-                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+                var songGroupsJob = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
                 var searchedAlbumJobs = 0;
                 var albumDownloadsStarted = 0;
-                app.Events.JobStateChanged += job =>
+                app.Events.JobStateChanged += change =>
                 {
-                    if (job.ActivityPhase == JobActivityPhase.Searching && job is AlbumJob)
+                    if (change.ActivityPhase == JobActivityPhase.Searching
+                        && change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Album)
                         searchedAlbumJobs++;
-                    else if (job.ActivityPhase == JobActivityPhase.Downloading && job is AlbumJob)
+                    else if (change.ActivityPhase == JobActivityPhase.Downloading
+                        && change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Album)
                         albumDownloadsStarted++;
                 };
-                app.Enqueue(aggregateJob, rootSettings);
+                app.Enqueue(songGroupsJob, rootSettings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.AreEqual(JobTerminalOutcome.Succeeded, aggregateJob.TerminalOutcome);
-                Assert.IsTrue(aggregateJob.Albums.Count > 0, "Album aggregate should produce resolved album candidates.");
-                Assert.AreEqual(0, searchedAlbumJobs, "Resolved album-aggregate candidates should not run a second album search.");
-                Assert.IsTrue(albumDownloadsStarted > 0, "Resolved album-aggregate candidates should still enter album download.");
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, songGroupsJob.TerminalOutcome);
+                Assert.IsTrue(songGroupsJob.Albums.Count > 0, "Album group should produce resolved album candidates.");
+                Assert.AreEqual(0, searchedAlbumJobs, "Resolved album-groups candidates should not run a second album search.");
+                Assert.IsTrue(albumDownloadsStarted > 0, "Resolved album-groups candidates should still enter album download.");
                 Assert.IsTrue(Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Length > 0,
-                    "Album aggregate should download files from the resolved candidate album.");
+                    "Album group should download files from the resolved candidate album.");
             }
             finally
             {
@@ -1791,9 +1821,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var testClient = new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex());
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-csv-song-rfs-" + Guid.NewGuid());
@@ -1836,9 +1863,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var testClient = new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex());
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-csv-album-rfs-" + Guid.NewGuid());
@@ -1881,9 +1905,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-csv-song-ae-music-" + Guid.NewGuid());
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-csv-song-ae-out-" + Guid.NewGuid());
@@ -2078,9 +2099,6 @@ namespace Tests.EndToEnd
         {
             Console.ResetColor();
             Console.OutputEncoding = Encoding.UTF8;
-            SockseekLog.SetupExceptionHandling();
-            SockseekLog.AddConsole();
-            SockseekLog.SetConsoleLogLevel(LogLevel.Debug);
 
             var musicRoot = Path.Combine(Path.GetTempPath(), "slsk-csv-album-ae-music-" + Guid.NewGuid());
             var albumDir  = Path.Combine(musicRoot, "TestArtist", "TestAlbum");
@@ -2134,10 +2152,10 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task AlbumAggregateJob_FailsWhenNoAlbumsAreFound()
+        public async Task AlbumGroupsJob_FailsWhenNoAlbumsAreFound()
         {
             var testClient = new ClientTests.MockSoulseekClient([]);
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-empty-album-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-empty-album-groups-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             try
@@ -2145,20 +2163,20 @@ namespace Tests.EndToEnd
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var rootSettings = new DownloadSettings();
                 rootSettings.Output.ParentDir = outputDir;
-                rootSettings.Search.MinSharesAggregate = 1;
+                rootSettings.Search.MinGroupShares = 1;
 
-                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "Missing Artist" });
+                var songGroupsJob = new AlbumGroupsJob(new AlbumQuery { Artist = "Missing Artist" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
 
-                app.Enqueue(aggregateJob, rootSettings);
+                app.Enqueue(songGroupsJob, rootSettings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
-                Assert.AreEqual(JobFailureReason.NoSearchResults, aggregateJob.FailureReason);
-                Assert.AreEqual(0, aggregateJob.Albums.Count);
+                Assert.IsTrue(songGroupsJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.NoSearchResults, songGroupsJob.FailureReason);
+                Assert.AreEqual(0, songGroupsJob.Albums.Count);
             }
             finally
             {
@@ -2168,7 +2186,7 @@ namespace Tests.EndToEnd
         }
 
         [TestMethod]
-        public async Task AggregateJob_DownloadsResolvedSongCandidatesWithoutResearchingThem()
+        public async Task SongGroupsJob_DownloadsResolvedSongCandidatesWithoutResearchingThem()
         {
             var length = new Soulseek.FileAttribute(Soulseek.FileAttributeType.Length, 180);
             var index = new List<Soulseek.SearchResponse>
@@ -2195,7 +2213,7 @@ namespace Tests.EndToEnd
                     ]),
             };
             var testClient = new ClientTests.MockSoulseekClient(index);
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-download-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-download-group-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
 
             try
@@ -2203,29 +2221,30 @@ namespace Tests.EndToEnd
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var rootSettings = new DownloadSettings();
                 rootSettings.Output.ParentDir = outputDir;
-                rootSettings.Search.MinSharesAggregate = 1;
+                rootSettings.Search.MinGroupShares = 1;
                 rootSettings.Skip.SkipExisting = false;
 
-                var aggregateJob = new AggregateJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
+                var songGroupsJob = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);
                 var app = new DownloadEngine(engineSettings, clientManager);
 
                 var songSearchesStarted = 0;
                 var downloadsStarted = 0;
-                app.Events.JobStateChanged += job =>
+                app.Events.JobStateChanged += change =>
                 {
-                    if (job is SongJob && job.ActivityPhase == JobActivityPhase.Searching)
+                    if (change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Song
+                        && change.ActivityPhase == JobActivityPhase.Searching)
                         songSearchesStarted++;
                 };
-                app.Events.DownloadStarted += (_, _) => downloadsStarted++;
-                app.Enqueue(aggregateJob, rootSettings);
+                app.Events.DownloadStarted += _ => downloadsStarted++;
+                app.Enqueue(songGroupsJob, rootSettings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                Assert.IsTrue(aggregateJob.Songs.Count > 0, "Aggregate should produce resolved song candidates.");
-                Assert.AreEqual(0, songSearchesStarted, "Resolved aggregate child songs should not run a second song search.");
-                Assert.IsTrue(downloadsStarted > 0, "Resolved aggregate child songs should still download.");
+                Assert.IsTrue(songGroupsJob.Songs.Count > 0, "Song Groups should produce resolved song candidates.");
+                Assert.AreEqual(0, songSearchesStarted, "Resolved group child songs should not run a second song search.");
+                Assert.IsTrue(downloadsStarted > 0, "Resolved group child songs should still download.");
             }
             finally
             {

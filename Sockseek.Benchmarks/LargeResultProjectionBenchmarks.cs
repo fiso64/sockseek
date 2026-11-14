@@ -19,7 +19,7 @@ public class LargeResultProjectionBenchmarks
     private SearchSettings artworkSearch = null!;
     private SongQuery trackQuery = null!;
     private AlbumQuery albumQuery = null!;
-    private ConcurrentDictionary<string, int> userSuccessCounts = null!;
+    private ConcurrentDictionary<string, int> peerFailureCounts = null!;
 
     [Params(10_000, 100_000)]
     public int ResultCount { get; set; }
@@ -31,7 +31,7 @@ public class LargeResultProjectionBenchmarks
         artworkSearch = new DownloadSettings { Search = search, Output = new() { AlbumArtOnly = true } }.ResolveSearchSettings();
         trackQuery = BenchmarkDataFactory.TrackQuery;
         albumQuery = BenchmarkDataFactory.AlbumQuery;
-        userSuccessCounts = BenchmarkDataFactory.CreateUserSuccessCounts(ResultCount);
+        peerFailureCounts = BenchmarkDataFactory.CreatePeerFailureCounts(ResultCount);
 
         trackResults = BenchmarkDataFactory.CreateTrackResults(ResultCount);
         albumResults = BenchmarkDataFactory
@@ -47,7 +47,7 @@ public class LargeResultProjectionBenchmarks
                 trackResults,
                 trackQuery,
                 search,
-                userSuccessCounts)
+                peerFailureCounts)
             .Count;
 
     [Benchmark]
@@ -56,7 +56,7 @@ public class LargeResultProjectionBenchmarks
                 trackResults,
                 trackQuery,
                 search,
-                userSuccessCounts,
+                peerFailureCounts,
                 useInfer: false)
             .Count;
 
@@ -74,20 +74,20 @@ public class LargeResultProjectionBenchmarks
                 trackResults,
                 trackQuery,
                 artworkSearch,
-                userSuccessCounts,
+                peerFailureCounts,
                 useInfer: false)
             .Count;
 
     [Benchmark]
-    public int AggregateGroup()
-        => SearchResultProjector.AggregateTracks(
+    public int TrackGrouping()
+        => SearchResultProjector.GroupTracks(
                 trackResults,
                 trackQuery,
                 search,
-                userSuccessCounts)
+                peerFailureCounts)
             .Count;
 
     [Benchmark]
-    public int AlbumAggregateGroup()
-        => SearchResultProjector.AggregateAlbums(albumFolders, albumQuery, search).Count;
+    public int AlbumGrouping()
+        => SearchResultProjector.GroupAlbums(albumFolders, albumQuery, search).Count;
 }

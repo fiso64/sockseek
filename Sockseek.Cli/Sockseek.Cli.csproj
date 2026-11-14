@@ -2,13 +2,13 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>sockseek</AssemblyName>
     <RootNamespace>Sockseek.Cli</RootNamespace>
     <!-- The application and several dependencies use reflection and are not trim-safe. -->
     <PublishTrimmed>false</PublishTrimmed>
+    <WebUiProjectDirectory>$(MSBuildProjectDirectory)/../webui</WebUiProjectDirectory>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -21,23 +21,55 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="10.0.13" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="11.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.Json" Version="11.0.0" />
+    <!-- Managed Wu quantization preserves the terminal renderer's bounded palette. -->
+    <PackageReference Include="KGySoft.Drawing.Core" Version="10.0.2" />
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="11.0.0" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../Sockseek.Api/Sockseek.Api.csproj" />
     <ProjectReference Include="../Sockseek.Core/Sockseek.Core.csproj" />
     <ProjectReference Include="../Sockseek.Server/Sockseek.Server.csproj" />
+    <ProjectReference Include="../Sockseek.Persistence/Sockseek.Persistence.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="../README.md" />
   </ItemGroup>
 
+  <!-- Server's executable entry point exists only for build-time OpenAPI generation.
+       The distributed daemon uses the CLI's runtime/dependency configuration. -->
+  <Target Name="RemoveServerToolingConfiguration" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+        Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'Sockseek.Server.runtimeconfig.json' or '%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'Sockseek.Server.deps.json'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- The CLI is the distributed daemon executable; publish its static WebUI
+       alongside it, not from the referenced Server library's publish target. -->
+  <Target Name="PublishWebUi" AfterTargets="ComputeFilesToPublish"
+          Condition="'$(SkipWebUiBuild)' != 'true' and Exists('$(WebUiProjectDirectory)/package.json')">
+    <Exec WorkingDirectory="$(WebUiProjectDirectory)" Command="npm ci" />
+    <Exec WorkingDirectory="$(WebUiProjectDirectory)" Command="npm run api:check" />
+    <Exec WorkingDirectory="$(WebUiProjectDirectory)" Command="npm run build" />
+    <ItemGroup>
+      <WebUiPublishFile Include="$(WebUiProjectDirectory)/dist/**" />
+      <ResolvedFileToPublish Include="@(WebUiPublishFile-&gt;'%(FullPath)')"
+                             Exclude="@(ResolvedFileToPublish)">
+        <RelativePath>wwwroot/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
   <PropertyGroup>
-    <HelpGeneratorTargetFramework>net10.0</HelpGeneratorTargetFramework>
+    <HelpGeneratorTargetFramework>$(TargetFramework)</HelpGeneratorTargetFramework>
     <HelpGeneratorProject>../Sockseek.HelpGenerator/Sockseek.HelpGenerator.csproj</HelpGeneratorProject>
     <HelpGeneratorDll>../Sockseek.HelpGenerator/bin/$(Configuration)/$(HelpGeneratorTargetFramework)/Sockseek.HelpGenerator.dll</HelpGeneratorDll>
     <HelpValidationStamp>$(MSBuildProjectDirectory)/obj/$(Configuration)/$(TargetFramework)/HelpContent.validation.stamp</HelpValidationStamp>
@@ -48,7 +80,7 @@
           Inputs="../Sockseek.HelpGenerator/Program.cs;../Sockseek.HelpGenerator/Sockseek.HelpGenerator.csproj"
           Outputs="$(HelpGeneratorDll)">
     <MSBuild Projects="$(HelpGeneratorProject)"
-             Targets="Build"
+             Targets="Restore;Build"
              Properties="Configuration=$(Configuration);TargetFramework=$(HelpGeneratorTargetFramework)"
              RemoveProperties="RuntimeIdentifier;SelfContained;PublishSelfContained;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishAot" />
   </Target>

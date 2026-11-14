@@ -1,5 +1,6 @@
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
+using Microsoft.Extensions.Logging;
 
 namespace Sockseek.Core;
 
@@ -18,11 +19,20 @@ public class IntervalProgressReporter
     private int failedCount = 0;
     private readonly int totalCount = 0;
     private readonly Lock _reportLock = new();
+    private readonly DownloadEvents events;
+    private readonly Guid workflowId;
 
-    public IntervalProgressReporter(TimeSpan interval, int countInterval, IEnumerable<SongJob> songs)
+    public IntervalProgressReporter(
+        TimeSpan interval,
+        int countInterval,
+        IEnumerable<SongJob> songs,
+        DownloadEvents events,
+        Guid workflowId)
     {
         this.Interval      = interval;
         this.countInterval = countInterval;
+        this.events = events;
+        this.workflowId = workflowId;
 
         foreach (var song in songs)
         {
@@ -68,7 +78,11 @@ public class IntervalProgressReporter
 
                 var failedStr       = failedCount > 0 ? $", Failed {failedCount}" : "";
                 var percentComplete = (double)(downloadedCount + failedCount) / totalCount;
-                SockseekLog.Info($"Downloaded {downloadedCount}{failedStr} of Total {totalCount} ({percentComplete:P})", color: ConsoleColor.DarkGray);
+                events.RaiseWorkflowMessage(
+                    workflowId,
+                    LogLevel.Information,
+                    null,
+                    $"Downloaded {downloadedCount}{failedStr} of Total {totalCount} ({percentComplete:P})");
             }
         }
     }

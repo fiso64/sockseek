@@ -71,7 +71,7 @@ namespace Sockseek.Core.Extractors;
                     context.Log.Warn($"Skipping playlist track {number}: SoundCloud returned no details for it (removed or private).");
                     continue;
                 }
-                result.Jobs.Add(ToSongJob(full, number));
+                result.Add(ToSongJob(full, number));
             }
 
             return result;

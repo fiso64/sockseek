@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using Sockseek.Core;
+using Sockseek.Core.Diagnostics;
 
 namespace Sockseek.Cli;
 
@@ -14,58 +14,51 @@ internal abstract record CliOutputEvent
 
     public sealed record RawLine(string Text) : CliOutputEvent;
 
-    public sealed record UpsertJobView(JobView Job) : CliOutputEvent;
-
-    public sealed record UpsertJobRecord(TerminalJobRecord Job) : CliOutputEvent;
-
-    public sealed record RemoveJob(string Id) : CliOutputEvent;
-
-    public sealed record StatusMessage(string? Message) : CliOutputEvent;
+    public sealed record ReplaceRenderState(TerminalRenderState State) : CliOutputEvent;
 
     public sealed record RateLimit(DateTimeOffset? ResetsAt) : CliOutputEvent;
 
-    public static CliOutputEvent FromLogEntry(SockseekLog.StructuredLogEntry entry)
-    {
-        if (entry.Context is JobLog jobLog)
-        {
-            return jobLog with
-            {
-                Level = entry.Level,
-                Color = entry.Color ?? jobLog.Color,
-            };
-        }
+    public static CliOutputEvent FromLogRecord(CompactLogRecord record, bool includeDiagnosticDetails)
+        => new ProcessLog(new TerminalProcessLogLine(
+            record.Level,
+            includeDiagnosticDetails
+                ? $"{CompactLogFormatter.LogicalCategory(record)}:{CompactLogFormatter.Source(record.Category)}"
+                : CompactLogFormatter.LogicalCategory(record),
+            record.Exception is null
+                ? record.Message
+                : $"{record.Message}: {(includeDiagnosticDetails ? ExceptionText.Detail(record.Exception) : ExceptionText.Summary(record.Exception))}",
+            CliProcessLogPresentation.Decorated));
+}
 
-        if (entry.Context is SockseekLog.JobLogContext jobLogContext)
-        {
-            return new JobLog(
-                new TerminalLogLine(
-                    TerminalLogKind.Status,
-                    $"core:{jobLogContext.DisplayId}",
-                    jobLogContext.DisplayId,
-                    jobLogContext.JobType,
-                    jobLogContext.Message,
-                    jobLogContext.Source,
-                    jobLogContext.Highlight,
-                    jobLogContext.ShowInLive),
-                entry.Level,
-                entry.Color);
-        }
-
-        if (entry.Context is CliOutputEvent outputEvent)
-            return outputEvent;
-
-        return new ProcessLog(new TerminalProcessLogLine(
-            entry.Level,
-            entry.CategoryName,
-            entry.Message,
-            entry.Routing,
-            entry.Color));
-    }
+internal enum CliProcessLogPresentation
+{
+    Decorated,
+    Plain,
 }
 
 internal sealed record TerminalProcessLogLine(
     LogLevel Level,
     string CategoryName,
     string Message,
-    SockseekLog.LogRouting Routing,
+    CliProcessLogPresentation Presentation,
     ConsoleColor? Color = null);
+
+internal static class CliProcessOutput
+{
+    public static void Write(
+        CliOutputController? output,
+        LogLevel level,
+        string message,
+        string category = "cli",
+        CliProcessLogPresentation presentation = CliProcessLogPresentation.Decorated)
+    {
+        if (output is null)
+        {
+            (level >= LogLevel.Error ? Console.Error : Console.Out).WriteLine(message);
+            return;
+        }
+
+        output.WriteOutput(new CliOutputEvent.ProcessLog(
+            new TerminalProcessLogLine(level, category, message, presentation)));
+    }
+}

@@ -117,13 +117,13 @@ namespace Sockseek.Core.Services;
                     PreprocessAlbum(aj, preprocess);
                     break;
 
-                case AggregateJob ag:
+                case SongGroupsJob ag:
                     foreach (var song in ag.Songs)
                         PreprocessSong(song, preprocess);
                     break;
 
-                case AlbumAggregateJob aaj:
-                    // AlbumAggregateJob only has an AlbumQuery, preprocess artist/album.
+                case AlbumGroupsJob aaj:
+                    // AlbumGroupsJob only has an AlbumQuery, preprocess artist/album.
                     // Synthesise a temporary AlbumJob to reuse PreprocessAlbum.
                     var tempAlbum = new AlbumJob(aaj.Query);
                     PreprocessAlbum(tempAlbum, preprocess);

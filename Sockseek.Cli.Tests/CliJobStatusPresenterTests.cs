@@ -26,7 +26,7 @@ public class CliJobStatusPresenterTests
     {
         var status = CliJobStatusPresenter.ForSplit(
             ServerJobLifecycleState.Running,
-            ServerJobActivityPhase.Searching,
+            ServerJobActivityPhase.Downloading,
             ServerJobTerminalOutcome.None,
             transferState: "Queued, Remotely");
 
@@ -44,6 +44,18 @@ public class CliJobStatusPresenterTests
 
         Assert.AreEqual("processing results", status.Label);
         Assert.IsTrue(status.IsActive);
+    }
+
+    [TestMethod]
+    [DataRow(ServerJobActivityPhase.Organizing)]
+    [DataRow(ServerJobActivityPhase.RunningOnComplete)]
+    [DataRow(ServerJobActivityPhase.ProcessingFallback)]
+    public void ProcessingOwnsStatusWhileTransportRemainsOpen(ServerJobActivityPhase phase)
+    {
+        var expected = CliJobStatusPresenter.ForSplit(ServerJobLifecycleState.Running, phase, ServerJobTerminalOutcome.None);
+        var actual = CliJobStatusPresenter.ForSplit(ServerJobLifecycleState.Running, phase, ServerJobTerminalOutcome.None,
+            transferState: "InProgress");
+        Assert.AreEqual(expected, actual);
     }
 
     [TestMethod]

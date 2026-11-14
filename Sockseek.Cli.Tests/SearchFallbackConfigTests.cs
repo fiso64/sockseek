@@ -80,6 +80,6 @@ public class SearchFallbackConfigTests
 
     private static SettingsPatch RoundTrip(SettingsPatch patch)
         => JsonSerializer.Deserialize<SettingsPatch>(
-            JsonSerializer.Serialize(patch, SockseekApiJson.CreateSerializerOptions()),
-            SockseekApiJson.CreateSerializerOptions())!;
+            JsonSerializer.Serialize(patch, new JsonSerializerOptions(JsonSerializerDefaults.Web) { IncludeFields = true }),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web) { IncludeFields = true })!;
 }

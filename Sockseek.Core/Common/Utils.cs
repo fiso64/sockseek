@@ -328,18 +328,34 @@ public static partial class Utils
         return s;
     }
 
+    private static readonly char[] s_controlChars = Enumerable.Range(0, 0x20)
+        .Concat(Enumerable.Range(0x7f, 0x21))
+        .Select(static value => (char)value)
+        .ToArray();
+
     private static readonly SearchValues<char> s_windowsInvalid =
-        SearchValues.Create([':', '|', '?', '>', '<', '*', '"', '/', '\\']);
+        SearchValues.Create(new[] { ':', '|', '?', '>', '<', '*', '"', '/', '\\' }
+            .Concat(s_controlChars)
+            .Distinct()
+            .ToArray());
 
     private static readonly SearchValues<char> s_windowsInvalidNoSlash =
-        SearchValues.Create([':', '|', '?', '>', '<', '*', '"']);
+        SearchValues.Create(new[] { ':', '|', '?', '>', '<', '*', '"' }
+            .Concat(s_controlChars)
+            .Distinct()
+            .ToArray());
 
     private static readonly SearchValues<char> s_platformInvalid =
-        SearchValues.Create(Path.GetInvalidFileNameChars());
+        SearchValues.Create(Path.GetInvalidFileNameChars()
+            .Concat(s_controlChars)
+            .Distinct()
+            .ToArray());
 
     private static readonly SearchValues<char> s_platformInvalidNoSlash =
         SearchValues.Create(Path.GetInvalidFileNameChars()
             .Where(static c => c is not '/' and not '\\')
+            .Concat(s_controlChars)
+            .Distinct()
             .ToArray());
 
     private static SearchValues<char> InvalidSet(bool windows, bool removeSlash) => windows

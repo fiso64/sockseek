@@ -1,15 +1,21 @@
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
+using Microsoft.Extensions.Logging;
+using Sockseek.Core.Transfers.Downloads.Runtime;
 
 namespace Sockseek.Core;
 
 internal sealed class AlbumImageDownloadExecutor
 {
     private readonly SongDownloadExecutor songDownloads;
+    private readonly DownloadExecutionContext context;
 
-    public AlbumImageDownloadExecutor(SongDownloadExecutor songDownloads)
+    public AlbumImageDownloadExecutor(
+        DownloadExecutionContext context,
+        SongDownloadExecutor songDownloads)
     {
+        this.context = context;
         this.songDownloads = songDownloads;
     }
 
@@ -41,28 +47,35 @@ internal sealed class AlbumImageDownloadExecutor
             .ToList();
 
         if (imageFolders.Count == 0)
-        { SockseekLog.Jobs.Info(job, $"no images found: {job}"); return result; }
+        {
+            context.Events.RaiseJobMessage(
+                job,
+                LogLevel.Information,
+                null,
+                "no images found");
+            return result;
+        }
 
         if (option == AlbumArtOption.Largest)
         {
             imageFolders = imageFolders
-                .OrderByDescending(ls => ls.Max(af => af.Candidate.File.Size) / 1024 / 100)
-                .ThenByDescending(ls => ls[0].Candidate.Response.UploadSpeed / 1024 / 300)
-                .ThenByDescending(ls => ls.Sum(af => af.Candidate.File.Size) / 1024 / 100)
+                .OrderByDescending(ls => ls.Max(af => af.Candidate.Size) / 1024 / 100)
+                .ThenByDescending(ls => (ls[0].Candidate.UploadSpeed ?? -1) / 1024 / 300)
+                .ThenByDescending(ls => ls.Sum(af => af.Candidate.Size) / 1024 / 100)
                 .ToList();
 
             if (chosenFolder != null)
                 mSize = job.TrackJobs
                     .Where(af => af.TerminalOutcome == JobTerminalOutcome.Succeeded && Utils.IsImageFile(af.DownloadPath ?? ""))
-                    .Select(af => af.ResolvedTarget!.File.Size)
+                    .Select(af => af.ResolvedTarget!.Size)
                     .DefaultIfEmpty(0).Max();
         }
         else if (option == AlbumArtOption.Most)
         {
             imageFolders = imageFolders
                 .OrderByDescending(ls => ls.Count)
-                .ThenByDescending(ls => ls[0].Candidate.Response.UploadSpeed / 1024 / 300)
-                .ThenByDescending(ls => ls.Sum(af => af.Candidate.File.Size) / 1024 / 100)
+                .ThenByDescending(ls => (ls[0].Candidate.UploadSpeed ?? -1) / 1024 / 300)
+                .ThenByDescending(ls => ls.Sum(af => af.Candidate.Size) / 1024 / 100)
                 .ToList();
 
             if (chosenFolder != null)
@@ -72,38 +85,31 @@ internal sealed class AlbumImageDownloadExecutor
         bool needsDownload(List<AlbumFile> ls) => option == AlbumArtOption.Most
             ? mCount < ls.Count
             : option == AlbumArtOption.Largest
-                ? mSize == 0 || mSize < ls.Max(af => af.Candidate.File.Size) - 1024 * 50
+                ? mSize == 0 || mSize < ls.Max(af => af.Candidate.Size) - 1024 * 50
                 : true;
-
-        bool SameCandidate(FileCandidate? left, FileCandidate right)
-            => left != null
-                && string.Equals(left.Username, right.Username, StringComparison.Ordinal)
-                && string.Equals(left.Filename, right.Filename, StringComparison.Ordinal);
-
-        SongJob ImageJobFor(AlbumFile file)
-        {
-            var existing = job.TrackJobs.Concat(result)
-                .FirstOrDefault(song => SameCandidate(song.ResolvedTarget, file.Candidate));
-            if (existing != null)
-                return existing;
-
-            var imageJob = AlbumJob.CreateTrackJob(file);
-            job.TrackJobs.Add(imageJob);
-            return imageJob;
-        }
 
         while (imageFolders.Count > 0)
         {
-            var imgs = imageFolders[0];
-            imageFolders.RemoveAt(0);
-            var imageJobs = imgs.Select(ImageJobFor).ToList();
+            var imgs = context.PeerFailures.ForAutomaticSelection(job.WorkflowId, imageFolders,
+                files => files[0].Candidate.Username, config.Search).FirstOrDefault();
+            if (imgs == null) break;
+            imageFolders.Remove(imgs);
+            var imageJobs = config.Output.AlbumArtOnly
+                ? job.BeginAlbumArtTransferAttempt(
+                    job.Results.First(folder => imgs.All(folder.Files.Contains)),
+                    imgs)
+                : job.EnsureSupplementalTrackJobs(imgs);
 
             if (imageJobs.All(af => af.TerminalOutcome == JobTerminalOutcome.Succeeded
                     || (af.TerminalOutcome == JobTerminalOutcome.Skipped && af.SkipReason == JobSkipReason.AlreadyExists))
                 || !needsDownload(imgs))
             {
                 var imageFolderPath = Utils.GreatestCommonDirectorySlsk(imgs.Select(af => af.Filename));
-                SockseekLog.Jobs.Info(job, $"image requirements already satisfied: {imageFolderPath}");
+                context.Events.RaiseJobMessage(
+                    job,
+                    LogLevel.Information,
+                    null,
+                    "image requirements already satisfied");
                 return result;
             }
 

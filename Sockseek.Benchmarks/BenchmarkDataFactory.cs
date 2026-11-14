@@ -400,10 +400,10 @@ internal static class BenchmarkDataFactory
     public static SearchSettings CreateSearchSettings()
     {
         var settings = new DownloadSettings().Search;
-        settings.IgnoreOn = -1;
+        settings.IgnoreOn = 3;
         settings.DownrankOn = 2;
-        settings.MinSharesAggregate = 2;
-        settings.AggregateLengthTol = 3;
+        settings.MinGroupShares = 2;
+        settings.GroupLengthTol = 3;
         return settings;
     }
 
@@ -421,13 +421,13 @@ internal static class BenchmarkDataFactory
         Album = "Time",
     };
 
-    public static ConcurrentDictionary<string, int> CreateUserSuccessCounts(int userCount)
+    public static ConcurrentDictionary<string, int> CreatePeerFailureCounts(int userCount)
     {
         var counts = new ConcurrentDictionary<string, int>();
         for (int i = 0; i < userCount; i++)
         {
             if (i % 9 == 0)
-                counts[$"user{i:D5}"] = 5;
+                counts[$"user{i:D5}"] = 2;
         }
         return counts;
     }

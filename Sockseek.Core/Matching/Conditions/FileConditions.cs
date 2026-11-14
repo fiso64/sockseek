@@ -17,11 +17,15 @@ namespace Sockseek.Core.Models;
         public bool StrictTitle;
         public bool StrictArtist;
         public bool StrictAlbum;
+        public bool ExcludeLocked;
         public string[] Formats = [];
         public string[] BannedUsers = [];
         public string[] AllowedUsers = [];
         public bool AcceptNoLength = true;
         public bool AcceptMissingProps = true;
+
+        public bool VisibilitySatisfies(SearchResultVisibility visibility)
+            => !ExcludeLocked || visibility == SearchResultVisibility.Public;
 
         public FileConditions() { }
 
@@ -36,6 +40,7 @@ namespace Sockseek.Core.Models;
             StrictArtist = other.StrictArtist;
             StrictTitle = other.StrictTitle;
             StrictAlbum = other.StrictAlbum;
+            ExcludeLocked = other.ExcludeLocked;
             MinBitDepth = other.MinBitDepth;
             MaxBitDepth = other.MaxBitDepth;
             AcceptMissingProps = other.AcceptMissingProps;
@@ -63,6 +68,7 @@ namespace Sockseek.Core.Models;
             StrictTitle = StrictTitle || other.StrictTitle,
             StrictArtist = StrictArtist || other.StrictArtist,
             StrictAlbum = StrictAlbum || other.StrictAlbum,
+            ExcludeLocked = ExcludeLocked || other.ExcludeLocked,
             Formats = other.Formats.Length > 0 ? other.Formats.ToArray() : Formats.ToArray(),
             BannedUsers = BannedUsers.Concat(other.BannedUsers).Distinct().ToArray(),
             AllowedUsers = AllowedUsers.Concat(other.AllowedUsers).Distinct().ToArray(),
@@ -124,6 +130,11 @@ namespace Sockseek.Core.Models;
                 undoMod.StrictAlbum = StrictAlbum;
                 StrictAlbum = mod.StrictAlbum.Value;
             }
+            if (mod.ExcludeLocked != null)
+            {
+                undoMod.ExcludeLocked = ExcludeLocked;
+                ExcludeLocked = mod.ExcludeLocked.Value;
+            }
             if (mod.Formats != null)
             {
                 undoMod.Formats = Formats;
@@ -170,6 +181,7 @@ namespace Sockseek.Core.Models;
                 && StrictTitle == other.StrictTitle
                 && StrictArtist == other.StrictArtist
                 && StrictAlbum == other.StrictAlbum
+                && ExcludeLocked == other.ExcludeLocked
                 && AcceptNoLength == other.AcceptNoLength
                 && AcceptMissingProps == other.AcceptMissingProps
                 && Formats.SequenceEqual(other.Formats)
@@ -264,6 +276,29 @@ namespace Sockseek.Core.Models;
                     && StrictArtistSatisfies(file.Path, artist)
                     && StrictAlbumSatisfies(file.Path, album))
                 && (!checkUser || UserSatisfies(response));
+        }
+
+        internal bool ProjectionFileSatisfies(
+            ConditionFile file,
+            SongQuery? query,
+            string? username,
+            bool filenameChecks = true,
+            bool checkUser = true)
+        {
+            int length = query?.Length ?? -1;
+            string title = query?.Title ?? "";
+            string artist = query?.Artist ?? "";
+            string album = query?.Album ?? "";
+            return FormatSatisfies(file.Path)
+                && LengthToleranceSatisfies(file.Length, length)
+                && BitrateSatisfies(file.Bitrate)
+                && SampleRateSatisfies(file.SampleRate)
+                && BitDepthSatisfies(file.BitDepth)
+                && (!filenameChecks
+                    || StrictTitleSatisfies(file.Path, title)
+                    && StrictArtistSatisfies(file.Path, artist)
+                    && StrictAlbumSatisfies(file.Path, album))
+                && (!checkUser || UsernameSatisfies(username));
         }
 
         public bool StrictTitleSatisfies(string fname, string tname, bool noPath = true)
@@ -549,18 +584,27 @@ namespace Sockseek.Core.Models;
 
         public bool BannedUsersSatisfies(SearchResponse? response)
         {
-            return response == null || BannedUsers.Length == 0 || !BannedUsers.Any(x => x == response.Username);
+            return BannedUsernameSatisfies(response?.Username);
         }
+
+        public bool BannedUsernameSatisfies(string? username)
+            => username == null || BannedUsers.Length == 0 || !BannedUsers.Any(x => x == username);
 
         public bool AllowedUsersSatisfies(SearchResponse? response)
         {
-            return response == null || AllowedUsers.Length == 0 || AllowedUsers.Any(x => x == response.Username);
+            return AllowedUsernameSatisfies(response?.Username);
         }
+
+        public bool AllowedUsernameSatisfies(string? username)
+            => username == null || AllowedUsers.Length == 0 || AllowedUsers.Any(x => x == username);
 
         public bool UserSatisfies(SearchResponse? response)
         {
             return BannedUsersSatisfies(response) && AllowedUsersSatisfies(response);
         }
+
+        public bool UsernameSatisfies(string? username)
+            => BannedUsernameSatisfies(username) && AllowedUsernameSatisfies(username);
 
         public string GetNotSatisfiedName(Soulseek.File file, SongQuery? query, SearchResponse? response)
         {
@@ -609,6 +653,7 @@ namespace Sockseek.Core.Models;
         public bool? StrictTitle;
         public bool? StrictArtist;
         public bool? StrictAlbum;
+        public bool? ExcludeLocked;
         public string[]? Formats;
         public string[]? BannedUsers;
         public string[]? AllowedUsers;
@@ -626,6 +671,7 @@ namespace Sockseek.Core.Models;
             && StrictTitle == null
             && StrictArtist == null
             && StrictAlbum == null
+            && ExcludeLocked == null
             && Formats == null
             && BannedUsers == null
             && AllowedUsers == null
@@ -647,6 +693,7 @@ namespace Sockseek.Core.Models;
             StrictTitle ??= fallback.StrictTitle;
             StrictArtist ??= fallback.StrictArtist;
             StrictAlbum ??= fallback.StrictAlbum;
+            ExcludeLocked ??= fallback.ExcludeLocked;
             Formats ??= fallback.Formats == null ? null : [.. fallback.Formats];
             BannedUsers ??= fallback.BannedUsers == null ? null : [.. fallback.BannedUsers];
             AllowedUsers ??= fallback.AllowedUsers == null ? null : [.. fallback.AllowedUsers];
@@ -661,6 +708,15 @@ namespace Sockseek.Core.Models;
 
             primary.FillMissingFrom(fallback);
             return primary.IsEmpty() ? null : primary;
+        }
+
+        public FileConditionPatch Clone()
+        {
+            var copy = (FileConditionPatch)MemberwiseClone();
+            copy.Formats = Formats?.ToArray();
+            copy.BannedUsers = BannedUsers?.ToArray();
+            copy.AllowedUsers = AllowedUsers?.ToArray();
+            return copy;
         }
 
         public override bool Equals(object? obj)
@@ -678,6 +734,7 @@ namespace Sockseek.Core.Models;
                 && StrictTitle == other.StrictTitle
                 && StrictArtist == other.StrictArtist
                 && StrictAlbum == other.StrictAlbum
+                && ExcludeLocked == other.ExcludeLocked
                 && AcceptNoLength == other.AcceptNoLength
                 && AcceptMissingProps == other.AcceptMissingProps
                 && ((Formats == null && other.Formats == null) || (Formats != null && other.Formats != null && Formats.SequenceEqual(other.Formats)))
@@ -698,6 +755,7 @@ namespace Sockseek.Core.Models;
             hash.Add(StrictTitle);
             hash.Add(StrictArtist);
             hash.Add(StrictAlbum);
+            hash.Add(ExcludeLocked);
             hash.Add(AcceptNoLength);
             hash.Add(AcceptMissingProps);
 

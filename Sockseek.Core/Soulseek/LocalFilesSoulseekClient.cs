@@ -1,11 +1,16 @@
 using System.Collections.Concurrent;
+using System.Net;
 using Soulseek;
+using Sockseek.Core.Models;
+using Sockseek.Core.PeerBrowsing;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Sockseek.Core.Diagnostics;
 
-#pragma warning disable CS8618, CS8625, CS8600, CS8632, CS0067
 
 namespace Sockseek.Core.Services
 {
-    public partial class LocalFilesSoulseekClient : ISoulseekClient
+    public partial class LocalFilesSoulseekClient : ISoulseekClient, IPeerDirectorySource
     {
         public IReadOnlyCollection<Transfer> Downloads => throw new NotImplementedException();
 
@@ -17,7 +22,13 @@ namespace Sockseek.Core.Services
 
         public SoulseekClientStates State => SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
 
-        public SoulseekClientOptions Options => throw new NotImplementedException();
+        public SoulseekClientOptions Options { get; } = new(enableListener: false);
+
+        // Local-file execution has no Soulseek server or listener.
+        public string Address => null!;
+        public IPAddress IPAddress => null!;
+        public IPEndPoint IPEndPoint => null!;
+        public int? Port => null;
 
         private List<Soulseek.SearchResponse> index;
         private readonly bool slowMode;
@@ -45,11 +56,22 @@ namespace Sockseek.Core.Services
         }
 
         public static LocalFilesSoulseekClient FromLocalPaths(bool useTags, bool slowMode, int failDownloads, params string[] localPaths)
+            => FromLocalPaths(
+                useTags,
+                slowMode,
+                failDownloads,
+                NullLogger.Instance,
+                localPaths);
+
+        public static LocalFilesSoulseekClient FromLocalPaths(
+            bool useTags,
+            bool slowMode,
+            int failDownloads,
+            ILogger logger,
+            params string[] localPaths)
         {
-            if (useTags)
-                SockseekLog.Soulseek.Info($"Reading tags from mock files dir, this may take a while. Use --mock-files-no-read-tags if tags are not needed.");
-            else
-                SockseekLog.Soulseek.Info("Mock files tag reading disabled; using deterministic synthetic track lengths derived from filenames.");
+            SoulseekLogMessages.LocalIndexStarting(logger, useTags);
+            var warningGate = new RepeatedWarningGate();
 
             var files = localPaths.SelectMany(EnumerateLocalFiles).ToList();
             var localFilePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -83,7 +105,14 @@ namespace Sockseek.Core.Services
                                         attributes.Add(new Soulseek.FileAttribute(FileAttributeType.BitDepth, file.Properties.BitsPerSample));
                                 }
                             }
-                            catch (Exception ex) { SockseekLog.Soulseek.Warn($"Failed to read tags for '{path}': {ex.Message}"); }
+                            catch (Exception ex)
+                            {
+                                if (warningGate.TryAcquire(out long suppressedCount))
+                                    SoulseekLogMessages.LocalMetadataFailed(
+                                        logger,
+                                        ex.GetType().Name,
+                                        suppressedCount);
+                            }
                         }
                         else
                         {
@@ -117,6 +146,7 @@ namespace Sockseek.Core.Services
                 )
             };
 
+            SoulseekLogMessages.LocalIndexCompleted(logger, fileList.Count);
             return new LocalFilesSoulseekClient(index, slowMode, localFilePaths: localFilePaths, failDownloads: failDownloads);
         }
 
@@ -168,17 +198,34 @@ namespace Sockseek.Core.Services
             return new BrowseResponse(directories);
         }
 
-        public Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsync(SearchQuery query, SearchScope scope = null, int? token = null, SearchOptions options = null, CancellationToken? cancellationToken = null)
+        public async Task<PeerDirectorySnapshot> RetrieveDirectoryAsync(
+            PeerDirectoryIdentity directory,
+            CancellationToken cancellationToken = default)
+        {
+            var response = await BrowseAsync(
+                directory.Username,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            return PeerDirectorySnapshotFactory.FromBrowseResponse(directory, response);
+        }
+
+        public Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsync(SearchQuery query, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
             return SearchAsyncInternal(query, null, scope, token, options, cancellationToken);
         }
 
-        public Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope scope = null, int? token = null, SearchOptions options = null, CancellationToken? cancellationToken = null)
+        public async Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
-            return SearchAsyncInternal(query, responseHandler, scope, token, options, cancellationToken).ContinueWith(t => t.Result.Search);
+            var result = await SearchAsyncInternal(
+                query,
+                responseHandler,
+                scope,
+                token,
+                options,
+                cancellationToken).ConfigureAwait(false);
+            return result.Search;
         }
 
-        private async Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsyncInternal(SearchQuery query, Action<SearchResponse>? responseHandler, SearchScope scope = null, int? token = null, SearchOptions options = null, CancellationToken? cancellationToken = null)
+        private async Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsyncInternal(SearchQuery query, Action<SearchResponse>? responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
             options ??= new SearchOptions();
             var searchToken = token ?? Random.Shared.Next();
@@ -266,7 +313,7 @@ namespace Sockseek.Core.Services
         SemaphoreSlim GetUserSemaphore(string username) =>
             _userSemaphores.GetOrAdd(username, _ => new SemaphoreSlim(1, 1));
 
-        public async Task<Transfer> DownloadAsync(string username, string remoteFilename, string localFilename, long? size = null, long startOffset = 0, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
+        public async Task<Transfer> DownloadAsync(string username, string remoteFilename, string localFilename, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             async Task<Stream> StreamFactory()
             {
@@ -276,15 +323,16 @@ namespace Sockseek.Core.Services
                 return System.IO.File.Create(localFilename);
             }
 
-            return await DownloadAsyncInternal(username, remoteFilename, StreamFactory, size, startOffset, token, options, cancellationToken);
+            return await DownloadAsyncInternal(username, remoteFilename, StreamFactory, size, startOffset, token, options, cancellationToken, ownsOutputStream: true);
         }
 
-        public Task<Transfer> DownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
+        public Task<Transfer> DownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
-            return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken);
+            return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken,
+                ownsOutputStream: options?.DisposeOutputStreamOnCompletion ?? true);
         }
 
-        private async Task<Transfer> DownloadAsyncInternal(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
+        private async Task<Transfer> DownloadAsyncInternal(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size, long startOffset, int? token, TransferOptions? options, CancellationToken? cancellationToken, bool ownsOutputStream)
         {
             if (remainingFailedDownloads > 0 && Interlocked.Decrement(ref remainingFailedDownloads) >= 0)
                 throw new SoulseekClientException($"Simulated mock download failure for {username}\\{remoteFilename}");
@@ -294,7 +342,7 @@ namespace Sockseek.Core.Services
 
             var transferToken = token ?? Random.Shared.Next();
             long fileSize;
-            string sourceFilePath = null;
+            string? sourceFilePath = null;
 
             if (username == "local")
             {
@@ -318,7 +366,7 @@ namespace Sockseek.Core.Services
                 }
 
                 // Find the file in the directories
-                Soulseek.File? foundFile = user.Files.FirstOrDefault(x => x.Filename.Equals(remoteFilename, StringComparison.OrdinalIgnoreCase));
+                Soulseek.File? foundFile = user.Files.FirstOrDefault(x => x.Filename.Equals(remoteFilename, StringComparison.Ordinal));
                 if (foundFile == null)
                 {
                     throw new FileNotFoundException($"File {remoteFilename} not found for user {username}");
@@ -376,7 +424,8 @@ namespace Sockseek.Core.Services
                     }
                     FireState(TransferStates.Initializing);
 
-                    using var outputStream = await outputStreamFactory();
+                    var outputStream = await outputStreamFactory();
+                    await using var ownedOutputStream = ownsOutputStream ? outputStream : null;
                     var startTime = DateTime.UtcNow;
                     var bytesTransferred = startOffset;
                     const int chunkSize = 16384;

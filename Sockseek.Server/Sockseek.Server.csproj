@@ -1,9 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Avoid compiling Minimal API bindings on the first request. -->
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
     <AssemblyName>Sockseek.Server</AssemblyName>
     <RootNamespace>Sockseek.Server</RootNamespace>
   </PropertyGroup>
@@ -17,16 +18,16 @@
   <ItemGroup>
     <ProjectReference Include="..\Sockseek.Api\Sockseek.Api.csproj" />
     <ProjectReference Include="..\Sockseek.Core\Sockseek.Core.csproj" />
+    <ProjectReference Include="..\Sockseek.Persistence\Sockseek.Persistence.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
-    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.13">
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" Version="11.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <!-- ASP.NET Core 10 requires OpenAPI.NET 2.x; 3.x is not binary-compatible. -->
-    <PackageReference Include="Microsoft.OpenApi" Version="2.12.2" />
+    <PackageReference Include="Microsoft.OpenApi" Version="3.11.0" />
   </ItemGroup>
 
 </Project>

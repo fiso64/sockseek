@@ -14,6 +14,48 @@ namespace Tests.Unit;
 public class SearchCompletionTests
 {
     [TestMethod]
+    public async Task Search_MalformedEntriesAreIsolatedBeforeCandidateConversion()
+    {
+        var validFile = new Soulseek.File(1, @"Artist\Album\Zero.flac", 0, "flac");
+        var validLocked = new Soulseek.File(1, @"Artist\Album\Locked.flac", 42, "flac");
+        var healthy = Response(2);
+        var responses = new[]
+        {
+            new SearchResponse("Bad\nPeer", 1, true, 1000, 0, [validFile]),
+            new SearchResponse("Exact Peer", 1, true, 1000, 3,
+                [new Soulseek.File(1, "", 1, "flac"), validFile, new Soulseek.File(1, "negative.flac", -1, "flac")],
+                [new Soulseek.File(1, "invalid\ud800.flac", 1, "flac"), validLocked]),
+            healthy,
+        };
+        var client = new MockSoulseekClient([])
+        {
+            SearchHandler = (query, callback, options, ct) =>
+            {
+                foreach (var response in responses)
+                    callback(response);
+                SignalState(query, options, SearchStates.Completed);
+                return Task.FromResult(new Search(query, new SearchScope(SearchScopeType.Network), 1, SearchStates.Completed, 3, 7, 0));
+            },
+        };
+        var accepted = new List<SearchResponse>();
+        await SoulseekSearchRunner.RunAsync(client, new SearchQuery("Artist Album"), new SearchOptions(), response =>
+        {
+            // This is also the fast-search boundary: every admitted entry must
+            // be usable immediately, before a Search View has been requested.
+            foreach (var file in response.Files.Concat(response.LockedFiles))
+                _ = new PeerFileTarget(new PeerFileIdentity(response.Username, file.Filename), file.Size, file.Extension);
+            accepted.Add(response);
+        }, CancellationToken.None);
+
+        Assert.HasCount(2, accepted);
+        Assert.AreEqual("Exact Peer", accepted[0].Username);
+        Assert.AreEqual(3, accepted[0].QueueLength);
+        CollectionAssert.AreEqual(new[] { validFile }, accepted[0].Files.ToArray());
+        CollectionAssert.AreEqual(new[] { validLocked }, accepted[0].LockedFiles.ToArray());
+        Assert.AreSame(healthy, accepted[1], "Healthy responses should not be copied.");
+    }
+
+    [TestMethod]
     public async Task Search_CompletedSearchKeepsConcurrentResponsesWhenLibraryCleanupFails()
     {
         var cleanupFailure = SearchTestFaults.CreateDisposalFailure();
@@ -30,7 +72,7 @@ public class SearchCompletionTests
         using var searcher = CreateSearcher(client);
         var job = new SearchJob("Artist Album");
         int completedCount = -1;
-        job.Session.Completed += session => completedCount = session.RawSnapshot().Count;
+        job.Session.Completed += () => completedCount = job.Session.RawSnapshot().Count;
 
         await searcher.Search(job, new SearchSettings(), new ResponseData(), CancellationToken.None);
 
@@ -66,7 +108,7 @@ public class SearchCompletionTests
         };
         using var searcher = CreateSearcher(client);
         var job = new SearchJob("Artist Album");
-        job.Session.RawResultAdded += (_, _) => responseReceived.TrySetResult();
+        job.Session.RawResultAdded += _ => responseReceived.TrySetResult();
 
         // Cancellation while waiting for channel data may surface as the derived
         // TaskCanceledException. Both paths must retain the caller's cancellation.
@@ -136,13 +178,43 @@ public class SearchCompletionTests
         };
         using var searcher = CreateSearcher(client);
         var job = new SearchJob("Artist Album");
-        job.Session.RawResultAdded += (_, _) => throw observerFailure;
+        Exception? reportedFailure = null;
+        job.Session.ObserverFailed += (_, error) => reportedFailure = error;
+        job.Session.RawResultAdded += _ => throw observerFailure;
+
+        await searcher.Search(job, new SearchSettings(), new ResponseData(), CancellationToken.None);
+
+        Assert.AreSame(observerFailure, reportedFailure);
+        Assert.AreEqual(1, job.ResultCount);
+        Assert.IsNull(callbackFailure, "Application observers must not run inside the library's network callback.");
+    }
+
+    [TestMethod]
+    public async Task Search_ResponseProcessingFailureCancelsNetworkAndPreservesOriginalError()
+    {
+        var failure = new InvalidOperationException("Result processing failed.");
+        bool networkCancelled = false;
+        var client = new MockSoulseekClient([])
+        {
+            SearchHandler = async (_, callback, _, ct) =>
+            {
+                callback(Response(1));
+                try { await Task.Delay(Timeout.Infinite, ct); }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    networkCancelled = true;
+                    throw;
+                }
+                return null!;
+            },
+        };
 
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            searcher.Search(job, new SearchSettings(), new ResponseData(), CancellationToken.None));
+            SoulseekSearchRunner.RunAsync(client, new SearchQuery("Artist Album"), new SearchOptions(),
+                _ => throw failure, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)));
 
-        Assert.AreSame(observerFailure, error);
-        Assert.IsNull(callbackFailure, "Application observers must not run inside the library's network callback.");
+        Assert.AreSame(failure, error);
+        Assert.IsTrue(networkCancelled);
     }
 
     [TestMethod]
@@ -166,7 +238,7 @@ public class SearchCompletionTests
         };
         using var searcher = CreateSearcher(client);
         var job = new SearchJob("Artist Album");
-        job.Session.RawResultAdded += (_, _) =>
+        job.Session.RawResultAdded += _ =>
         {
             consumerEntered.TrySetResult();
             // A synchronous application observer, intentionally held independently of
@@ -174,7 +246,7 @@ public class SearchCompletionTests
             releaseConsumer.Task.GetAwaiter().GetResult();
         };
         int completedCount = -1;
-        job.Session.Completed += session => completedCount = session.RawSnapshot().Count;
+        job.Session.Completed += () => completedCount = job.Session.RawSnapshot().Count;
         using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var search = Task.Run(() => searcher.Search(job, new SearchSettings(), new ResponseData(), watchdog.Token));
         try
@@ -207,7 +279,7 @@ public class SearchCompletionTests
         using var searcher = CreateSearcher(client, events);
         var job = new SearchJob("Artist Album");
         int rawEvents = 0;
-        job.Session.RawResultAdded += (_, _) => rawEvents++;
+        job.Session.RawResultAdded += _ => rawEvents++;
 
         await searcher.Search(job, new SearchSettings(), new ResponseData(), CancellationToken.None);
 
@@ -219,7 +291,7 @@ public class SearchCompletionTests
     }
 
     private static Searcher CreateSearcher(MockSoulseekClient client, DownloadEvents? events = null)
-        => new(client, TestHelpers.CreateUserSuccessTracker(), events ?? new DownloadEvents(), 10, 10);
+        => new(client, TestHelpers.CreatePeerFailureTracker(), events ?? new DownloadEvents(), 10, 10);
 
     private static SearchResponse Response(int i)
         => new($"User{i}", 1, true, 1000, 0, [TestHelpers.CreateSlFile($@"Artist\Album\Track {i}.mp3", length: 180)]);

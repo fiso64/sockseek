@@ -17,7 +17,7 @@ public partial class AlbumGroupingBenchmarks
     private List<(SearchResponse Response, SlFile File)> rawResults = null!;
     private SearchSettings search = null!;
     private AlbumQuery albumQuery = null!;
-    private ConcurrentDictionary<string, int> userSuccessCounts = null!;
+    private ConcurrentDictionary<string, int> peerFailureCounts = null!;
 
     [Params(1_000, 10_000)]
     public int FolderCount { get; set; }
@@ -31,35 +31,35 @@ public partial class AlbumGroupingBenchmarks
         rawResults = BenchmarkDataFactory.CreateAlbumResults(FolderCount, TracksPerFolder);
         search = BenchmarkDataFactory.CreateSearchSettings();
         albumQuery = BenchmarkDataFactory.AlbumQuery;
-        userSuccessCounts = BenchmarkDataFactory.CreateUserSuccessCounts(FolderCount);
+        peerFailureCounts = BenchmarkDataFactory.CreatePeerFailureCounts(FolderCount);
     }
 
     [Benchmark(Baseline = true)]
     public int Legacy_AlbumFolders_GlobalFileSort()
-        => LegacyAlbumFolders(rawResults, albumQuery, search, userSuccessCounts).Count;
+        => LegacyAlbumFolders(rawResults, albumQuery, search, peerFailureCounts).Count;
 
     [Benchmark]
     public int New_AlbumFolders_GroupThenSort()
-        => SearchResultProjector.AlbumFolders(rawResults, albumQuery, search, userSuccessCounts).Count;
+        => SearchResultProjector.AlbumFolders(rawResults, albumQuery, search, peerFailureCounts).Count;
 
     [Benchmark]
-    public int Legacy_AlbumAggregate_GlobalFileSortThenGroup()
+    public int Legacy_AlbumGroups_GlobalFileSortThenGroup()
     {
-        var folders = LegacyAlbumFolders(rawResults, albumQuery, search, userSuccessCounts);
-        return SearchResultProjector.AggregateAlbums(folders, albumQuery, search).Count;
+        var folders = LegacyAlbumFolders(rawResults, albumQuery, search, peerFailureCounts);
+        return SearchResultProjector.GroupAlbums(folders, albumQuery, search).Count;
     }
 
     [Benchmark]
-    public int New_AlbumAggregate_GroupThenRankBuckets()
+    public int New_AlbumGroups_GroupThenRankBuckets()
     {
         var folders = SearchResultProjector.AlbumFolders(
             rawResults,
             albumQuery,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             ignoreStringSortConditions: true,
             sortMode: FolderSortMode.DeterministicUnranked);
-        return SearchResultProjector.AggregateAlbums(folders, albumQuery, search).Count;
+        return SearchResultProjector.GroupAlbums(folders, albumQuery, search).Count;
     }
 
     [Benchmark]
@@ -69,7 +69,7 @@ public partial class AlbumGroupingBenchmarks
         var sorter = new IncrementalResultSorter(
             sortQuery,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useInfer: false,
             albumMode: true);
 
@@ -96,20 +96,20 @@ public partial class AlbumGroupingBenchmarks
         var projector = new IncrementalAlbumFolderProjector(
             albumQuery,
             search,
-            userSuccessCounts);
+            peerFailureCounts);
 
         projector.AddRange(rawResults);
         return projector.Snapshot().Count;
     }
 
     [Benchmark]
-    public int Legacy_IncrementalAlbumAggregate_GlobalFileSort()
+    public int Legacy_IncrementalAlbumGroups_GlobalFileSort()
     {
         var sortQuery = SearchResultProjector.AlbumFileMatchQuery(albumQuery);
         var sorter = new IncrementalResultSorter(
             sortQuery,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useInfer: false,
             albumMode: true,
             ignoreStringSortConditions: true);
@@ -129,32 +129,32 @@ public partial class AlbumGroupingBenchmarks
             search,
             sorter.Count);
 
-        var aggregateProjector = new IncrementalAlbumAggregateProjector(albumQuery, search);
-        aggregateProjector.AddRange(folders);
-        return aggregateProjector.Snapshot().Count;
+        var groupProjector = new IncrementalAlbumGroupProjector(albumQuery, search);
+        groupProjector.AddRange(folders);
+        return groupProjector.Snapshot().Count;
     }
 
     [Benchmark]
-    public int New_IncrementalAlbumAggregate_GroupThenRankBuckets()
+    public int New_IncrementalAlbumGroups_GroupThenRankBuckets()
     {
         var folderProjector = new IncrementalAlbumFolderProjector(
             albumQuery,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             ignoreStringSortConditions: true,
             sortMode: FolderSortMode.DeterministicUnranked);
-        var aggregateProjector = new IncrementalAlbumAggregateProjector(albumQuery, search);
+        var groupProjector = new IncrementalAlbumGroupProjector(albumQuery, search);
 
         var changes = folderProjector.AddRangeAndGetChanges(rawResults);
-        aggregateProjector.ApplyChanges(changes);
-        return aggregateProjector.Snapshot().Count;
+        groupProjector.ApplyChanges(changes);
+        return groupProjector.Snapshot().Count;
     }
 
     private static List<AlbumFolder> LegacyAlbumFolders(
         IEnumerable<(SearchResponse Response, SlFile File)> rawResults,
         AlbumQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> userSuccessCounts)
+        ConcurrentDictionary<string, int> peerFailureCounts)
     {
         var sortQuery = SearchResultProjector.AlbumFileMatchQuery(query);
         var filteredResults = rawResults
@@ -170,7 +170,7 @@ public partial class AlbumGroupingBenchmarks
             filteredResults.Select(x => (x.Response, x.File)),
             sortQuery,
             search,
-            userSuccessCounts,
+            peerFailureCounts,
             useInfer: false,
             albumMode: true);
 
@@ -306,7 +306,7 @@ public partial class AlbumGroupingBenchmarks
                 inferredByFilename.Add(item.File.Filename, info);
             }
 
-            files.Add(new AlbumFile(info, new FileCandidate(item.Response, item.File)));
+            files.Add(new AlbumFile(info, SoulseekSearchAdapter.ToFileCandidate(item.Response, item.File)));
         }
 
         return files;

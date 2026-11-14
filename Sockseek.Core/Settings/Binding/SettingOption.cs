@@ -4,6 +4,13 @@ using System.Runtime.ExceptionServices;
 
 namespace Sockseek.Core.Settings;
 
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
+public sealed class SettingIgnoreAttribute : Attribute;
+
+/// The daemon's runtime owner supports applying this setting without restart.
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
+public sealed class SettingReloadableAttribute : Attribute;
+
 public enum OptionValueKind { Auto, None, Boolean, Required }
 
 /// CLI names live beside the setting/default, or on a method for a compound option.
@@ -17,6 +24,7 @@ public sealed class SettingOptionAttribute(params string[] names) : Attribute
     public bool Clear { get; init; }
     public bool Negate { get; init; }
     public bool AllowMultiple { get; init; } = true;
+    public bool DefaultProfileOnly { get; init; }
     public OptionValueKind ValueKind { get; init; }
 }
 
@@ -53,6 +61,7 @@ public sealed class SettingOption
             : (Nullable.GetUnderlyingType(valueType) ?? valueType) == typeof(bool) ? OptionValueKind.Boolean : OptionValueKind.Required;
     }
 
+    public bool DefaultProfileOnly => declaration.DefaultProfileOnly;
     public Type RootType { get; }
     public IReadOnlyList<string> Names => declaration.Names;
     public OptionValueKind ValueKind { get; }
@@ -96,6 +105,17 @@ public sealed class SettingWriter(SettingsPatchBuilder changes, string prefix, s
     public void Set(string member, object? value) => changes.Set(prefix + member, value);
     public void Append(string member, object value, bool distinct = false)
         => changes.Add(new(prefix + member, value, distinct ? SettingOperation.AppendDistinct : SettingOperation.Append));
+
+    public void ListItem<T>(string member, string value, Func<string, T> parse)
+    {
+        string trimmed = value.TrimStart();
+        bool append = trimmed.StartsWith("+ ", StringComparison.Ordinal);
+        string item = append ? trimmed[2..].Trim() : value.Trim();
+        if (item.Length == 0)
+            throw new ArgumentException($"Input error: Option '{Flag}' requires a non-empty value.");
+        var values = new List<T> { parse(item) };
+        if (append) Append(member, values); else Set(member, values);
+    }
 
     public void Merge(string member, object supplied)
     {

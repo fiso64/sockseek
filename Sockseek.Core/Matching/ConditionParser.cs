@@ -73,6 +73,9 @@ public static class ConditionParser
                 case "allowedusers":
                     cond.AllowedUsers = value.Split(',', tr);
                     break;
+                case "excludelocked":
+                    cond.ExcludeLocked = bool.Parse(value);
+                    break;
                 case "stricttitle":
                     cond.StrictTitle = bool.Parse(value);
                     break;

@@ -20,6 +20,45 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void RetentionDefaultsAndExplicitPoliciesMatchTheDaemon()
+        {
+            var file = new ConfigFile("none", new Dictionary<string, ProfileEntry>());
+            var defaults = ConfigManager.BindAll(file, []).Daemon;
+            var server = new ServerPersistenceOptions();
+            Assert.IsNull(defaults.CompletedJobRetention);
+            Assert.IsNull(defaults.UnsuccessfulJobRetention);
+            Assert.IsNull(defaults.TransferRetention);
+            Assert.IsNull(defaults.PrivateMessageRetention);
+            Assert.AreEqual(defaults.CompletedJobRetention, server.CompletedJobHistoryAge);
+            Assert.AreEqual(defaults.UnsuccessfulJobRetention, server.UnsuccessfulJobHistoryAge);
+            Assert.AreEqual(defaults.TransferRetention, server.TransferHistoryAge);
+            Assert.AreEqual(TimeSpan.FromDays(30), defaults.SearchResultRetention);
+            Assert.AreEqual(defaults.SearchResultRetention, server.SearchResultAge);
+            Assert.AreEqual(defaults.RoomMessageRetention, server.RoomMessageHistoryAge);
+            var configured = ConfigManager.BindAll(file, [
+                "--successful-job-retention-days", "90", "--unsuccessful-job-retention-days", "180",
+                "--transfer-retention-days", "30", "--search-result-retention-days", "forever",
+            ]).Daemon;
+            Assert.AreEqual(TimeSpan.FromDays(90), configured.CompletedJobRetention);
+            Assert.AreEqual(TimeSpan.FromDays(180), configured.UnsuccessfulJobRetention);
+            Assert.AreEqual(TimeSpan.FromDays(30), configured.TransferRetention);
+            Assert.IsNull(configured.SearchResultRetention);
+            var mapped = configured.CreateServerOptions(new EngineSettings(), file, ConfigManager.ParseInvocation([]));
+            Assert.IsTrue(mapped.Persistence.Enabled);
+            Assert.AreEqual(TimeSpan.FromDays(90), mapped.Persistence.CompletedJobHistoryAge);
+            Assert.AreEqual(TimeSpan.FromDays(180), mapped.Persistence.UnsuccessfulJobHistoryAge);
+            Assert.AreEqual(TimeSpan.FromDays(30), mapped.Persistence.TransferHistoryAge);
+            Assert.IsNull(mapped.Persistence.SearchResultAge);
+            var forever = ConfigManager.BindAll(file, [
+                "--successful-job-retention-days", "90", "--successful-job-retention-days", "forever",
+                "--unsuccessful-job-retention-days", "forever", "--transfer-retention-days", "forever",
+            ]).Daemon;
+            Assert.IsNull(forever.CompletedJobRetention);
+            Assert.IsNull(forever.UnsuccessfulJobRetention);
+            Assert.IsNull(forever.TransferRetention);
+        }
+
+        [TestMethod]
         public void Defaults_NecessaryCondFormats_AreSet()
         {
             var config = Cfg();
@@ -29,12 +68,13 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Defaults_PreferredCondBitrate_IsSet()
+        public void Defaults_PreferredConditions_HaveNoEncodingPreference()
         {
             var config = Cfg();
-            Assert.IsNotNull(config.Search.PreferredCond.MinBitrate);
-            Assert.IsNotNull(config.Search.PreferredCond.MaxBitrate);
-            Assert.IsTrue(config.Search.PreferredCond.MinBitrate > 0);
+            Assert.AreEqual(0, config.Search.PreferredCond.Formats.Length);
+            Assert.IsNull(config.Search.PreferredCond.MinBitrate);
+            Assert.IsNull(config.Search.PreferredCond.MaxBitrate);
+            Assert.IsNull(config.Search.PreferredCond.MaxSampleRate);
         }
 
         [TestMethod]
@@ -55,11 +95,11 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Defaults_NoRequestedMode_AggregateFalse()
+        public void Defaults_NoRequestedMode_GroupFalse()
         {
             var config = Cfg();
             Assert.IsNull(config.Extraction.RequestedMode);
-            Assert.IsFalse(config.Search.IsAggregate);
+            Assert.IsFalse(config.Search.GroupResults);
         }
 
         [TestMethod]
@@ -261,10 +301,13 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Aggregate_Flag_SetsAggregateTrue()
+        [DataRow("--group")]
+        [DataRow("-g")]
+        [DataRow("--aggregate")]
+        public void GroupFlagEnablesGrouping(string flag)
         {
-            var config = Cfg("--aggregate", "some input");
-            Assert.IsTrue(config.Search.IsAggregate);
+            var config = Cfg(flag, "some input");
+            Assert.IsTrue(config.Search.GroupResults);
         }
 
         [TestMethod]
@@ -464,10 +507,10 @@ namespace Tests.ConfigParsingTests
         // Simulates: spotify input → SongJob created by extractor → Upgrade(album:true) →
         // PrepareSubtree on upgraded AlbumJob → PreprocessAlbum.
         static AlbumJob UpgradeAndPrepare(DownloadSettings startConfig,
-            SongQuery? query = null, bool aggregate = false)
+            SongQuery? query = null, bool group = false)
         {
             var songJob = new SongJob(query ?? new SongQuery { Title = "Some Song", Artist = "Some Artist" });
-            var albumJob = (AlbumJob)((IUpgradeable)songJob).Upgrade(album: true, aggregate: aggregate).First();
+            var albumJob = (AlbumJob)((IUpgradeable)songJob).Upgrade(album: true, group: group).First();
             JobPreparer.PrepareSubtree(albumJob, startConfig);
             Preprocessor.PreprocessAlbum(albumJob, albumJob.Config.Preprocess);
             JobPreparer.ApplySearchSettings(albumJob, albumJob.Config.Search);
@@ -729,10 +772,11 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void FailsToDownrank_StoredNegated()
+        public void PeerFailureThresholds_ArePositiveCounts()
         {
-            var (_, dl, _) = Bind("x", "--fails-to-downrank", "3");
-            Assert.AreEqual(-3, dl.Search.DownrankOn);
+            var (_, dl, _) = Bind("x", "--fails-to-downrank", "3", "--fails-to-ignore", "5");
+            Assert.AreEqual(3, dl.Search.DownrankOn);
+            Assert.AreEqual(5, dl.Search.IgnoreOn);
         }
 
         [TestMethod]
@@ -774,9 +818,9 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void AlbumArtOnly_PreservesConditions()
         {
-            var (_, dl, _) = Bind("x", "--album-art-only");
+            var (_, dl, _) = Bind("x", "--album-art-only", "--pref-format", "flac");
             CollectionAssert.AreEqual(SearchDefaults.Formats.ToArray(), dl.Search.NecessaryCond.Formats);
-            CollectionAssert.AreEqual(new[] { "mp3" }, dl.Search.PreferredCond.Formats);
+            CollectionAssert.AreEqual(new[] { "flac" }, dl.Search.PreferredCond.Formats);
         }
 
         [TestMethod]
@@ -870,7 +914,7 @@ namespace Tests.ConfigParsingTests
                 new CliSettings());
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.IsNull(options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
+            Assert.IsNull(options.DownloadSettings?.Output?.ParentDir);
         }
 
         [TestMethod]
@@ -881,7 +925,7 @@ namespace Tests.ConfigParsingTests
                 new CliSettings());
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
+            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Output?.ParentDir);
         }
 
         [TestMethod]
@@ -892,7 +936,7 @@ namespace Tests.ConfigParsingTests
                 new CliSettings());
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
+            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Output?.ParentDir);
         }
 
         [TestMethod]

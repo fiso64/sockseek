@@ -13,7 +13,7 @@ public class MultiArtistMatchingBenchmarks
     private List<(SearchResponse Response, Soulseek.File File)> results = null!;
     private SongQuery query = null!;
     private SearchSettings search = null!;
-    private readonly ConcurrentDictionary<string, int> userStats = new();
+    private readonly ConcurrentDictionary<string, int> peerFailures = new();
 
     [Params(10_000, 100_000)]
     public int CandidateCount { get; set; }
@@ -63,5 +63,5 @@ public class MultiArtistMatchingBenchmarks
 
     [Benchmark]
     public int RequiredAndPreferredRanking()
-        => ResultSorter.OrderedResults(results, query, search, userStats).Count();
+        => ResultSorter.OrderedResults(results, query, search, peerFailures).Count();
 }

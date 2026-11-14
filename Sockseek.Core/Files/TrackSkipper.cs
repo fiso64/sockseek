@@ -27,7 +27,7 @@ namespace Sockseek.Core.Services;
     {
         public FileConditions? conditions;
         public FolderConditions? folderConditions;
-        public M3uEditor?      indexEditor;
+        public DownloadOutputFile?      indexEditor;
         public bool            checkFileExists;
         public SearchSettings? searchSettings;
 
@@ -269,7 +269,7 @@ namespace Sockseek.Core.Services;
                     string palbumArtist = Preprocess(musicFile.Tag.JoinedAlbumArtists ?? "", false, false);
                     index.Add((path, new TagIndexEntry(partist, ptitle, palbum, palbumArtist, Utils.IsMusicFile(path))));
                 }
-                catch (Exception ex) { SockseekLog.Trace($"Failed to read tags for '{path}': {ex.Message}"); continue; }
+                catch (Exception) { continue; }
             }
             IndexIsBuilt = true;
         }
@@ -327,7 +327,7 @@ namespace Sockseek.Core.Services;
                     else
                         value.Add((path, item));
                 }
-                catch (Exception ex) { SockseekLog.Trace($"Failed to read tags for '{path}': {ex.Message}"); continue; }
+                catch (Exception) { continue; }
             }
             IndexIsBuilt = true;
         }
@@ -436,9 +436,8 @@ namespace Sockseek.Core.Services;
                 }
                 return false;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                SockseekLog.Trace($"Failed to read tags for '{t.DownloadPath}': {ex.Message}");
                 return false;
             }
         }
@@ -467,7 +466,7 @@ namespace Sockseek.Core.Services;
                     using var musicFile = TagLib.File.Create(path);
                     audioFiles.Add(new SimpleFile(musicFile));
                 }
-                catch (Exception ex) { SockseekLog.Trace($"Failed to read tags for '{path}': {ex.Message}"); return false; }
+                catch (Exception) { return false; }
             }
 
             if (!AlbumConditionsSatisfy(audioFiles, context, job))

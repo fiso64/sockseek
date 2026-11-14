@@ -10,15 +10,7 @@ namespace Tests.ClientTests
     {
         // Irrelevant stuff starts here
 
-        public string Address => throw new NotImplementedException();
-
         public DistributedNetworkInfo DistributedNetwork => throw new NotImplementedException();
-
-        public IPAddress IPAddress => throw new NotImplementedException();
-
-        public IPEndPoint IPEndPoint => throw new NotImplementedException();
-
-        public int? Port => throw new NotImplementedException();
 
         public ServerInfo ServerInfo => throw new NotImplementedException();
 
@@ -214,9 +206,12 @@ namespace Tests.ClientTests
             throw new NotImplementedException();
         }
 
+        public SoulseekClientOptionsPatch? LastOptionsPatch { get; private set; }
+
         public Task<bool> ReconfigureOptionsAsync(SoulseekClientOptionsPatch patch, CancellationToken? cancellationToken = null)
         {
-            throw new NotImplementedException();
+            LastOptionsPatch = patch;
+            return Task.FromResult(false);
         }
 
         public Task RemovePrivateRoomMemberAsync(string roomName, string username, CancellationToken? cancellationToken = null)

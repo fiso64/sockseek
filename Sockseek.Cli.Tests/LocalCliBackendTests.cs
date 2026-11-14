@@ -15,6 +15,106 @@ namespace Tests.Cli;
 public class LocalCliBackendTests
 {
     [TestMethod]
+    public async Task LocalCliBackend_RemoteDraftRejectsMusicOnlyOverrideBeforeEnqueue()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "Sockseek-local-remote-settings-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            var engineSettings = new EngineSettings();
+            var settings = new DownloadSettings { Output = { ParentDir = root } };
+            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            var backend = new LocalCliBackend(engine, settings);
+            var request = new SubmitJobListRequestDto(
+                "invalid remote settings",
+                [
+                    new RemoteFileJobDraftDto(
+                        new PeerFileTargetDto("Peer", @"Share\File.bin", 4, ".bin"),
+                        DownloadSettings: new DownloadSettingsPatchDto(
+                            Output: new OutputSettingsPatchDto(WritePlaylist: true))),
+                ]);
+
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
+                backend.SubmitJobListAsync(request));
+            Assert.AreEqual(0, engine.Queue.Count);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task LocalCliBackend_SoulseekDraftSettingsValidationUsesEffectiveInterpretation()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "Sockseek-local-slsk-settings-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            var engineSettings = new EngineSettings();
+            var settings = new DownloadSettings { Output = { ParentDir = root } };
+            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            var backend = new LocalCliBackend(engine, settings);
+
+            await Assert.ThrowsExactlyAsync<ArgumentException>(() => backend.SubmitJobListAsync(
+                new SubmitJobListRequestDto(
+                    "ordinary",
+                    [new JobListJobDraftDto("nested", [new ExtractJobDraftDto(
+                        "slsk://Peer/Share/File.bin",
+                        DownloadSettings: new DownloadSettingsPatchDto(
+                            Output: new OutputSettingsPatchDto(WritePlaylist: true)))])])));
+
+            JobSummaryDto accepted = await backend.SubmitJobListAsync(
+                new SubmitJobListRequestDto(
+                    "music",
+                    [new ExtractJobDraftDto(
+                        "slsk://Peer/Share/File.mp3",
+                        DownloadSettings: new DownloadSettingsPatchDto(
+                            Output: new OutputSettingsPatchDto(
+                                NameFormat: "{artist}/{title}",
+                                WritePlaylist: true),
+                            Extraction: new ExtractionSettingsPatchDto(RequestedMode: ServerExtractionMode.Song)))]));
+
+            Assert.AreEqual(ServerJobKind.JobList, accepted.Kind);
+            Assert.AreNotEqual(Guid.Empty, accepted.WorkflowId);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task LocalCliBackend_ExplicitCliMusicNameFormatRejectsOrdinarySoulseekLink()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "Sockseek-local-slsk-name-format-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            var engineSettings = new EngineSettings();
+            var settings = new DownloadSettings { Output = { ParentDir = root } };
+            var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
+            var explicitCliSettings = new DownloadSettingsPatchDto(
+                Output: new OutputSettingsPatchDto(NameFormat: "{artist}/{filename}"));
+            var backend = new LocalCliBackend(
+                engine,
+                settings,
+                explicitCliDownloadSettings: explicitCliSettings);
+
+            var exception = await Assert.ThrowsExactlyAsync<UnsupportedNameFormatVariableException>(() =>
+                backend.SubmitExtractJobAsync(
+                    new SubmitExtractJobRequestDto("slsk://Peer/Share/File.bin")));
+
+            Assert.AreEqual("artist", exception.Variable);
+            Assert.AreEqual(0, engine.Queue.Count);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task LocalCliBackend_ObservesSearchJobsThroughServerShapedModel()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-cli-backend-test-" + Guid.NewGuid());
@@ -43,10 +143,8 @@ public class LocalCliBackendTests
             var clientManager = new SoulseekClientManager(engineSettings);
             await using var engine = new DownloadEngine(engineSettings, clientManager);
             var backend = new LocalCliBackend(engine, downloadSettings);
-            var seenEvents = new ConcurrentBag<ServerEventEnvelopeDto>();
-            var seenWorkflowUpdates = new ConcurrentBag<WorkflowClientUpdate>();
-            backend.EventReceived += envelope => seenEvents.Add(envelope);
-            backend.WorkflowUpdated += update => seenWorkflowUpdates.Add(update);
+            var seenUpdates = new ConcurrentBag<DaemonClientUpdate>();
+            backend.StateUpdated += update => seenUpdates.Add(update);
 
             var submitted = await backend.SubmitTrackSearchJobAsync(
                 new SubmitTrackSearchJobRequestDto(
@@ -64,11 +162,9 @@ public class LocalCliBackendTests
             Assert.IsNotNull(projection);
             Assert.AreEqual(1, projection.Items.Count);
 
-            Assert.IsTrue(seenEvents.Any(e => e.Type == "job.upserted"));
-            Assert.IsTrue(seenEvents.Any(e => e.Type == "workflow.upserted"));
-            Assert.IsTrue(seenEvents.Any(e => e.Type == "search.updated"));
-            Assert.IsTrue(seenWorkflowUpdates.Any(update => update.JobUpserts.Any(job => job.JobId == submitted.JobId)));
-            Assert.IsTrue(seenWorkflowUpdates.Any(update => update.SearchUpdates.Any(search => search.JobId == submitted.JobId)));
+            Assert.IsTrue(seenUpdates.Any(update => update.ChangedJobs.Any(job => job.JobId == submitted.JobId)));
+            Assert.IsTrue(seenUpdates.Any(update => update.ChangedWorkflows.Any(workflow => workflow.WorkflowId == submitted.WorkflowId)));
+            Assert.IsTrue(seenUpdates.Any(update => update.State.Searches.Any(search => search.JobId == submitted.JobId)));
         }
         finally
         {
@@ -215,10 +311,12 @@ public class LocalCliBackendTests
                 SearchHint = "Track One",
             });
 
+            await backend.SubscribeWorkflowAsync(searchJob.WorkflowId, cts.Token);
             engine.Enqueue(searchJob, downloadSettings);
             var runTask = engine.RunAsync(cts.Token);
 
-            await WaitForConditionAsync(backend,
+            await WaitForConditionAsync(
+                backend,
                 () => searchJob.TerminalOutcome == JobTerminalOutcome.Succeeded,
                 "Timed out waiting for the album search to complete.");
 
@@ -234,12 +332,12 @@ public class LocalCliBackendTests
 
             Assert.IsNotNull(retrieved);
             Assert.AreEqual(1, retrieved.NewFilesFoundCount);
-            Assert.IsNotNull(retrieved.Folder);
-            Assert.AreEqual(2, retrieved.Folder.Files?.Count);
 
             var expandedProjection = await backend.GetFolderResultsAsync(searchJob.Id, includeFiles: true, cts.Token);
             Assert.IsNotNull(expandedProjection);
             Assert.AreEqual(2, expandedProjection.Items[0].Files?.Count);
+            Assert.AreEqual(2, expandedProjection.Items[0].FileCount);
+            Assert.AreEqual(2, expandedProjection.Items[0].AudioFileCount);
 
             engine.CompleteEnqueue();
             await runTask;
@@ -294,10 +392,12 @@ public class LocalCliBackendTests
                 DownloadBehaviorPolicy = new DownloadBehaviorPolicy { Album = DownloadBehavior.Manual },
             };
 
+            await backend.SubscribeWorkflowAsync(albumJob.WorkflowId, cts.Token);
             engine.Enqueue(albumJob, downloadSettings);
             var runTask = engine.RunAsync(cts.Token);
 
-            await WaitForConditionAsync(backend,
+            await WaitForConditionAsync(
+                backend,
                 () => albumJob.IsAwaitingSelection,
                 "Timed out waiting for the manual album job to reach the picker.");
 
@@ -314,13 +414,13 @@ public class LocalCliBackendTests
 
             Assert.IsNotNull(retrieved);
             Assert.AreEqual(1, retrieved.NewFilesFoundCount);
-            Assert.IsNotNull(retrieved.Folder);
-            Assert.AreEqual(2, retrieved.Folder.Files?.Count);
             Assert.AreEqual(2, albumJob.Results[0].Files.Count, "Folder retrieval must update the canonical AlbumJob results, not only a projected copy.");
 
             var expandedProjection = await backend.GetFolderResultsAsync(albumJob.Id, includeFiles: true, cts.Token);
             Assert.IsNotNull(expandedProjection);
             Assert.AreEqual(2, expandedProjection.Items[0].Files?.Count);
+            Assert.AreEqual(2, expandedProjection.Items[0].FileCount);
+            Assert.AreEqual(2, expandedProjection.Items[0].AudioFileCount);
 
             engine.CompleteEnqueue();
             await runTask;
@@ -375,10 +475,12 @@ public class LocalCliBackendTests
                 SearchHint = "Track One",
             });
 
+            await backend.SubscribeWorkflowAsync(searchJob.WorkflowId, cts.Token);
             engine.Enqueue(searchJob, downloadSettings);
             var runTask = engine.RunAsync(cts.Token);
 
-            await WaitForConditionAsync(backend,
+            await WaitForConditionAsync(
+                backend,
                 () => searchJob.TerminalOutcome == JobTerminalOutcome.Succeeded,
                 "Timed out waiting for the album search to complete.");
 
@@ -387,21 +489,29 @@ public class LocalCliBackendTests
                 new RetrieveFolderRequestDto(new AlbumFolderRefDto("local", @"Artist\Album")),
                 cts.Token);
 
-            Assert.IsNotNull(retrieved?.Folder);
-            Assert.IsTrue(retrieved.Folder.IsFullyRetrieved);
-            Assert.AreEqual(2, retrieved.Folder.Files?.Count);
+            Assert.IsNotNull(retrieved);
+            var retrievedProjection = await backend.GetFolderResultsAsync(
+                searchJob.Id,
+                includeFiles: true,
+                cts.Token);
+            var retrievedFolder = retrievedProjection?.Items.Single();
+            Assert.IsNotNull(retrievedFolder);
+            Assert.IsTrue(retrievedFolder.IsFullyRetrieved);
+            Assert.AreEqual(2, retrievedFolder.Files?.Count);
+            Assert.AreEqual(2, retrievedFolder.FileCount);
+            Assert.AreEqual(2, retrievedFolder.AudioFileCount);
 
             var downloadSummary = await backend.StartFolderDownloadAsync(
                 searchJob.Id,
                 new StartFolderDownloadRequestDto(
-                    retrieved.Folder.Ref,
-                    AlbumQuery: new AlbumQueryDto("Artist", "Album", "Track One", null, false),
-                    SelectedFolder: retrieved.Folder),
+                    retrievedFolder.Ref,
+                    AlbumQuery: new AlbumQueryDto("Artist", "Album", "Track One", null, false)),
                 cts.Token);
 
             Assert.IsNotNull(downloadSummary);
             AlbumJob? albumJob = null;
-            await WaitForConditionAsync(backend,
+            await WaitForConditionAsync(
+                backend,
                 () =>
                 {
                     albumJob = (AlbumJob?)engine.GetJob(downloadSummary.JobId);
@@ -414,7 +524,8 @@ public class LocalCliBackendTests
             Assert.IsTrue(albumJob.ResolvedTarget.IsFullyRetrieved, "The selected retrieved folder must remain fully retrieved after handoff to album download.");
             Assert.AreEqual(2, albumJob.ResolvedTarget.Files.Count, "The download should use the retrieved folder snapshot, not reconstruct a partial folder from old search results.");
 
-            await WaitForConditionAsync(backend,
+            await WaitForConditionAsync(
+                backend,
                 () => albumJob.IsTerminal,
                 "Timed out waiting for selected album download to complete.");
 
@@ -435,7 +546,7 @@ public class LocalCliBackendTests
     }
 
     [TestMethod]
-    public async Task LocalCliBackend_PublishesSharedProgressEvents_ForSongDownload()
+    public async Task LocalCliBackend_PublishesTypedStateAndCompactActivity_ForSongDownload()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-cli-backend-progress-" + Guid.NewGuid());
         string outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-cli-backend-progress-out-" + Guid.NewGuid());
@@ -466,26 +577,10 @@ public class LocalCliBackendTests
             var clientManager = new SoulseekClientManager(engineSettings);
             await using var engine = new DownloadEngine(engineSettings, clientManager);
             var backend = new LocalCliBackend(engine, downloadSettings);
-            var seenTypes = new ConcurrentBag<string>();
-            var deliveryOrder = new List<string>();
-            object deliveryGate = new();
-            backend.EventReceived += envelope =>
-            {
-                seenTypes.Add(envelope.Type);
-                if (envelope.Type == "song.searching")
-                {
-                    lock (deliveryGate)
-                        deliveryOrder.Add("event");
-                }
-            };
-            backend.WorkflowUpdated += update =>
-            {
-                if (update.Activity.Any(envelope => envelope.Type == "song.searching"))
-                {
-                    lock (deliveryGate)
-                        deliveryOrder.Add("update");
-                }
-            };
+            var updates = new ConcurrentBag<DaemonClientUpdate>();
+            var activity = new ConcurrentBag<ActivityEventDto>();
+            backend.StateUpdated += update => updates.Add(update);
+            backend.ActivityReceived += item => activity.Add(item);
 
             await backend.SubmitSongJobAsync(
                 new SubmitSongJobRequestDto(
@@ -495,14 +590,13 @@ public class LocalCliBackendTests
             engine.CompleteEnqueue();
             await engine.RunAsync(cts.Token);
 
-            Assert.IsTrue(seenTypes.Contains("job.upserted"));
-            Assert.IsTrue(seenTypes.Contains("song.searching"));
-            Assert.IsTrue(seenTypes.Contains("download.started"));
-            Assert.IsTrue(seenTypes.Contains("download.state-changed"));
-            Assert.IsTrue(seenTypes.Contains("song.state-changed"));
-            Assert.IsTrue(deliveryOrder.Count >= 2);
-            Assert.AreEqual("event", deliveryOrder[0]);
-            Assert.AreEqual("update", deliveryOrder[1]);
+            Assert.IsTrue(updates.Any(update => update.ChangedJobs.Any()));
+            Assert.IsTrue(updates.Any(update => update.ChangedTransfers.Any()));
+            Assert.IsTrue(updates
+                .SelectMany(update => update.ChangedJobs)
+                .Any(job => job.Kind == ServerJobKind.Song
+                    && job.LifecycleState == ServerJobLifecycleState.Terminal));
+            Assert.IsFalse(activity.Any(item => item.Type is "download.started" or "download.state-changed" or "song.state-changed"));
         }
         finally
         {
@@ -515,11 +609,11 @@ public class LocalCliBackendTests
     }
 
     [TestMethod]
-    public async Task GetAggregateTrackResultsAsync_WithIncludeCandidates_PopulatesCandidatesPerGroup()
+    public async Task GetTrackGroupResultsAsync_WithIncludeCandidates_PopulatesCandidatesPerGroup()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-cli-backend-agg-track-" + Guid.NewGuid());
         // Same filename in two different folders → same inferred (artist, title) and same hash-derived length.
-        // They end up as two candidates for the same aggregate group.
+        // They end up as two candidates for the same result group.
         Directory.CreateDirectory(Path.Combine(musicRoot, "Folder1"));
         Directory.CreateDirectory(Path.Combine(musicRoot, "Folder2"));
         File.WriteAllText(Path.Combine(musicRoot, "Folder1", "Artist - Track One.mp3"), "a");
@@ -533,27 +627,29 @@ public class LocalCliBackendTests
             var downloadSettings = new DownloadSettings
             {
                 Output = { ParentDir = musicRoot, IncompleteAlbumAction = { Kind = IncompleteAlbumActionKind.Move, Path = Path.Combine(musicRoot, "failed") } },
-                Search = { MinSharesAggregate = 1 },
+                Search = { MinGroupShares = 1 },
             };
 
             await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
             var backend = new LocalCliBackend(engine);
 
             var searchJob = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track One" });
+            await backend.SubscribeWorkflowAsync(searchJob.WorkflowId, cts.Token);
             engine.Enqueue(searchJob, downloadSettings);
             var runTask = engine.RunAsync(cts.Token);
 
-            await WaitForConditionAsync(backend,
+            await WaitForConditionAsync(
+                backend,
                 () => searchJob.TerminalOutcome == JobTerminalOutcome.Succeeded,
-                "Timed out waiting for aggregate track search to complete.");
+                "Timed out waiting for group track search to complete.");
 
-            var result = await backend.GetAggregateTrackResultsAsync(
+            var result = await backend.GetTrackGroupResultsAsync(
                 searchJob.Id,
-                new AggregateTrackProjectionRequestDto(IncludeCandidates: true),
+                new TrackGroupProjectionRequestDto(IncludeCandidates: true),
                 cts.Token);
 
             Assert.IsNotNull(result);
-            Assert.AreEqual(1, result.Items.Count, "Expected one aggregate group for 'Artist - Track One'.");
+            Assert.AreEqual(1, result.Items.Count, "Expected one result group for 'Artist - Track One'.");
             var group = result.Items[0];
             Assert.IsNotNull(group.Candidates, "Candidates should be populated when IncludeCandidates = true.");
             Assert.AreEqual(2, group.Candidates!.Count, "Both file versions should be included as candidates.");
@@ -570,11 +666,11 @@ public class LocalCliBackendTests
     }
 
     [TestMethod]
-    public async Task GetAggregateAlbumResultsAsync_WithIncludeFolders_PopulatesFoldersPerBucket()
+    public async Task GetAlbumGroupResultsAsync_WithIncludeFolders_PopulatesFoldersPerBucket()
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-cli-backend-agg-album-" + Guid.NewGuid());
         // Two album folders with the same track filename → same hash-derived length →
-        // grouped into one aggregate bucket. MinSharesAggregate is set to 1 since both
+        // grouped into one group bucket. MinGroupShares is set to 1 since both
         // folders belong to the single mock "local" user.
         Directory.CreateDirectory(Path.Combine(musicRoot, "Artist", "Album A"));
         Directory.CreateDirectory(Path.Combine(musicRoot, "Artist", "Album B"));
@@ -589,27 +685,29 @@ public class LocalCliBackendTests
             var downloadSettings = new DownloadSettings
             {
                 Output = { ParentDir = musicRoot, IncompleteAlbumAction = { Kind = IncompleteAlbumActionKind.Move, Path = Path.Combine(musicRoot, "failed") } },
-                Search = { MinSharesAggregate = 1 },
+                Search = { MinGroupShares = 1 },
             };
 
             await using var engine = new DownloadEngine(engineSettings, new SoulseekClientManager(engineSettings));
             var backend = new LocalCliBackend(engine);
 
             var searchJob = new SearchJob(new AlbumQuery { Artist = "Artist" });
+            await backend.SubscribeWorkflowAsync(searchJob.WorkflowId, cts.Token);
             engine.Enqueue(searchJob, downloadSettings);
             var runTask = engine.RunAsync(cts.Token);
 
-            await WaitForConditionAsync(backend,
+            await WaitForConditionAsync(
+                backend,
                 () => searchJob.TerminalOutcome == JobTerminalOutcome.Succeeded,
-                "Timed out waiting for aggregate album search to complete.");
+                "Timed out waiting for group album search to complete.");
 
-            var result = await backend.GetAggregateAlbumResultsAsync(
+            var result = await backend.GetAlbumGroupResultsAsync(
                 searchJob.Id,
-                new AggregateAlbumProjectionRequestDto(IncludeFolders: true),
+                new AlbumGroupProjectionRequestDto(IncludeFolders: true),
                 cts.Token);
 
             Assert.IsNotNull(result);
-            Assert.AreEqual(1, result.Items.Count, "Expected one aggregate bucket for the two album versions.");
+            Assert.AreEqual(1, result.Items.Count, "Expected one group bucket for the two album versions.");
             var bucket = result.Items[0];
             Assert.IsNotNull(bucket.Folders, "Folders should be populated when IncludeFolders = true.");
             Assert.AreEqual(2, bucket.Folders!.Count, "Both album folder versions should appear in the bucket.");
@@ -625,13 +723,15 @@ public class LocalCliBackendTests
         }
     }
 
-    private static async Task WaitForConditionAsync(ICliBackend backend, Func<bool> condition, string failureMessage, int timeoutMs = 5000)
-    {
-        using var signal = new TestSignal().Subscribe<ServerEventEnvelopeDto>(
-            handler => backend.EventReceived += handler,
-            handler => backend.EventReceived -= handler);
-        await signal.WaitUntilAsync(condition, failureMessage, timeoutMs);
-    }
+    private static Task WaitForConditionAsync(
+        ICliBackend backend,
+        Func<bool> condition,
+        string failureMessage)
+        => BackendTestWaiter.UntilAsync(
+            backend,
+            _ => Task.FromResult(condition()),
+            failureMessage,
+            timeoutMs: 10_000);
 
 
 }

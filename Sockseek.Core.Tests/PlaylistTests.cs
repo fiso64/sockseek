@@ -26,6 +26,45 @@ namespace Tests.Playlist
         }
 
         [TestMethod]
+        public void IncrementalPlaylistKeepsSourceOrderAcrossLateAlbumsGroupsAndSharedOwners()
+        {
+            File.WriteAllText(testM3uPath, "# Existing playlist\nexisting.mp3\n");
+            var first = new SongJob(new SongQuery { Title = "First" });
+            var album = new AlbumJob(new AlbumQuery { Album = "Late Album" });
+            var failed = new SongJob(new SongQuery { Title = "Failed variant" });
+            var successful = new SongJob(new SongQuery { Title = "Good variant" });
+            var group = new SongGroupsJob(new SongQuery { Title = "Variants" }) { Songs = [failed, successful] };
+            var extraction = new ExtractJob("late source");
+            var queue = new JobList("Tracks", [first, album, group, first, extraction]);
+            var editor = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Playlist, false);
+            failed.Fail(JobFailureReason.NoMatchingResults);
+            editor.Observe(failed);
+            editor.PublishPending();
+            Assert.IsTrue(File.ReadAllLines(testM3uPath)[^1].StartsWith("#FAIL:"));
+            successful.SetDone("Music/variant.mp3");
+            editor.Observe(successful);
+            var child = new SongJob(new SongQuery { Title = "Album track" });
+            album.TrackJobs.Add(child);
+            editor.RegisterChildren(album);
+            child.SetDone("Music/album.mp3");
+            editor.Observe(child);
+            first.SetDone("Music/first.mp3");
+            editor.Observe(first);
+            // A resume wrapper has another identity but the same memberships.
+            editor.AttachOwner(new JobList("Resume", [first, album, group]), synthetic: true);
+            var last = new SongJob(new SongQuery { Title = "Last" });
+            extraction.Result = last;
+            editor.AttachOwner(new JobList("More tracks", [last]), synthetic: true);
+            editor.AttachOwner(new JobList("Explicit repeat", [first]));
+            editor.Observe(first);
+            last.SetDone("Music/last.mp3");
+            editor.Observe(last);
+            editor.PublishPending();
+            CollectionAssert.AreEqual(new[] { "# Existing playlist", "existing.mp3", "Music/first.mp3",
+                "Music/album.mp3", "Music/variant.mp3", "Music/first.mp3", "Music/last.mp3", "Music/first.mp3" }, File.ReadAllLines(testM3uPath));
+        }
+
+        [TestMethod]
         public void Playlist_PreservesOrderAndHandlesDynamicExpansion()
         {
             var queue = new JobList("Test Queue");
@@ -55,8 +94,8 @@ namespace Tests.Playlist
             song2.DownloadPath = "Artist2/Title2.mp3";
             queue.Add(song2);
 
-            var editor = new M3uEditor(testM3uPath, queue, M3uOption.Playlist, false);
-            editor.Update();
+            var editor = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Playlist, false);
+            editor.Refresh();
 
             var lines = File.ReadAllLines(testM3uPath);
             Assert.AreEqual(4, lines.Length);
@@ -67,11 +106,11 @@ namespace Tests.Playlist
         }
 
         [TestMethod]
-        public void Playlist_AggregateJob_OnlyEmitsSuccessfulVariant()
+        public void Playlist_SongGroupsJob_OnlyEmitsSuccessfulVariant()
         {
             var queue = new JobList("Test Queue");
 
-            var agg = new AggregateJob(new SongQuery { Artist = "Artist", Title = "Title" });
+            var agg = new SongGroupsJob(new SongQuery { Artist = "Artist", Title = "Title" });
             var variant1 = new SongJob(new SongQuery { Artist = "Artist", Title = "Title" });
             variant1.Fail(JobFailureReason.NoMatchingResults);
             var variant2 = new SongJob(new SongQuery { Artist = "Artist", Title = "Title (Remix)" });
@@ -80,12 +119,12 @@ namespace Tests.Playlist
             var variant3 = new SongJob(new SongQuery { Artist = "Artist", Title = "Title (Live)" });
             variant3.Fail(JobFailureReason.AllDownloadsFailed);
 
-            agg.Songs.AddRange([variant1, variant2, variant3]);
+            agg.Songs = [variant1, variant2, variant3];
             agg.SetDone();
             queue.Add(agg);
 
-            var editor = new M3uEditor(testM3uPath, queue, M3uOption.Playlist, false);
-            editor.Update();
+            var editor = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Playlist, false);
+            editor.Refresh();
 
             var lines = File.ReadAllLines(testM3uPath);
             Assert.AreEqual(1, lines.Length);
@@ -99,12 +138,12 @@ namespace Tests.Playlist
             var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
             
             var audioSong = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" });
-            audioSong.ResolvedTarget = new FileCandidate(new Soulseek.SearchResponse("user", 1, true, 100, 0, []), new Soulseek.File(1, "Track.mp3", 100, ".mp3"));
+            audioSong.ResolvedTarget = SoulseekSearchAdapter.ToFileCandidate(new Soulseek.SearchResponse("user", 1, true, 100, 0, []), new Soulseek.File(1, "Track.mp3", 100, ".mp3"));
             audioSong.SetDone();
             audioSong.DownloadPath = "Artist/Album/Track.mp3";
 
             var imageSong = new SongJob(new SongQuery());
-            imageSong.ResolvedTarget = new FileCandidate(new Soulseek.SearchResponse("user", 1, true, 100, 0, []), new Soulseek.File(2, "Cover.jpg", 100, ".jpg"));
+            imageSong.ResolvedTarget = SoulseekSearchAdapter.ToFileCandidate(new Soulseek.SearchResponse("user", 1, true, 100, 0, []), new Soulseek.File(2, "Cover.jpg", 100, ".jpg"));
             imageSong.SetDone();
             imageSong.DownloadPath = "Artist/Album/Cover.jpg";
 
@@ -118,8 +157,8 @@ namespace Tests.Playlist
             album.SetDone();
             queue.Add(album);
 
-            var editor = new M3uEditor(testM3uPath, queue, M3uOption.Playlist, false);
-            editor.Update();
+            var editor = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Playlist, false);
+            editor.Refresh();
 
             var lines = File.ReadAllLines(testM3uPath);
             Assert.AreEqual(1, lines.Length, "Playlist should only contain the audio file.");
@@ -134,7 +173,7 @@ namespace Tests.Playlist
 
             var aiff = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
-                ResolvedTarget = new FileCandidate(response, TestHelpers.CreateSlFile(@"Music\Track.aiff")),
+                ResolvedTarget = SoulseekSearchAdapter.ToFileCandidate(response, TestHelpers.CreateSlFile(@"Music\Track.aiff")),
                 DownloadPath = "Music/Track.aiff",
             };
             aiff.SetDone();
@@ -147,8 +186,8 @@ namespace Tests.Playlist
             pdf.SetDone();
             queue.Add(pdf);
 
-            var editor = new M3uEditor(testM3uPath, queue, M3uOption.Playlist, false);
-            editor.Update();
+            var editor = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Playlist, false);
+            editor.Refresh();
 
             var lines = File.ReadAllLines(testM3uPath);
             Assert.AreEqual(1, lines.Length);

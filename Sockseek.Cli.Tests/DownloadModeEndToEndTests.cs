@@ -10,12 +10,12 @@ public class DownloadModeEndToEndTests
     [TestMethod]
     [DataRow("song", "list", false)]
     [DataRow("album", "list", false)]
-    [DataRow("aggregate", "list", false)]
-    [DataRow("album-aggregate", "list", false)]
+    [DataRow("song-groups", "list", false)]
+    [DataRow("album-groups", "list", false)]
     [DataRow("song", "list", true)]
     [DataRow("album", "list", true)]
-    [DataRow("aggregate", "list", true)]
-    [DataRow("album-aggregate", "list", true)]
+    [DataRow("song-groups", "list", true)]
+    [DataRow("album-groups", "list", true)]
     [DataRow("song", "csv", false)]
     [DataRow("album", "csv", false)]
     [DataRow("song", "csv", true)]
@@ -37,9 +37,9 @@ public class DownloadModeEndToEndTests
         }).ToArray();
         var args = fixture.Args(input).ToList();
         args.AddRange(["--input-type", inputType]);
-        if (mode is "album" or "album-aggregate") args.Add("--album");
-        if (mode is "aggregate" or "album-aggregate") args.Add("--aggregate");
-        if (printOnly) args.Add("--print-results-full");
+        if (mode is "album" or "album-groups") args.Add("--album");
+        if (mode is "song-groups" or "album-groups") args.Add("--group");
+        if (printOnly) args.AddRange(["--print-results-full", "--pref-format", "flac"]);
 
         var (exitCode, stdout, stderr) = await RunMainAsync(args.ToArray());
 
@@ -52,6 +52,10 @@ public class DownloadModeEndToEndTests
             foreach (var path in fixture.Files.Except(expected))
                 Assert.IsFalse(stdout.Contains(Path.GetFileName(path), StringComparison.Ordinal),
                     $"An unrelated result was printed: {path}");
+            Assert.AreEqual(expected.Length, stdout.Split("(nec:", StringSplitOptions.None).Length - 1,
+                "Full results must explain every printed file using shared condition facts.");
+            Assert.AreEqual(expected.Length, stdout.Split("Format fails", StringSplitOptions.None).Length - 1);
+            Assert.IsFalse(stdout.Contains("conditions:unavailable", StringComparison.Ordinal), stdout);
             Assert.AreEqual(0, Directory.GetFiles(fixture.OutputDir, "*", SearchOption.AllDirectories).Length,
                 "Printing results must not download anything or create an index.");
         }
@@ -64,8 +68,8 @@ public class DownloadModeEndToEndTests
     [TestMethod]
     [DataRow("song")]
     [DataRow("album")]
-    [DataRow("aggregate")]
-    [DataRow("album-aggregate")]
+    [DataRow("song-groups")]
+    [DataRow("album-groups")]
     public async Task Main_OneMissingItem_ReportsFailureButDownloadsOtherItems(string mode)
     {
         using var fixture = new MusicFixture();
@@ -73,8 +77,8 @@ public class DownloadModeEndToEndTests
         File.WriteAllLines(input, new[] { "Artist1", "MissingArtist", "Artist3" }.Select(artist => ListQuery(mode, artist)));
         var args = fixture.Args(input).ToList();
         args.AddRange(["--input-type", "list"]);
-        if (mode is "album" or "album-aggregate") args.Add("--album");
-        if (mode is "aggregate" or "album-aggregate") args.Add("--aggregate");
+        if (mode is "album" or "album-groups") args.Add("--album");
+        if (mode is "song-groups" or "album-groups") args.Add("--group");
 
         var (exitCode, stdout, stderr) = await RunMainAsync(args.ToArray());
 
@@ -120,7 +124,6 @@ public class DownloadModeEndToEndTests
         var originalError = Console.Error;
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
-        SockseekLog.RemoveNonFileOutputs();
         try
         {
             Console.SetOut(stdout);
@@ -132,7 +135,6 @@ public class DownloadModeEndToEndTests
         {
             Console.SetOut(originalOut);
             Console.SetError(originalError);
-            SockseekLog.RemoveNonFileOutputs();
         }
     }
 
@@ -162,7 +164,7 @@ public class DownloadModeEndToEndTests
         [
             input, "--no-config", "--no-progress", "--no-write-index", "--no-skip-existing",
             "--mock-files-dir", MusicDir, "--mock-files-no-read-tags",
-            "--path", OutputDir, "--name-format", "{filename}", "--min-shares-aggregate", "1",
+            "--path", OutputDir, "--name-format", "{filename}", "--min-group-shares", "1",
         ];
 
         public void AssertDownloaded(string[] expected)

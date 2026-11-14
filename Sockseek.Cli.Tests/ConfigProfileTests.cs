@@ -24,7 +24,7 @@ namespace Tests.ConfigTests
 
         public static DownloadSettings Resolve(ConfigFile file, DownloadSettings root, CliSettings cli, string[] args, Job job)
         {
-            ConfigManager.ApplyAutoProfileCliSettings(file, root, cli, job);
+            ConfigManager.ApplyAutoProfileCliSettings(file, root, cli);
             var resolver = ConfigManager.CreateJobSettingsResolver(file, args, cli);
             return resolver.Resolve(root, job);
         }
@@ -47,7 +47,7 @@ namespace Tests.ConfigTests
         [TestInitialize]
         public void Setup()
         {
-            testConfigPath = Path.Join(Directory.GetCurrentDirectory(), "test_conf.conf");
+            testConfigPath = Path.Join(Path.GetTempPath(), $"sockseek-profile-{Guid.NewGuid():N}.conf");
         }
 
         [TestCleanup]
@@ -76,7 +76,7 @@ namespace Tests.ConfigTests
                 "profile-cond = input-type == \"youtube\" && download-mode == \"album\"\n" +
                 "max-stale-time = 10\n" +
                 "[profile-true-2]\n" +
-                "profile-cond = !aggregate\n" +
+                "profile-cond = !group\n" +
                 "fast-search = false\n" +
                 "[profile-false-1]\n" +
                 "profile-cond = input-type == \"string\"\n" +
@@ -85,7 +85,7 @@ namespace Tests.ConfigTests
                 "format = opus";
 
             var (file, root, cli, args) = Bind(content, "--input-type", "youtube");
-            var result = Resolve(file, root, cli, args, new AlbumJob(new AlbumQuery()));
+            var result = Resolve(file, root, cli, args, new AlbumJob(new AlbumQuery()) { SourceInputType = InputType.YouTube });
 
             Assert.AreEqual(10, result.Search.MaxStaleTime);
             Assert.IsFalse(result.Search.FastSearch);
@@ -162,10 +162,61 @@ namespace Tests.ConfigTests
 
             var (file, root, _, args) = Bind(content, "--input-type", "youtube", "--interactive");
             var cli = new CliSettings { InteractiveMode = true };
-            var result = Resolve(file, root, cli, args, new SongJob(new SongQuery { Title = "test" }));
+            var result = Resolve(file, root, cli, args, new SongJob(new SongQuery { Title = "test" }) { SourceInputType = InputType.YouTube });
 
             Assert.AreNotEqual(999999, result.Search.MaxStaleTime);
             Assert.IsTrue(result.YtDlp.UseYtdlp);
+        }
+
+        [TestMethod]
+        public void AutoDetectedInputType_AppliesClientAndExtractionSettings()
+        {
+            string content =
+                "[youtube]\n" +
+                "profile-cond = input-type == \"youtube\"\n" +
+                "no-progress = true\n" +
+                "yt-dlp = true";
+
+            const string input = "https://www.youtube.com/playlist?list=test";
+            File.WriteAllText(testConfigPath, content);
+            var file = ConfigManager.Load(testConfigPath);
+            string[] args = [input];
+            var (_, root, cli) = ConfigManager.Bind(file, args);
+
+            ConfigManager.ApplyAutoProfileCliSettings(file, root, cli);
+            var resolver = ConfigManager.CreateJobSettingsResolver(file, args, cli);
+            var result = resolver.Resolve(root, new ExtractJob(input));
+
+            Assert.AreEqual(InputType.None, root.Extraction.InputType,
+                "The test must exercise automatic detection rather than an explicit input-type setting.");
+            Assert.IsTrue(cli.NoProgress);
+            Assert.IsTrue(result.YtDlp.UseYtdlp);
+            CollectionAssert.Contains(result.AppliedAutoProfiles.ToList(), "youtube");
+        }
+
+        [TestMethod]
+        public void CombinedInputTypeAndDownloadMode_ClassifiesSoulseekBeforeExtraction()
+        {
+            string content =
+                "[generic]\n" +
+                "profile-cond = input-type == \"soulseek-link\" && download-mode == \"generic\"\n" +
+                "no-progress = true\n" +
+                "name-format = {peer-username}/{filename}";
+
+            const string input = "slsk://Peer/Share/File.bin";
+            File.WriteAllText(testConfigPath, content);
+            var file = ConfigManager.Load(testConfigPath);
+            string[] args = [input, "--input-type", "soulseek-link"];
+            var (_, root, cli) = ConfigManager.Bind(file, args);
+
+            ConfigManager.ApplyAutoProfileCliSettings(file, root, cli);
+            var result = ConfigManager.CreateJobSettingsResolver(file, args, cli)
+                .Resolve(root, new ExtractJob(input));
+
+            Assert.IsTrue(cli.NoProgress);
+            Assert.AreEqual(InputType.SoulseekLink, root.Extraction.InputType);
+            Assert.AreEqual("{peer-username}/{filename}", result.Output.NameFormat);
+            CollectionAssert.Contains(result.AppliedAutoProfiles.ToList(), "generic");
         }
 
         [TestMethod]
@@ -205,6 +256,27 @@ namespace Tests.ConfigTests
         }
 
         [TestMethod]
+        public void SoulseekGenericAutoProfile_OverridesInheritedMusicNameFormat()
+        {
+            string content =
+                "name-format = {artist}/{title}\n" +
+                "[generic-layout]\n" +
+                "profile-cond = download-mode == \"generic\"\n" +
+                "name-format = {peer-username}/{filename}";
+
+            var (file, root, cli, args) = Bind(content);
+            var result = Resolve(
+                file,
+                root,
+                cli,
+                args,
+                new ExtractJob("slsk://Peer/Share/File.bin"));
+
+            Assert.AreEqual("{peer-username}/{filename}", result.Output.NameFormat);
+            CollectionAssert.Contains(result.AppliedAutoProfiles.ToList(), "generic-layout");
+        }
+
+        [TestMethod]
         public void AutoProfile_WithEngineSetting_Throws()
         {
             string content =
@@ -228,7 +300,7 @@ namespace Tests.ConfigTests
 
             var (file, root, _, args) = Bind(content, "--interactive", "--on-complete", "+ -- action_cli");
             var cli = new CliSettings { InteractiveMode = true };
-            var result = Resolve(file, root, cli, args, new SongJob(new SongQuery { Title = "test" }));
+            var result = Resolve(file, root, cli, args, new SongJob(new SongQuery { Title = "test" }) { SourceInputType = InputType.YouTube });
 
             Assert.IsTrue(result.Search.FastSearch);
             Assert.AreEqual(2, result.Output.OnComplete!.Count);
@@ -245,7 +317,7 @@ namespace Tests.ConfigTests
         [TestInitialize]
         public void Setup()
         {
-            testConfigPath = Path.Join(Directory.GetCurrentDirectory(), "test_conf_priority.conf");
+            testConfigPath = Path.Join(Path.GetTempPath(), $"sockseek-profile-priority-{Guid.NewGuid():N}.conf");
         }
 
         [TestCleanup]
@@ -364,13 +436,13 @@ namespace Tests.ConfigTests
         {
             var (file, root, _, args) = Bind(
                 "[auto]\nprofile-cond = interactive\nmax-stale-time = 10",
-                "--interactive", "--input-type", "youtube", "--album", "--aggregate");
+                "--interactive", "--input-type", "youtube", "--album", "--group");
 
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args);
 
             Assert.AreEqual(InputType.YouTube, result.Extraction.InputType);
             Assert.IsTrue(result.Extraction.IsAlbum);
-            Assert.IsTrue(result.Search.IsAggregate);
+            Assert.IsTrue(result.Search.GroupResults);
         }
     }
 
@@ -382,7 +454,7 @@ namespace Tests.ConfigTests
         [TestInitialize]
         public void Setup()
         {
-            testConfigPath = Path.Join(Directory.GetCurrentDirectory(), "test_conf_variation.conf");
+            testConfigPath = Path.Join(Path.GetTempPath(), $"sockseek-profile-variation-{Guid.NewGuid():N}.conf");
         }
 
         [TestCleanup]
@@ -461,7 +533,7 @@ namespace Tests.ConfigTests
         [TestInitialize]
         public void Setup()
         {
-            testConfigPath = Path.Join(Directory.GetCurrentDirectory(), "test_conf_edge.conf");
+            testConfigPath = Path.Join(Path.GetTempPath(), $"sockseek-profile-edge-{Guid.NewGuid():N}.conf");
         }
 
         [TestCleanup]
@@ -545,7 +617,7 @@ namespace Tests.ConfigTests
             dl = new DownloadSettings();
             dl.Extraction.InputType = InputType.YouTube;
             dl.Extraction.IsAlbum = true;
-            dl.Search.IsAggregate = false;
+            dl.Search.GroupResults = false;
             cli = new CliSettings { InteractiveMode = true };
         }
 
@@ -557,7 +629,7 @@ namespace Tests.ConfigTests
         {
             Assert.IsTrue(Satisfied("input-type == \"youtube\""));
             Assert.IsTrue(Satisfied("download-mode == \"album\""));
-            Assert.IsFalse(Satisfied("aggregate"));
+            Assert.IsFalse(Satisfied("group"));
             Assert.IsTrue(Satisfied("interactive"));
             Assert.IsTrue(Satisfied("album"));
             Assert.IsFalse(Satisfied("!interactive"));
@@ -568,23 +640,117 @@ namespace Tests.ConfigTests
         {
             Assert.IsTrue(Satisfied("album && input-type == \"youtube\""));
             Assert.IsFalse(Satisfied("album && input-type != \"youtube\""));
-            Assert.IsFalse(Satisfied("(interactive && aggregate)"));
-            Assert.IsTrue(Satisfied("album && (interactive || aggregate)"));
+            Assert.IsFalse(Satisfied("(interactive && group)"));
+            Assert.IsTrue(Satisfied("album && (interactive || group)"));
         }
 
         [TestMethod]
         public void ProfileConditionEvaluator_WithComplexOrConditions_EvaluatesCorrectly()
         {
-            Assert.IsTrue(Satisfied("input-type == \"spotify\" || aggregate || input-type == \"csv\" || interactive && album"));
-            Assert.IsTrue(Satisfied("input-type!=\"youtube\"||(album&&!interactive||(aggregate||interactive))"));
-            Assert.IsFalse(Satisfied("input-type!=\"youtube\"||(album&&!interactive||(aggregate||!interactive))"));
+            Assert.IsTrue(Satisfied("input-type == \"spotify\" || group || input-type == \"csv\" || interactive && album"));
+            Assert.IsTrue(Satisfied("input-type!=\"youtube\"||(album&&!interactive||(group||interactive))"));
+            Assert.IsFalse(Satisfied("input-type!=\"youtube\"||(album&&!interactive||(group||!interactive))"));
         }
 
         [TestMethod]
         public void ProfileConditionEvaluator_UsesJobDownloadModeWhenJobIsAvailable()
         {
-            Assert.IsTrue(Satisfied("download-mode == \"song\"", new SongJob(new SongQuery { Title = "test" })));
-            Assert.IsFalse(Satisfied("download-mode == \"album\"", new SongJob(new SongQuery { Title = "test" })));
+            (Job Job, string Mode)[] cases =
+            [
+                (new SongJob(new SongQuery { Title = "test" }), "song"),
+                (new SongGroupsJob(new SongQuery { Title = "test" }), "song-groups"),
+                (new AlbumJob(new AlbumQuery { Album = "test" }), "album"),
+                (new AlbumGroupsJob(new AlbumQuery { Album = "test" }), "album-groups"),
+                (new RemoteFileJob(new PeerFileTarget(
+                    new PeerFileIdentity("Peer", @"Share\File.bin"),
+                    size: null,
+                    extension: null)), "generic"),
+                (new RemoteDirectoryJob(new RemoteDirectorySource.PeerDirectory(
+                    new PeerDirectoryIdentity("Peer", @"Share\Folder"))), "generic"),
+            ];
+            string[] modes =
+            [
+                "song", "song-groups", "album", "album-groups",
+                "generic", "remote-file", "remote-directory",
+            ];
+
+            foreach (var (job, expected) in cases)
+            {
+                foreach (string mode in modes)
+                {
+                    Assert.AreEqual(mode == expected, Satisfied($"download-mode == \"{mode}\"", job),
+                        $"{job.GetType().Name} should report exactly download-mode '{expected}'.");
+                }
+            }
+        }
+
+        [TestMethod]
+        public void ProfileConditionEvaluator_AutoDetectsInputType()
+        {
+            dl.Extraction.InputType = InputType.None;
+            dl.Extraction.Input = "https://open.spotify.com/playlist/test";
+
+            Assert.IsTrue(Satisfied("input-type == \"spotify\""));
+            Assert.IsTrue(Satisfied(
+                "input-type == \"youtube\"",
+                new ExtractJob("https://www.youtube.com/playlist?list=test")));
+            Assert.IsTrue(Satisfied(
+                "input-type == \"soulseek-link\"",
+                new ExtractJob("slsk://Peer/Share/File.bin")));
+        }
+
+        [TestMethod]
+        public void ProfileConditionEvaluator_UsesPerItemRequestedMode()
+        {
+            dl.Extraction.RequestedMode = null;
+            dl.Extraction.InputType = InputType.List;
+            var extract = new ExtractJob("Artist - Track")
+            {
+                RequestedModeOverride = ExtractionMode.Song,
+            };
+
+            Assert.IsTrue(Satisfied("download-mode == \"song\"", extract));
+            Assert.IsFalse(Satisfied("download-mode == \"album\"", extract));
+        }
+
+        [TestMethod]
+        public void ProfileConditionEvaluator_UsesExplicitModeSettingsBeforeExtraction()
+        {
+            dl.Extraction.InputType = InputType.YouTube;
+            dl.Extraction.RequestedMode = ExtractionMode.Song;
+            Assert.IsTrue(Satisfied("download-mode == \"song\""));
+
+            dl.Search.GroupResults = true;
+            Assert.IsTrue(Satisfied("download-mode == \"song-groups\""));
+
+            dl.Extraction.RequestedMode = ExtractionMode.Album;
+            Assert.IsTrue(Satisfied("download-mode == \"album-groups\""));
+
+            dl.Search.GroupResults = false;
+            dl.Extraction.RequestedMode = null;
+            dl.Extraction.UpgradeToAlbum = true;
+            Assert.IsTrue(Satisfied("download-mode == \"album\""));
+        }
+
+        [TestMethod]
+        public void ProfileConditionEvaluator_DoesNotInventModeBeforeSourceDecides()
+        {
+            dl.Extraction.RequestedMode = null;
+            dl.Extraction.InputType = InputType.YouTube;
+
+            foreach (string mode in new[]
+                     {
+                         "normal", "generic", "song", "song-groups", "album", "album-groups",
+                     })
+            {
+                Assert.IsFalse(Satisfied($"download-mode == \"{mode}\""),
+                    $"Source-decided input unexpectedly reported download mode '{mode}'.");
+            }
+
+            Assert.IsTrue(Satisfied("download-mode != \"album\""));
+            Assert.IsFalse(Satisfied(
+                "download-mode == \"extract\"",
+                new ExtractJob("https://www.youtube.com/watch?v=test")));
         }
 
         [TestMethod]
@@ -595,6 +761,34 @@ namespace Tests.ConfigTests
             Assert.IsFalse(Satisfied("album", new SongJob(new SongQuery { Title = "test" })),
                 "An explicit album request must not make a concrete SongJob match album auto-profiles.");
             Assert.IsTrue(Satisfied("album", new AlbumJob(new AlbumQuery())));
+        }
+
+        [TestMethod]
+        public void ProfileConditionEvaluator_ClassifiesSoulseekIntentBeforeExtraction()
+        {
+            dl.Extraction.RequestedMode = null;
+            Assert.IsTrue(Satisfied(
+                "download-mode == \"generic\"",
+                new ExtractJob("slsk://Peer/Share/File.bin")));
+            Assert.IsTrue(Satisfied(
+                "download-mode == \"generic\"",
+                new ExtractJob("slsk://Peer/Share/Folder/")));
+            Assert.IsFalse(Satisfied(
+                "download-mode == \"remote-file\"",
+                new ExtractJob("slsk://Peer/Share/File.bin")));
+            Assert.IsFalse(Satisfied(
+                "download-mode == \"remote-directory\"",
+                new ExtractJob("slsk://Peer/Share/Folder/")));
+
+            dl.Extraction.RequestedMode = ExtractionMode.Song;
+            Assert.IsTrue(Satisfied(
+                "download-mode == \"song\"",
+                new ExtractJob("slsk://Peer/Share/File.mp3")));
+
+            dl.Extraction.RequestedMode = ExtractionMode.Album;
+            Assert.IsTrue(Satisfied(
+                "download-mode == \"album\"",
+                new ExtractJob("slsk://Peer/Share/Folder/")));
         }
     }
 }

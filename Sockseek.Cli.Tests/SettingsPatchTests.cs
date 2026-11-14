@@ -7,6 +7,7 @@ using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
+using Sockseek.Server;
 
 namespace Tests;
 
@@ -14,26 +15,38 @@ namespace Tests;
 public class SettingsPatchTests
 {
     private static SettingsPatch RoundTrip(SettingsPatch patch) => JsonSerializer.Deserialize<SettingsPatch>(
-        JsonSerializer.Serialize(patch, SockseekApiJson.CreateSerializerOptions()),
-        SockseekApiJson.CreateSerializerOptions())!;
+        JsonSerializer.Serialize(patch, new JsonSerializerOptions(JsonSerializerDefaults.Web) { IncludeFields = true }),
+        new JsonSerializerOptions(JsonSerializerDefaults.Web) { IncludeFields = true })!;
+
+    private static SettingsPatch WireRoundTrip(SettingsPatch patch)
+    {
+        var json = SockseekApiJson.CreateSerializerOptions();
+        var wire = DownloadSettingsPatchDtoMapper.FromCore(RoundTrip(patch));
+        return DownloadSettingsPatchDtoMapper.ToCore(JsonSerializer.Deserialize<DownloadSettingsPatchDto>(
+            JsonSerializer.Serialize(wire, json), json));
+    }
 
     [TestMethod]
     public void CliPatch_RoundTripPreservesCompoundOptionsAndTheirOrder()
     {
         var patch = ConfigManager.CreateCliDownloadSettingsPatch([
             "Artist - Title", "--album-art-only", "--album-art", "most", "--strict-artist",
-            "--format", "flac", "--on-complete", "-- first", "--on-complete", "+ -- second",
+            "--format", "flac", "--exclude-locked", "--pref-exclude-locked", "false", "--on-complete", "-- first", "--on-complete", "+ -- second",
             "--regex", "T:foo;bar", "--regex", "+ A:baz;qux",
             "--incomplete-album-action", "move:failed", "--incomplete-album-action", "keep",
         ])!;
         var local = new DownloadSettings();
         var remote = new DownloadSettings();
+        local.Output.IncompleteAlbumAction.Path = "inherited";
+        remote.Output.IncompleteAlbumAction.Path = "inherited";
         patch.ApplyTo(local);
-        RoundTrip(patch).ApplyTo(remote);
+        WireRoundTrip(patch).ApplyTo(remote);
 
         Assert.IsNull(SettingsPatch.Difference(local, remote));
         Assert.AreEqual(AlbumArtOption.Most, remote.Output.AlbumArtOption);
         Assert.IsTrue(remote.Search.NecessaryCond.StrictArtist);
+        Assert.IsTrue(remote.Search.NecessaryCond.ExcludeLocked);
+        Assert.IsFalse(remote.Search.PreferredCond.ExcludeLocked);
         CollectionAssert.AreEqual(new[] { "flac" }, remote.Search.NecessaryCond.Formats);
         CollectionAssert.AreEqual(new[] { "-- first", "-- second" }, remote.Output.OnComplete);
         Assert.HasCount(2, remote.Preprocess.Regex!);
@@ -80,9 +93,15 @@ public class SettingsPatchTests
             "--on-complete", "+ -- repeated", "--on-complete", "+ -- repeated",
         ])!;
 
-        RoundTrip(patch).ApplyTo(settings);
+        patch = new SettingsPatch([
+            .. patch.Operations,
+            new("Search.NecessaryFolderCond.RequiredTrackTitles", new List<string> { "One" }),
+            new("Search.NecessaryFolderCond.RequiredTrackTitles", new List<string> { "One", "Two" }, SettingOperation.AppendDistinct),
+        ]);
+        WireRoundTrip(patch).ApplyTo(settings);
 
         CollectionAssert.AreEqual(new[] { "-- replacement", "-- repeated", "-- repeated" }, settings.Output.OnComplete);
+        CollectionAssert.AreEqual(new[] { "One", "Two" }, settings.Search.NecessaryFolderCond.RequiredTrackTitles);
     }
 
     [TestMethod]
@@ -90,13 +109,14 @@ public class SettingsPatchTests
     {
         var settings = new DownloadSettings();
         settings.Output.AlbumArtOption = AlbumArtOption.Most;
+        settings.Search.PreferredCond.MinBitrate = 192;
         var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--strict-artist", "--album-art-only"])!;
 
         RoundTrip(patch).ApplyTo(settings);
 
         Assert.AreEqual(AlbumArtOption.Most, settings.Output.AlbumArtOption);
         Assert.IsTrue(settings.Search.NecessaryCond.StrictArtist);
-        Assert.AreEqual(200, settings.Search.PreferredCond.MinBitrate);
+        Assert.AreEqual(192, settings.Search.PreferredCond.MinBitrate);
     }
 
     [TestMethod]
@@ -127,11 +147,11 @@ public class SettingsPatchTests
     public void IndexChoice_RoundTripsAutomaticAndExplicitValues()
     {
         var settings = new DownloadSettings();
-        RoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--write-index"])!).ApplyTo(settings);
+        WireRoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--write-index"])!).ApplyTo(settings);
         Assert.IsTrue(settings.Output.WriteIndex);
-        RoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--no-write-index"])!).ApplyTo(settings);
+        WireRoundTrip(ConfigManager.CreateCliDownloadSettingsPatch(["--no-write-index"])!).ApplyTo(settings);
         Assert.IsFalse(settings.Output.WriteIndex);
-        RoundTrip(new SettingsPatch([new("Output.WriteIndex", null)])).ApplyTo(settings);
+        WireRoundTrip(new SettingsPatch([new("Output.WriteIndex", null)])).ApplyTo(settings);
         Assert.IsNull(settings.Output.WriteIndex);
     }
 
@@ -142,17 +162,17 @@ public class SettingsPatchTests
     {
         var file = new ConfigFile("none", []);
         string[] arguments = requested is { } count
-            ? ["--mock-files-dir", ".", "--min-shares-aggregate", count.ToString()]
+            ? ["--mock-files-dir", ".", "--min-group-shares", count.ToString()]
             : ["--mock-files-dir", "."];
         var invocation = ConfigManager.ParseInvocation(arguments);
         var (engine, root, cli, _, _) = ConfigManager.BindAll(file, invocation);
         var resolver = ConfigManager.CreateJobSettingsResolver(file, invocation, cli, engine: engine);
         var jobSettings = resolver.Resolve(root, new SongJob(new SongQuery()));
 
-        Assert.AreEqual(requested, root.Search.MinSharesAggregate);
-        Assert.AreEqual(expected, root.ResolveSearchSettings().EffectiveMinSharesAggregate);
-        Assert.AreEqual(requested, jobSettings.Search.MinSharesAggregate);
-        Assert.AreEqual(expected, jobSettings.ResolveSearchSettings().EffectiveMinSharesAggregate);
+        Assert.AreEqual(requested, root.Search.MinGroupShares);
+        Assert.AreEqual(expected, root.ResolveSearchSettings().EffectiveMinGroupShares);
+        Assert.AreEqual(requested, jobSettings.Search.MinGroupShares);
+        Assert.AreEqual(expected, jobSettings.ResolveSearchSettings().EffectiveMinGroupShares);
     }
 
     [TestMethod]
@@ -166,7 +186,7 @@ public class SettingsPatchTests
         after.Output.IncompleteAlbumAction.Path = null;
         after.Search.NecessaryCond.Formats = ["flac"];
         after.Output.WriteIndex = false;
-        after.AppliedAutoProfiles.Add("runtime-only");
+        after.AppliedProfiles.Add(new("runtime-only", "automatic"));
 
         RoundTrip(SettingsPatch.Difference(before, after)!).ApplyTo(before);
 
@@ -182,12 +202,12 @@ public class SettingsPatchTests
         ])!;
         var first = new DownloadSettings();
         patch.ApplyTo(first);
-        first.AppliedAutoProfiles.Add("one");
+        first.AppliedProfiles.Add(new("one", "automatic"));
         var clone = SettingsCloner.Clone(first);
         clone.Output.OnComplete!.Add("-- clone");
         clone.Search.NecessaryCond.Formats![0] = "mp3";
         clone.Preprocess.Regex!.Clear();
-        clone.AppliedAutoProfiles.Clear();
+        clone.AppliedProfiles.Clear();
         var second = new DownloadSettings();
         patch.ApplyTo(second);
 
@@ -201,8 +221,9 @@ public class SettingsPatchTests
     [TestMethod]
     [DataRow("Unknown.Value")]
     [DataRow("RuntimePathContext.ConfigDir")]
-    [DataRow("DefaultMinSharesAggregate")]
+    [DataRow("DefaultMinGroupShares")]
     [DataRow("AppliedAutoProfiles")]
+    [DataRow("AppliedProfiles")]
     [DataRow("Extraction.IsAlbum")]
     [DataRow("PrintJobs")]
     public void Patch_RejectsUnknownRuntimeAndComputedPaths(string path)

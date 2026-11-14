@@ -23,6 +23,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sockseek.Server.Tests", "So
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sockseek.Packager", "Sockseek.Packager\Sockseek.Packager.csproj", "{E9E41DE7-DEC1-47D3-A224-C4657F7D9AD6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sockseek.Persistence", "Sockseek.Persistence\Sockseek.Persistence.csproj", "{9E196E0F-925A-478B-A228-36C4D287EF0F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sockseek.Persistence.Tests", "Sockseek.Persistence.Tests\Sockseek.Persistence.Tests.csproj", "{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -153,6 +157,30 @@ Global
 		{E9E41DE7-DEC1-47D3-A224-C4657F7D9AD6}.Release|x64.Build.0 = Release|Any CPU
 		{E9E41DE7-DEC1-47D3-A224-C4657F7D9AD6}.Release|x86.ActiveCfg = Release|Any CPU
 		{E9E41DE7-DEC1-47D3-A224-C4657F7D9AD6}.Release|x86.Build.0 = Release|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Debug|x64.Build.0 = Debug|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Debug|x86.Build.0 = Debug|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Release|x64.ActiveCfg = Release|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Release|x64.Build.0 = Release|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Release|x86.ActiveCfg = Release|Any CPU
+		{9E196E0F-925A-478B-A228-36C4D287EF0F}.Release|x86.Build.0 = Release|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Debug|x64.Build.0 = Debug|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Debug|x86.Build.0 = Debug|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Release|x64.ActiveCfg = Release|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Release|x64.Build.0 = Release|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Release|x86.ActiveCfg = Release|Any CPU
+		{0613E89D-F68A-4B80-B0DC-DA53F203E7EE}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

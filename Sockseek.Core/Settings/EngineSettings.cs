@@ -40,22 +40,14 @@ public class EngineSettings
 
     // ── Sharing ───────────────────────────────────────────────────────────────
 
-    [SettingOption("--shared-files")]
-    public int SharedFiles { get; set; }
-
-    [SettingOption("--shared-folders")]
-    public int SharedFolders { get; set; }
-
     [SettingOption("--user-description")]
+    [SettingReloadable]
     public string? UserDescription { get; set; }
-
-    [SettingOption("--nmsc", "--no-modify-share-count")]
-    public bool NoModifyShareCount { get; set; }
 
     // ── Concurrency ───────────────────────────────────────────────────────────
 
     /// Global limit for concurrent leaf work. Counts direct song jobs, album jobs,
-    /// aggregate child song jobs, album-aggregate child album jobs, and standalone
+    /// group child song jobs, album-groups child album jobs, and standalone
     /// folder retrievals. Does not count extractor jobs or song jobs inside albums.
     [SettingOption("--cj", "--concurrent-jobs")]
     public int ConcurrentJobs { get; set; } = 20;
@@ -92,7 +84,7 @@ public class EngineSettings
 
     /// true = read audio tags from mock files (default). --mock-files-no-read-tags sets to false.
     /// A local mock library represents a single source.
-    public int DefaultMinSharesAggregate => string.IsNullOrEmpty(MockFilesDir) ? SearchSettings.DefaultMinShares : 1;
+    public int DefaultMinGroupShares => string.IsNullOrEmpty(MockFilesDir) ? SearchSettings.DefaultMinShares : 1;
 
     [SettingOption("--mock-files-no-read-tags", FixedValue = "false")]
     public bool MockFilesReadTags { get; set; } = true;
@@ -102,4 +94,11 @@ public class EngineSettings
 
     [SettingOption("--mock-files-fail-downloads")]
     public int MockFilesFailDownloads { get; set; }
+    [SettingOption("--user-picture", DefaultProfileOnly = true)]
+    [SettingReloadable]
+    public string? UserPicturePath { get; set; }
+    public SharingSettings Sharing { get; set; } = new();
+    public UploadSettings Uploads { get; set; } = new();
+    public ChatSettings Chat { get; set; } = new();
+    public PeerRestrictionSettings PeerRestrictions { get; set; } = new();
 }

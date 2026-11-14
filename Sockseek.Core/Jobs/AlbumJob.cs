@@ -1,19 +1,38 @@
 using Sockseek.Core;
 using Sockseek.Core.Models;
+using Sockseek.Core.Planning;
 
 namespace Sockseek.Core.Jobs;
+    public enum AlbumDirectoryResolutionPolicy
+    {
+        CompleteIfNeeded,
+        UseSelectedSnapshot,
+        RetrieveBeforeSelection,
+    }
+
+    public enum AlbumValidationRequirement
+    {
+        Standard,
+        // Explicitly accepted input is not rechecked against discovery conditions.
+        UserAccepted,
+    }
+
     // Unified album job. If ResolvedTarget is null the engine searches; once
     // a folder is chosen it's set on ResolvedTarget and download proceeds.
-    public class AlbumJob : Job, IUpgradeable
+    public class AlbumJob : DirectoryDownloadJob, IUpgradeable
     {
         public AlbumQuery Query { get; set; }
+
+        // Whole-folder acceptance may still exclude individual files. Apply this
+        // after optional retrieval so browsing cannot reintroduce them.
+        public IReadOnlySet<string>? ExcludedFilenames { get; set; }
 
         // SongQuery-shaped view of the album query (used for display and key computation).
         // Recomputed from Query so it stays current after preprocessing.
         public override SongQuery QueryTrack =>
             new SongQuery { Artist = Query.Artist, Title = Query.Album, URI = Query.URI };
 
-        protected override bool DefaultCanBeSkipped => true;
+        protected override bool DefaultCanBeSkipped => ValidationRequirement != AlbumValidationRequirement.UserAccepted;
 
         // Populated after search. Each element is one candidate folder version.
         public List<AlbumFolder> Results { get; set; } = new();
@@ -41,6 +60,7 @@ namespace Sockseek.Core.Jobs;
             if (!ReferenceEquals(_trackJobFolder, folder))
             {
                 TrackJobs.Clear();
+                ClearDirectoryChildren();
                 _trackJobFolder = folder;
             }
 
@@ -59,60 +79,88 @@ namespace Sockseek.Core.Jobs;
             return TrackJobs;
         }
 
-        internal static SongJob CreateTrackJob(AlbumFile file)
-            => new(new SongQuery(file.Query))
+        public DirectoryTransferAttempt BeginAlbumTransferAttempt(AlbumFolder folder)
+        {
+            ArgumentNullException.ThrowIfNull(folder);
+            var tracks = EnsureTrackJobs(folder);
+            var attempt = BeginDirectoryAttempt(AlbumTransferPlanner.FromSelectedDirectory(folder));
+            MaterializeDirectoryChildren(tracks);
+            BeginDirectoryTransfer();
+            return attempt;
+        }
+
+        internal SongJob CreateTrackJob(AlbumFile file)
+        {
+            var child = new SongJob(new SongQuery(file.Query))
             {
                 ResolvedTarget = file.Candidate,
+                ExactTarget = !CanBeSkipped ? file.Candidate.Target : null,
                 Candidates = [file.Candidate],
+                FileSize = file.Candidate.Target.Size,
             };
+            SubmissionIdentity.AssignExecutionChild(this, child);
+            return child;
+        }
+
+        internal List<SongJob> EnsureSupplementalTrackJobs(IReadOnlyList<AlbumFile> files)
+        {
+            if (ActiveAttempt?.ChildrenMaterialized != true)
+                throw new InvalidOperationException("Supplemental directory work requires a materialized active attempt.");
+            var jobs = EnsureSelectedTrackJobs(files);
+            AddSupplementalDirectoryChildren(jobs);
+            return jobs;
+        }
+
+        private List<SongJob> EnsureSelectedTrackJobs(IReadOnlyList<AlbumFile> files)
+        {
+            var existing = new Dictionary<PeerFileIdentity, SongJob>();
+            foreach (var song in TrackJobs)
+                if (song.ResolvedTarget is { } candidate)
+                    existing.TryAdd(candidate.Target.Identity, song);
+            var jobs = new List<SongJob>(files.Count);
+            foreach (var file in files)
+            {
+                if (!existing.TryGetValue(file.Candidate.Target.Identity, out var song))
+                {
+                    song = CreateTrackJob(file);
+                    existing.Add(file.Candidate.Target.Identity, song);
+                    TrackJobs.Add(song);
+                }
+                jobs.Add(song);
+            }
+            return jobs;
+        }
+
+        internal List<SongJob> BeginAlbumArtTransferAttempt(
+            AlbumFolder folder,
+            IReadOnlyList<AlbumFile> selectedImages)
+        {
+            ArgumentNullException.ThrowIfNull(folder);
+            ArgumentNullException.ThrowIfNull(selectedImages);
+
+            var jobs = EnsureSelectedTrackJobs(selectedImages);
+
+            BeginDirectoryAttempt(AlbumTransferPlanner.FromSelectedDirectory(folder, selectedImages));
+            MaterializeDirectoryChildren(jobs);
+            BeginDirectoryTransfer();
+            return jobs;
+        }
 
         public void ClearTrackJobs()
         {
             TrackJobs.Clear();
             _trackJobFolder = null;
+            ClearDirectoryChildren();
         }
 
-        // When a folder is explicitly selected up front (for example from an interactive
-        // SearchJob flow), this controls whether the engine may still browse the selected
-        // folder for additional files during album download.
-        public bool AllowBrowseResolvedTarget { get; set; } = true;
+        // Album-only resolution policy. It explicitly distinguishes a search candidate,
+        // an exact user-selected snapshot, and a directory identity which must first be
+        // retrieved; the common directory lifecycle does not need workflow booleans.
+        public AlbumDirectoryResolutionPolicy DirectoryResolutionPolicy { get; set; }
+            = AlbumDirectoryResolutionPolicy.CompleteIfNeeded;
 
-        // When a folder is explicitly accepted by a user, the candidate has already passed
-        // the human selection step; hidden folder contents do not need to be browsed just
-        // to prove min/max track-count conditions before downloading.
-        public bool SkipResolvedTargetTrackCountVerification { get; set; }
-
-        // Used by direct folder links: the target folder identity is known up front,
-        // but its file list must be browsed before album download starts.
-        public bool ResolvedTargetNeedsInitialFolderRetrieval { get; set; }
-
-        // Set by the engine when the download phase completes.
-        private string? _downloadPath;
-        public string? DownloadPath
-        {
-            get => _downloadPath;
-            set { if (_downloadPath != value) { _downloadPath = value; OnPropertyChanged(); } }
-        }
-
-        public override void SetDone()
-            => SetDone(downloadPath: null);
-
-        public void SetDone(string? downloadPath)
-        {
-            if (downloadPath != null)
-                DownloadPath = downloadPath;
-            base.SetDone();
-        }
-
-        public override void SetAlreadyExists()
-            => SetAlreadyExists(path: null);
-
-        public void SetAlreadyExists(string? path)
-        {
-            if (path != null)
-                DownloadPath = path;
-            base.SetAlreadyExists();
-        }
+        public AlbumValidationRequirement ValidationRequirement { get; set; }
+            = AlbumValidationRequirement.Standard;
 
         public AlbumJob(AlbumQuery query)
         {
@@ -122,11 +170,11 @@ namespace Sockseek.Core.Jobs;
         public override string ToString(bool noInfo)
             => ItemName ?? Query.ToString(noInfo);
 
-        public IEnumerable<Job> Upgrade(bool album, bool aggregate)
+        public IEnumerable<Job> Upgrade(bool album, bool group)
         {
-            if (aggregate)
+            if (group)
             {
-                var newJob = new AlbumAggregateJob(Query);
+                var newJob = new AlbumGroupsJob(Query);
                 newJob.CopySharedFieldsFrom(this);
                 newJob.ItemName ??= newJob.ToString(noInfo: true);
                 yield return newJob;

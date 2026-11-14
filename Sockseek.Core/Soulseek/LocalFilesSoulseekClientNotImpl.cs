@@ -2,7 +2,6 @@ using Soulseek;
 using Soulseek.Diagnostics;
 using System.Net;
 
-#pragma warning disable CS8618, CS8625, CS8600, CS8632, CS0067
 
 namespace Sockseek.Core.Services
 {
@@ -10,69 +9,65 @@ namespace Sockseek.Core.Services
     {
         // Irrelevant stuff starts here
 
-        public string Address => throw new NotImplementedException();
-
         public DistributedNetworkInfo DistributedNetwork => throw new NotImplementedException();
-
-        public IPAddress IPAddress => throw new NotImplementedException();
-
-        public IPEndPoint IPEndPoint => throw new NotImplementedException();
-
-        public int? Port => throw new NotImplementedException();
 
         public ServerInfo ServerInfo => throw new NotImplementedException();
 
         public IReadOnlyCollection<Transfer> Uploads => throw new NotImplementedException();
 
-        public string Username => throw new NotImplementedException();
+        public string Username => "local";
 
-        public event EventHandler<BrowseProgressUpdatedEventArgs> BrowseProgressUpdated;
-        public event EventHandler Connected;
-        public event EventHandler DemotedFromDistributedBranchRoot;
-        public event EventHandler<SoulseekClientDisconnectedEventArgs> Disconnected;
-        public event EventHandler<DistributedChildEventArgs> DistributedChildAdded;
-        public event EventHandler<DistributedChildEventArgs> DistributedChildDisconnected;
-        public event EventHandler DistributedNetworkReset;
-        public event EventHandler<DistributedNetworkInfo> DistributedNetworkStateChanged;
-        public event EventHandler<DistributedParentEventArgs> DistributedParentAdopted;
-        public event EventHandler<DistributedParentEventArgs> DistributedParentDisconnected;
-        public event EventHandler<DownloadDeniedEventArgs> DownloadDenied;
-        public event EventHandler<DownloadFailedEventArgs> DownloadFailed;
-        public event EventHandler<IReadOnlyCollection<string>> ExcludedSearchPhrasesReceived;
-        public event EventHandler<string> GlobalMessageReceived;
-        public event EventHandler KickedFromServer;
-        public event EventHandler LoggedIn;
-        public event EventHandler<PrivateMessageReceivedEventArgs> PrivateMessageReceived;
-        public event EventHandler<string> PrivateRoomMembershipAdded;
-        public event EventHandler<string> PrivateRoomMembershipRemoved;
-        public event EventHandler<RoomInfo> PrivateRoomModeratedUserListReceived;
-        public event EventHandler<string> PrivateRoomModerationAdded;
-        public event EventHandler<string> PrivateRoomModerationRemoved;
-        public event EventHandler<RoomInfo> PrivateRoomUserListReceived;
-        public event EventHandler<IReadOnlyCollection<string>> PrivilegedUserListReceived;
-        public event EventHandler<PrivilegeNotificationReceivedEventArgs> PrivilegeNotificationReceived;
-        public event EventHandler PromotedToDistributedBranchRoot;
-        public event EventHandler<PublicChatMessageReceivedEventArgs> PublicChatMessageReceived;
-        public event EventHandler<RoomJoinedEventArgs> RoomJoined;
-        public event EventHandler<RoomLeftEventArgs> RoomLeft;
-        public event EventHandler<RoomList> RoomListReceived;
-        public event EventHandler<RoomMessageReceivedEventArgs> RoomMessageReceived;
-        public event EventHandler<RoomTickerAddedEventArgs> RoomTickerAdded;
-        public event EventHandler<RoomTickerListReceivedEventArgs> RoomTickerListReceived;
-        public event EventHandler<RoomTickerRemovedEventArgs> RoomTickerRemoved;
-        public event EventHandler<SearchRequestEventArgs> SearchRequestReceived;
-        public event EventHandler<SearchRequestResponseEventArgs> SearchResponseDelivered;
-        public event EventHandler<SearchRequestResponseEventArgs> SearchResponseDeliveryFailed;
-        public event EventHandler<SearchResponseReceivedEventArgs> SearchResponseReceived;
-        public event EventHandler<SearchStateChangedEventArgs> SearchStateChanged;
-        public event EventHandler<ServerInfo> ServerInfoReceived;
-        public event EventHandler<SoulseekClientStateChangedEventArgs> StateChanged;
-        public event EventHandler<TransferProgressUpdatedEventArgs> TransferProgressUpdated;
-        public event EventHandler<TransferStateChangedEventArgs> TransferStateChanged;
-        public event EventHandler<UserCannotConnectEventArgs> UserCannotConnect;
-        public event EventHandler<UserStatistics> UserStatisticsChanged;
-        public event EventHandler<UserStatus> UserStatusChanged;
-        public event EventHandler<DiagnosticEventArgs> DiagnosticGenerated;
+        // ISoulseekClient requires these events; local-file execution never raises them.
+#pragma warning disable CS0067
+        public event EventHandler<BrowseProgressUpdatedEventArgs>? BrowseProgressUpdated;
+        public event EventHandler? Connected;
+        public event EventHandler? DemotedFromDistributedBranchRoot;
+        public event EventHandler<SoulseekClientDisconnectedEventArgs>? Disconnected;
+        public event EventHandler<DistributedChildEventArgs>? DistributedChildAdded;
+        public event EventHandler<DistributedChildEventArgs>? DistributedChildDisconnected;
+        public event EventHandler? DistributedNetworkReset;
+        public event EventHandler<DistributedNetworkInfo>? DistributedNetworkStateChanged;
+        public event EventHandler<DistributedParentEventArgs>? DistributedParentAdopted;
+        public event EventHandler<DistributedParentEventArgs>? DistributedParentDisconnected;
+        public event EventHandler<DownloadDeniedEventArgs>? DownloadDenied;
+        public event EventHandler<DownloadFailedEventArgs>? DownloadFailed;
+        public event EventHandler<IReadOnlyCollection<string>>? ExcludedSearchPhrasesReceived;
+        public event EventHandler<string>? GlobalMessageReceived;
+        public event EventHandler? KickedFromServer;
+        public event EventHandler? LoggedIn;
+        public event EventHandler<PrivateMessageReceivedEventArgs>? PrivateMessageReceived;
+        public event EventHandler<string>? PrivateRoomMembershipAdded;
+        public event EventHandler<string>? PrivateRoomMembershipRemoved;
+        public event EventHandler<RoomInfo>? PrivateRoomModeratedUserListReceived;
+        public event EventHandler<string>? PrivateRoomModerationAdded;
+        public event EventHandler<string>? PrivateRoomModerationRemoved;
+        public event EventHandler<RoomInfo>? PrivateRoomUserListReceived;
+        public event EventHandler<IReadOnlyCollection<string>>? PrivilegedUserListReceived;
+        public event EventHandler<PrivilegeNotificationReceivedEventArgs>? PrivilegeNotificationReceived;
+        public event EventHandler? PromotedToDistributedBranchRoot;
+        public event EventHandler<PublicChatMessageReceivedEventArgs>? PublicChatMessageReceived;
+        public event EventHandler<RoomJoinedEventArgs>? RoomJoined;
+        public event EventHandler<RoomLeftEventArgs>? RoomLeft;
+        public event EventHandler<RoomList>? RoomListReceived;
+        public event EventHandler<RoomMessageReceivedEventArgs>? RoomMessageReceived;
+        public event EventHandler<RoomTickerAddedEventArgs>? RoomTickerAdded;
+        public event EventHandler<RoomTickerListReceivedEventArgs>? RoomTickerListReceived;
+        public event EventHandler<RoomTickerRemovedEventArgs>? RoomTickerRemoved;
+        public event EventHandler<SearchRequestEventArgs>? SearchRequestReceived;
+        public event EventHandler<SearchRequestResponseEventArgs>? SearchResponseDelivered;
+        public event EventHandler<SearchRequestResponseEventArgs>? SearchResponseDeliveryFailed;
+        public event EventHandler<SearchResponseReceivedEventArgs>? SearchResponseReceived;
+        public event EventHandler<SearchStateChangedEventArgs>? SearchStateChanged;
+        public event EventHandler<ServerInfo>? ServerInfoReceived;
+        public event EventHandler<SoulseekClientStateChangedEventArgs>? StateChanged;
+        public event EventHandler<TransferProgressUpdatedEventArgs>? TransferProgressUpdated;
+        public event EventHandler<TransferStateChangedEventArgs>? TransferStateChanged;
+        public event EventHandler<UserCannotConnectEventArgs>? UserCannotConnect;
+        public event EventHandler<UserStatistics>? UserStatisticsChanged;
+        public event EventHandler<UserStatus>? UserStatusChanged;
+        public event EventHandler<DiagnosticEventArgs>? DiagnosticGenerated;
+
+#pragma warning restore CS0067
 
         public Task AcknowledgePrivateMessageAsync(int privateMessageId, CancellationToken? cancellationToken = null)
         {
@@ -109,7 +104,7 @@ namespace Sockseek.Core.Services
             throw new NotImplementedException();
         }
 
-        public void Disconnect(string message = null, Exception exception = null)
+        public void Disconnect(string? message = null, Exception? exception = null)
         {
             throw new NotImplementedException();
         }
@@ -124,22 +119,22 @@ namespace Sockseek.Core.Services
             throw new NotImplementedException();
         }
 
-        public Task<Task<Transfer>> EnqueueDownloadAsync(string username, string remoteFilename, string localFilename, long? size = null, long startOffset = 0, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
+        public Task<Task<Transfer>> EnqueueDownloadAsync(string username, string remoteFilename, string localFilename, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             throw new NotImplementedException();
         }
 
-        public Task<Task<Transfer>> EnqueueDownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
+        public Task<Task<Transfer>> EnqueueDownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             throw new NotImplementedException();
         }
 
-        public Task<Task<Transfer>> EnqueueUploadAsync(string username, string remoteFilename, string localFilename, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
+        public Task<Task<Transfer>> EnqueueUploadAsync(string username, string remoteFilename, string localFilename, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             throw new NotImplementedException();
         }
 
-        public Task<Task<Transfer>> EnqueueUploadAsync(string username, string remoteFilename, long size, Func<long, Task<Stream>> inputStreamFactory, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
+        public Task<Task<Transfer>> EnqueueUploadAsync(string username, string remoteFilename, long size, Func<long, Task<Stream>> inputStreamFactory, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             throw new NotImplementedException();
         }
@@ -176,7 +171,9 @@ namespace Sockseek.Core.Services
 
         public Task<UserInfo> GetUserInfoAsync(string username, CancellationToken? cancellationToken = null)
         {
-            throw new NotImplementedException();
+            if (!index.Any(user => string.Equals(user.Username, username, StringComparison.Ordinal)))
+                throw new UserNotFoundException($"User {username} not found");
+            return Task.FromResult(new UserInfo("Local mock user", 1, 0, true));
         }
 
         public Task<bool> GetUserPrivilegedAsync(string username, CancellationToken? cancellationToken = null)
@@ -186,12 +183,30 @@ namespace Sockseek.Core.Services
 
         public Task<UserStatistics> GetUserStatisticsAsync(string username, CancellationToken? cancellationToken = null)
         {
-            throw new NotImplementedException();
+            SearchResponse? user = index.FirstOrDefault(
+                candidate => string.Equals(candidate.Username, username, StringComparison.Ordinal));
+            if (user is null)
+                throw new UserNotFoundException($"User {username} not found");
+            int directories = user.Files
+                .Select(file => Utils.GetDirectoryNameSlsk(file.Filename))
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+            return Task.FromResult(new UserStatistics(
+                username,
+                averageSpeed: user.UploadSpeed,
+                uploadCount: 0,
+                fileCount: user.Files.Count,
+                directoryCount: directories));
         }
 
         public Task<UserStatus> GetUserStatusAsync(string username, CancellationToken? cancellationToken = null)
         {
-            throw new NotImplementedException();
+            bool exists = index.Any(
+                candidate => string.Equals(candidate.Username, username, StringComparison.Ordinal));
+            return Task.FromResult(new UserStatus(
+                username,
+                exists ? UserPresence.Online : UserPresence.Offline,
+                isPrivileged: false));
         }
 
         public Task GrantUserPrivilegesAsync(string username, int days, CancellationToken? cancellationToken = null)
@@ -216,7 +231,8 @@ namespace Sockseek.Core.Services
 
         public Task<bool> ReconfigureOptionsAsync(SoulseekClientOptionsPatch patch, CancellationToken? cancellationToken = null)
         {
-            throw new NotImplementedException();
+            // The local-files client has no network transfers to throttle.
+            return Task.FromResult(false);
         }
 
         public Task RemovePrivateRoomMemberAsync(string roomName, string username, CancellationToken? cancellationToken = null)
@@ -269,12 +285,12 @@ namespace Sockseek.Core.Services
             throw new NotImplementedException();
         }
 
-        public Task<Transfer> UploadAsync(string username, string remoteFilename, string localFilename, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
+        public Task<Transfer> UploadAsync(string username, string remoteFilename, string localFilename, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             throw new NotImplementedException();
         }
 
-        public Task<Transfer> UploadAsync(string username, string remoteFilename, long size, Func<long, Task<Stream>> inputStreamFactory, int? token = null, TransferOptions options = null, CancellationToken? cancellationToken = null)
+        public Task<Transfer> UploadAsync(string username, string remoteFilename, long size, Func<long, Task<Stream>> inputStreamFactory, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             throw new NotImplementedException();
         }

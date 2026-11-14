@@ -12,10 +12,14 @@ public static partial class Help
             { "download-modes", downloadModesHelp },
             { "file-conditions", fileConditionsHelp },
             { "name-format", nameFormatHelp },
+            { "variables", variablesHelp },
             { "on-complete", onCompleteHelp },
             { "config", configHelp },
             { "shortcuts", shortcutsHelp },
             { "notes", notesAndTipsHelp },
+            { "daemon", daemonHelp },
+            { "user", userHelp },
+            { "database", databaseHelp },
         };
 
         if (option != null && dict.TryGetValue(option, out string? value))
@@ -52,7 +56,14 @@ public static partial class Help
         int helpIdx = Array.FindLastIndex(args, x => x == "--help" || x == "-h");
         if (helpIdx >= 0)
         {
-            PrintHelp(helpIdx + 1 < args.Length ? args[helpIdx + 1] : null);
+            string? topic = helpIdx + 1 < args.Length
+                ? args[helpIdx + 1]
+                : args.Length > 0 && string.Equals(args[0], "daemon", StringComparison.OrdinalIgnoreCase)
+                    ? "daemon"
+                    : args.Length > 0 && string.Equals(args[0], "database", StringComparison.OrdinalIgnoreCase)
+                        ? "database"
+                    : null;
+            PrintHelp(topic);
             return true;
         }
         else if (args.Contains("--version"))

@@ -114,8 +114,19 @@ public class CliEndToEndTests
             var activePickers = 0;
             var maxActivePickers = 0;
             var pickerCalls = 0;
+            var workflowId = Guid.NewGuid();
 
             var backend = new LocalCliBackend(app, rootSettings);
+            var bothAlbumsReady = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            void ObserveAlbumReadiness(DaemonClientUpdate _)
+            {
+                if (backend.ClientStore.GetWorkflowJobs(workflowId).Count(job =>
+                    job.Kind == ServerJobKind.Album
+                    && job.LifecycleState == ServerJobLifecycleState.AwaitingSelection) >= 2)
+                    bothAlbumsReady.TrySetResult();
+            }
+            backend.StateUpdated += ObserveAlbumReadiness;
             var coordinator = new InteractiveCliCoordinator(
                 backend,
                 cliSettings,
@@ -153,7 +164,6 @@ public class CliEndToEndTests
                 });
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            var workflowId = Guid.NewGuid();
             var submission = await coordinator.StartAsync(
                 new SubmitExtractJobRequestDto(rootSettings.Extraction.Input!, rootSettings.Extraction.InputType.ToString(), Options: new SubmissionOptionsDto(workflowId)),
                 cts.Token);
@@ -162,6 +172,7 @@ public class CliEndToEndTests
             Assert.IsFalse(cts.IsCancellationRequested, "RunAsync timed out");
             Assert.AreEqual(2, pickerCalls, "Both list album jobs should reach the interactive picker");
             Assert.AreEqual(1, maxActivePickers, "Interactive album prompts must not overlap");
+            backend.StateUpdated -= ObserveAlbumReadiness;
 
             var files = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
                 .Where(path => string.Equals(Path.GetExtension(path), ".mp3", StringComparison.OrdinalIgnoreCase))
@@ -238,6 +249,7 @@ public class CliEndToEndTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task InteractiveAlbumSelection_ShiftSStillAllowsRetryPromptForAcceptedAlbum()
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -279,10 +291,10 @@ public class CliEndToEndTests
             var (app, rootSettings) = CreateInteractiveListEngine(client, listPath, outputDir);
             await using var appScope = app;
             var backend = new LocalCliBackend(app, rootSettings);
-            backend.EventReceived += envelope =>
+            app.Events.JobStateChanged += change =>
             {
-                if (envelope is { Type: "job.upserted", Payload: JobSummaryDto
-                    { Kind: ServerJobKind.Album, TerminalOutcome: ServerJobTerminalOutcome.Skipped, SkipReason: ServerJobSkipReason.Manual } })
+                if (change.Job is
+                    { Kind: Sockseek.Core.Snapshots.JobSnapshotKind.Album, TerminalOutcome: JobTerminalOutcome.Skipped, SkipReason: JobSkipReason.Manual })
                     secondAlbumSkipped.TrySetResult();
             };
             var pickerPurposes = new List<InteractiveAlbumPromptPurpose>();
@@ -471,9 +483,13 @@ public class CliEndToEndTests
             string? cancelledFolderKey = null;
             var cancellationIssued = 0;
 
-            app.Events.JobStateChanged += job =>
+            app.Events.JobStateChanged += change =>
             {
-                if (job.ActivityPhase != JobActivityPhase.Downloading || job is not AlbumJob albumJob || albumJob.ResolvedTarget == null || cancelledFolderKey == null)
+                if (change.ActivityPhase != JobActivityPhase.Downloading
+                    || change.Job.Kind != Sockseek.Core.Snapshots.JobSnapshotKind.Album
+                    || app.GetJob(change.Job.Id) is not AlbumJob albumJob
+                    || albumJob.ResolvedTarget == null
+                    || cancelledFolderKey == null)
                     return;
 
                 var key = albumJob.ResolvedTarget.Username + "\\" + albumJob.ResolvedTarget.FolderPath;
@@ -561,10 +577,10 @@ public class CliEndToEndTests
             await using var app = new DownloadEngine(engineSettings, clientManager);
             var pickerCalls = 0;
             var parentAlbumFailedBeforeRetry = false;
-            app.Events.JobStateChanged += job =>
+            app.Events.JobStateChanged += change =>
             {
-                if (job is AlbumJob
-                    && job.TerminalOutcome == JobTerminalOutcome.Failed
+                if (change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Album
+                    && change.TerminalOutcome == JobTerminalOutcome.Failed
                     && pickerCalls < 2)
                 {
                     parentAlbumFailedBeforeRetry = true;
@@ -690,7 +706,8 @@ public class CliEndToEndTests
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             var workflowId = Guid.NewGuid();
             var submission = await coordinator.StartAsync(
-                new SubmitExtractJobRequestDto(csvPath, InputType.None.ToString(), Options: new SubmissionOptionsDto(workflowId)),
+                new SubmitExtractJobRequestDto(csvPath, InputType.None.ToString(), Options: new SubmissionOptionsDto(workflowId,
+                    DownloadSettings: new DownloadSettingsPatchDto(Skip: new SkipSettingsPatchDto(SkipExisting: true)))),
                 cts.Token);
             await RunInteractiveAsync(app, coordinator, submission.WorkflowId, cts);
 

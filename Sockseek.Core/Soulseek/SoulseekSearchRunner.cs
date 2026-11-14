@@ -1,4 +1,6 @@
 using System.Threading.Channels;
+using Microsoft.Extensions.Logging;
+using Sockseek.Core.Models;
 using Soulseek;
 
 namespace Sockseek.Core.Services;
@@ -6,7 +8,7 @@ namespace Sockseek.Core.Services;
 internal static class SoulseekSearchRunner
 {
     public static async Task RunAsync(ISoulseekClient client, SearchQuery query, SearchOptions options,
-        Action<SearchResponse> responseHandler, CancellationToken ct)
+        Action<SearchResponse> responseHandler, CancellationToken ct, ILogger? logger = null)
     {
         // Soulseek invokes callbacks while holding its search read lock. Keep that
         // callback cheap and drain accepted responses before exposing completion.
@@ -24,7 +26,9 @@ internal static class SoulseekSearchRunner
                 await foreach (var response in responses.Reader.ReadAllAsync(ct).ConfigureAwait(false))
                 {
                     ct.ThrowIfCancellationRequested();
-                    responseHandler(response);
+                    var validResponse = ValidateResponse(response, logger);
+                    if (validResponse != null)
+                        responseHandler(validResponse);
                 }
             }
             catch
@@ -72,7 +76,8 @@ internal static class SoulseekSearchRunner
                     || (lastState & (SearchStates.Cancelled | SearchStates.Errored)) != 0)
                     throw;
 
-                SockseekLog.Soulseek.Debug("Ignoring Soulseek search lock disposal failure after successful completion.");
+                if (logger != null)
+                    SoulseekLogMessages.SearchDisposalFailureIgnored(logger);
             }
         }
         finally
@@ -87,4 +92,49 @@ internal static class SoulseekSearchRunner
     private static bool IsSearchDisposalFailure(SynchronizationLockException error)
         => error.TargetSite?.DeclaringType == typeof(ReaderWriterLockSlim)
             && error.StackTrace?.Contains("Soulseek.SearchInternal.Dispose", StringComparison.Ordinal) == true;
+
+    private static SearchResponse? ValidateResponse(SearchResponse response, ILogger? logger)
+    {
+        // Reject malformed wire facts before raw storage and fast-search conversion.
+        // Do not let one bad file poison a whole response or a later projection.
+        try { PeerIdentityValidator.ValidateUsername(response.Username); }
+        catch (ArgumentException)
+        {
+            if (logger != null)
+                SoulseekLogMessages.InvalidSearchResponse(logger, response.Token, true, response.Files.Count + response.LockedFiles.Count);
+            return null;
+        }
+
+        var files = ValidFiles(response.Files);
+        var lockedFiles = ValidFiles(response.LockedFiles);
+        if (ReferenceEquals(files, response.Files) && ReferenceEquals(lockedFiles, response.LockedFiles))
+            return response;
+
+        if (logger != null)
+            SoulseekLogMessages.InvalidSearchResponse(logger, response.Token, false,
+                response.Files.Count + response.LockedFiles.Count - files.Count - lockedFiles.Count);
+        return new SearchResponse(response.Username, response.Token, response.HasFreeUploadSlot,
+            response.UploadSpeed, response.QueueLength, files, lockedFiles);
+    }
+
+    private static IReadOnlyCollection<Soulseek.File> ValidFiles(IReadOnlyCollection<Soulseek.File> files)
+    {
+        List<Soulseek.File>? valid = null;
+        int index = 0;
+        foreach (var file in files)
+        {
+            bool accepted = file.Size >= 0;
+            if (accepted)
+            {
+                try { PeerIdentityValidator.ValidateRemotePath(file.Filename); }
+                catch (ArgumentException) { accepted = false; }
+            }
+            if (accepted)
+                valid?.Add(file);
+            else
+                valid ??= files.Take(index).ToList();
+            index++;
+        }
+        return valid ?? files;
+    }
 }

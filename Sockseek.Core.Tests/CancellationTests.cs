@@ -1,10 +1,13 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.Extensions.Logging;
 using Soulseek;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
+using Sockseek.Core.Transfers.Downloads.JobTracking;
+using Sockseek.Core.Transfers.Downloads.ManualSelection;
 
 namespace Tests.Cancellation
 {
@@ -14,7 +17,6 @@ namespace Tests.Cancellation
         [ClassInitialize]
         public static void ClassSetup(TestContext _)
         {
-            SockseekLog.AddConsole(LogLevel.Critical);
         }
 
         private static ClientTests.MockSoulseekClient CreateBlockedSearchClient(out TestHelpers.DownloadGate searchGate)
@@ -54,8 +56,8 @@ namespace Tests.Cancellation
         private static async Task WaitForAsync(DownloadEngine engine, Func<bool> condition, int timeoutMs = 5000)
         {
             using var signal = new TestSignal()
-                .Subscribe<Job>(handler => engine.Events.JobStateChanged += handler, handler => engine.Events.JobStateChanged -= handler)
-                .Subscribe<Job>(handler => engine.Events.JobExecutionCompleted += handler, handler => engine.Events.JobExecutionCompleted -= handler);
+                .Subscribe<Sockseek.Core.Events.JobStateChangedChange>(handler => engine.Events.JobStateChanged += handler, handler => engine.Events.JobStateChanged -= handler)
+                .Subscribe<Sockseek.Core.Events.JobExecutionCompletedChange>(handler => engine.Events.JobExecutionCompleted += handler, handler => engine.Events.JobExecutionCompleted -= handler);
             await signal.WaitUntilAsync(condition, "Engine did not reach the expected state.", timeoutMs);
         }
 
@@ -68,34 +70,136 @@ namespace Tests.Cancellation
         }
 
 
-        // ── Test 1: engine sets Cts on all jobs it processes ─────────────────
-        // Verifies that Job.Cts is non-null after the engine processes each job.
-        // Uses an empty client so the engine completes immediately (no real I/O).
-
         [TestMethod]
-        public async Task Engine_SetsCts_OnAllProcessedJobs()
+        public async Task Engine_RegistersQueuedListTreeAndPreservesChildCancellation()
         {
-            var client = new ClientTests.MockSoulseekClient(new List<SearchResponse>());
-            var (engine, outputDir) = CreateEngine(client, "testartist - testsong");
-
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-register-queued-" + Guid.NewGuid());
+            System.IO.Directory.CreateDirectory(outputDir);
+            var settings = new EngineSettings
+            {
+                Username = "u", Password = "p", ConcurrentJobs = 1, ConcurrentExtractors = 1,
+            };
+            var downloads = new DownloadSettings();
+            downloads.Output.ParentDir = outputDir;
+            downloads.Output.WriteIndex = false;
+            downloads.Skip.SkipExisting = false;
+            var client = CreateBlockedSearchClient(out var searchGate);
+            await using var engine = new DownloadEngine(settings, TestHelpers.CreateMockClientManager(client, settings));
+            var first = new SongJob(new SongQuery { Artist = "testartist", Title = "testsong" });
+            var second = new SongJob(new SongQuery { Artist = "testartist", Title = "testsong2" });
+            var cancelled = new SongJob(new SongQuery { Artist = "testartist", Title = "never start" });
+            var sibling = new SongJob(new SongQuery { Artist = "testartist", Title = "testsong" });
+            var nested = new JobList("queued branch", [cancelled, sibling]);
+            var root = new JobList("queued tree", [first, second, nested]);
+            Job[] expected = [root, first, second, nested, cancelled, sibling];
+            var registered = new System.Collections.Concurrent.ConcurrentDictionary<Guid, Guid?>();
+            int registrationCount = 0;
+            engine.Events.JobRegistered += change =>
+            {
+                registered[change.Job.Id] = change.ParentJobId;
+                Interlocked.Increment(ref registrationCount);
+            };
+            Task? running = null;
             try
             {
-                await engine.RunAsync(CancellationToken.None);
+                engine.Enqueue(root, downloads);
+                engine.CompleteEnqueue();
+                running = engine.RunAsync(CancellationToken.None);
+                await searchGate.WaitForStartedCountAsync(1);
 
-                var extractJob = (ExtractJob)engine.Queue.Jobs[0];
-                Assert.IsNotNull(extractJob.Cts, "ExtractJob.Cts should be set by the engine");
+                foreach (var job in expected)
+                {
+                    Assert.AreSame(job, engine.GetJob(job.Id), "Known queued members must be addressable before execution reaches them.");
+                    Assert.IsNotNull(job.Cts, "A published queued job must already be cancellable.");
+                }
+                Assert.AreEqual(6, engine.GetJobsByWorkflow(root.WorkflowId).Count);
+                Assert.AreEqual(root.Id, registered[first.Id]);
+                Assert.AreEqual(root.Id, registered[second.Id]);
+                Assert.AreEqual(root.Id, registered[nested.Id]);
+                Assert.AreEqual(nested.Id, registered[cancelled.Id]);
+                Assert.AreEqual(nested.Id, registered[sibling.Id]);
+                Assert.IsTrue(second.IsPending && nested.IsPending && cancelled.IsPending && sibling.IsPending);
+                Assert.AreEqual(1, client.SearchCallCount, "Registration must not start queued searches.");
+                Assert.IsTrue(engine.CancelJobByDisplayId(cancelled.DisplayId, root.WorkflowId));
+                Assert.IsTrue(cancelled.Cts!.IsCancellationRequested);
+                Assert.IsFalse(root.Cts!.IsCancellationRequested || nested.Cts!.IsCancellationRequested || sibling.Cts!.IsCancellationRequested);
 
-                // StringExtractor returns a bare SongJob (not wrapped in a JobList).
-                var songJob = (SongJob)extractJob.Result!;
-                Assert.IsNotNull(songJob.Cts, "SongJob.Cts should be set by the engine");
+                searchGate.Open();
+                await IgnoreCancellation(running.WaitAsync(TimeSpan.FromSeconds(5)));
+                Assert.IsTrue(first.IsSuccessfulTerminal && second.IsSuccessfulTerminal && sibling.IsSuccessfulTerminal);
+                Assert.AreEqual(JobTerminalOutcome.Cancelled, cancelled.TerminalOutcome);
+                Assert.AreEqual(JobCancellationSource.UserRequestedJob, cancelled.CancellationSource);
+                Assert.AreEqual(3, client.SearchCallCount, "A queued cancellation must survive admission and never search.");
+                Assert.AreEqual(6, registrationCount, "Starting a registered member must not publish it again.");
             }
             finally
             {
-                if (System.IO.Directory.Exists(outputDir))
-                    System.IO.Directory.Delete(outputDir, recursive: true);
+                engine.Cancel();
+                searchGate.Open();
+                if (running != null) await IgnoreCancellation(running.WaitAsync(TimeSpan.FromSeconds(5)));
+                System.IO.Directory.Delete(outputDir, recursive: true);
             }
         }
 
+
+        [TestMethod]
+        [DataRow("async-dispose")]
+        [DataRow("sync-dispose")]
+        [DataRow("run-cancellation")]
+        public async Task Engine_ShutdownWaitsForActiveRootCleanup(string shutdown)
+        {
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var cleaningUp = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var never = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var client = new ClientTests.MockSoulseekClient(TestHelpers.CreateTestIndex())
+            {
+                BeforeSearchAsync = async (_, ct) =>
+                {
+                    started.TrySetResult();
+                    try { await never.Task.WaitAsync(ct); }
+                    finally
+                    {
+                        cleaningUp.TrySetResult();
+                        await releaseCleanup.Task;
+                    }
+                },
+            };
+            var settings = new EngineSettings { Username = "u", Password = "p" };
+            var engine = new DownloadEngine(settings, TestHelpers.CreateMockClientManager(client, settings));
+            var job = new SearchJob("testartist");
+            engine.Enqueue(job, new DownloadSettings());
+            using var cancellation = new CancellationTokenSource();
+            var running = engine.RunAsync(cancellation.Token);
+            Task stopping = Task.CompletedTask;
+            try
+            {
+                await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                switch (shutdown)
+                {
+                    case "async-dispose": stopping = engine.DisposeAsync().AsTask(); break;
+                    case "sync-dispose": stopping = Task.Run(engine.Dispose); break;
+                    default: cancellation.Cancel(); stopping = running; break;
+                }
+                await cleaningUp.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.IsFalse(stopping.IsCompleted, "Shutdown must join the root before destroying its shared resources.");
+                Assert.IsFalse(job.IsTerminal, "The root is still unwinding the peer operation.");
+                releaseCleanup.TrySetResult();
+                await IgnoreCancellation(stopping.WaitAsync(TimeSpan.FromSeconds(5)));
+                await IgnoreCancellation(running.WaitAsync(TimeSpan.FromSeconds(5)));
+                Assert.AreEqual(JobTerminalOutcome.Cancelled, job.TerminalOutcome);
+                Assert.AreEqual(JobCancellationSource.InternalEngine, job.CancellationSource);
+            }
+            finally
+            {
+                releaseCleanup.TrySetResult();
+                cancellation.Cancel();
+                engine.Cancel();
+                await IgnoreCancellation(running.WaitAsync(TimeSpan.FromSeconds(5)));
+                await IgnoreCancellation(stopping.WaitAsync(TimeSpan.FromSeconds(5)));
+                await engine.DisposeAsync();
+            }
+        }
 
         // ── Test 2: cancelling a JobList unblocks all child searches ──────────
         // Cancels the parent JobList while both child songs are in the Searching state.
@@ -156,7 +260,9 @@ namespace Tests.Cancellation
         }
 
         [TestMethod]
-        public async Task CancelJobList_WithQueuedChildren_MarksUnstartedChildrenCancelled()
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task CancelJobList_WithQueuedChildren_MarksUnstartedChildrenCancelled(bool separateOutput)
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-queued-" + Guid.NewGuid());
             System.IO.Directory.CreateDirectory(outputDir);
@@ -171,6 +277,10 @@ namespace Tests.Cancellation
                 };
                 var dl = new DownloadSettings();
                 dl.Output.ParentDir = outputDir;
+                dl.Output.WriteIndex = true;
+                dl.Output.IndexFilePath = Path.Combine(outputDir, "index.csv");
+                dl.Output.WritePlaylist = true;
+                dl.Output.M3uFilePath = Path.Combine(outputDir, "playlist.m3u8");
 
                 var clientManager = TestHelpers.CreateMockClientManager(
                     CreateBlockedSearchClient(out var searchGate),
@@ -179,7 +289,20 @@ namespace Tests.Cancellation
 
                 var first = new SongJob(new SongQuery { Artist = "testartist", Title = "testsong" });
                 var second = new SongJob(new SongQuery { Artist = "testartist", Title = "testsong2" });
+                if (separateOutput)
+                {
+                    var secondSettings = SettingsCloner.Clone(dl);
+                    secondSettings.Output.IndexFilePath = Path.Combine(outputDir, "second-index.csv");
+                    secondSettings.Output.M3uFilePath = Path.Combine(outputDir, "second-playlist.m3u8");
+                    second.PlannedSettings = JobSettingsSnapshot.Capture(secondSettings);
+                }
                 var list = new JobList("cancel queued children", [first, second]);
+                int cancelling = 0;
+                var cancellationProgress = new System.Collections.Concurrent.ConcurrentBag<Sockseek.Core.Events.OverallProgressChange>();
+                engine.Events.OverallProgress += change =>
+                {
+                    if (Volatile.Read(ref cancelling) != 0) cancellationProgress.Add(change);
+                };
 
                 engine.Enqueue(list, dl);
                 engine.CompleteEnqueue();
@@ -188,6 +311,7 @@ namespace Tests.Cancellation
 
                 await WaitForAsync(engine, () => first.ActivityPhase == JobActivityPhase.Searching && second.IsPending);
 
+                Volatile.Write(ref cancelling, 1);
                 list.Cancel(JobCancellationSource.UserRequestedJob);
                 await IgnoreCancellation(runTask);
 
@@ -201,6 +325,30 @@ namespace Tests.Cancellation
                 Assert.AreEqual(JobTerminalOutcome.Cancelled, list.TerminalOutcome);
                 Assert.AreEqual(JobFailureReason.Cancelled, list.FailureReason);
                 Assert.AreEqual(JobCancellationSource.UserRequestedJob, list.CancellationSource);
+                Assert.AreEqual(1, cancellationProgress.Count,
+                    "Bulk cancellation publishes one exact final overall count, not a full recount/broadcast per queued child.");
+                Assert.AreEqual(0, cancellationProgress.Single().Done);
+                // Legacy overall progress keeps cancellation distinct from a
+                // download failure; per-job outcomes above remain Cancelled.
+                Assert.AreEqual(0, cancellationProgress.Single().Failed);
+                Assert.AreEqual(2, cancellationProgress.Single().Total);
+                foreach (var indexPath in separateOutput
+                    ? new[] { dl.Output.IndexFilePath, second.PlannedSettings!.ReadSettings().Output.IndexFilePath }
+                    : new[] { dl.Output.IndexFilePath })
+                {
+                    var retained = new DownloadOutputFile(indexPath!, list, OutputFileKind.Index, true).GetPreviousRunData();
+                    Assert.AreEqual(2, retained.Count);
+                    Assert.IsTrue(retained.All(entry => entry.State == JobStateOld.Failed
+                        && entry.FailureReason == JobFailureReason.Cancelled));
+                }
+                foreach (var playlistPath in separateOutput
+                    ? new[] { dl.Output.M3uFilePath, second.PlannedSettings!.ReadSettings().Output.M3uFilePath }
+                    : new[] { dl.Output.M3uFilePath })
+                {
+                    string[] lines = System.IO.File.ReadAllLines(playlistPath!).Where(line => line.Length > 0).ToArray();
+                    Assert.AreEqual(2, lines.Length);
+                    Assert.IsTrue(lines.All(line => line.StartsWith("#FAIL:", StringComparison.Ordinal)));
+                }
             }
             finally
             {
@@ -444,9 +592,11 @@ namespace Tests.Cancellation
                 app.CompleteEnqueue();
 
                 SongJob? songJob = null;
-                app.Events.JobStateChanged += job =>
+                app.Events.JobStateChanged += change =>
                 {
-                    if (job.ActivityPhase == JobActivityPhase.Downloading && job is SongJob sj)
+                    if (change.ActivityPhase == JobActivityPhase.Downloading
+                        && change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Song
+                        && app.GetJob(change.Job.Id) is SongJob sj)
                     {
                         songJob = sj;
                         // Cancel as soon as downloading starts
@@ -461,6 +611,8 @@ namespace Tests.Cancellation
                 Assert.IsTrue(songJob.IsUnsuccessfulTerminal);
                 Assert.AreEqual(JobFailureReason.Cancelled, songJob.FailureReason);
                 Assert.AreEqual(1, testClient.DownloadCallCount, "Should only attempt the first candidate before cancellation takes effect.");
+                Assert.AreEqual(0, app.GetPeerFailureCounts(songJob.WorkflowId).Count,
+                    "Operator cancellation must not penalize the peer.");
             }
             finally
             {
@@ -500,9 +652,11 @@ namespace Tests.Cancellation
                 app.CompleteEnqueue();
 
                 AlbumJob? albumJob = null;
-                app.Events.JobStateChanged += job =>
+                app.Events.JobStateChanged += change =>
                 {
-                    if (job.ActivityPhase == JobActivityPhase.Downloading && job is AlbumJob aj)
+                    if (change.ActivityPhase == JobActivityPhase.Downloading
+                        && change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Album
+                        && app.GetJob(change.Job.Id) is AlbumJob aj)
                     {
                         albumJob = aj;
                         // Cancel as soon as downloading starts
@@ -553,10 +707,10 @@ namespace Tests.Cancellation
                 var client = new ClientTests.MockSoulseekClient([response]);
                 var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
 
-                engine.Events.JobStateChanged += job =>
+                engine.Events.JobStateChanged += change =>
                 {
-                    if (ReferenceEquals(job, albumJob) && job.LifecycleState == JobLifecycleState.Running)
-                        job.Cancel(JobCancellationSource.UserRequestedJob);
+                    if (change.Job.Id == albumJob.Id && change.LifecycleState == JobLifecycleState.Running)
+                        albumJob.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
                 engine.Enqueue(albumJob, downloadSettings);
@@ -576,7 +730,7 @@ namespace Tests.Cancellation
         }
 
         [TestMethod]
-        public async Task AggregateJob_CancelledDuringSearch_RemainsCancelled()
+        public async Task SongGroupsJob_CancelledDuringSearch_RemainsCancelled()
         {
             var response = new SearchResponse(
                 username: "user1",
@@ -589,7 +743,7 @@ namespace Tests.Cancellation
                     TestHelpers.CreateSlFile(@"Shares\ELO\Turn Me On.mp3", length: 240),
                 ]);
 
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-aggregate-search-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-group-search-" + Guid.NewGuid());
             System.IO.Directory.CreateDirectory(outputDir);
 
             try
@@ -597,26 +751,26 @@ namespace Tests.Cancellation
                 var engineSettings = new EngineSettings { Username = "u", Password = "p" };
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
-                downloadSettings.Search.MinSharesAggregate = 1;
+                downloadSettings.Search.MinGroupShares = 1;
 
-                var aggregateJob = new AggregateJob(new SongQuery { Artist = "ELO", Title = "Turn Me On" });
+                var songGroupsJob = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Turn Me On" });
                 var client = new ClientTests.MockSoulseekClient([response]);
                 var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
 
-                engine.Events.JobStateChanged += job =>
+                engine.Events.JobStateChanged += change =>
                 {
-                    if (ReferenceEquals(job, aggregateJob) && job.LifecycleState == JobLifecycleState.Running)
-                        job.Cancel(JobCancellationSource.UserRequestedJob);
+                    if (change.Job.Id == songGroupsJob.Id && change.LifecycleState == JobLifecycleState.Running)
+                        songGroupsJob.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
-                engine.Enqueue(aggregateJob, downloadSettings);
+                engine.Enqueue(songGroupsJob, downloadSettings);
                 engine.CompleteEnqueue();
 
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await IgnoreCancellation(runTask);
 
-                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
-                Assert.AreEqual(JobFailureReason.Cancelled, aggregateJob.FailureReason);
+                Assert.IsTrue(songGroupsJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, songGroupsJob.FailureReason);
             }
             finally
             {
@@ -656,10 +810,10 @@ namespace Tests.Cancellation
                 var client = new ClientTests.MockSoulseekClient([response]);
                 var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
 
-                engine.Events.JobStateChanged += job =>
+                engine.Events.JobStateChanged += change =>
                 {
-                    if (ReferenceEquals(job, songJob) && job.LifecycleState == JobLifecycleState.Running)
-                        job.Cancel(JobCancellationSource.UserRequestedJob);
+                    if (change.Job.Id == songJob.Id && change.LifecycleState == JobLifecycleState.Running)
+                        songJob.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
                 engine.Enqueue(songJob, downloadSettings);
@@ -675,6 +829,577 @@ namespace Tests.Cancellation
             {
                 if (System.IO.Directory.Exists(outputDir))
                     System.IO.Directory.Delete(outputDir, recursive: true);
+            }
+        }
+
+        [TestMethod]
+        public async Task ManualSelection_SkipCommitsExplicitTerminalReasonAndFlushesEffects()
+        {
+            var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
+            {
+                Config = new DownloadSettings(),
+                DownloadBehaviorPolicy = new DownloadBehaviorPolicy
+                {
+                    Album = DownloadBehavior.Manual,
+                },
+            };
+            album.SetAwaitingSelection();
+            int flushCount = 0;
+            var coordinator = new ManualSelectionCoordinator(
+                id => id == album.Id ? album : null,
+                new DownloadJobContextStore(),
+                (_, _, _) => { },
+                _ => { },
+                _ => { },
+                (_, _) => { },
+                _ =>
+                {
+                    flushCount++;
+                    return Task.CompletedTask;
+                },
+                job => job.IsSuccessfulTerminal,
+                _ => { });
+
+            Assert.IsTrue(coordinator.HasResumableState([album]));
+            Assert.IsTrue(await coordinator.SkipAsync(album.Id));
+            Assert.AreEqual(JobLifecycleState.Terminal, album.LifecycleState);
+            Assert.AreEqual(JobTerminalOutcome.Skipped, album.TerminalOutcome);
+            Assert.AreEqual(JobSkipReason.Manual, album.SkipReason);
+            Assert.AreEqual(1, flushCount);
+            Assert.IsFalse(coordinator.HasResumableState([album]));
+            Assert.IsFalse(await coordinator.SkipAsync(album.Id));
+        }
+
+        [TestMethod]
+        [DataRow(false, true, false)]
+        [DataRow(false, false, false)]
+        [DataRow(true, true, false)]
+        [DataRow(true, false, false)]
+        [DataRow(false, true, true)]
+        [DataRow(true, true, true)]
+        public async Task ManualGroupSelection_ClosingWaitsForOnlyTheSelectedGroup(bool albumMode, bool succeeds, bool cancelOwner)
+        {
+            string outputDir = System.IO.Directory.CreateTempSubdirectory("sockseek-manual-group-").FullName;
+            var gate = new TestHelpers.DownloadGate();
+            Soulseek.File[] Files(string prefix) =>
+            [
+                TestHelpers.CreateSlFile($@"{prefix}\Artist\Album One\01 - First.mp3", size: 128),
+                TestHelpers.CreateSlFile($@"{prefix}\Artist\Album Two\01 - Second.mp3", size: 128),
+            ];
+            var client = new ClientTests.MockSoulseekClient(
+            [
+                new SearchResponse("peer", 1, true, 100_000, 0, Files("Music")),
+                new SearchResponse("other-peer", 2, true, 50_000, 0, Files("Other")),
+            ])
+            {
+                BeforeDownloadCompletesAsync = async (username, filename, ct) =>
+                {
+                    await gate.BlockAsync(username, filename, ct);
+                    if (!succeeds) throw new TransferRejectedException("Selected source rejects the download.");
+                },
+            };
+            var settings = new DownloadSettings();
+            settings.Output.ParentDir = outputDir;
+            settings.Output.WriteIndex = false;
+            settings.Skip.SkipExisting = false;
+            settings.Search.MinGroupShares = 1;
+            settings.Search.NoBrowseFolder = true;
+            Job group = albumMode
+                ? new AlbumGroupsJob(new AlbumQuery { Artist = "Artist" })
+                : new SongGroupsJob(new SongQuery { Artist = "Artist" });
+            group.WorkflowId = Guid.NewGuid();
+            group.DownloadBehaviorPolicy = new DownloadBehaviorPolicy
+            {
+                SongGroups = DownloadBehavior.Manual, AlbumGroups = DownloadBehavior.Manual,
+            };
+            var engineSettings = new EngineSettings
+            {
+                Username = "u", Password = "p", LogLevel = Microsoft.Extensions.Logging.LogLevel.None,
+            };
+            var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings), retireTerminalWorkflows: true);
+            Task? running = null;
+            bool queueClosed = false;
+            try
+            {
+                engine.Enqueue(group, settings);
+                running = engine.RunAsync(CancellationToken.None);
+                await WaitForAsync(engine, () => group.IsAwaitingSelection);
+                Job selected, other;
+                Func<bool> choose, chooseAlternative, chooseOther;
+                Func<int> alternativeCount;
+                if (group is AlbumGroupsJob albums)
+                {
+                    Assert.AreEqual(2, albums.Albums.Count);
+                    var album = albums.Albums[^1];
+                    var ignored = albums.Albums[0];
+                    selected = album;
+                    other = ignored;
+                    choose = () => engine.TryStartManualAlbumSelection(group.Id, album.Results[^1], album.Query, null, out _);
+                    chooseAlternative = () => engine.TryStartManualAlbumSelection(group.Id, album.Results[0], album.Query, null, out _);
+                    chooseOther = () => engine.TryStartManualAlbumSelection(group.Id, ignored.Results[0], ignored.Query, null, out _);
+                    alternativeCount = () => album.Results.Count;
+                }
+                else
+                {
+                    var songs = (SongGroupsJob)group;
+                    Assert.AreEqual(2, songs.Songs.Count);
+                    var song = songs.Songs[^1];
+                    var ignored = songs.Songs[0];
+                    selected = song;
+                    other = ignored;
+                    choose = () => engine.TryStartManualSongSelection(group.Id, song.Candidates![^1], null, out _);
+                    chooseAlternative = () => engine.TryStartManualSongSelection(group.Id, song.Candidates![0], null, out _);
+                    chooseOther = () => engine.TryStartManualSongSelection(group.Id, ignored.Candidates![0], null, out _);
+                    alternativeCount = () => song.Candidates!.Count;
+                }
+                Assert.AreEqual(2, alternativeCount());
+                Assert.IsTrue(choose());
+                Assert.AreSame(selected, engine.GetJob(selected.Id));
+                Assert.AreEqual(group.WorkflowId, selected.WorkflowId);
+                Assert.AreEqual(2, alternativeCount(), "Executing a choice retains discovery alternatives.");
+                await gate.WaitForStartedCountAsync(1);
+                Assert.IsNull(engine.GetJob(other.Id), "Unselected groups are not execution children.");
+                Assert.IsFalse(chooseAlternative(), "An active group cannot be retargeted or resumed twice.");
+                if (cancelOwner)
+                    Assert.IsTrue(engine.CancelJob(group.Id));
+                else
+                {
+                    Assert.IsTrue(await engine.CompleteManualSelectionAsync(group.Id));
+                    Assert.IsTrue(group.IsAwaitingSelection, "Closing waits for the selected group to finish.");
+                    Assert.IsFalse(chooseOther(), "A closed selection cannot admit another group.");
+                    gate.Open();
+                }
+                try
+                {
+                    await WaitForAsync(engine, () => group.IsTerminal && selected.IsTerminal);
+                }
+                catch (TimeoutException)
+                {
+                    Assert.Fail($"Owner never settled: root={group.LifecycleState}/{group.TerminalOutcome}, "
+                        + $"selected={selected.LifecycleState}/{selected.TerminalOutcome}; cancel={cancelOwner}.");
+                }
+                var expected = cancelOwner ? JobTerminalOutcome.Cancelled
+                    : succeeds ? JobTerminalOutcome.Succeeded : JobTerminalOutcome.Failed;
+                Assert.AreEqual(expected, group.TerminalOutcome);
+                Assert.AreEqual(expected, selected.TerminalOutcome);
+                if (cancelOwner) Assert.AreEqual(JobCancellationSource.UserRequestedJob, group.CancellationSource);
+                Assert.AreEqual(1, gate.StartedCount, "An explicit choice must not try another source or group.");
+                if (!cancelOwner) Assert.AreEqual(JobLifecycleState.Pending, other.LifecycleState);
+                Assert.IsFalse(await engine.CompleteManualSelectionAsync(group.Id));
+                engine.CompleteEnqueue();
+                queueClosed = true;
+                await running.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.AreEqual(0, engine.GetJobsByWorkflow(group.WorkflowId).Count,
+                    "A terminal manual workflow must not stay alive as a resumable picker.");
+                Assert.AreEqual(0, engine.RetainedStateCounts.Contexts);
+                Assert.AreEqual(0, engine.RetainedStateCounts.ManualSelections);
+            }
+            finally
+            {
+                gate.Open();
+                if (!queueClosed) engine.CompleteEnqueue();
+                try
+                {
+                    if (running != null) await IgnoreCancellation(running.WaitAsync(TimeSpan.FromSeconds(5)));
+                }
+                finally
+                {
+                    await engine.DisposeAsync();
+                    System.IO.Directory.Delete(outputDir, recursive: true);
+                }
+            }
+        }
+
+        [TestMethod]
+        [DataRow(false, false, "job")]
+        [DataRow(false, true, "job")]
+        [DataRow(true, false, "job")]
+        [DataRow(true, true, "job")]
+        [DataRow(false, false, "workflow")]
+        [DataRow(false, true, "workflow")]
+        [DataRow(true, false, "workflow")]
+        [DataRow(true, true, "workflow")]
+        [DataRow(false, false, "all")]
+        [DataRow(false, true, "all")]
+        [DataRow(true, false, "all")]
+        [DataRow(true, true, "all")]
+        [DataRow(false, false, "engine")]
+        [DataRow(false, true, "engine")]
+        [DataRow(true, false, "engine")]
+        [DataRow(true, true, "engine")]
+        public async Task ManualSelection_CancellationFinalizesIdleJobsWithoutRediscovery(bool albumMode, bool groupMode, string scope)
+        {
+            string outputDir = System.IO.Directory.CreateTempSubdirectory("sockseek-idle-cancel-").FullName;
+            int searches = 0, downloads = 0;
+            var client = new ClientTests.MockSoulseekClient(
+            [
+                new SearchResponse("peer", 1, true, 100_000, 0,
+                [TestHelpers.CreateSlFile(@"Music\Artist\Album\01 - First.mp3", size: 128)]),
+            ])
+            {
+                BeforeSearchAsync = (_, _) => { Interlocked.Increment(ref searches); return Task.CompletedTask; },
+                BeforeDownloadCompletesAsync = (_, _, _) => { Interlocked.Increment(ref downloads); return Task.CompletedTask; },
+            };
+            var settings = new DownloadSettings();
+            settings.Output.ParentDir = outputDir;
+            settings.Output.WriteIndex = false;
+            settings.Search.MinGroupShares = 1;
+            settings.Search.NoBrowseFolder = true;
+            Job job = (albumMode, groupMode) switch
+            {
+                (false, false) => new SongJob(new SongQuery { Artist = "Artist", Title = "First" }),
+                (false, true) => new SongGroupsJob(new SongQuery { Artist = "Artist" }),
+                (true, false) => new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" }),
+                _ => new AlbumGroupsJob(new AlbumQuery { Artist = "Artist" }),
+            };
+            job.DownloadBehaviorPolicy = new DownloadBehaviorPolicy { Default = DownloadBehavior.Manual };
+            var engineSettings = new EngineSettings
+            {
+                Username = "u", Password = "p", LogLevel = Microsoft.Extensions.Logging.LogLevel.None,
+            };
+            await using var engine = new DownloadEngine(engineSettings,
+                TestHelpers.CreateMockClientManager(client, engineSettings), retireTerminalWorkflows: true);
+            var discoveryFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            int terminalNotifications = 0;
+            bool inlineCancellationAccepted = false;
+            engine.Events.JobStateChanged += change =>
+            {
+                if (change.Job.Id != job.Id || change.Job.LifecycleState != JobLifecycleState.AwaitingSelection) return;
+                // Cancel in the publication callback: the discovery execution
+                // has not returned yet, so its completion can race cancellation.
+                if (scope == "job") inlineCancellationAccepted = engine.CancelJob(job.Id);
+                discoveryFinished.TrySetResult();
+            };
+            engine.Events.JobExecutionCompleted += change =>
+            {
+                if (change.Job.Id == job.Id && change.Job.LifecycleState == JobLifecycleState.Terminal)
+                    Interlocked.Increment(ref terminalNotifications);
+            };
+            Task? running = null;
+            try
+            {
+                engine.Enqueue(job, settings);
+                running = engine.RunAsync(CancellationToken.None);
+                await discoveryFinished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                int searchesBeforeCancellation = Volatile.Read(ref searches);
+                var source = scope switch
+                {
+                    "job" => JobCancellationSource.UserRequestedJob,
+                    "workflow" => JobCancellationSource.UserRequestedWorkflow,
+                    _ => JobCancellationSource.UserRequestedAllJobs,
+                };
+                switch (scope)
+                {
+                    case "job": Assert.IsTrue(inlineCancellationAccepted); break;
+                    case "workflow": Assert.IsTrue(engine.CancelWorkflow(job.WorkflowId) > 0); break;
+                    case "all": Assert.IsTrue(engine.CancelAllJobs() > 0); break;
+                    default: engine.Cancel(); break;
+                }
+                await WaitForAsync(engine, () => job.IsTerminal);
+                Assert.AreEqual(JobTerminalOutcome.Cancelled, job.TerminalOutcome);
+                Assert.AreEqual(source, job.CancellationSource);
+                Assert.AreEqual(searchesBeforeCancellation, searches, "Cancellation must not run discovery again.");
+                Assert.AreEqual(0, downloads, "Cancelling a picker cannot start its candidates.");
+                if (scope != "engine")
+                {
+                    var healthy = new RemoteFileJob(TestHelpers.CreateAlbumFile("peer",
+                        @"Music\Artist\Album\01 - First.mp3", size: 128).Candidate.Target);
+                    engine.Enqueue(healthy, settings);
+                    await WaitForAsync(engine, () => healthy.IsTerminal);
+                    Assert.AreEqual(JobTerminalOutcome.Succeeded, healthy.TerminalOutcome,
+                        "Scoped cancellation must leave the daemon available for new work.");
+                }
+            }
+            finally
+            {
+                engine.CompleteEnqueue();
+                try
+                {
+                    if (running != null) await IgnoreCancellation(running.WaitAsync(TimeSpan.FromSeconds(5)));
+                }
+                finally { System.IO.Directory.Delete(outputDir, recursive: true); }
+            }
+            Assert.AreEqual(0, engine.GetJobsByWorkflow(job.WorkflowId).Count);
+            Assert.AreEqual(0, engine.RetainedStateCounts.Contexts);
+            Assert.AreEqual(0, engine.RetainedStateCounts.ManualSelections);
+            Assert.AreEqual(1, terminalNotifications, "Only one execution may publish the terminal cancellation.");
+        }
+
+        [TestMethod]
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task ManualSong_CancellationDuringResumeAdmissionDoesNotStartDownload(bool cancelOnAdmission)
+        {
+            string outputDir = System.IO.Directory.CreateTempSubdirectory("sockseek-queued-choice-cancel-").FullName;
+            const string selectedPath = @"Music\Artist\Album\01 - First.mp3";
+            const string healthyPath = @"Music\Artist\Album\02 - Second.mp3";
+            var attempted = new System.Collections.Concurrent.ConcurrentBag<string>();
+            var client = new ClientTests.MockSoulseekClient(
+            [
+                new SearchResponse("peer", 1, true, 100_000, 0,
+                [TestHelpers.CreateSlFile(selectedPath, size: 128), TestHelpers.CreateSlFile(healthyPath, size: 128)]),
+            ])
+            {
+                BeforeDownloadCompletesAsync = (_, filename, _) => { attempted.Add(filename); return Task.CompletedTask; },
+            };
+            var settings = new DownloadSettings();
+            settings.Output.ParentDir = outputDir;
+            settings.Output.WriteIndex = false;
+            var song = new SongJob(new SongQuery { Artist = "Artist", Title = "First" })
+            {
+                DownloadBehaviorPolicy = new DownloadBehaviorPolicy { Song = DownloadBehavior.Manual },
+            };
+            var healthy = new RemoteFileJob(TestHelpers.CreateAlbumFile("peer", healthyPath, size: 128).Candidate.Target);
+            var engineSettings = new EngineSettings
+            {
+                Username = "u", Password = "p", ConcurrentJobs = 2, ConcurrentExtractors = 2,
+                LogLevel = Microsoft.Extensions.Logging.LogLevel.None,
+            };
+            DownloadEngine? observedEngine = null;
+            int starts = 0;
+            bool admissionCancellationAccepted = false;
+            using var loggerFactory = LoggerFactory.Create(builder =>
+                builder.AddProvider(new CallbackLogger((id, properties, _) =>
+                    {
+                        if (id.Id != 3012 || !properties.Any(pair => pair.Key == "JobId" && Equals(pair.Value, song.Id))) return;
+                        if (Interlocked.Increment(ref starts) == 2 && cancelOnAdmission)
+                            admissionCancellationAccepted = observedEngine!.CancelJob(song.Id);
+                    })));
+            await using var engine = new DownloadEngine(engineSettings,
+                TestHelpers.CreateMockClientManager(client, engineSettings), loggerFactory: loggerFactory, retireTerminalWorkflows: true);
+            observedEngine = engine;
+            using var releaseDiscovery = new ManualResetEventSlim();
+            using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var publishingDiscovery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var followingRootPrepared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            engine.Events.JobExecutionCompleted += change =>
+            {
+                if (change.Job.Id != song.Id || change.Job.LifecycleState != JobLifecycleState.AwaitingSelection) return;
+                publishingDiscovery.TrySetResult();
+                releaseDiscovery.Wait(watchdog.Token);
+            };
+            // Preparation of the following root proves that the queued resume
+            // has been read, while discovery's final publication is still held.
+            healthy.PropertyChanged += (_, change) =>
+            {
+                if (change.PropertyName == nameof(Job.Config)) followingRootPrepared.TrySetResult();
+            };
+            engine.Enqueue(song, settings);
+            var running = Task.Run(() => engine.RunAsync(CancellationToken.None));
+            try
+            {
+                await publishingDiscovery.Task.WaitAsync(watchdog.Token);
+                Assert.IsTrue(engine.TryStartManualSongSelection(song.Id, song.Candidates![0], null, out _));
+                engine.Enqueue(healthy, settings);
+                await followingRootPrepared.Task.WaitAsync(watchdog.Token);
+                if (!cancelOnAdmission) Assert.IsTrue(engine.CancelJob(song.Id));
+                releaseDiscovery.Set();
+                await WaitForAsync(engine, () => song.IsTerminal && healthy.IsTerminal);
+                if (cancelOnAdmission) Assert.IsTrue(admissionCancellationAccepted,
+                    "Request cancellation from root-start publication, after queue admission but before registration.");
+                Assert.AreEqual(JobTerminalOutcome.Cancelled, song.TerminalOutcome);
+                Assert.AreEqual(JobCancellationSource.UserRequestedJob, song.CancellationSource);
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, healthy.TerminalOutcome);
+                CollectionAssert.AreEqual(new[] { healthyPath }, attempted.ToArray(),
+                    "A queued cancelled choice must not replace its token and start downloading.");
+            }
+            finally
+            {
+                releaseDiscovery.Set();
+                engine.CompleteEnqueue();
+                try { await IgnoreCancellation(running.WaitAsync(TimeSpan.FromSeconds(5))); }
+                finally { System.IO.Directory.Delete(outputDir, recursive: true); }
+            }
+        }
+
+        [TestMethod]
+        [DataRow(false, false)]
+        [DataRow(true, false)]
+        [DataRow(true, true)]
+        public async Task IdleManualCancellation_DoesNotWaitForUnrelatedRootCapacity(bool queuedFollower, bool failingCallback)
+        {
+            string outputDir = System.IO.Directory.CreateTempSubdirectory("sockseek-busy-picker-cancel-").FullName;
+            const string unrelatedPath = @"Music\unrelated.bin";
+            const string followerPath = @"Music\follower.bin";
+            var gate = new TestHelpers.DownloadGate();
+            var client = new ClientTests.MockSoulseekClient(
+            [
+                new SearchResponse("peer", 1, true, 100_000, 0,
+                [TestHelpers.CreateSlFile(@"Music\Artist\01 - First.mp3", size: 128),
+                 TestHelpers.CreateSlFile(unrelatedPath, size: 128), TestHelpers.CreateSlFile(followerPath, size: 128)]),
+            ])
+            {
+                BeforeDownloadCompletesAsync = (username, path, ct) => path == unrelatedPath
+                    ? gate.BlockAsync(username, path, ct) : Task.CompletedTask,
+            };
+            var settings = new DownloadSettings();
+            settings.Output.ParentDir = outputDir;
+            settings.Output.WriteIndex = false;
+            var picker = new SongJob(new SongQuery { Artist = "Artist", Title = "First" })
+            {
+                DownloadBehaviorPolicy = new DownloadBehaviorPolicy { Song = DownloadBehavior.Manual },
+            };
+            var unrelated = new RemoteFileJob(TestHelpers.CreateAlbumFile("peer", unrelatedPath, size: 128).Candidate.Target);
+            var follower = new RemoteFileJob(TestHelpers.CreateAlbumFile("peer", followerPath, size: 128).Candidate.Target);
+            var engineSettings = new EngineSettings
+            {
+                Username = "u", Password = "p", ConcurrentJobs = 1, ConcurrentExtractors = 1,
+                LogLevel = LogLevel.None,
+            };
+            var callbackFailure = new InvalidOperationException("A cancellation callback failed.");
+            int loggedFailures = 0;
+            Exception? loggedFailure = null;
+            using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(
+                new CallbackLogger((id, _, exception) =>
+                {
+                    if (id.Id != 3004) return;
+                    loggedFailure = exception;
+                    Interlocked.Increment(ref loggedFailures);
+                })));
+            await using var engine = new DownloadEngine(engineSettings,
+                TestHelpers.CreateMockClientManager(client, engineSettings), loggerFactory: loggerFactory,
+                retireTerminalWorkflows: true);
+            var retired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            engine.Events.WorkflowRetired += change =>
+            {
+                if (change.WorkflowId == picker.WorkflowId) retired.TrySetResult();
+            };
+            engine.Enqueue(picker, settings);
+            var running = engine.RunAsync(CancellationToken.None);
+            try
+            {
+                await WaitForAsync(engine, () => picker.IsAwaitingSelection);
+                engine.Enqueue(unrelated, settings);
+                await gate.WaitForStartedCountAsync(1);
+                if (queuedFollower) engine.Enqueue(follower, settings);
+                using var registration = failingCallback
+                    ? picker.Cts!.Token.Register(() => throw callbackFailure) : default;
+                long cancellationStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+                Assert.IsTrue(engine.CancelJob(picker.Id));
+                await retired.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Console.WriteLine($"Idle picker cancellation, queued follower={queuedFollower}: "
+                    + $"{System.Diagnostics.Stopwatch.GetElapsedTime(cancellationStarted).TotalMilliseconds:F1} ms.");
+                Assert.AreEqual(JobTerminalOutcome.Cancelled, picker.TerminalOutcome);
+                Assert.AreEqual(JobCancellationSource.UserRequestedJob, picker.CancellationSource);
+                Assert.IsTrue(unrelated.IsRunning, "Cancelling an idle picker must not wait for unrelated downloads.");
+                Assert.IsFalse(unrelated.Cts!.IsCancellationRequested);
+                if (queuedFollower) Assert.IsTrue(follower.IsPending);
+                gate.Open();
+                await WaitForAsync(engine, () => unrelated.IsTerminal && (!queuedFollower || follower.IsTerminal));
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, unrelated.TerminalOutcome);
+                if (queuedFollower) Assert.AreEqual(JobTerminalOutcome.Succeeded, follower.TerminalOutcome);
+            }
+            finally
+            {
+                gate.Open();
+                engine.CompleteEnqueue();
+                try { await IgnoreCancellation(running.WaitAsync(TimeSpan.FromSeconds(5))); }
+                finally { System.IO.Directory.Delete(outputDir, recursive: true); }
+            }
+            Assert.AreEqual(failingCallback ? 1 : 0, loggedFailures);
+            if (failingCallback)
+            {
+                var aggregate = Assert.IsInstanceOfType<AggregateException>(loggedFailure);
+                Assert.AreSame(callbackFailure, aggregate.InnerExceptions.Single(), "Log the full callback failure once.");
+            }
+        }
+
+        [TestMethod]
+        [DataRow(false, true)]
+        [DataRow(true, true)]
+        [DataRow(true, false)]
+        public async Task ManualMusicExecution_CancellationRetiresButFailedAlbumCanRetry(bool albumMode, bool cancel)
+        {
+            string outputDir = System.IO.Directory.CreateTempSubdirectory("sockseek-manual-execution-").FullName;
+            const string path = @"Music\Artist\Album\01 - First.mp3";
+            var gate = new TestHelpers.DownloadGate();
+            int attempts = 0;
+            var client = new ClientTests.MockSoulseekClient(
+            [
+                new SearchResponse("first-peer", 1, true, 100_000, 0, [TestHelpers.CreateSlFile(path, size: 128)]),
+                new SearchResponse("other-peer", 2, true, 50_000, 0, [TestHelpers.CreateSlFile(path, size: 128)]),
+            ])
+            {
+                BeforeDownloadCompletesAsync = async (username, filename, ct) =>
+                {
+                    Interlocked.Increment(ref attempts);
+                    if (username != "first-peer") return;
+                    await gate.BlockAsync(username, filename, ct);
+                    if (!cancel) throw new TransferRejectedException("The selected folder rejects this file.");
+                },
+            };
+            var settings = new DownloadSettings();
+            settings.Output.ParentDir = outputDir;
+            settings.Output.WriteIndex = false;
+            settings.Search.NoBrowseFolder = true;
+            Job job = albumMode
+                ? new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
+                : new SongJob(new SongQuery { Artist = "Artist", Title = "First" });
+            job.DownloadBehaviorPolicy = new DownloadBehaviorPolicy { Default = DownloadBehavior.Manual };
+            var engineSettings = new EngineSettings { Username = "u", Password = "p", LogLevel = LogLevel.None };
+            await using var engine = new DownloadEngine(engineSettings,
+                TestHelpers.CreateMockClientManager(client, engineSettings), retireTerminalWorkflows: true);
+            bool closed = false;
+            engine.Enqueue(job, settings);
+            var running = engine.RunAsync(CancellationToken.None);
+            try
+            {
+                await WaitForAsync(engine, () => job.IsAwaitingSelection);
+                if (job is AlbumJob album)
+                    Assert.IsTrue(engine.TryStartManualAlbumSelection(job.Id,
+                        album.Results.Single(folder => folder.Username == "first-peer"), album.Query, null, out _));
+                else
+                    Assert.IsTrue(engine.TryStartManualSongSelection(job.Id,
+                        ((SongJob)job).Candidates!.Single(file => file.Username == "first-peer"), null, out _));
+                await gate.WaitForStartedCountAsync(1);
+                if (cancel)
+                {
+                    Assert.IsTrue(engine.CancelJob(job.Id));
+                    await WaitForAsync(engine, () => job.IsTerminal);
+                    Assert.AreEqual(JobTerminalOutcome.Cancelled, job.TerminalOutcome);
+                    Assert.AreEqual(JobCancellationSource.UserRequestedJob, job.CancellationSource);
+                    Assert.AreEqual(1, attempts, "Cancelling a selected source must not try another source.");
+                }
+                else
+                {
+                    gate.Open();
+                    await WaitForAsync(engine, () => job.IsAwaitingSelection || job.IsUnsuccessfulTerminal);
+                    var failedAlbum = (AlbumJob)job;
+                    Assert.AreEqual(1, attempts, "A rejected explicit source must return control to the caller.");
+                    Assert.IsTrue(engine.TryStartManualAlbumSelection(job.Id,
+                        failedAlbum.Results.Single(folder => folder.Username == "other-peer"), failedAlbum.Query, null, out _));
+                    await WaitForAsync(engine, () => job.IsTerminal);
+                    Assert.AreEqual(JobTerminalOutcome.Succeeded, job.TerminalOutcome);
+                    Assert.AreEqual(2, attempts);
+                }
+                engine.CompleteEnqueue();
+                closed = true;
+                await running.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.AreEqual(0, engine.GetJobsByWorkflow(job.WorkflowId).Count,
+                    "A cancelled selection must not remain as a retryable workflow.");
+                Assert.AreEqual(0, engine.RetainedStateCounts.Contexts);
+                Assert.AreEqual(0, engine.RetainedStateCounts.ManualSelections);
+            }
+            finally
+            {
+                gate.Open();
+                if (!closed) engine.CompleteEnqueue();
+                try { await IgnoreCancellation(running.WaitAsync(TimeSpan.FromSeconds(5))); }
+                finally { System.IO.Directory.Delete(outputDir, recursive: true); }
+            }
+        }
+
+        private sealed class CallbackLogger(Action<EventId,
+            IEnumerable<KeyValuePair<string, object?>>, Exception?> observe) : ILoggerProvider, ILogger
+        {
+            public ILogger CreateLogger(string categoryName) => this;
+            public void Dispose() { }
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+            public bool IsEnabled(LogLevel level) => level >= LogLevel.Information && level != LogLevel.None;
+            public void Log<TState>(LogLevel level, EventId id,
+                TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                if (state is IEnumerable<KeyValuePair<string, object?>> properties) observe(id, properties, exception);
             }
         }
 
@@ -695,10 +1420,10 @@ namespace Tests.Cancellation
                 var client = new ClientTests.MockSoulseekClient([]);
                 var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
 
-                engine.Events.JobStateChanged += job =>
+                engine.Events.JobStateChanged += change =>
                 {
-                    if (ReferenceEquals(job, extractJob) && job.ActivityPhase == JobActivityPhase.Extracting)
-                        job.Cancel(JobCancellationSource.UserRequestedJob);
+                    if (change.Job.Id == extractJob.Id && change.ActivityPhase == JobActivityPhase.Extracting)
+                        extractJob.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
                 engine.Enqueue(extractJob, downloadSettings);
@@ -753,9 +1478,11 @@ namespace Tests.Cancellation
 
                 AlbumJob? albumJob = null;
                 AlbumFolder? folder = null;
-                engine.Events.JobStateChanged += job =>
+                engine.Events.JobStateChanged += change =>
                 {
-                    if (job.ActivityPhase == JobActivityPhase.Downloading && job is AlbumJob aj)
+                    if (change.ActivityPhase == JobActivityPhase.Downloading
+                        && change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.Album
+                        && engine.GetJob(change.Job.Id) is AlbumJob aj)
                     {
                         albumJob = aj;
                         folder = aj.ResolvedTarget;
@@ -794,7 +1521,7 @@ namespace Tests.Cancellation
         }
 
         [TestMethod]
-        public async Task AlbumAggregate_CancelledChildAlbums_MarksParentContainersCancelled()
+        public async Task AlbumGroups_CancelledChildAlbums_MarksParentContainersCancelled()
         {
             var index = new List<SearchResponse>
             {
@@ -822,7 +1549,7 @@ namespace Tests.Cancellation
                     ]),
             };
 
-            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-album-aggregate-" + Guid.NewGuid());
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-cancel-album-groups-" + Guid.NewGuid());
             System.IO.Directory.CreateDirectory(outputDir);
 
             try
@@ -837,37 +1564,41 @@ namespace Tests.Cancellation
                 var downloadSettings = new DownloadSettings();
                 downloadSettings.Output.ParentDir = outputDir;
                 downloadSettings.Output.WriteIndex = false;
-                downloadSettings.Search.MinSharesAggregate = 1;
+                downloadSettings.Search.MinGroupShares = 1;
                 downloadSettings.Search.NoBrowseFolder = true;
                 downloadSettings.Skip.SkipExisting = false;
 
-                var aggregateJob = new AlbumAggregateJob(new AlbumQuery { Artist = "ELO" });
+                var songGroupsJob = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
                 var client = new ClientTests.MockSoulseekClient(index);
                 var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
 
-                JobList? aggregateList = null;
-                engine.Events.JobRegistered += (job, parent) =>
+                JobList? groupList = null;
+                engine.Events.JobRegistered += change =>
                 {
-                    if (parent == aggregateJob && job is JobList list)
-                        aggregateList = list;
+                    if (change.ParentJobId == songGroupsJob.Id
+                        && change.Job.Kind == Sockseek.Core.Snapshots.JobSnapshotKind.JobList
+                        && engine.GetJob(change.Job.Id) is JobList list)
+                        groupList = list;
                 };
-                engine.Events.JobStateChanged += job =>
+                engine.Events.JobStateChanged += change =>
                 {
-                    if (ReferenceEquals(job, aggregateList) && job.ActivityPhase == JobActivityPhase.RunningChildren)
-                        job.Cancel(JobCancellationSource.UserRequestedJob);
+                    if (groupList != null
+                        && change.Job.Id == groupList.Id
+                        && change.ActivityPhase == JobActivityPhase.RunningChildren)
+                        groupList.Cancel(JobCancellationSource.UserRequestedJob);
                 };
 
-                engine.Enqueue(aggregateJob, downloadSettings);
+                engine.Enqueue(songGroupsJob, downloadSettings);
                 engine.CompleteEnqueue();
 
                 var runTask = engine.RunAsync(CancellationToken.None);
                 await IgnoreCancellation(runTask);
 
-                Assert.IsNotNull(aggregateList, "AlbumAggregate should process matching albums through a registered JobList.");
-                Assert.IsTrue(aggregateList!.IsUnsuccessfulTerminal);
-                Assert.AreEqual(JobFailureReason.Cancelled, aggregateList.FailureReason);
-                Assert.IsTrue(aggregateJob.IsUnsuccessfulTerminal);
-                Assert.AreEqual(JobFailureReason.Cancelled, aggregateJob.FailureReason);
+                Assert.IsNotNull(groupList, "AlbumGroups should process matching albums through a registered JobList.");
+                Assert.IsTrue(groupList!.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, groupList.FailureReason);
+                Assert.IsTrue(songGroupsJob.IsUnsuccessfulTerminal);
+                Assert.AreEqual(JobFailureReason.Cancelled, songGroupsJob.FailureReason);
             }
             finally
             {

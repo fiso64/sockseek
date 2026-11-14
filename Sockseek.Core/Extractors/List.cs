@@ -7,6 +7,14 @@ using Sockseek.Core.Settings;
 namespace Sockseek.Core.Extractors;
     public class ListExtractor : IExtractor, IInputMatcher
     {
+        public JobSourceInfo? DescribeSource(ExtractJob source, Job item)
+        {
+            if (ReferenceEquals(source, item)) return new(Detail: "List import", PreviewDetail: "List import");
+            if (item is not JobList list) return null;
+            string detail = $"{list.Count} source {(list.Count == 1 ? "item" : "items")}";
+            return new(Detail: detail, PreviewDetail: detail);
+        }
+
         string? listFilePath = null;
         private readonly PathVariableContext pathVariables;
 
@@ -38,7 +46,11 @@ namespace Sockseek.Core.Extractors;
 
             var lines = await File.ReadAllLinesAsync(listFilePath);
 
-            var result = new JobList { ItemName = Path.GetFileNameWithoutExtension(listFilePath), EnablesIndexByDefault = true };
+            var result = new JobList
+            {
+                ItemName = Path.GetFileNameWithoutExtension(listFilePath), EnablesIndexByDefault = true,
+                SourceCollectionInputType = InputType.List,
+            };
 
             int step  = reverse ? -1 : 1;
             int start = reverse ? lines.Length - 1 : 0;
@@ -99,7 +111,7 @@ namespace Sockseek.Core.Extractors;
                     SourceMutation          = SourceMutation.ClearTextLine(listFilePath!, i + 1, offset + added + 1),
                 };
 
-                result.Jobs.Add(ej);
+                result.Add(ej);
                 added++;
             }
 

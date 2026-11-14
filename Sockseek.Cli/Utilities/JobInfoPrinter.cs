@@ -1,4 +1,5 @@
 using Sockseek.Api;
+using Sockseek.Core.Models;
 using Sockseek.Server;
 using Soulseek;
 
@@ -8,7 +9,7 @@ internal static class JobInfoPrinter
 {
     private const int LabelWidth = 16;
 
-    public static void Print(JobDetailDto detail)
+    public static void Print(JobDetailDto detail, IReadOnlyList<JobSummaryDto> children)
     {
         var s = detail.Summary;
 
@@ -22,38 +23,28 @@ internal static class JobInfoPrinter
 
         Printing.WriteLine(status.Label, status.Color, force: true);
         PrintSplitState(s);
+        if (!string.IsNullOrEmpty(s.SourceDetail))
+            Field("Source", s.SourceDetail);
 
-        switch (detail.Payload)
+        Action printPayload = detail.Payload switch
         {
-            case SongJobPayloadDto song:
-                PrintSong(song);
-                break;
-            case AlbumJobPayloadDto album:
-                PrintAlbum(album, detail.Children);
-                break;
-            case ExtractJobPayloadDto extract:
-                PrintExtract(extract, detail.Children);
-                break;
-            case AggregateJobPayloadDto agg:
-                PrintAggregate(agg, detail.Children);
-                break;
-            case AlbumAggregateJobPayloadDto albumAgg:
-                PrintAlbumAggregate(albumAgg, detail.Children);
-                break;
-            case JobListPayloadDto list:
-                PrintJobList(list, detail.Children);
-                break;
-            case RetrieveFolderJobPayloadDto retrieve:
-                PrintRetrieveFolder(retrieve);
-                break;
-            case GenericJobPayloadDto generic:
-                Field("Info", generic.Text);
-                break;
-            default:
+            SongJobPayloadDto song => () => PrintSong(song),
+            AlbumJobPayloadDto album => () => PrintAlbum(album, children),
+            ExtractJobPayloadDto extract => () => PrintExtract(extract, children),
+            SongGroupsJobPayloadDto group => () => PrintGroup(group, children),
+            AlbumGroupsJobPayloadDto group => () => PrintAlbumGroups(group, children),
+            JobListPayloadDto list => () => PrintJobList(list, children),
+            RetrieveFolderJobPayloadDto retrieve => () => PrintRetrieveFolder(retrieve),
+            RemoteFileJobPayloadDto file => () => PrintRemoteFile(file),
+            RemoteDirectoryJobPayloadDto directory => () => PrintRemoteDirectory(directory, children),
+            GenericJobPayloadDto generic => () => Field("Info", generic.Text),
+            SearchJobPayloadDto or null => () =>
+            {
                 if (s.ItemName != null) Field("Name", s.ItemName);
                 if (s.QueryText != null) Field("Query", s.QueryText);
-                break;
-        }
+            },
+        };
+        printPayload();
 
         if (s.FailureMessage != null)
             Field("Error", s.FailureMessage, ConsoleColor.Red);
@@ -66,26 +57,33 @@ internal static class JobInfoPrinter
         var queryText = FormatSongQuery(p.Query);
         if (queryText != null) Field("Query", queryText);
 
-        if (p.ResolvedUsername != null)
-            Field("From", p.ResolvedUsername, ConsoleColor.DarkCyan);
-        if (p.ResolvedFilename != null)
-            Field("Remote path", p.ResolvedFilename);
-        if (p.DownloadPath != null)
-            Field("Saved to", p.DownloadPath);
-
-        if (p.TotalBytes > 0)
+        var fallback = p.Fallback != null || p.DownloadSource == ServerSongDownloadSource.Fallback;
+        if (fallback)
         {
-            var xfer = p.BytesTransferred is long x ? FormatBytes(x) : "?";
-            var total = FormatBytes(p.TotalBytes.Value);
-            var pct = p.ProgressPercent is double pv ? $" ({pv:F0}%)" : "";
+            Field("From", p.Fallback?.Provider ?? "Fallback", ConsoleColor.DarkCyan);
+            if (p.Fallback?.Title != null) Field("Source title", p.Fallback.Title);
+            if (p.Fallback?.Reference != null) Field("Source reference", p.Fallback.Reference);
+        }
+        if (!fallback && p.ResolvedUsername != null)
+            Field("From", p.ResolvedUsername, ConsoleColor.DarkCyan);
+        if (!fallback && p.ResolvedFilename != null)
+            Field("Remote path", PeerIdentityValidator.ToDisplayText(p.ResolvedFilename));
+        if (p.File.DownloadPath != null)
+            Field("Saved to", p.File.DownloadPath);
+
+        if (p.File.FileSize > 0)
+        {
+            var xfer = FormatBytes(p.File.BytesTransferred);
+            var total = FormatBytes(p.File.FileSize.Value);
+            var pct = p.File.ProgressPercent is double pv ? $" ({pv:F0}%)" : "";
             Field("Transfer", $"{xfer} of {total}{pct}");
         }
-        else if (p.ResolvedSize > 0)
+        else if (!fallback && p.ResolvedSize > 0)
         {
             Field("Size", FormatBytes(p.ResolvedSize.Value));
         }
 
-        var attrs = FormatAttributes(p.ResolvedAttributes, p.ResolvedSampleRate, null);
+        var attrs = fallback ? null : FormatAttributes(p.ResolvedAttributes, p.ResolvedSampleRate, null);
         if (attrs != null) Field("Attributes", attrs);
 
         if (p.CandidateCount is int c && c > 0)
@@ -100,28 +98,21 @@ internal static class JobInfoPrinter
         if (p.ResolvedFolderUsername != null)
             Field("From", p.ResolvedFolderUsername, ConsoleColor.DarkCyan);
         if (p.ResolvedFolderPath != null)
-            Field("Remote path", p.ResolvedFolderPath);
-        if (p.DownloadPath != null)
-            Field("Saved to", p.DownloadPath);
+            Field("Remote path", PeerIdentityValidator.ToDisplayText(p.ResolvedFolderPath));
+        if (p.Directory.DownloadPath != null)
+            Field("Saved to", p.Directory.DownloadPath);
 
-        if (p.SelectedFolderFileCount is int total && total > 0)
+        if (p.Directory.FileCount is int total && total > 0)
         {
-            var completed = p.SelectedFolderCompletedFileCount ?? 0;
-            var ok = p.SelectedFolderSucceededFileCount ?? 0;
-            var failed = p.SelectedFolderFailedFileCount ?? 0;
+            var completed = p.Directory.TerminalFileCount;
+            var ok = p.Directory.SuccessfulFileCount;
+            var failed = p.Directory.FailedFileCount;
             Field("Progress", $"{completed} / {total} files  ({ok} ok, {failed} failed)");
         }
 
         if (p.ResultCount > 0)
             Field("Results", $"{p.ResultCount} folders found");
 
-        if (p.Tracks is { Count: > 0 } tracks)
-        {
-            Printing.WriteLine(force: true);
-            Printing.WriteLine($"  Tracks ({tracks.Count}):", ConsoleColor.Gray, force: true);
-            foreach (var track in tracks)
-                PrintAlbumTrack(track, p.ResolvedFolderPath);
-        }
     }
 
     private static void PrintExtract(ExtractJobPayloadDto p, IReadOnlyList<JobSummaryDto> children)
@@ -134,7 +125,7 @@ internal static class JobInfoPrinter
             Field("Result job", $"[{result.DisplayId:000}] {result.Kind}");
     }
 
-    private static void PrintAggregate(AggregateJobPayloadDto p, IReadOnlyList<JobSummaryDto> children)
+    private static void PrintGroup(SongGroupsJobPayloadDto p, IReadOnlyList<JobSummaryDto> children)
     {
         var queryText = FormatSongQuery(p.Query);
         if (queryText != null) Field("Query", queryText);
@@ -150,7 +141,7 @@ internal static class JobInfoPrinter
         }
     }
 
-    private static void PrintAlbumAggregate(AlbumAggregateJobPayloadDto p, IReadOnlyList<JobSummaryDto> children)
+    private static void PrintAlbumGroups(AlbumGroupsJobPayloadDto p, IReadOnlyList<JobSummaryDto> children)
     {
         var queryText = FormatAlbumQuery(p.Query);
         if (queryText != null) Field("Query", queryText);
@@ -181,68 +172,49 @@ internal static class JobInfoPrinter
     private static void PrintRetrieveFolder(RetrieveFolderJobPayloadDto p)
     {
         Field("Username", p.Username, ConsoleColor.DarkCyan);
-        Field("Folder", p.FolderPath);
+        Field("Folder", PeerIdentityValidator.ToDisplayText(p.FolderPath));
         Field("New files", $"{p.NewFilesFoundCount} found");
         Field("Outcome", p.RetrievalOutcome.ToString());
         if (p.RetrievalCancelled)
             Field("Cancelled", "yes", ConsoleColor.Yellow);
     }
 
-    private static void PrintAlbumTrack(SongJobPayloadDto track, string? folderPath)
+    private static void PrintRemoteFile(RemoteFileJobPayloadDto p)
     {
-        var status = CliJobStatusPresenter.ForSongPayload(track);
-
-        var name = TrackRelativeName(track.ResolvedFilename, folderPath)
-            ?? FormatSongQuery(track.Query)
-            ?? "?";
-
-        var meta = FormatTrackMeta(track);
-
-        if (track.DisplayId is int id)
-            Printing.Write($"    [{id:000}] ", ConsoleColor.DarkGray, force: true);
-        else
-            Printing.Write($"    ", force: true);
-        Printing.Write($"{status.Label,-18}", status.Color, force: true);
-        Printing.Write(": ", ConsoleColor.DarkGray, force: true);
-        Printing.Write(name, ConsoleColor.White, force: true);
-        if (meta != null)
+        Field("From", p.Target.Username, ConsoleColor.DarkCyan);
+        Field("Remote path", PeerIdentityValidator.ToDisplayText(p.Target.Filename));
+        if (p.File.DownloadPath != null)
+            Field("Saved to", p.File.DownloadPath);
+        if (p.File.FileSize > 0)
         {
-            Printing.Write("  ", ConsoleColor.DarkGray, force: true);
-            Printing.Write($"[{meta}]", ConsoleColor.DarkGray, force: true);
+            var percent = p.File.ProgressPercent is double value ? $" ({value:F0}%)" : "";
+            Field("Transfer", $"{FormatBytes(p.File.BytesTransferred)} of {FormatBytes(p.File.FileSize.Value)}{percent}");
         }
-        Printing.WriteLine(force: true);
     }
 
-    private static string? TrackRelativeName(string? filename, string? folderPath)
+    private static void PrintRemoteDirectory(
+        RemoteDirectoryJobPayloadDto p,
+        IReadOnlyList<JobSummaryDto> children)
     {
-        if (filename == null) return null;
-        var f = filename.Replace('/', '\\').TrimStart('\\');
-        if (folderPath == null) return f;
-        var folder = folderPath.Replace('/', '\\').TrimStart('\\');
-        var prefix = folder.EndsWith('\\') ? folder : folder + "\\";
-        return f.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? f[prefix.Length..] : f;
-    }
-
-    private static string? TransferStateLabel(string? raw)
-    {
-        if (raw == null || !Enum.TryParse<TransferStates>(raw, out var s) || s == TransferStates.None)
-            return null;
-        if (s.HasFlag(TransferStates.InProgress))   return "Downloading";
-        if (s.HasFlag(TransferStates.Queued) && s.HasFlag(TransferStates.Remotely)) return "Queued (R)";
-        if (s.HasFlag(TransferStates.Queued) && s.HasFlag(TransferStates.Locally))  return "Queued (L)";
-        if (s.HasFlag(TransferStates.Initializing)) return "Initialising";
-        if (s.HasFlag(TransferStates.TimedOut))     return "Timed Out";
-        return s.ToString();
-    }
-
-    private static string? FormatTrackMeta(SongJobPayloadDto track)
-    {
-        var parts = new List<string>();
-        if (track.ResolvedSize is long size && size > 0)
-            parts.Add(FormatBytes(size));
-        var attrs = FormatAttributes(track.ResolvedAttributes, track.ResolvedSampleRate, null);
-        if (attrs != null) parts.Add(attrs);
-        return parts.Count > 0 ? string.Join(" · ", parts) : null;
+        if (p.SourceUsername != null)
+            Field("From", p.SourceUsername, ConsoleColor.DarkCyan);
+        if (p.SourceFolderPath != null)
+            Field("Remote path", PeerIdentityValidator.ToDisplayText(p.SourceFolderPath));
+        if (p.Directory.DownloadPath != null)
+            Field("Saved to", p.Directory.DownloadPath);
+        Field("Directory phase", p.Directory.Phase);
+        if (p.Directory.FileCount > 0)
+        {
+            Field("Progress", $"{p.Directory.TerminalFileCount} / {p.Directory.FileCount} files  " +
+                $"({p.Directory.SuccessfulFileCount} ok, {p.Directory.FailedFileCount} failed)");
+        }
+        if (children.Count > 0)
+        {
+            Printing.WriteLine(force: true);
+            Printing.WriteLine($"  Files ({children.Count}):", ConsoleColor.Gray, force: true);
+            foreach (var child in children)
+                PrintChildSummary(child);
+        }
     }
 
     private static void PrintChildSummary(JobSummaryDto child)
@@ -308,6 +280,7 @@ internal static class JobInfoPrinter
         {
             foreach (var a in attrs)
             {
+                if (a.Value < 0) continue;
                 var formatted = a.Type switch
                 {
                     "BitRate"    => $"{a.Value} kbps",
@@ -320,9 +293,9 @@ internal static class JobInfoPrinter
             }
         }
 
-        if (sampleRate is int sr && !parts.Exists(p => p.EndsWith("Hz")))
+        if (sampleRate is int sr && sr >= 0 && !parts.Exists(p => p.EndsWith("Hz")))
             parts.Add($"{sr} Hz");
-        if (bitDepth is int bd && !parts.Exists(p => p.EndsWith("-bit")))
+        if (bitDepth is int bd && bd >= 0 && !parts.Exists(p => p.EndsWith("-bit")))
             parts.Add($"{bd}-bit");
 
         return parts.Count > 0 ? string.Join(" · ", parts) : null;
@@ -335,15 +308,5 @@ internal static class JobInfoPrinter
         if (bytes >= 1_024)         return $"{bytes / 1_024.0:F1} KB";
         return $"{bytes} B";
     }
-
-    private static ConsoleColor TransferStateLabelColor(string label) => label switch
-    {
-        "Downloading"                               => ConsoleColor.Cyan,
-        "Completed" or "Succeeded"                  => ConsoleColor.Green,
-        "Errored" or "Timed Out" or "Rejected"
-            or "Aborted"                            => ConsoleColor.Red,
-        "Cancelled"                                 => ConsoleColor.DarkGray,
-        _                                           => ConsoleColor.Gray,
-    };
 
 }

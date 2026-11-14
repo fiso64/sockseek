@@ -385,8 +385,8 @@ public class InteractiveModeManager
     {
         filename = NormalizeRemoteFolderPath(filename);
         folderPath = NormalizeRemoteFolderPath(folderPath).TrimEnd('\\');
-        return filename.StartsWith(folderPath + "\\", StringComparison.OrdinalIgnoreCase)
-            || filename.Equals(folderPath, StringComparison.OrdinalIgnoreCase);
+        return filename.StartsWith(folderPath + "\\", StringComparison.Ordinal)
+            || filename.Equals(folderPath, StringComparison.Ordinal);
     }
 
     private static string CombineRemoteFolderPath(string parent, string child)

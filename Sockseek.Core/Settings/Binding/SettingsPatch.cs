@@ -25,6 +25,9 @@ public sealed class SettingsPatch
     public IReadOnlyList<SettingChange> Operations { get; }
 
     [JsonIgnore]
+    public IReadOnlySet<string> ExplicitFields => Operations.Select(change => change.Path).ToHashSet(StringComparer.Ordinal);
+
+    [JsonIgnore]
     public bool HasOperations => Operations.Count != 0;
 
     public void ApplyTo<T>(T settings) where T : class

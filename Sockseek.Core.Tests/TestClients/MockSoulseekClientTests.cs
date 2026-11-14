@@ -134,6 +134,38 @@ namespace Tests.ClientTests
         }
 
         [TestMethod]
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task SearchAsync_FiltersPublicAndLockedFilesWithoutDroppingLockedOnlyPeers(bool mp3Only)
+        {
+            var client = new MockSoulseekClient(
+            [
+                new SearchResponse("mixed", 1, true, 1000, 0,
+                    [new File(1, "Track.mp3", 100, ".mp3")],
+                    lockedFileList: [new File(1, "Track.flac", 100, ".flac"),
+                        new File(1, "Unrelated.flac", 100, ".flac")]),
+                new SearchResponse("private", 2, true, 1000, 0, [],
+                    lockedFileList: [new File(1, "Track.flac", 100, ".flac")]),
+            ]);
+            int started = 0;
+            client.BeforeSearchAsync = (_, _) =>
+            {
+                started++;
+                return Task.CompletedTask;
+            };
+            var result = await client.SearchAsync(new SearchQuery("Track"), options: new SearchOptions(
+                minimumResponseFileCount: 0,
+                fileFilter: file => !mp3Only || file.Extension == ".mp3"));
+
+            Assert.AreEqual(mp3Only ? 1 : 2, result.Responses.Count);
+            Assert.AreEqual(1, started, "One network search must invoke its synchronization hook once.");
+            Assert.AreEqual(1, result.Responses.Sum(response => response.Files.Count));
+            Assert.AreEqual(mp3Only ? 0 : 2, result.Responses.Sum(response => response.LockedFiles.Count));
+            Assert.IsTrue(result.Responses.SelectMany(response => response.LockedFiles)
+                .All(file => file.Filename == "Track.flac"));
+        }
+
+        [TestMethod]
         public async Task SearchAsync_NoMatches_ReturnsEmptyResults()
         {
             // Arrange
@@ -155,6 +187,8 @@ namespace Tests.ClientTests
             var index = CreateTestIndex();
             var client = new MockSoulseekClient(index);
             var tempFile = Path.GetTempFileName();
+            Stream? opened = null;
+            client.DownloadStreamOpened = stream => opened = stream;
 
             try
             {
@@ -162,7 +196,8 @@ namespace Tests.ClientTests
                 var transfer = await client.DownloadAsync(
                     username: "user1",
                     remoteFilename: "Music\\Artist1\\Album1\\Artist1 - Album1 - 01 - Track1.mp3",
-                    localFilename: tempFile);
+                    localFilename: tempFile,
+                    options: new TransferOptions(disposeOutputStreamOnCompletion: false));
 
                 // Assert
                 Assert.AreEqual(TransferStates.Completed, transfer.State);
@@ -170,6 +205,17 @@ namespace Tests.ClientTests
                 Assert.AreEqual(10000, transfer.Size);
                 Assert.IsTrue(System.IO.File.Exists(tempFile), "Downloaded file should exist");
                 Assert.AreEqual(10000, new System.IO.FileInfo(tempFile).Length, "File size should match expected size");
+                Assert.IsNotNull(opened);
+                Assert.IsFalse(opened.CanWrite, "A path-based download owns its stream regardless of caller-stream options.");
+
+                using var callerOutput = new MemoryStream();
+                await client.DownloadAsync("user1", transfer.Filename, () => Task.FromResult<Stream>(callerOutput));
+                Assert.IsTrue(callerOutput.CanWrite, "The default factory overload leaves the caller's stream open.");
+                Assert.AreEqual(10000L, callerOutput.Length);
+                callerOutput.Position = 0;
+                await client.DownloadAsync("user1", transfer.Filename, () => Task.FromResult<Stream>(callerOutput),
+                    options: new TransferOptions(disposeOutputStreamOnCompletion: true));
+                Assert.IsFalse(callerOutput.CanWrite, "Explicit ownership closes the factory stream.");
             }
             finally
             {
