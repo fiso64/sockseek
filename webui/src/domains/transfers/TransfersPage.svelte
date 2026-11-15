@@ -457,15 +457,15 @@
     {#if !loading && !error && coverage?.state !== 'Available'}
       <div class="resource-state-notice unavailable" role="status"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Retained history {coverage?.state?.toLowerCase() ?? 'unavailable'}</strong><small>{coverage?.reason ?? 'Live transfers remain available.'}</small></span></div>
     {/if}
-    {#if error && groups.length}<div class="resource-state-notice unavailable" role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Transfers unavailable</strong><small>{error.message}</small></span><button type="button" disabled={loading} onclick={() => void onchanged()}>Retry</button></div>{/if}
-    {#if summaryError}<div class="resource-state-notice unavailable" role="status"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Folder totals unavailable</strong><small>Transfer rows remain usable; folder totals are shown for loaded files only. {summaryError.message}</small></span><button type="button" disabled={retryingSummaries} onclick={() => void retrySummaries()}>Retry</button></div>{/if}
+    {#if error && groups.length}<div class="resource-state-notice unavailable" role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Transfers unavailable</strong><small>{error.message}</small></span><button class="button" type="button" disabled={loading} onclick={() => void onchanged()}>Retry</button></div>{/if}
+    {#if summaryError}<div class="resource-state-notice unavailable" role="status"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Folder totals unavailable</strong><small>Transfer rows remain usable; folder totals are shown for loaded files only. {summaryError.message}</small></span><button class="button" type="button" disabled={retryingSummaries} onclick={() => void retrySummaries()}>Retry</button></div>{/if}
     <MutationStatus state={mutation} />
   </div>
 
   {#if loading && !groups.length}
     <LoadingIndicator label={`Loading ${direction}s`} blocking />
   {:else if error && !groups.length}
-    <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Transfers unavailable'}</strong><small>{daemonOffline ? direction === 'download' ? 'Current download state cannot be loaded while the daemon is offline.' : 'Current upload state cannot be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button type="button" onclick={() => void onchanged()}>Retry</button>{/if}</div>
+    <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Transfers unavailable'}</strong><small>{daemonOffline ? direction === 'download' ? 'Current download state cannot be loaded while the daemon is offline.' : 'Current upload state cannot be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button class="button" type="button" onclick={() => void onchanged()}>Retry</button>{/if}</div>
   {:else if !groups.length && !error && coverage?.state === 'Available'}
     <div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>No {direction}s</strong></span></div>
   {:else if groups.length}

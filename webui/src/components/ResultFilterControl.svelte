@@ -5,7 +5,7 @@
   let { value = $bindable(), placeholder = 'Filter…', ariaLabel = 'Filter items', children }: Props = $props();
 </script>
 
-<div class="result-filter-control">
+<div class="field-group result-filter-control">
   <Icon name="search" class="result-filter-icon" />
   <input bind:value {placeholder} aria-label={ariaLabel} />
   {#if value}<button type="button" aria-label="Clear filter" onclick={() => (value = '')}>×</button>{/if}

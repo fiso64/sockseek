@@ -61,14 +61,14 @@
     {/if}
   </button>
   {#if !resultState && oncancel && job.availableActions?.some(action => action.kind === 'cancel')}
-    <button type="button" data-testid="job-cancel" class="search-history-remove" aria-label={`Cancel ${title}`} title="Cancel" onclick={() => oncancel?.(job)}><Icon name="x" /></button>
+    <button type="button" data-testid="job-cancel" class="button quiet danger search-history-remove" aria-label={`Cancel ${title}`} title="Cancel" onclick={() => oncancel?.(job)}><Icon name="x" /></button>
   {:else if !resultState && ondelete && canDeleteSubmission(job)}
-    <button type="button" data-testid="job-remove" class="search-history-remove" disabled={deleting} aria-label={`Remove ${title}`} title="Remove submission from history" onclick={() => ondelete?.(job)}><Icon name="x" /></button>
+    <button type="button" data-testid="job-remove" class="button quiet danger search-history-remove" disabled={deleting} aria-label={`Remove ${title}`} title="Remove submission from history" onclick={() => ondelete?.(job)}><Icon name="x" /></button>
   {:else if job.kind !== 'search'}
     <span class="automatic-history-action-space" aria-hidden="true"></span>
   {/if}
   {#if percent !== undefined}
-    <span data-testid="job-progress" class="job-row-progress" role="progressbar" aria-label="Job progress"
+    <span data-testid="job-progress" class="progress-track job-row-progress" role="progressbar" aria-label="Job progress"
       aria-valuenow={Math.round(percent)} aria-valuemin="0" aria-valuemax="100"><i style={`width:${percent}%`}></i></span>
   {/if}
 </div>

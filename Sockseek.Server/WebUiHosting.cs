@@ -16,10 +16,16 @@ internal static class WebUiHosting
         Task Shell(HttpContext context)
         {
             var settings = options.WebUi;
-            string scheme = settings.Theme == "auto" ? "dark light" : settings.Theme;
+            string scheme = settings.Theme switch
+            {
+                "light" or "2009-light" => "light",
+                "auto" => "dark light",
+                _ => "dark",
+            };
             // Include preferences in the initial document: no bootstrap request
             // or wrong-theme flash, and no credentials in the public shell.
             string attributes = $"style=\"color-scheme:{HtmlEncoder.Default.Encode(scheme)}\" "
+                + $"data-theme=\"{HtmlEncoder.Default.Encode(settings.Theme)}\" "
                 + $"data-search-mode=\"{HtmlEncoder.Default.Encode(settings.DefaultSearchMode)}\" ";
             context.Response.Headers.CacheControl = "no-cache";
             return Results.Content(template.Replace("<html ", "<html " + attributes, StringComparison.Ordinal),

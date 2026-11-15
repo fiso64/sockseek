@@ -438,7 +438,7 @@
 
         {#if source.download && selectedCount && optionsOpen}
           <button type="button" class="floating-options-backdrop" aria-label="Close download options" onclick={() => optionsOpen = false}></button>
-          <section class="floating-download-options-popover" data-shortcuts-blocked="true" inert={mutation.phase === 'pending'} aria-label="Download options">
+          <section class="popover-panel floating-download-options-popover" data-shortcuts-blocked="true" inert={mutation.phase === 'pending'} aria-label="Download options">
             <header><strong>Download options</strong><div class="download-options-actions"><ProfilePicker value={profileNames} applied={appliedProfiles} onchange={(names) => { profileNames = names; void loadOptions(); }} /><button type="button" aria-label="Close download options" onclick={() => optionsOpen = false}>×</button></div></header>
             {#if optionsLoading}<LoadingIndicator label="Loading download settings" />
             {:else if optionsError}<p role="alert">{optionsError}</p><button type="button" onclick={() => void loadOptions()}>Retry</button>
@@ -454,7 +454,7 @@
                 <strong>Share filter failed</strong>
                 <small>{filterError.message}</small>
               </span>
-              <button type="button" disabled={filterLoading}
+              <button class="button" type="button" disabled={filterLoading}
                 onclick={() => browse && void loadFilter(browse.browseId, filterText.trim(), filterPage?.nextCursor ?? null, !filterPage)}>Retry</button>
             </div>
           {/if}
@@ -462,7 +462,7 @@
             <LoadingIndicator label="Filtering shares" />
           {/if}
           {#if filterItems.length}
-            <div class="share-tree" aria-label={`${browse.username} filtered shared files`}>
+            <div class="panel inset share-tree" aria-label={`${browse.username} filtered shared files`}>
               {#each filteredRows as { entry: item, depth } (`${item.kind}:${item.entryId}`)}
                 {@const key = `${item.kind === 'directory' ? 'd' : 'f'}:${item.entryId}`}
                 {#if item.kind === 'directory'}
@@ -496,7 +496,7 @@
           {/if}
           {#if filterPage?.nextCursor}<div data-keyboard-page="filter" data-loading={filterLoading} data-failed={Boolean(filterError)}><LoadMoreButton loading={filterLoading} onclick={() => browse && void loadFilter(browse.browseId, filterText.trim(), filterPage?.nextCursor ?? null, false)}/></div>{/if}
         {:else if treeRows.length}
-          <div class="share-tree" aria-label={`${browse.username} shared files`}>
+          <div class="panel inset share-tree" aria-label={`${browse.username} shared files`}>
             {#each treeRows as row (row.kind === 'page' ? `p:${row.parentKey}` : row.kind === 'directory' ? `d:${row.entry.directoryId}` : `f:${row.entry.fileId}`)}
               {#if row.kind === 'directory'}
                 {@const id = String(row.entry.directoryId)}
@@ -527,7 +527,7 @@
                   {#if row.page.error}
                     <div class="resource-state-notice unavailable" role="alert">
                       <span class="resource-state-copy"><strong>Folder page unavailable</strong><small>{row.page.error.message}</small></span>
-                      <button type="button" disabled={row.page.loading} onclick={() => void loadChildren(row.parentKey === 'root' ? null : row.parentKey)}>Retry</button>
+                      <button class="button" type="button" disabled={row.page.loading} onclick={() => void loadChildren(row.parentKey === 'root' ? null : row.parentKey)}>Retry</button>
                     </div>
                   {:else}
                     <LoadMoreButton loading={row.page.loading}

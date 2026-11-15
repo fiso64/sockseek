@@ -32,7 +32,7 @@
 <nav class="sidebar-nav" aria-label={placement === 'primary' ? 'Primary navigation' : 'Secondary navigation'}>
   {#each items as item}
     {@const count = countFor(item.id)}
-    <button
+    <button class="choice"
       type="button"
       aria-label={item.label}
       aria-keyshortcuts={String(navigationItems.findIndex(candidate => candidate.id === item.id) + 1)}

@@ -32,22 +32,22 @@
 </script>
 
 {#if draft.choice === 'song'}
-  <label><span>Artist <small>(optional)</small></span><input value={draft.artist} placeholder="Artist…" oninput={(event) => setField('artist', event)} /></label>
-  <label><span>Title</span><input value={draft.title} placeholder="Song title…" oninput={(event) => setField('title', event)} /></label>
+  <label><span>Artist <small>(optional)</small></span><input class="field" value={draft.artist} placeholder="Artist…" oninput={(event) => setField('artist', event)} /></label>
+  <label><span>Title</span><input class="field" value={draft.title} placeholder="Song title…" oninput={(event) => setField('title', event)} /></label>
 {:else if draft.choice === 'album'}
-  <label><span>Artist <small>(optional)</small></span><input value={draft.artist} placeholder="Artist…" oninput={(event) => setField('artist', event)} /></label>
-  <label><span>Album</span><input value={draft.album} placeholder="Album title…" oninput={(event) => setField('album', event)} /></label>
+  <label><span>Artist <small>(optional)</small></span><input class="field" value={draft.artist} placeholder="Artist…" oninput={(event) => setField('artist', event)} /></label>
+  <label><span>Album</span><input class="field" value={draft.album} placeholder="Album title…" oninput={(event) => setField('album', event)} /></label>
 {:else if draft.choice === 'csv' || draft.choice === 'list'}
   <div class="new-job-source-mode">
-    <div class="new-job-segmented" role="group" aria-label="File source">
+    <div class="segmented-control new-job-segmented" role="group" aria-label="File source">
       <button type="button" data-testid="job-file-upload" aria-pressed={draft.fileInput === 'upload'} class:active={draft.fileInput === 'upload'} onclick={() => onchange({ ...draft, fileInput: 'upload' })}>Upload file</button>
       <button type="button" data-testid="job-file-path" aria-pressed={draft.fileInput === 'path'} class:active={draft.fileInput === 'path'} onclick={() => onchange({ ...draft, fileInput: 'path' })}>Server path</button>
     </div>
   </div>
   {#if draft.fileInput === 'path'}
-    <label class="new-job-source-field"><span>File path on the server</span><input data-testid="job-file-path-input" value={draft.source} placeholder={draft.choice === 'csv' ? '/path/to/music.csv' : '/path/to/list.txt'} oninput={(event) => setField('source', event)} /></label>
+    <label class="new-job-source-field"><span>File path on the server</span><input class="field" data-testid="job-file-path-input" value={draft.source} placeholder={draft.choice === 'csv' ? '/path/to/music.csv' : '/path/to/list.txt'} oninput={(event) => setField('source', event)} /></label>
   {:else}
-    <label class:dragging class="new-job-drop-zone" ondragover={(event) => { event.preventDefault(); dragging = true; }} ondragleave={() => (dragging = false)} ondrop={drop}>
+    <label class:dragging class="well new-job-drop-zone" ondragover={(event) => { event.preventDefault(); dragging = true; }} ondragleave={() => (dragging = false)} ondrop={drop}>
       <input type="file" accept={draft.choice === 'csv' ? '.csv,text/csv' : '.txt,.list,text/plain'} onchange={chooseFile} />
       <Icon name="upload-file" />
       <span>
@@ -60,7 +60,7 @@
   {#if draft.choice === 'spotify'}
     <div class="new-job-source-mode">
       <span>Input <HelpPopover title="Spotify input" testId="spotify-input-help">Liked songs and albums use the Spotify account configured for the daemon.</HelpPopover></span>
-      <div class="new-job-segmented" role="group" aria-label="Spotify input">
+      <div class="segmented-control new-job-segmented" role="group" aria-label="Spotify input">
         <button type="button" class:active={draft.spotifyInput === 'url'} onclick={() => onchange({ ...draft, spotifyInput: 'url' })}>Playlist / album URL</button>
         <button type="button" class:active={draft.spotifyInput === 'likes'} onclick={() => onchange({ ...draft, spotifyInput: 'likes' })}>Liked songs</button>
         <button type="button" class:active={draft.spotifyInput === 'albums'} onclick={() => onchange({ ...draft, spotifyInput: 'albums' })}>Liked albums</button>
@@ -68,6 +68,6 @@
     </div>
   {/if}
   {#if draft.choice !== 'spotify' || draft.spotifyInput === 'url'}
-    <label class="new-job-source-field"><span>URL</span><input value={draft.source} placeholder={placeholders[draft.choice]} oninput={(event) => setField('source', event)} /></label>
+    <label class="new-job-source-field"><span>URL</span><input class="field" value={draft.source} placeholder={placeholders[draft.choice]} oninput={(event) => setField('source', event)} /></label>
   {/if}
 {/if}

@@ -59,10 +59,10 @@
 
 </script>
 
-  <section class="settings-section" aria-labelledby="keys-heading">
+  <section class="panel settings-section" aria-labelledby="keys-heading">
     <div class="section-heading key-heading">
       <div><h2 id="keys-heading">API keys</h2><p>Connect the remote CLI or other integrations. Each key grants full access.</p></div>
-      <button class="auth-button primary" disabled={loading || pending} onclick={() => { name = ''; created = null; error = null; creating = true; }}>Create API key</button>
+      <button class="button auth-button primary" disabled={loading || pending} onclick={() => { name = ''; created = null; error = null; creating = true; }}>Create API key</button>
     </div>
     {#if error && !creating && !revoking}<p class="error" role="alert">{error}</p>{/if}
     {#if loading}<LoadingIndicator />
@@ -70,7 +70,7 @@
       <ul aria-label="API keys">
         {#each keys as key (key.id)}
           <li><div><strong>{key.name}</strong><small>{new Date(key.createdAt).toLocaleString()}</small></div>
-            <button class="auth-button" disabled={pending} aria-label={`Revoke ${key.name}`} onclick={() => { error = null; revoking = key; }}>Revoke</button></li>
+            <button class="button auth-button" disabled={pending} aria-label={`Revoke ${key.name}`} onclick={() => { error = null; revoking = key; }}>Revoke</button></li>
         {/each}
       </ul>
     {:else if !error}<p class="keys-empty">No API keys yet.</p>{/if}
@@ -81,14 +81,14 @@
     {#if created}
       <div class="key-secret">
         <p>This key is shown only once. Save it before closing this dialog.</p>
-        <label>API key<input class="auth-input" readonly value={created.secret} onfocus={event => event.currentTarget.select()} /></label>
-        <div class="key-actions"><button class="auth-button" onclick={() => void copy()}>Copy key</button><span role="status">{copyNotice}</span></div>
+        <label>API key<input class="field auth-input" readonly value={created.secret} onfocus={event => event.currentTarget.select()} /></label>
+        <div class="key-actions"><button class="button auth-button" onclick={() => void copy()}>Copy key</button><span role="status">{copyNotice}</span></div>
       </div>
     {:else}
       <form onsubmit={create}>
-        <label>Name<input class="auth-input" required maxlength="200" placeholder="Laptop CLI" bind:value={name} /></label>
+        <label>Name<input class="field auth-input" required maxlength="200" placeholder="Laptop CLI" bind:value={name} /></label>
         {#if error}<p class="error" role="alert">{error}</p>{/if}
-        <button class="auth-button primary" type="submit" disabled={pending || !name.trim()} aria-keyshortcuts="Control+Enter">Create key</button>
+        <button class="button auth-button primary" type="submit" disabled={pending || !name.trim()} aria-keyshortcuts="Control+Enter">Create key</button>
       </form>
     {/if}
   </Modal>
@@ -98,13 +98,13 @@
     <div class="key-secret">
       <p>Revoke “{revoking.name}”? Its clients will lose access.</p>
       {#if error}<p class="error" role="alert">{error}</p>{/if}
-      <button class="auth-button" disabled={pending} onclick={() => void revoke()} aria-keyshortcuts="Control+Enter">Revoke key</button>
+      <button class="button auth-button" disabled={pending} onclick={() => void revoke()} aria-keyshortcuts="Control+Enter">Revoke key</button>
     </div>
   </Modal>
 {/if}
 
 <style>
-  .settings-section { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 18px; margin-bottom: 14px; }
+  .settings-section { border-radius: 14px; padding: 18px; margin-bottom: 14px; }
   .section-heading, li { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .section-heading > div, li > div { min-width: 0; overflow-wrap: anywhere; }
   .key-heading { flex-wrap: wrap; }

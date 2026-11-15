@@ -113,7 +113,7 @@
 {#if error}
   <div class="resource-state-notice unavailable" role="alert">
     <span>{error}</span>
-    {#if !baseline && !loading}<button type="button" onclick={() => retry++}>Retry</button>{/if}
+    {#if !baseline && !loading}<button class="button" type="button" onclick={() => retry++}>Retry</button>{/if}
   </div>
 {/if}
 {#if loading || baseline}

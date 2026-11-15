@@ -15,7 +15,7 @@
 {#if pills.length}
   <div class="result-condition-pills">
     {#each pills as pill}
-      <span class="search-condition-pill">{pill.label}<button type="button" aria-label={pill.removeLabel} onclick={pill.remove}>×</button></span>
+      <span class="badge search-condition-pill">{pill.label}<button type="button" class="button quiet" aria-label={pill.removeLabel} onclick={pill.remove}>×</button></span>
     {/each}
   </div>
 {/if}

@@ -151,6 +151,8 @@ test('applies configured search defaults and theme before JavaScript, including 
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/');
   const darkBackground = await page.locator('body').evaluate(element => getComputedStyle(element).backgroundColor);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(14, 15, 16)');
   await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Album Search/);
 
   await daemon.command('webui-settings:light:track');
@@ -173,4 +175,48 @@ test('applies configured search defaults and theme before JavaScript, including 
   await expect(page.locator('body')).toHaveCSS('background-color', lightBackground);
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('body')).toHaveCSS('background-color', darkBackground);
+
+  // All appearances use the same controls and geometry, including dialogs and
+  // popovers. Check decoration through real interactions, not just root tokens.
+  const geometry = await page.locator('.search-controls-row').boundingBox();
+  for (const theme of ['2009-light', '2009-dark', 'light', 'dark'] as const) {
+    const physical = theme.startsWith('2009-');
+    const scheme = theme.endsWith('light') ? 'light' : 'dark';
+    await daemon.command(`webui-settings:${theme}:album`);
+    const shellContext = await browser.newContext({ javaScriptEnabled: false, colorScheme: scheme === 'dark' ? 'light' : 'dark' });
+    let background: string;
+    try {
+      const shell = await shellContext.newPage();
+      await shell.goto(new URL('/index.html', page.url()).href);
+      await expect(shell.locator('html')).toHaveAttribute('data-theme', theme);
+      await expect(shell.locator('html')).toHaveCSS('color-scheme', scheme);
+      background = await shell.locator('body').evaluate(element => getComputedStyle(element).backgroundColor);
+    } finally { await shellContext.close(); }
+    await page.reload();
+    await expect(page.locator('body')).toHaveCSS('background-color', background);
+    await expect(page.locator('.search-controls-row')).toBeVisible();
+    expect(await page.locator('.search-controls-row').boundingBox()).toEqual(geometry);
+    const button = page.getByTestId('search-config-toggle');
+    const image = await button.evaluate(element => getComputedStyle(element).backgroundImage);
+    expect(image === 'none').toBe(!physical);
+    await button.hover();
+    await expect(button).toHaveCSS('background-image', image);
+    await button.focus();
+    await expect(button).not.toHaveCSS('outline-style', 'none');
+    await button.click();
+    const panel = page.locator('.search-config-popover');
+    await expect(panel).toBeVisible();
+    expect(await panel.evaluate(element => getComputedStyle(element).backgroundImage === 'none')).toBe(!physical);
+    const field = panel.locator('input.field').first();
+    await field.focus();
+    await expect(field).toHaveCSS('outline-style', 'solid');
+    await page.keyboard.press('Escape');
+    await page.goto('/jobs');
+    await page.getByTestId('new-job').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    expect(await dialog.evaluate(element => getComputedStyle(element).backgroundImage === 'none')).toBe(!physical);
+    await page.keyboard.press('Escape');
+    await page.goto('/system');
+  }
 });

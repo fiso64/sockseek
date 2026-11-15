@@ -585,16 +585,16 @@
   {@const choice = choiceIsCurrent(ref) ? viewState.chosenOptions.get(ref) : undefined}
   {@const position = choice ? (step?.revision === revision && step.optionRef === choice.ref ? step.position : undefined) : 1}
   <div class="group-result-stats">
-    <button type="button" class="group-option-step" aria-label="Previous option" title="Previous option" disabled={selectionReadOnly || position === 1 || step?.loading} onclick={() => onstepoption(ref, -1)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 5-5 5 5 5" /></svg></button>
-    <button type="button" class="group-options-button" disabled={step?.loading} onclick={() => onopenoptions(ref)}>{position ? formatCount(position) : '—'} / {formatCount(count)} {Number(count) === 1 ? 'option' : 'options'}</button>
-    <button type="button" class="group-option-step" aria-label="Next option" title="Next option" disabled={selectionReadOnly || position === Number(count) || step?.loading} onclick={() => onstepoption(ref, 1)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5" /></svg></button>
+    <button type="button" class="button quiet group-option-step" aria-label="Previous option" title="Previous option" disabled={selectionReadOnly || position === 1 || step?.loading} onclick={() => onstepoption(ref, -1)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 5-5 5 5 5" /></svg></button>
+    <button type="button" class="button group-options-button" disabled={step?.loading} onclick={() => onopenoptions(ref)}>{position ? formatCount(position) : '—'} / {formatCount(count)} {Number(count) === 1 ? 'option' : 'options'}</button>
+    <button type="button" class="button quiet group-option-step" aria-label="Next option" title="Next option" disabled={selectionReadOnly || position === Number(count) || step?.loading} onclick={() => onstepoption(ref, 1)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5" /></svg></button>
   </div>
 {/snippet}
 
 {#snippet groupGroupCard(row: Extract<SearchRow, { kind: 'track-group' | 'album-group' }>)}
   {#if row.kind === 'track-group'}
     {@const representative = trackRepresentative(row.ref, row.value.representative)}
-    <section class:selected={isselected(row.ref)} class="group-result-group" data-keyboard-item={row.ref} tabindex="-1">
+    <section class:selected={isselected(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} tabindex="-1">
       <header class="group-result-header">
         <button type="button" class="group-header-select-button" disabled={selectionReadOnly || representative.visibility === 'Locked'} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
         <div class="group-result-identity"><strong>{row.value.query.title ?? 'Untitled track'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
@@ -610,7 +610,7 @@
             : viewState.choiceValidationError
               ? 'Could not check the chosen source. Retry the result refresh before downloading.'
               : 'Checking the chosen source in the updated results…'}</span>
-          {#if viewState.staleChoices.has(row.ref)}<button type="button" onclick={() => onopenoptions(row.ref)}>Choose another</button>{/if}
+          {#if viewState.staleChoices.has(row.ref)}<button class="button" type="button" onclick={() => onopenoptions(row.ref)}>Choose another</button>{/if}
         </div>
       {/if}
       <FileItemCard path={representative.remoteFilename} sizeBytes={Number(representative.file.size)} audio={audio(representative.file)} locked={representative.visibility === 'Locked'} selected={isselected(row.ref)} selectable={!selectionReadOnly} onselect={(checked) => ontoggle(row.ref, checked)} />
@@ -622,7 +622,7 @@
     {@const files = children ? children.items.map((child) => folderFile(child.file, child.relativePath)) : [folderFile(directory.bestChild)]}
     {@const totals = directoryTotals(directory)}
     {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
-    <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="group-result-group" data-keyboard-item={row.ref} tabindex="-1">
+    <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} tabindex="-1">
       <header class="group-result-header">
         <button type="button" class="group-header-select-button" disabled={selectionReadOnly || directory.visibility === 'Locked'} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
         <div class="group-result-identity"><strong>{row.value.query.album ?? 'Untitled album'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
@@ -638,7 +638,7 @@
             : viewState.choiceValidationError
               ? 'Could not check the chosen folder. Retry the result refresh before downloading.'
               : 'Checking the chosen folder in the updated results…'}</span>
-          {#if viewState.staleChoices.has(row.ref)}<button type="button" onclick={() => onopenoptions(row.ref)}>Choose another</button>{/if}
+          {#if viewState.staleChoices.has(row.ref)}<button class="button" type="button" onclick={() => onopenoptions(row.ref)}>Choose another</button>{/if}
         </div>
       {/if}
       <FolderItemCard
@@ -659,7 +659,7 @@
         onselectfile={(file, checked) => ontogglealbumfile(row.ref, file.id, checked)}
       />
       {#if !children || (children.loading && !children.refreshing) || children.error || children.nextCursor}
-        <div class="load-more-row"><button type="button" disabled={children?.loading} onclick={() => onloaddirectory(directory.ref.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more' : 'Load matching files'}</button></div>
+        <div class="load-more-row"><button class="button" type="button" disabled={children?.loading} onclick={() => onloaddirectory(directory.ref.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more' : 'Load matching files'}</button></div>
       {/if}
     </section>
   {/if}
@@ -673,7 +673,7 @@
   loadPage: onloadmore,
 }}>
   <header class="search-results-heading">
-    <button type="button" class="icon-button back-button" aria-label="Back to jobs" onclick={onback}>
+    <button type="button" class="button quiet icon-button back-button" aria-label="Back to jobs" onclick={onback}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5M7.5 10H16" /></svg>
     </button>
     <div class="search-results-title">
@@ -697,13 +697,13 @@
     <div class="search-results-actions">
       <button
         type="button"
-        class="search-again-button"
+        class="button search-again-button"
         disabled={!searchAgainAvailable || searchAgainPending}
         title={searchAgainAvailable ? 'Run this search again with its retained settings' : 'Single-search replay is unavailable for this job'}
         onclick={onsearchagain}
       ><Icon name="search" /><span>{searchAgainPending ? 'Starting…' : 'Search again'}</span></button>
       {#if removeAction}
-        <button type="button" class:quiet-cancel={removeAction === 'cancel'} class="delete-search-button" disabled={removePending} aria-label={`${removeAction === 'cancel' ? 'Cancel' : 'Delete'} ${queryTitle()}`} title={removeAction === 'cancel' ? 'Cancel job' : 'Delete search'} onclick={onremove}>
+        <button type="button" class:quiet-cancel={removeAction === 'cancel'} class="button danger delete-search-button" disabled={removePending} aria-label={`${removeAction === 'cancel' ? 'Cancel' : 'Delete'} ${queryTitle()}`} title={removeAction === 'cancel' ? 'Cancel job' : 'Delete search'} onclick={onremove}>
           <Icon name={removeAction === 'cancel' ? 'x' : 'trash'} />
           <span>{removePending ? 'Working…' : removeAction === 'cancel' ? 'Cancel' : 'Delete'}</span>
         </button>
@@ -725,7 +725,7 @@
         {#if viewState.canRetryPendingCommit}Retry your download request to recover its outcome.
         {:else}Reload results; your current selection will be cleared.{/if}
       </small></span>
-      {#if !viewState.canRetryPendingCommit}<button type="button" disabled={viewState.refining} onclick={() => requestRefinement(true)}>Reload results</button>{/if}
+      {#if !viewState.canRetryPendingCommit}<button class="button" type="button" disabled={viewState.refining} onclick={() => requestRefinement(true)}>Reload results</button>{/if}
     </div>
   {/if}
 
@@ -733,7 +733,7 @@
     <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'}`} class:blocking={viewState.phase === 'failed'} role="alert">
       <span class="resource-state-dot"></span>
       <span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : viewState.error ? 'Search results could not be refreshed' : 'Job updates could not be refreshed'}</strong><small>{daemonOffline ? 'This resource cannot be loaded while the daemon is offline.' : (viewState.error ?? liveJobError)?.message}</small></span>
-      {#if !daemonOffline}<button type="button" onclick={onretry}>Retry</button>{/if}
+      {#if !daemonOffline}<button class="button" type="button" onclick={onretry}>Retry</button>{/if}
     </div>
   {/if}
 
@@ -741,7 +741,7 @@
     <div class="resource-state-notice unavailable" role="alert">
       <span class="resource-state-dot"></span>
       <span class="resource-state-copy"><strong>Chosen sources could not be checked</strong><small>{viewState.choiceValidationError.message}</small></span>
-      <button type="button" onclick={onretry}>Retry</button>
+      <button class="button" type="button" onclick={onretry}>Retry</button>
     </div>
   {/if}
 
@@ -749,8 +749,8 @@
     <div class="resource-state-notice unavailable" role="alert">
       <span class="resource-state-dot"></span>
       <span class="resource-state-copy"><strong>{configurationError ? 'Result configuration unavailable' : 'Search results could not be updated'}</strong><small>{viewState.refinementError ? 'Previous results are still shown. ' : ''}{(configurationError ?? localRefinementError ?? viewState.refinementError)?.message}</small></span>
-      {#if configurationError}<button type="button" onclick={() => { configurationJobId = null; }}>Retry</button>
-      {:else}<button type="button" onclick={() => requestRefinement()}>Retry</button>{/if}
+      {#if configurationError}<button class="button" type="button" onclick={() => { configurationJobId = null; }}>Retry</button>
+      {:else}<button class="button" type="button" onclick={() => requestRefinement()}>Retry</button>{/if}
     </div>
   {/if}
 
@@ -765,7 +765,7 @@
       {#if !groupMode}
         <div class="result-sort-control">
           <label for="result-sort">Sort</label>
-          <select id="result-sort" value={sort} onchange={changeSort}>
+          <select class="field" id="result-sort" value={sort} onchange={changeSort}>
             <option value="relevance">Relevance</option>
             <option value="speed">Upload speed</option>
             {#if genericMode}
@@ -775,7 +775,7 @@
             {/if}
           </select>
           {#if sort === 'size' || (genericMode && (sort === 'count' || sort === 'name'))}
-            <button type="button" class="size-direction-button" aria-label={`Reverse ${genericMode ? 'directory' : 'item'} sort`} onclick={reverseSort}>
+            <button type="button" class="button size-direction-button" aria-label={`Reverse ${genericMode ? 'directory' : 'item'} sort`} onclick={reverseSort}>
               <svg class:ascending={sizeDirection === 'asc'} viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M6 8l4-4 4 4" /></svg>
             </button>
           {/if}
@@ -786,7 +786,7 @@
       <SearchConditionPills mode={viewState.draft.resultMode} bind:conditions />
     {/if}
     {#if conditionsOpen && viewState.draft}
-      <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsAnchor, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
+      <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="popover-panel search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsAnchor, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
         <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="Search configuration" loadDefaults={async signal => {
           const draft = viewState.draft!;
           const response = await daemonApi.resolveEffectiveSettings({ job: searchJobDraft(draft) }, signal);
@@ -831,7 +831,7 @@
 
   {#if selectedCount && downloadOptionsOpen}
     <button type="button" class="floating-options-backdrop" aria-label="Close download options" onclick={() => (downloadOptionsOpen = false)}></button>
-    <section inert={viewState.committing} data-shortcuts-blocked="true" class="floating-download-options-popover" aria-label="Download options">
+    <section inert={viewState.committing} data-shortcuts-blocked="true" class="popover-panel floating-download-options-popover" aria-label="Download options">
       <header><strong>Download options</strong><div class="download-options-actions"><ProfilePicker disabled={viewState.committing} value={profileNames} applied={appliedProfiles} onchange={(names) => { profileNames = names; void loadDownloadOptions(); }} /><button type="button" aria-label="Close download options" onclick={() => (downloadOptionsOpen = false)}>×</button></div></header>
       {#if downloadOptionsLoading}
         <LoadingIndicator label="Loading effective defaults" />
@@ -972,7 +972,7 @@
                       isfolderselected={genericMode ? (path) => isfolderselected(row.ref, path) : undefined}
                     />
                     {#if !children || (children.loading && !children.refreshing) || children.error || children.nextCursor}
-                      <div class="load-more-row"><button type="button" disabled={children?.loading} onclick={() => onloaddirectory(row.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more' : 'Load matching files'}</button></div>
+                      <div class="load-more-row"><button class="button" type="button" disabled={children?.loading} onclick={() => onloaddirectory(row.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more' : 'Load matching files'}</button></div>
                     {/if}
                   {/if}
                 {/each}
@@ -990,7 +990,7 @@
   {@const panel = viewState.groupOptions}
   <div class="group-options-modal">
     <button type="button" class="group-options-backdrop" aria-label="Close options" onclick={oncloseoptions}></button>
-    <div class="group-options-dialog" role="dialog" aria-modal="true" aria-label={`${panel.title} options`}>
+    <div class="popover-panel group-options-dialog" role="dialog" aria-modal="true" aria-label={`${panel.title} options`}>
       <header class="group-options-header">
         <div>
           <strong>{panel.title}</strong>
@@ -998,7 +998,7 @@
             ? formatCountWithNoun(panel.optionCount, 'option')
             : `${formatCount(panel.items.length)} of ${formatCountWithNoun(panel.optionCount, 'option')}`}</small>
         </div>
-        <button type="button" class="group-options-close" aria-label="Close options" onclick={oncloseoptions}>×</button>
+        <button type="button" class="button group-options-close" aria-label="Close options" onclick={oncloseoptions}>×</button>
       </header>
       <div class="group-options-list">
         {#each panel.items as option (option.ref)}
@@ -1006,7 +1006,7 @@
           <div class:current={(choiceIsCurrent(panel.groupRef) ? viewState.chosenOptions.get(panel.groupRef)?.ref : panel.representativeRef) === option.ref} class="group-option">
             <div class="group-option-toolbar">
               {@render groupPeerSummary(peer)}
-              <button type="button" class="group-use-option" disabled={selectionReadOnly || option.value.visibility === 'Locked'} onclick={() => onchooseoption(panel.groupRef, option)}>Use this option</button>
+              <button type="button" class="button group-use-option" disabled={selectionReadOnly || option.value.visibility === 'Locked'} onclick={() => onchooseoption(panel.groupRef, option)}>Use this option</button>
             </div>
             <div class="group-option-card-wrap">
               {#if option.kind === 'track'}
@@ -1031,7 +1031,7 @@
                 />
                 {#if !children || (children.loading && !children.refreshing) || children.error || children.nextCursor}
                   <div class="load-more-row">
-                    <button type="button" disabled={children?.loading} onclick={() => onloaddirectory(directory.ref.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more' : 'Load matching files'}</button>
+                    <button class="button" type="button" disabled={children?.loading} onclick={() => onloaddirectory(directory.ref.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more' : 'Load matching files'}</button>
                   </div>
                 {/if}
               {/if}
@@ -1039,7 +1039,7 @@
           </div>
         {/each}
         {#if panel.error}
-          <div class="resource-state-notice unavailable" role="alert"><span class="resource-state-copy"><strong>Options unavailable</strong><small>{panel.error.message}</small></span><button type="button" onclick={onloadoptions}>Retry</button></div>
+          <div class="resource-state-notice unavailable" role="alert"><span class="resource-state-copy"><strong>Options unavailable</strong><small>{panel.error.message}</small></span><button class="button" type="button" onclick={onloadoptions}>Retry</button></div>
         {/if}
         {#if panel.loading && panel.items.length === 0}<LoadingIndicator label="Loading options" />{/if}
         {#if panel.nextCursor}<LoadMoreButton loading={panel.loading} onclick={onloadoptions}/>{/if}

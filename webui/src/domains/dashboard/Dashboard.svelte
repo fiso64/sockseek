@@ -171,7 +171,7 @@
     </div>
     <div class="dashboard-range-control" aria-label="Dashboard history range">
       <span class="dashboard-range-label" role="status">{loading ? 'Loading analytics' : ''}</span>
-      <div class="range-buttons">
+      <div class="segmented-control range-buttons">
         {#each rangeIds as id}
           <button type="button" class:active={range === id} onclick={() => (range = id)}>{rangeLabels[id]}</button>
         {/each}
@@ -187,12 +187,12 @@
         <small>{liveStatus === 'offline' ? 'This resource cannot be loaded while the daemon is offline.' : error.message}</small>
       </span>
       {#if liveStatus !== 'offline'}
-        <button type="button" onclick={() => retryRevision++}>Retry</button>
+        <button class="button" type="button" onclick={() => retryRevision++}>Retry</button>
       {/if}
     </div>
   {/if}
 
-  <div class="dashboard-metrics">
+  <div class="panel dashboard-metrics">
     <article class="dashboard-metric-card">
       <div class="metric-label download"><span aria-hidden="true">↓</span> Downloaded</div>
       <strong>{formatBytes(summary?.downloadedBytes)}</strong>
@@ -236,12 +236,12 @@
     </article>
   </div>
 
-  <section class="dashboard-panel activity-panel" data-bucket-seconds={data?.range.bucketSeconds}>
+  <section class="panel dashboard-panel activity-panel" data-bucket-seconds={data?.range.bucketSeconds}>
     <div class="dashboard-panel-heading">
       <h2>Transfer activity</h2>
       <span class="panel-context">{rangeContext[range]}</span>
     </div>
-    <div class="activity-chart">
+    <div class="well activity-chart">
       <div class="chart-y-labels">
         {#each activityAxis.labels as tick}
           <span>{formatBytes(tick)}</span>
@@ -275,16 +275,17 @@
         <div class="chart-x-labels">
           {#each labels as label}<span>{label}</span>{/each}
         </div>
-      {#if hoveredBucket}
-        <div class="chart-tooltip" role="tooltip" bind:offsetWidth={tooltipWidth} style:left={`clamp(0px, ${hoveredX * 100}% - ${tooltipWidth / 2}px, calc(100% - ${tooltipWidth}px))`}>
-          <strong class="chart-tooltip-interval">
-            <span>From <time datetime={hoveredBucket.startUtc}>{intervalDateFormat.format(new Date(hoveredBucket.startUtc))}</time></span>
-            <span>To <time datetime={hoveredBucket.endUtc}>{intervalDateFormat.format(new Date(hoveredBucket.endUtc))}</time></span>
-          </strong>
-          <span class="download">Downloaded <b>{formatBytes(hoveredBucket.downloadBytes)}</b></span>
-          <span class="upload">Uploaded <b>{formatBytes(hoveredBucket.uploadBytes)}</b></span>
-        </div>
-      {/if}
+        {#if hoveredBucket}
+          <div class="popover-panel chart-tooltip" role="tooltip" bind:offsetWidth={tooltipWidth}
+            style:left={`clamp(min(0px, calc(100% - ${tooltipWidth}px)), ${hoveredX * 100}% - ${tooltipWidth / 2}px, calc(100% - ${tooltipWidth}px))`}>
+            <strong class="chart-tooltip-interval">
+              <span>From <time datetime={hoveredBucket.startUtc}>{intervalDateFormat.format(new Date(hoveredBucket.startUtc))}</time></span>
+              <span>To <time datetime={hoveredBucket.endUtc}>{intervalDateFormat.format(new Date(hoveredBucket.endUtc))}</time></span>
+            </strong>
+            <span class="download">Downloaded <b>{formatBytes(hoveredBucket.downloadBytes)}</b></span>
+            <span class="upload">Uploaded <b>{formatBytes(hoveredBucket.uploadBytes)}</b></span>
+          </div>
+        {/if}
       </div>
     </div>
     <div class="chart-legend">
@@ -294,7 +295,7 @@
   </section>
 
   <div class="dashboard-lower-area">
-    <section class="dashboard-panel ranking-panel">
+    <section class="panel dashboard-panel ranking-panel">
       <div class="ranking-tabs" role="tablist" aria-label="Dashboard ranking">
         <button type="button" class:active={rankingTab === 'transfers'} onclick={() => (rankingTab = 'transfers')}>Transfers</button>
         <button type="button" class:active={rankingTab === 'content'} onclick={() => (rankingTab = 'content')}>Content</button>
@@ -353,7 +354,7 @@
     </section>
 
     <div class="dashboard-bottom-grid">
-      <section class="dashboard-panel current-transfer-panel">
+      <section class="panel dashboard-panel current-transfer-panel">
         <div class="dashboard-panel-heading compact"><h2>Transfer rates</h2></div>
         <div class="summary-metrics">
           <div>
@@ -373,10 +374,10 @@
           </div>
         </div>
       </section>
-      <section class="dashboard-panel health-panel">
+      <section class="panel dashboard-panel health-panel">
         <div class="dashboard-panel-heading compact">
           <h2>Daemon health</h2>
-          <span class:offline={!daemonReachable} class="health-badge"><i></i>{daemonReachable ? 'Healthy' : 'Offline'}</span>
+          <span class:offline={!daemonReachable} class="badge health-badge"><i></i>{daemonReachable ? 'Healthy' : 'Offline'}</span>
         </div>
         <div class="health-list">
           <div><span>Soulseek</span><strong>{soulseekStatusLabel(soulseek, daemonReachable)}</strong></div>

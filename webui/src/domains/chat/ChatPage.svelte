@@ -637,23 +637,23 @@
       <section class="chat-sidebar-section">
         <header class="chat-section-heading">
           <span>Rooms</span>
-          <button type="button" class="chat-add-button" aria-label="Join room" title="Join room"
+          <button type="button" class="button quiet chat-add-button" aria-label="Join room" title="Join room"
             onclick={() => { adding = adding === 'room' ? null : 'room'; addDraft = ''; }}>+</button>
         </header>
         {#if adding === 'room'}
           <div class="chat-add-row">
-            <input aria-label="Room name" placeholder="Room name…" bind:value={addDraft}
+            <input class="field" aria-label="Room name" placeholder="Room name…" bind:value={addDraft}
               onkeydown={(event) => {
                 if (event.key === 'Enter') submitAdd();
                 else if (event.key === 'Escape') adding = null;
               }}/>
-            <button type="button" disabled={!addDraft.trim()} onclick={submitAdd}>Join</button>
+            <button class="button" type="button" disabled={!addDraft.trim()} onclick={submitAdd}>Join</button>
           </div>
         {/if}
         <div class="chat-destination-list">
           {#each rooms as room (room.roomId)}
             <button type="button" class:active={target?.kind === 'room' && target.id === room.roomId}
-              class="chat-destination room"
+              class="choice chat-destination room"
               aria-current={target?.kind === 'room' && target.id === room.roomId ? 'page' : undefined}
               onclick={() => selectTarget({ kind: 'room', id: room.roomId })}>
               <span class="room-mark">#</span>
@@ -669,22 +669,22 @@
       <section class="chat-sidebar-section users-section">
         <header class="chat-section-heading">
           <span>Users</span>
-          <button type="button" class="chat-add-button" aria-label="Message user" title="Message user"
+          <button type="button" class="button quiet chat-add-button" aria-label="Message user" title="Message user"
             onclick={() => { adding = adding === 'user' ? null : 'user'; addDraft = ''; }}>+</button>
         </header>
         {#if adding === 'user'}
           <div class="chat-add-row">
-            <input aria-label="Username" placeholder="Username…" bind:value={addDraft}
+            <input class="field" aria-label="Username" placeholder="Username…" bind:value={addDraft}
               onkeydown={(event) => {
                 if (event.key === 'Enter') submitAdd();
                 else if (event.key === 'Escape') adding = null;
               }}/>
-            <button type="button" disabled={!addDraft.trim()} onclick={submitAdd}>Open</button>
+            <button class="button" type="button" disabled={!addDraft.trim()} onclick={submitAdd}>Open</button>
           </div>
         {/if}
         <div class="chat-destination-list">
           {#if target?.kind === 'draft'}
-            <div class="chat-destination user draft-target active">
+            <div class="choice chat-destination user draft-target active">
               <button type="button" class="chat-destination-open"
                 aria-label={`Open draft conversation with ${target.username}`}></button>
               <span class="avatar">{userInitials(target.username)}</span>
@@ -696,7 +696,7 @@
           {/if}
           {#each conversations as conversation (conversation.conversationId)}
             <div class:active={target?.kind === 'conversation' && target.id === conversation.conversationId}
-              class="chat-destination user">
+              class="choice chat-destination user">
               <button type="button" class="chat-destination-open"
                 aria-label={`Open conversation with ${conversation.username}`}
                 aria-current={target?.kind === 'conversation' && target.id === conversation.conversationId ? 'page' : undefined}
@@ -733,21 +733,21 @@
           </div>
         {/if}
         <div class="chat-thread-options" bind:this={chatOptionsElement}>
-          <button type="button" class="chat-options-button" aria-label="Chat options"
+          <button type="button" class="button quiet chat-options-button" aria-label="Chat options"
             aria-haspopup="menu" aria-expanded={menuOpen} disabled={!target}
             onclick={() => (menuOpen = !menuOpen)}><Icon name="more"/></button>
           {#if menuOpen}
-            <div class="chat-options-menu" role="menu" aria-label="Chat options"
+            <div class="popover-panel chat-options-menu" role="menu" aria-label="Chat options"
               use:anchoredMenu={{ anchor: chatOptionsElement, align: 'end' }}>
               {#if activeConversation || target?.kind === 'draft'}
-                <button type="button" role="menuitem"
+                <button class="menu-item" type="button" role="menuitem"
                   onclick={() => void blockActiveUser()}>{activeUserBlocked ? 'Unblock user' : 'Block user'}</button>
                 {#if activeConversation}
-                  <button type="button" role="menuitem" class="danger"
+                  <button type="button" role="menuitem" class="menu-item danger"
                     onclick={() => void deleteActiveConversation()}>Delete chat</button>
                 {/if}
               {:else if activeRoom}
-                <button type="button" role="menuitem" class="danger"
+                <button type="button" role="menuitem" class="menu-item danger"
                   onclick={() => void leaveActiveRoom()}>Leave room</button>
               {/if}
             </div>
@@ -764,7 +764,7 @@
               <small>{liveStatus === 'offline' ? 'This resource cannot be loaded while the daemon is offline.' : (targetError ?? listsError)?.message}</small>
             </span>
             {#if liveStatus !== 'offline'}
-              <button type="button" disabled={listsLoading || messagesLoading}
+              <button class="button" type="button" disabled={listsLoading || messagesLoading}
                 onclick={() => void retryChat()}>Retry</button>
             {/if}
           </div>
@@ -832,7 +832,7 @@
           <span class="composer-state">Chat {(runtime?.state ?? 'Unavailable').toLowerCase()}{runtime?.reason ? ` · ${runtime.reason}` : ''}</span>
         {/if}
         <div class="chat-composer-row">
-          <textarea rows="1" wrap="soft" aria-label="Message"
+          <textarea class="field" rows="1" wrap="soft" aria-label="Message"
             placeholder={activeRoom ? `Message #${activeRoom.name}…` : activeUsername ? `Message ${activeUsername}…` : 'Message…'}
             bind:value={draft} bind:this={composerTextarea} disabled={composerDisabled}
             onpaste={pasteComposerText}
@@ -843,7 +843,7 @@
                 if (event.ctrlKey || event.metaKey) void sendMessage();
               }
             }}></textarea>
-          <button type="button" title="Send (Ctrl+Enter)" disabled={composerDisabled || !draft.trim()}
+          <button class="button primary" type="button" title="Send (Ctrl+Enter)" disabled={composerDisabled || !draft.trim()}
             onclick={() => void sendMessage()}>Send</button>
         </div>
       </div>

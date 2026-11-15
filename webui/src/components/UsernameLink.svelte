@@ -47,10 +47,10 @@
 <span class="username-link-control" bind:this={root}>
   <button type="button" class="username-link" title={title ?? `Actions for ${username}`} aria-label={`Actions for ${username}`} aria-haspopup="menu" aria-expanded={open} onclick={toggle}>{username}</button>
   {#if open}
-    <div class="username-action-menu" role="menu" use:anchoredMenu={{ anchor: root, align: 'start', gap: 5 }}>
-      <button type="button" role="menuitem" onclick={(event) => choose('profile', event)}><Icon name="user" /><span>Profile</span></button>
-      <button type="button" role="menuitem" onclick={(event) => choose('shares', event)}><Icon name="folder" /><span>Shares</span></button>
-      <button type="button" role="menuitem" onclick={(event) => choose('message', event)}><Icon name="chat" /><span>Message</span></button>
+    <div class="popover-panel username-action-menu" role="menu" use:anchoredMenu={{ anchor: root, align: 'start', gap: 5 }}>
+      <button class="menu-item" type="button" role="menuitem" onclick={(event) => choose('profile', event)}><Icon name="user" /><span>Profile</span></button>
+      <button class="menu-item" type="button" role="menuitem" onclick={(event) => choose('shares', event)}><Icon name="folder" /><span>Shares</span></button>
+      <button class="menu-item" type="button" role="menuitem" onclick={(event) => choose('message', event)}><Icon name="chat" /><span>Message</span></button>
     </div>
   {/if}
 </span>

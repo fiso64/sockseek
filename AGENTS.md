@@ -29,6 +29,11 @@ configured storage, and ordinary local administration are trusted.
   bugfix could be implemented more cleanly with a preliminary refactor, that refactor
   is encouraged (even if large), before rushing to implement the feature or fix the bug.
 * Organize by feature and give human readable and natural names. Avoid file sprawl.
+* WebUI themes only supply paint in `webui/src/themes.css`. Use the shared visual
+  primitives in `webui/src/ui.css` (buttons, fields, panels, popovers, choices,
+  badges and progress) and keep feature styles about layout and domain states.
+  Keep markup, behavior and responsive layout common to all themes. New features
+  using existing primitives should avoid theme-specific selectors or code.
 * For high-volume persistence, assess SQL round trips and write amplification as
   well as latency. Prefer set-based operations or prepared, batched writes when
   they preserve ordering, replay and per-entry failure behavior.

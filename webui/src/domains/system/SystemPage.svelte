@@ -67,12 +67,12 @@
       </div>
     </div>
     <div class="settings-actions">
-      <button class="auth-button" onclick={() => void rescan()} disabled={scanDisabled}
+      <button class="button auth-button" onclick={() => void rescan()} disabled={scanDisabled}
         title={sharing?.state === 'Disabled' ? 'Configure shared folders before rescanning.' : undefined}>
         <Icon name="refresh" spin={scanning} />{scanning ? 'Scanning…' : 'Rescan shares'}
       </button>
       {#if browserSession.data?.authenticationEnabled}
-        <button class="auth-button" onclick={() => void logout()} disabled={pending}><Icon name="log-out" />Sign out</button>
+        <button class="button auth-button" onclick={() => void logout()} disabled={pending}><Icon name="log-out" />Sign out</button>
       {/if}
     </div>
   </header>

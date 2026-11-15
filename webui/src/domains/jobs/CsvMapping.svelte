@@ -12,7 +12,7 @@
   <h3>Column mapping <HelpPopover title="Column mapping" testId="csv-mapping-help">You only need to override column names when the CSV does not use common ones.</HelpPopover></h3>
   <div class="new-job-csv-grid">
     {#each fields as [field, label] (field)}
-      <label><span>{label}</span><input placeholder="Auto" value={value[field] ?? ''} oninput={(event) => onchange({ ...value, [field]: event.currentTarget.value })} /></label>
+      <label><span>{label}</span><input class="field" placeholder="Auto" value={value[field] ?? ''} oninput={(event) => onchange({ ...value, [field]: event.currentTarget.value })} /></label>
     {/each}
   </div>
 </div>

@@ -11,5 +11,5 @@
 </script>
 
 <div class="load-more-row">
-  <button type="button" disabled={disabled || loading} {onclick}>{loading ? loadingLabel : label}</button>
+  <button class="button" type="button" disabled={disabled || loading} {onclick}>{loading ? loadingLabel : label}</button>
 </div>

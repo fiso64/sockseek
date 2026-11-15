@@ -58,7 +58,7 @@
   </LazyView>
 {:else}
   <main class="session-screen login-screen">
-    <section class="login-card" aria-label="Sockseek login">
+    <section class="panel login-card" aria-label="Sockseek login">
       <header>
         <div class="brand">
           <img class="brand-mark" src="/sockseek-logo.svg" alt="" />
@@ -69,14 +69,14 @@
       {#if browserSession.data}
         {#if browserSession.notice}<p class="login-notice" role="status">{browserSession.notice}</p>{/if}
         <form class="config-stack" onsubmit={login} aria-label="Log in to Sockseek" aria-busy={pending}>
-          <label>Username<input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required readonly={pending} bind:value={username} /></label>
-          <label>Password<input name="password" type="password" autocomplete="current-password" required readonly={pending} bind:value={password} /></label>
+          <label>Username<input class="field" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required readonly={pending} bind:value={username} /></label>
+          <label>Password<input class="field" name="password" type="password" autocomplete="current-password" required readonly={pending} bind:value={password} /></label>
           {#if error}<p class="login-error" role="alert">{error}</p>{/if}
-          <button class="auth-button primary" type="submit" disabled={pending}>{pending ? 'Logging in…' : 'Log in'}</button>
+          <button class="button auth-button primary" type="submit" disabled={pending}>{pending ? 'Logging in…' : 'Log in'}</button>
         </form>
       {:else}
         {#if error}<p class="login-error" role="alert">{error}</p>{/if}
-        <button class="auth-button" type="button" onclick={() => void bootstrap()}>Retry connection</button>
+        <button class="button auth-button" type="button" onclick={() => void bootstrap()}>Retry connection</button>
       {/if}
     </section>
   </main>
@@ -101,7 +101,7 @@
     /* A small, static tile adds grain without animating or filtering the page. */
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Cpath fill='%23808080' filter='url(%23grain)' d='M0 0h180v180H0z'/%3E%3C/svg%3E");
   }
-  .login-card { position: relative; width: min(100%, 360px); display: grid; gap: 20px; padding: 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+  .login-card { position: relative; width: min(100%, 360px); display: grid; gap: 20px; padding: 24px; border-radius: 14px; }
   header { display: grid; gap: 20px; }
   .brand { padding: 0; }
   form { gap: 16px; }

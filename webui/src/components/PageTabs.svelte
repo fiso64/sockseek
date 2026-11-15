@@ -39,7 +39,7 @@
   }
 </script>
 
-<div bind:this={tabList} class="page-tabs" class:segmented-tabs={variant === 'segmented'} role="tablist" aria-label={label}>
+<div class:segmented-control={variant === 'segmented'} bind:this={tabList} class="page-tabs" class:segmented-tabs={variant === 'segmented'} role="tablist" aria-label={label}>
   {#each items as item (item.id)}
     <button type="button" role="tab" id={`${id}-${item.id}`} aria-selected={value === item.id}
       aria-controls={`${id}-panel`} tabindex={value === item.id ? 0 : -1} class:active={value === item.id}

@@ -252,7 +252,7 @@
     {#if variant === 'user'}
       <div class="search-entry">
         <ModeIconToggle value={userValue.mode} options={userModes} ariaLabel="User browse mode" onchange={(mode) => { if (mode === 'user' || mode === 'shares') onuserchange({ ...userValue, mode }); }} onopenchange={(open) => modeMenuOpen = open} />
-        <div class="search-bar simple has-mode-picker user-browser-global-search">
+        <div class="field-group search-bar simple has-mode-picker user-browser-global-search">
           <input id="global-user-search" value={userValue.query} placeholder={userValue.mode === 'shares' ? 'Search user shares…' : 'Search users…'} autocomplete="off" spellcheck="false" aria-label={userValue.mode === 'shares' ? 'Search user shares' : 'Search users'} oninput={(event) => onuserchange({ ...userValue, query: (event.currentTarget as HTMLInputElement).value })} onkeydown={userKeydown} />
           <span class="search-shortcut" aria-hidden="true">/</span>
         </div>
@@ -261,7 +261,7 @@
     {:else}
     <div class="search-entry">
       <ModeIconToggle value={value.resultMode} options={modes} ariaLabel="Search result mode" onchange={setMode} onhelp={() => { settingsOpen = false; modeHelpOpen = true; }} onopenchange={(open) => modeMenuOpen = open} />
-      <div class="search-bar has-mode-picker" class:simple={value.mode === 'simple'} class:split={value.mode === 'split'}>
+      <div class="field-group search-bar has-mode-picker" class:simple={value.mode === 'simple'} class:split={value.mode === 'split'}>
         {#if value.mode === 'simple'}
           <input id="global-search-simple" value={value.query} disabled={busy} placeholder={placeholder()} autocomplete="off" spellcheck="false" aria-label={placeholder().replace('…', '')} oninput={handleInput} onkeydown={keydown} />
           <span class="search-shortcut" aria-hidden="true">/</span>
@@ -277,11 +277,11 @@
       </div>
 
     </div>
-    <button type="button" class:active={settingsOpen} class="search-settings-button" aria-label="Search configuration" aria-expanded={settingsOpen} onclick={() => { settingsMounted = true; settingsOpen = !settingsOpen; }}><Icon name="sliders" />{#if configurationCustomized}<i class="settings-disclosure-customized" aria-hidden="true"></i>{/if}</button>
+    <button type="button" data-testid="search-config-toggle" class="button search-settings-button" aria-label="Search configuration" aria-expanded={settingsOpen} onclick={() => { settingsMounted = true; settingsOpen = !settingsOpen; }}><Icon name="sliders" />{#if configurationCustomized}<i class="settings-disclosure-customized" aria-hidden="true"></i>{/if}</button>
     {/if}
   </div>
   {#if variant === 'content' && settingsMounted}
-    <section data-shortcuts-blocked={settingsOpen} class="search-config-popover" aria-label="Search configuration" style="top: 62px; max-height: calc(100dvh - 87px)" style:display={settingsOpen ? undefined : 'none'}>
+    <section data-shortcuts-blocked={settingsOpen} class="popover-panel search-config-popover" aria-label="Search configuration" style="top: 62px; max-height: calc(100dvh - 87px)" style:display={settingsOpen ? undefined : 'none'}>
       <SearchConfiguration draft={value} active={settingsOpen} bind:resolved={conditionsResolved} bind:customized={configurationCustomized} {onchange} onvalidation={(message, pending) => { configurationError = message; configurationPending = pending; }} onclose={() => settingsOpen = false} />
     </section>
   {/if}

@@ -160,7 +160,7 @@
         <button
           type="button"
           class:failed={contentsState === 'failed'}
-          class="folder-load-contents-button"
+          class="button folder-load-contents-button"
           aria-label={contentsState === 'failed' ? 'Retry loading all files in this folder' : 'Load all files in this folder'}
           title={contentsState === 'failed'
             ? 'Folder retrieval failed. Try again.'
@@ -177,7 +177,7 @@
 {/snippet}
 
 <article
-  class="item-card result-card folder-result-block folder-item-card"
+  class="surface-card item-card result-card folder-result-block folder-item-card"
   class:locked
   class:selected={selected && !locked}
   class:partial={partial && !locked}
@@ -222,7 +222,7 @@
     {#if transfer.tone !== 'complete'}
     <div class={`transfer-card-footer folder-transfer-footer ${transfer.tone ?? ''} ${transferDirectionClass}`}>
       {#if transfer.progressPercent !== undefined}
-        <div class="transfer-progress-track" aria-label={`${transfer.progressPercent.toFixed(0)}% complete`}>
+        <div class="progress-track transfer-progress-track" aria-label={`${transfer.progressPercent.toFixed(0)}% complete`}>
           <span style={`width:${transfer.progressPercent}%`}></span>
         </div>
       {/if}
@@ -314,7 +314,7 @@
               {#if showProgress}
                 <strong class="folder-file-transfer-percent">{fileTransferProgressText(file.transfer)}</strong>
                 <span
-                  class={`folder-file-progress ${file.transfer.tone ?? ''} ${fileDirectionClass}`}
+                  class={`progress-track folder-file-progress ${file.transfer.tone ?? ''} ${fileDirectionClass}`}
                   aria-label={`${file.transfer.progressPercent?.toFixed(0)}% complete`}
                 >
                   <i style={`width:${file.transfer.progressPercent}%`}></i>

@@ -11,6 +11,6 @@
   let { kind = 'cancel', label, disabled = false, onclick }: Props = $props();
 </script>
 
-<button type="button" class:remove={kind === 'remove'} class="transfer-item-action-button" aria-label={label} title={label} {disabled} {onclick}>
+<button type="button" class:remove={kind === 'remove'} class="button quiet danger transfer-item-action-button" aria-label={label} title={label} {disabled} {onclick}>
   <Icon name={kind === 'remove' ? 'trash' : 'x'} />
 </button>

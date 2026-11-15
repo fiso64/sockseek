@@ -40,10 +40,10 @@
   function date(value: string | null | undefined): string { return value ? new Date(value).toLocaleString() : '—'; }
 </script>
 
-{#if error}<Notice variant="unavailable">{error}<button class="auth-button" onclick={() => retry++}>Retry</button></Notice>{/if}
+{#if error}<Notice variant="unavailable">{error}<button class="button auth-button" onclick={() => retry++}>Retry</button></Notice>{/if}
 {#if !status && !error}<LoadingIndicator />{/if}
 <div class="status-grid">
-  <section class="status-card" aria-labelledby="daemon-heading">
+  <section class="panel status-card" aria-labelledby="daemon-heading">
     <h2 id="daemon-heading">Daemon</h2>
     <dl>
       <div><dt>Version</dt><dd>{info?.version ?? '—'}</dd></div>
@@ -53,7 +53,7 @@
       <div><dt>Configuration</dt><dd>{!daemon?.configuration ? '—' : daemon.configuration.reloadFailed ? 'Reload failed' : daemon?.configuration?.restartRequired ? 'Restart required' : daemon?.configuration?.watching ? 'Watching for changes' : 'Automatic reload disabled'}</dd></div>
     </dl>
   </section>
-  <section class="status-card" aria-labelledby="soulseek-heading">
+  <section class="panel status-card" aria-labelledby="soulseek-heading">
     <h2 id="soulseek-heading">Soulseek</h2>
     <dl>
       <div><dt>Connection</dt><dd class:healthy={client?.isReady}>{soulseekStatusLabel(client, liveStatus === 'connected')}</dd></div>
@@ -63,7 +63,7 @@
       <div><dt>Incoming port</dt><dd>{connection ? connection.listenPort ?? 'Disabled' : '—'}</dd></div>
     </dl>
   </section>
-  <section class="status-card" aria-labelledby="sharing-heading">
+  <section class="panel status-card" aria-labelledby="sharing-heading">
     <h2 id="sharing-heading">Sharing</h2>
     <dl>
       <div><dt>Status</dt><dd>{sharing ? humanizeStateValue(sharing.state) : '—'}{sharing?.reason ? ` · ${humanizeStateValue(sharing.reason)}` : ''}</dd></div>
@@ -75,7 +75,7 @@
       {#if sharing?.lastScan}<div><dt>Last scan</dt><dd>{humanizeStateValue(sharing.lastScan.phase)}{sharing.lastScan.errorCount ? ` · ${formatCount(sharing.lastScan.errorCount)} errors` : ''}</dd></div>{/if}
     </dl>
   </section>
-  <section class="status-card" aria-labelledby="uploads-heading">
+  <section class="panel status-card" aria-labelledby="uploads-heading">
     <h2 id="uploads-heading">Uploads</h2>
     <dl>
       <div><dt>Accepting uploads</dt><dd>{uploads ? uploads.acceptingUploads ? 'Yes' : 'No' : '—'}</dd></div>
@@ -87,7 +87,7 @@
       <div><dt>Blocked users / addresses</dt><dd>{sharing ? `${sharing.uploadBlockedUsernameCount} / ${sharing.uploadBlockedIpAddressCount}` : '—'}</dd></div>
     </dl>
   </section>
-  <section class="status-card storage-card" aria-labelledby="storage-heading">
+  <section class="panel status-card storage-card" aria-labelledby="storage-heading">
     <h2 id="storage-heading">History &amp; storage</h2>
     <dl>
       <div><dt>Status</dt><dd>{persistence ? humanizeStateValue(persistence.state) : '—'}</dd></div>
@@ -102,7 +102,7 @@
 
 <style>
   .status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-  .status-card { padding: 20px 22px; background: var(--panel-face); border: 1px solid var(--edge-dark); border-radius: 12px; box-shadow: inset 0 1px var(--edge-light), var(--lift); min-width: 0; }
+  .status-card { padding: 20px 22px; border-radius: 12px; min-width: 0; }
   h2 { margin: 0; padding-bottom: 12px; border-bottom: 1px solid var(--border); font-size: .95rem; font-weight: 650; }
   dl { margin: 14px 0 0; display: grid; gap: 12px; font-size: .8125rem; line-height: 1.4; }
   dl > div { display: grid; grid-template-columns: minmax(100px, .85fr) minmax(0, 1.15fr); gap: 14px; }

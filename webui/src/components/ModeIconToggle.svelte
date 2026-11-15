@@ -55,7 +55,7 @@
 <div class="mode-icon-toggle" bind:this={root}>
   <button
     type="button"
-    class="search-result-mode-button mode-icon-button"
+    class="button search-result-mode-button mode-icon-button"
     aria-label={`${ariaLabel}: ${current?.label ?? value}. Choose mode.`}
     aria-haspopup="menu"
     aria-expanded={menuOpen}
@@ -69,9 +69,9 @@
   </button>
 
   {#if menuOpen}
-    <div class="mode-icon-menu" role="menu" aria-label={ariaLabel} use:anchoredMenu={{ anchor: root, align: 'start', gap: 7 }}>
+    <div class="popover-panel mode-icon-menu" role="menu" aria-label={ariaLabel} use:anchoredMenu={{ anchor: root, align: 'start', gap: 7 }}>
       {#each options as option}
-        <button
+        <button class="menu-item"
           type="button"
           role="menuitemradio"
           aria-checked={option.value === value}
@@ -86,7 +86,7 @@
       {/each}
       {#if onhelp}
         <div class="mode-menu-separator" role="separator"></div>
-        <button type="button" role="menuitem" class="mode-menu-help" onclick={() => { setMenuOpen(false); onhelp?.(); }}>
+        <button type="button" role="menuitem" class="menu-item mode-menu-help" onclick={() => { setMenuOpen(false); onhelp?.(); }}>
           <span class="mode-menu-check" aria-hidden="true"></span>
           <span class="mode-menu-icon" aria-hidden="true"><Icon name="help" /></span>
           <span>About search modes</span>

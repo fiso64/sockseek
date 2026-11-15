@@ -13,7 +13,7 @@ public class DaemonSettings
     private static readonly ServerOptions Defaults = new();
 
     [SettingOption("--web-theme", DefaultProfileOnly = true), SettingReloadable]
-    [Required, RegularExpression("^(dark|light|auto)$")]
+    [Required, RegularExpression("^(dark|light|auto|2009-dark|2009-light)$")]
     public string WebTheme { get; set; } = Defaults.WebUi.Theme;
 
     [SettingOption("--web-default-search-mode", DefaultProfileOnly = true), SettingReloadable]

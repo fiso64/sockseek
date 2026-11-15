@@ -43,7 +43,7 @@
 </script>
 
 <article
-  class="item-card result-card file-item-card"
+  class="surface-card item-card result-card file-item-card"
   class:locked
   class:selected={selected && !locked}
   class:preferred
@@ -112,7 +112,7 @@
     {@const footerDetail = transferFooterDetail(transfer)}
     <div class={`transfer-card-footer file-transfer-footer ${transfer.tone ?? ''} ${transferDirectionClass}`}>
       {#if transfer.progressPercent !== undefined}
-        <div class="transfer-progress-track" aria-label={`${transfer.progressPercent.toFixed(0)}% complete`}>
+        <div class="progress-track transfer-progress-track" aria-label={`${transfer.progressPercent.toFixed(0)}% complete`}>
           <span style={`width:${transfer.progressPercent}%`}></span>
         </div>
       {/if}

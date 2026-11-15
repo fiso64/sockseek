@@ -143,23 +143,23 @@
           items={[{ id: 'searches', label: 'Searches' }, { id: 'downloads', label: 'Download jobs' }]} />
       </div>
     </div>
-    <button type="button" class="new-job-button" onclick={onnew}><span>+</span> New job</button>
+    <button type="button" data-testid="new-job" class="button new-job-button" onclick={onnew}><span>+</span> New job</button>
   </header>
 
   {#if submissionId}<div class="jobs-filter">Showing one download request <button type="button" onclick={onclearfilter}>Show all download jobs</button></div>{/if}
   <div role="tabpanel" id="jobs-tab-panel" aria-labelledby={`jobs-tab-${tab}`}>
   {#if error && ordered.length}
-    <div class="resource-state-notice unavailable" role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Jobs unavailable</strong><small>{error.message}</small></span><button type="button" disabled={loading} onclick={onretry}>Retry</button></div>
+    <div class="resource-state-notice unavailable" role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Jobs unavailable</strong><small>{error.message}</small></span><button class="button" type="button" disabled={loading} onclick={onretry}>Retry</button></div>
   {/if}
   {#if actionError}<div class="resource-state-notice unavailable" role="alert"><strong>Job action failed</strong><span>{actionError.message}</span></div>{/if}
   {#if loading && !ordered.length}
     <LoadingIndicator label="Loading jobs" blocking />
   {:else if error && !ordered.length}
-    <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Jobs unavailable'}</strong><small>{daemonOffline ? 'This resource cannot be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button type="button" onclick={onretry}>Retry</button>{/if}</div>
+    <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Jobs unavailable'}</strong><small>{daemonOffline ? 'This resource cannot be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button class="button" type="button" onclick={onretry}>Retry</button>{/if}</div>
   {:else if !ordered.length && !error && !hasMore}
     <div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>{tab === 'searches' ? 'No searches yet' : 'No download jobs yet'}</strong></span></div>
   {:else}
-    <div class="search-history-list">
+    <div class="panel inset search-history-list">
       {#each ordered as entry (entry.root.jobId)}
         {@const job = entry.job}
         {@const entryError = presentationError(entry)}
@@ -167,7 +167,7 @@
           resultState={entryError ? 'unavailable' : entry.missingResultId ? 'loading' : undefined}
           deleting={deletingSubmissions.has(job.submissionId!)}
           {onopen} {oncancel} ondelete={canDeleteRoot(entry.root) ? ondelete : undefined} />
-        {#if entryError}<div class="resource-state-notice unavailable" role="alert"><span>Import unavailable: {entryError.message}</span><button type="button" onclick={() => retry(entry)}>Retry</button></div>{/if}
+        {#if entryError}<div class="resource-state-notice unavailable" role="alert"><span>Import unavailable: {entryError.message}</span><button class="button" type="button" onclick={() => retry(entry)}>Retry</button></div>{/if}
       {/each}
     </div>
     {#if hasMore && onloadmore}<div data-keyboard-page="jobs" data-loading={loading} data-failed={Boolean(error)}><LoadMoreButton loadingLabel="Loading jobs…" {loading} onclick={onloadmore} /></div>{/if}

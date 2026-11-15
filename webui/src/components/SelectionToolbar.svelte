@@ -42,14 +42,13 @@
 {#if visible}
   <div class="floating-selection-actions" aria-label="Selection actions">
     {#if detail}<span class="floating-selection-detail">{detail}</span>{/if}
-    {#if onselectall}<button type="button" class="floating-select-action" onclick={onselectall}>Select all</button>{/if}
-    <button type="button" class="floating-deselect-action" onclick={onclear}>Deselect all</button>
+    {#if onselectall}<button type="button" class="button floating-select-action" onclick={onselectall}>Select all</button>{/if}
+    <button type="button" class="button floating-deselect-action" onclick={onclear}>Deselect all</button>
     {#if onoptions}
       <button
         type="button"
-        class:active={optionsOpen}
         class:customized={optionsCustomized}
-        class="floating-options-action"
+        class="button floating-options-action"
         aria-label={optionsLabel}
         title={optionsLabel}
         aria-expanded={optionsOpen}
@@ -59,7 +58,7 @@
         {#if optionsCustomized}<i aria-hidden="true"></i>{/if}
       </button>
     {/if}
-    <button type="button" class="floating-download-action" aria-keyshortcuts="Control+Enter" aria-label={floatingLabel} disabled={actionDisabled} onclick={onaction}>
+    <button type="button" class="button primary floating-download-action" aria-keyshortcuts="Control+Enter" aria-label={floatingLabel} disabled={actionDisabled} onclick={onaction}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9M6.5 8.5L10 12l3.5-3.5M4 15.5h12" /></svg>
       <span>{floatingLabel}</span><kbd aria-hidden="true">Ctrl+↵</kbd>
     </button>

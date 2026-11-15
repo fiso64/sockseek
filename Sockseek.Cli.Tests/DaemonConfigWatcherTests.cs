@@ -32,11 +32,18 @@ public sealed class DaemonConfigWatcherTests
         Assert.AreEqual("auto", fixture.ServerOptions.WebUi.Theme);
         Assert.AreEqual("song-groups", fixture.ServerOptions.WebUi.DefaultSearchMode);
         Assert.IsFalse(fixture.Supervisor.GetStatus().Configuration!.RestartRequired);
+        foreach (string theme in new[] { "2009-dark", "2009-light" })
+        {
+            fixture.Write($"web-theme = {theme}");
+            Assert.IsTrue(await fixture.Watcher.ReloadAsync());
+            Assert.AreEqual(theme, fixture.ServerOptions.WebUi.Theme);
+            Assert.IsFalse(fixture.Supervisor.GetStatus().Configuration!.RestartRequired);
+        }
         fixture.Write("web-theme = invalid");
         Assert.IsFalse(await fixture.Watcher.ReloadAsync());
         Assert.AreEqual(1, fixture.Supervisor.GetStatus().Configuration!.ErrorLine);
         Assert.IsFalse(string.IsNullOrWhiteSpace(fixture.Supervisor.GetStatus().Configuration!.Error));
-        Assert.AreEqual("auto", fixture.ServerOptions.WebUi.Theme);
+        Assert.AreEqual("2009-light", fixture.ServerOptions.WebUi.Theme);
         fixture.Write("web-default-search-mode = invalid");
         Assert.IsFalse(await fixture.Watcher.ReloadAsync());
         fixture.Write("");

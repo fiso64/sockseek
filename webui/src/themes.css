@@ -1,0 +1,115 @@
+/* Themes supply paint, never feature selectors or layout. Color tokens stay
+   colors so they can also be used in color-mix(), borders, and SVGs. */
+:root {
+  color-scheme: dark;
+  --bg: light-dark(#f4f4f3, #0e0f10);
+  --surface: light-dark(#fdfdfc, #151617);
+  --surface-subtle: light-dark(#f8f8f6, #1a1b1d);
+  --surface-raised: light-dark(#ffffff, #202123);
+  --text: light-dark(#252624, #ebebea);
+  --muted: light-dark(#62645f, #9d9d99);
+  --faint: light-dark(#6c6e68, #74746f);
+  --border: light-dark(#dfdfdc, #2b2c2d);
+  --border-strong: light-dark(#c8c8c3, #3b3c3d);
+  --accent: light-dark(#3566c5, #5f8ff7);
+  --accent-strong: light-dark(#2d59b3, #78a3ff);
+  --accent-fill: light-dark(#2b529e, #355bb7);
+  --accent-soft: light-dark(#e4ebfb, #21293b);
+  --accent-text: light-dark(#435d92, #a2bbf1);
+  --success: light-dark(#307451, #69b58c);
+  --warning: light-dark(#8a601e, #d0a15c);
+  --danger: light-dark(#a54750, #df7e86);
+  --status-active: light-dark(#1d4ed8, #6ea0ff);
+  --status-complete: light-dark(#137638, #4cdb85);
+  --status-failed: light-dark(#c52424, #ff7272);
+  --status-partial: light-dark(#945807, #f6b93b);
+
+  --panel-background: var(--surface);
+  --panel-border: var(--border);
+  --panel-shadow: none;
+  --popover-background: var(--surface-raised);
+  --popover-shadow: 0 12px 32px #0004;
+  --well: var(--bg);
+  --field-shadow: none;
+  --control-image: none;
+  --control-shadow: none;
+  --control-pressed-shadow: none;
+  --control-press-offset: 0px;
+  --selected-image: none;
+  --selected-shadow: none;
+  --surface-image: none;
+  --surface-shadow: none;
+  --badge-image: none;
+  --badge-shadow: none;
+  --progress-image: none;
+  --progress-shadow: none;
+  --progress-track-shadow: none;
+  --checkbox-background: var(--surface-subtle);
+  --checkbox-shadow: none;
+  --checkbox-checked-shadow: none;
+  --divider-shadow: none;
+  --indicator-shadow: none;
+  --stripe: transparent;
+
+  --header-background: var(--surface);
+  --header-shadow: none;
+  --sidebar-shadow: none;
+  --workspace-image: none;
+  --brand-filter: none;
+  --avatar-background: var(--surface-subtle);
+  --avatar-color: var(--faint);
+}
+
+:root:is([data-theme="2009-dark"], [data-theme="2009-light"]) {
+  --bg: light-dark(#eeeae5, #16191d);
+  --surface: light-dark(#faf8f5, #20242a);
+  --surface-subtle: light-dark(#f1eeea, #292e35);
+  --surface-raised: light-dark(#fffdfa, #30363e);
+  --text: light-dark(#292b30, #eeece8);
+  --muted: light-dark(#676b70, #adb2b8);
+  --faint: light-dark(#777b7f, #868e97);
+  --border: light-dark(#dcd8d2, #353b43);
+  --border-strong: light-dark(#c9c4bd, #505761);
+  --accent: light-dark(#294db5, #7294f0);
+  --accent-strong: light-dark(#203e91, #a9bff9);
+  --accent-fill: light-dark(#294db5, #355bb7);
+  --accent-soft: light-dark(#e0e8fa, #283857);
+  --accent-text: light-dark(#29468f, #c3d2fa);
+
+  --edge-light: light-dark(#ffffffd9, #ffffff24);
+  --edge-dark: light-dark(#8c827638, #00000099);
+  --panel-background: linear-gradient(145deg, light-dark(#fffdfa, #2b3038), var(--surface));
+  --panel-border: var(--edge-dark);
+  --panel-shadow: inset 0 1px var(--edge-light), 0 2px 3px var(--edge-dark), 0 9px 18px light-dark(#443a2f12, #00000030);
+  --popover-background: var(--panel-background);
+  --popover-shadow: inset 0 1px var(--edge-light), 0 12px 32px light-dark(#443a2f40, #0007);
+  --well: light-dark(#e4e0da, #13161b);
+  --field-shadow: inset 0 2px 5px light-dark(#0003, #0007), 0 1px var(--edge-light);
+  --control-image: linear-gradient(180deg, #ffffff20, transparent 52%, #00000016);
+  --control-shadow: inset 0 1px var(--edge-light), 0 2px 3px var(--edge-dark);
+  --control-pressed-shadow: inset 0 2px 4px #0004, 0 1px var(--edge-light);
+  --control-press-offset: 1px;
+  --selected-image: linear-gradient(180deg, #ffffff1c, transparent);
+  --selected-shadow: inset 0 1px var(--edge-light), 0 2px 4px var(--edge-dark);
+  --surface-image: linear-gradient(145deg, light-dark(#ffffffcc, #ffffff0c), transparent);
+  --surface-shadow: inset 0 1px var(--edge-light), 0 2px 5px var(--edge-dark);
+  --badge-image: linear-gradient(180deg, #ffffff18, transparent 65%);
+  --badge-shadow: inset 0 1px #ffffff1a, 0 1px 2px #0003;
+  --progress-image: linear-gradient(180deg, #ffffff55, transparent 65%);
+  --progress-shadow: inset 0 1px #ffffff40;
+  --progress-track-shadow: inset 0 1px 3px #0007, 0 1px var(--edge-light);
+  --checkbox-background: light-dark(var(--surface-subtle), var(--well));
+  --checkbox-shadow: inset 0 1px 3px #0005, 0 1px var(--edge-light);
+  --checkbox-checked-shadow: inset 0 1px #ffffff55, 0 1px 2px var(--edge-dark);
+  --divider-shadow: inset -1px 0 var(--edge-light);
+  --indicator-shadow: 0 0 4px color-mix(in srgb, currentColor 40%, transparent);
+  --stripe: light-dark(#00000006, #ffffff06);
+
+  --header-background: linear-gradient(180deg, light-dark(#f8f6f2, #30353d), light-dark(#e8e4de, #20242a));
+  --header-shadow: inset 0 -1px var(--edge-light), 0 4px 14px #0003;
+  --sidebar-shadow: 4px 0 18px light-dark(#3a322a1a, #0006);
+  --workspace-image: radial-gradient(ellipse at 55% 0%, light-dark(#ffffff5c, #4852602e), transparent 65%);
+  --brand-filter: drop-shadow(0 2px 2px #0007);
+  --avatar-background: linear-gradient(145deg, light-dark(#e9e5df, #222730), light-dark(#dcd8d2, #15181e));
+  --avatar-color: var(--accent-text);
+}

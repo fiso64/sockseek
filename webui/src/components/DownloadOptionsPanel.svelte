@@ -21,12 +21,12 @@
     <div class="download-options-fields">
       <label>
         <span>Output directory</span>
-        <input type="text" bind:value={value.outputParentDir} placeholder={mixedFields.has('outputParentDir') ? 'Mixed defaults' : 'Inherit daemon default'} oninput={() => onfieldchange?.('outputParentDir')} />
+        <input class="field" type="text" bind:value={value.outputParentDir} placeholder={mixedFields.has('outputParentDir') ? 'Mixed defaults' : 'Inherit daemon default'} oninput={() => onfieldchange?.('outputParentDir')} />
       </label>
       {#if capabilities.nameFormat ?? true}
         <label>
           <span>Name format</span>
-          <input type="text" bind:value={value.nameFormat} placeholder={mixedFields.has('nameFormat') ? 'Mixed defaults' : 'Inherit daemon default'} oninput={() => onfieldchange?.('nameFormat')} />
+          <input class="field" type="text" bind:value={value.nameFormat} placeholder={mixedFields.has('nameFormat') ? 'Mixed defaults' : 'Inherit daemon default'} oninput={() => onfieldchange?.('nameFormat')} />
         </label>
       {/if}
     </div>

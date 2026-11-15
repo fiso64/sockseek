@@ -40,13 +40,13 @@
   }
 </script>
 
-<section class="management-actions" aria-label="Management actions">
+<section class="panel management-actions" aria-label="Management actions">
   {#if result}<Notice ondismiss={() => result = null}>{result}</Notice>{/if}
   <ul>
     {#each actions as action}
       <li>
         <span id={`action-${action.id}`}>{action.title}</span>
-        <button class="auth-button" onclick={() => { confirming = action; error = null; }} aria-describedby={`action-${action.id}`}>Run</button>
+        <button class="button auth-button" onclick={() => { confirming = action; error = null; }} aria-describedby={`action-${action.id}`}>Run</button>
       </li>
     {/each}
   </ul>
@@ -58,15 +58,17 @@
       <p>This includes failed, cancelled and interrupted entries, across all pages. Active work is kept.</p>
       <p>{'category' in confirming ? 'Job details and search results cannot be restored. Submissions with active jobs will be kept.' : 'Transfers will be removed from the list. Statistics will be kept.'} Downloaded files are untouched.</p>
       {#if error}<Notice variant="unavailable">{error}</Notice>{/if}
-      <button class="auth-button" disabled={pending} onclick={() => void remove()} aria-keyshortcuts="Control+Enter">{pending ? 'Running…' : 'Run'}</button>
+      <button class="button auth-button" disabled={pending} onclick={() => void remove()} aria-keyshortcuts="Control+Enter">{pending ? 'Running…' : 'Run'}</button>
     </div>
   </Modal>
 {/if}
 
 <style>
-  .management-actions { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 0 18px; }
+  .management-actions { border-radius: 14px; overflow: hidden; }
+  .management-actions :global(.resource-state-notice) { margin: 14px 18px; }
   ul { list-style: none; padding: 0; margin: 0; }
-  li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: .8125rem; }
+  li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; border-bottom: 1px solid var(--border); font-size: .8125rem; }
+  li:nth-child(even) { background-color: var(--stripe); }
   li:last-child { border-bottom: 0; }
   li button { flex-shrink: 0; }
   .confirmation { display: grid; gap: 14px; }

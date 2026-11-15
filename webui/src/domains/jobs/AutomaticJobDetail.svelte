@@ -593,7 +593,7 @@
 
 <section class="page page-search redesigned-search-page automatic-job-detail">
   <header class="job-detail-heading">
-    <button type="button" class="icon-button back-button" aria-label={job?.parentJobId ? `Back to ${parentTitle}` : 'Back to jobs'} onclick={() => job?.parentJobId ? onopenjob(parent ?? { jobId: job.parentJobId }) : onback()}>
+    <button type="button" class="button quiet icon-button back-button" aria-label={job?.parentJobId ? `Back to ${parentTitle}` : 'Back to jobs'} onclick={() => job?.parentJobId ? onopenjob(parent ?? { jobId: job.parentJobId }) : onback()}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5M7.5 10H16" /></svg>
     </button>
     <div class="job-detail-title">
@@ -616,24 +616,24 @@
         {#if job.createdAtUtc}<span class="job-detail-header-fact job-detail-age"><RelativeTime timestamp={job.createdAtUtc} /></span>{/if}
         {#if !info && !hasContent}<TransferStateLabel transfer={detailTransfer} class={`search-status-badge ${jobStatusClass(job)}`}>{statusLabel}</TransferStateLabel>{/if}
         {#if job.availableActions?.some((action) => action.kind === 'cancel')}
-          <button type="button" class="delete-search-button quiet-cancel" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
+          <button type="button" class="button danger delete-search-button quiet-cancel" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
         {:else if canDeleteSubmission(job)}
-          <button type="button" class="delete-search-button" title="Delete submission from history" disabled={deletingSubmissions.has(job.submissionId!)} onclick={() => ondelete(job)}><Icon name="trash" /><span>Delete</span></button>
+          <button type="button" class="button danger delete-search-button" title="Delete submission from history" disabled={deletingSubmissions.has(job.submissionId!)} onclick={() => ondelete(job)}><Icon name="trash" /><span>Delete</span></button>
         {/if}
       </div>
     {/if}
   </header>
   {#if !detail && !error}<LoadingIndicator label="Loading job" blocking />{/if}
   {#if error}<div class="resource-state-notice unavailable" role="alert">{error.message}</div>{/if}
-  {#if transferError}<div class="resource-state-notice unavailable" role="alert"><span>Live file progress unavailable: {transferError.message}</span><button type="button" onclick={() => transferRetry++}>Retry</button></div>{/if}
+  {#if transferError}<div class="resource-state-notice unavailable" role="alert"><span>Live file progress unavailable: {transferError.message}</span><button class="button" type="button" onclick={() => transferRetry++}>Retry</button></div>{/if}
   {#if parentError}<div class="resource-state-notice unavailable" role="alert">Parent job unavailable: {parentError.message}</div>{/if}
-  {#if childError}<div class="resource-state-notice unavailable" role="alert"><span>Child jobs unavailable: {childError.message}</span><button type="button" disabled={loading} onclick={() => void loadChildren(true)}>Retry</button></div>{/if}
-  {#if retrievalError && payload?.kind === 'album'}<div class="resource-state-notice unavailable" role="alert"><span>Related jobs unavailable: {retrievalError.message}</span><button type="button" disabled={retrievalLoading} onclick={() => void loadRetrievalChildren(true)}>Retry</button></div>{/if}
-  {#if manifestError}<div class="resource-state-notice unavailable" role="alert"><span>Directory files unavailable: {manifestError.message}</span><button type="button" disabled={manifestLoading} onclick={() => void loadManifest(true)}>Retry</button></div>{/if}
+  {#if childError}<div class="resource-state-notice unavailable" role="alert"><span>Child jobs unavailable: {childError.message}</span><button class="button" type="button" disabled={loading} onclick={() => void loadChildren(true)}>Retry</button></div>{/if}
+  {#if retrievalError && payload?.kind === 'album'}<div class="resource-state-notice unavailable" role="alert"><span>Related jobs unavailable: {retrievalError.message}</span><button class="button" type="button" disabled={retrievalLoading} onclick={() => void loadRetrievalChildren(true)}>Retry</button></div>{/if}
+  {#if manifestError}<div class="resource-state-notice unavailable" role="alert"><span>Directory files unavailable: {manifestError.message}</span><button class="button" type="button" disabled={manifestLoading} onclick={() => void loadManifest(true)}>Retry</button></div>{/if}
   {#if actionError}<div class="resource-state-notice unavailable" role="alert">{actionError.message}</div>{/if}
   {#if deleteError}<div class="resource-state-notice unavailable" role="alert"><strong>Job action failed</strong><span>{deleteError.message}</span></div>{/if}
   {#if info && job}
-    <section class="job-info-card" class:warning={job.terminalOutcome === 'PartialSuccess'} class:failed={job.terminalOutcome === 'Failed'} data-testid="job-info-card" aria-label="Job information">
+    <section class="panel job-info-card" class:warning={job.terminalOutcome === 'PartialSuccess'} class:failed={job.terminalOutcome === 'Failed'} data-testid="job-info-card" aria-label="Job information">
       {#if info.message || info.counts.length || !hasContent}
         <div class="job-info-heading">
           {#if info.busy}<LoadingIndicator label={jobStatusLabel(job)} />{/if}
@@ -647,7 +647,7 @@
         </div>
       {/if}
       {#if info.progress}
-        <div class="job-info-progress" role="progressbar" aria-label="Jobs finished" aria-valuemin={0} aria-valuemax={info.progress.total} aria-valuenow={info.progress.completed}>
+        <div class="progress-track job-info-progress" role="progressbar" aria-label="Jobs finished" aria-valuemin={0} aria-valuemax={info.progress.total} aria-valuenow={info.progress.completed}>
           <i style={`width:${info.progress.percent}%`}></i>
         </div>
       {/if}
@@ -658,7 +658,7 @@
     </section>
   {/if}
   {#if payload?.kind === 'extract' && payload.resultJobId && !showRelatedChildren}
-    <button type="button" class="job-child-load-more" onclick={() => onopenjob({ jobId: payload?.kind === 'extract' ? payload.resultJobId ?? undefined : undefined })}>Open extracted job</button>
+    <button type="button" class="button job-child-load-more" onclick={() => onopenjob({ jobId: payload?.kind === 'extract' ? payload.resultJobId ?? undefined : undefined })}>Open extracted job</button>
   {/if}
   {#if selectedFile}
     {@const target = selectedFile.target}
@@ -682,14 +682,14 @@
       <section class="job-content-section">
         {#if payload.resolvedFolderUsername}<div class="job-source-heading"><div class="job-source-summary"><span class="job-source-identity">From: <UsernameLink username={payload.resolvedFolderUsername} actions={userActions} /></span></div></div>{/if}
         <FolderItemCard path={(payload.resolvedFolderPath ?? manifest?.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} />
-        {#if moreFolderFiles}<button type="button" class="job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
+        {#if moreFolderFiles}<button type="button" class="button job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
       </section>
     {/if}
   {:else if payload?.kind === 'remote-directory'}
     <section class="job-content-section">
       {#if payload.sourceUsername}<div class="job-source-heading"><div class="job-source-summary"><span class="job-source-identity">From: <UsernameLink username={payload.sourceUsername} actions={userActions} /></span></div></div>{/if}
       <FolderItemCard path={(payload.sourceFolderPath ?? manifest?.displayRoot ?? payload.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} />
-      {#if moreFolderFiles}<button type="button" class="job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
+      {#if moreFolderFiles}<button type="button" class="button job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
     </section>
   {/if}
   {#if showRelatedJobs}
@@ -702,7 +702,7 @@
           {#if sourceJob}
             <JobRow job={sourceJob} onopen={onopenjob} />
           {:else if sourceRead}
-            <div class="resource-state-notice unavailable" role="alert"><span>Source job unavailable: {sourceRead.error?.message ?? 'The source job is no longer retained.'}</span><button type="button" onclick={() => sourceRetry++}>Retry</button></div>
+            <div class="resource-state-notice unavailable" role="alert"><span>Source job unavailable: {sourceRead.error?.message ?? 'The source job is no longer retained.'}</span><button class="button" type="button" onclick={() => sourceRetry++}>Retry</button></div>
           {:else}
             <LoadingIndicator label="Loading related job" />
           {/if}
@@ -716,7 +716,7 @@
             deleting={deletingSubmissions.has(child.submissionId!)}
             onopen={onopenjob} oncancel={job => void cancel(job.jobId)} {ondelete} />
           {#if entry.error || entry.missingResultId && linkedChildren.has(entry.missingResultId)}
-            <div class="resource-state-notice unavailable" role="alert"><span>Extracted result unavailable: {entry.error?.message ?? linkedChildren.get(entry.missingResultId!)?.error?.message ?? 'The linked job is not retained.'}</span>{#if entry.missingResultId}<button type="button" onclick={() => void retryChildResult(entry.missingResultId!)}>Retry</button>{/if}</div>
+            <div class="resource-state-notice unavailable" role="alert"><span>Extracted result unavailable: {entry.error?.message ?? linkedChildren.get(entry.missingResultId!)?.error?.message ?? 'The linked job is not retained.'}</span>{#if entry.missingResultId}<button class="button" type="button" onclick={() => void retryChildResult(entry.missingResultId!)}>Retry</button>{/if}</div>
           {/if}
         {:else}
           {#if !sourceJobId && !loading && !cursor && !childError}
@@ -725,7 +725,7 @@
         {/each}
       </div>
       {#if payload?.kind === 'album' ? retrievalCursor : cursor}
-        <button type="button" class="job-child-load-more"
+        <button type="button" class="button job-child-load-more"
           disabled={payload?.kind === 'album' ? retrievalMoreRequested : moreChildrenRequested}
           onclick={() => void showMoreChildren()}>Load more</button>
       {/if}

@@ -294,12 +294,12 @@
               <PageTabs variant="segmented" id="new-job-options" label="Job options" items={optionTabs} value={optionsTab} onchange={(tab) => (optionsTab = tab)} />
               <div class="search-config-actions">
                 {#if optionsTab === 'filtering' || optionsTab === 'ranking'}
-                  <button type="button" data-testid="search-config-clear" disabled={settingsLoading || Boolean(settingsError) || !conditionPanel} onclick={() => conditionPanel?.clearActiveTab()}>Clear</button>
-                  <button type="button" data-testid="search-config-reset" disabled={settingsLoading || Boolean(settingsError) || !conditionPanel} onclick={() => conditionPanel?.resetActiveTab()}>Reset</button>
+                  <button class="button" type="button" data-testid="search-config-clear" disabled={settingsLoading || Boolean(settingsError) || !conditionPanel} onclick={() => conditionPanel?.clearActiveTab()}>Clear</button>
+                  <button class="button" type="button" data-testid="search-config-reset" disabled={settingsLoading || Boolean(settingsError) || !conditionPanel} onclick={() => conditionPanel?.resetActiveTab()}>Reset</button>
                 {:else if optionsTab === 'review'}
-                  <button type="button" data-testid="new-job-selection-toggle" onclick={() => { all = !all; selectionRules = []; }}>{all ? 'Deselect all' : 'Select all'}</button>
+                  <button class="button" type="button" data-testid="new-job-selection-toggle" onclick={() => { all = !all; selectionRules = []; }}>{all ? 'Deselect all' : 'Select all'}</button>
                 {:else}
-                  <button type="button" data-testid="new-job-options-reset" disabled={settingsLoading || Boolean(settingsError)} onclick={() => {
+                  <button class="button" type="button" data-testid="new-job-options-reset" disabled={settingsLoading || Boolean(settingsError)} onclick={() => {
                     if (optionsTab === 'import') {
                       importOptions = { ...(importBaseline ?? createImportOptions()) };
                       if (draft.choice === 'csv') csvMapping = { ...(csvBaseline ?? {}) };
@@ -342,14 +342,14 @@
         {#if preview.summary}
           <span class="new-job-footer-status">{selectedCount} selected</span>
           <div class="new-job-footer-actions">
-            {#if needsReview}<button type="button" class="new-job-review-button" disabled={!valid || busy} onclick={() => plan(false)}>Review again</button>{/if}
-            <button type="button" class="new-job-start-button" aria-keyshortcuts="Control+Enter" title="Start (Ctrl+Enter)" disabled={!committable || !selectedCount || busy} onclick={() => void controller.commit({ mode: all ? 'AllExcept' : 'Only', refs: [] }, selectionRules)}>{preview.committing ? 'Starting…' : `Start ${selectedCount || ''} ${selectedCount === 1 ? 'job' : 'jobs'}`}</button>
+            {#if needsReview}<button type="button" class="button new-job-review-button" disabled={!valid || busy} onclick={() => plan(false)}>Review again</button>{/if}
+            <button type="button" class="button primary new-job-start-button" aria-keyshortcuts="Control+Enter" title="Start (Ctrl+Enter)" disabled={!committable || !selectedCount || busy} onclick={() => void controller.commit({ mode: all ? 'AllExcept' : 'Only', refs: [] }, selectionRules)}>{preview.committing ? 'Starting…' : `Start ${selectedCount || ''} ${selectedCount === 1 ? 'job' : 'jobs'}`}</button>
           </div>
         {:else}
           <span class="new-job-footer-status" role="status">{preview.loading ? 'Planning…' : ''}</span>
           <div class="new-job-footer-actions">
-            <button type="button" class="new-job-review-button" disabled={!valid || busy} onclick={() => plan(false)}>Review</button>
-            <button type="button" class="new-job-start-button" aria-keyshortcuts="Control+Enter" title="Start (Ctrl+Enter)" disabled={!valid || busy} onclick={() => plan(true)}>Start</button>
+            <button type="button" class="button new-job-review-button" disabled={!valid || busy} onclick={() => plan(false)}>Review</button>
+            <button type="button" class="button primary new-job-start-button" aria-keyshortcuts="Control+Enter" title="Start (Ctrl+Enter)" disabled={!valid || busy} onclick={() => plan(true)}>Start</button>
           </div>
         {/if}
       </footer>

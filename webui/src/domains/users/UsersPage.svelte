@@ -175,7 +175,7 @@
 <section class="page user-browser-page">
   <header class="user-browser-heading">
     <div><h1>User browser</h1></div>
-    <nav class="user-view-tabs" aria-label="User browser views">
+    <nav class="segmented-control user-view-tabs" aria-label="User browser views">
       <button type="button" class:active={view === 'user'}
         aria-current={view === 'user' ? 'page' : undefined}
         onclick={() => onviewchange('user')}>User</button>
@@ -195,7 +195,7 @@
           <small>{liveStatus === 'offline' ? 'Profile data cannot be loaded while the daemon is offline.' : profileError.message}</small>
         </span>
         {#if liveStatus !== 'offline'}
-          <button type="button" disabled={profileLoading}
+          <button class="button" type="button" disabled={profileLoading}
             onclick={() => void loadProfile(username)}>Retry</button>
         {/if}
       </div>
@@ -204,7 +204,7 @@
       <LoadingIndicator label="Loading profile" blocking />
     {/if}
     {#if profile}
-      <article class="user-profile-card">
+      <article class="panel user-profile-card">
         <div class="user-profile-primary">
           {#if pictureUrl}
             <button type="button" class="user-profile-picture-button"
@@ -220,7 +220,7 @@
           <div class="user-profile-copy">
             <div class="user-profile-name-line">
               <h2>{profile.username}</h2>
-              <span class={`user-presence ${presence.state}`} data-presence={presence.state}><i></i>{presence.label}</span>
+              <span class={`badge user-presence ${presence.state}`} data-presence={presence.state}><i></i>{presence.label}</span>
               <span class="user-capacity-inline" aria-label="Upload capacity">
                 <span class:available={profile.hasFreeUploadSlot === true}
                   class:unknown={profile.hasFreeUploadSlot == null} class="slot-state"><i></i>{profile.hasFreeUploadSlot == null ? 'Slot unknown' : profile.hasFreeUploadSlot ? 'Free slot' : 'No free slot'}</span>
@@ -232,11 +232,11 @@
               <p class="user-profile-description"><LinkifiedText text={profile.description}/></p>
             {/if}
             <div class="user-profile-actions">
-              <button type="button" class="user-message-button" disabled={profileLoading}
+              <button type="button" class="button user-message-button" disabled={profileLoading}
                 onclick={() => loadProfile(username, true)}>
                 <Icon name="refresh"/><span>{profileLoading ? 'Refreshing…' : 'Refresh'}</span>
               </button>
-              <button type="button" class="user-message-button" disabled={profile.privateMessagesBlocked}
+              <button type="button" class="button user-message-button" disabled={profile.privateMessagesBlocked}
                 onclick={() => onmessageuser(profile!.username)}>
                 <Icon name="chat"/>
                 <span>{profile.privateMessagesBlocked ? 'Messages blocked' : 'Message'}</span>
