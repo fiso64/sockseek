@@ -104,6 +104,27 @@ namespace Tests.Unit
         [TestMethod]
         [DataRow(false)]
         [DataRow(true)]
+        public async Task SearchSong_FiltersKnownWrongLength_OnlyWhenRequired(bool requireLength)
+        {
+            var response = new SearchResponse("User", 1, true, 1000, 0,
+            [
+                TestHelpers.CreateSlFile(@"Music\Artist\Twilight.flac", length: 209),
+            ]);
+            var client = CreateMockClient([response]);
+            var settings = TestHelpers.CreateDefaultSettings().Download;
+            if (requireLength)
+                settings.Search.NecessaryCond.LengthTolerance = 3;
+            var searcher = CreateSearcher(client, settings);
+            var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Twilight", Length = 522 });
+
+            await searcher.SearchSong(song, settings.Search, new ResponseData(), CancellationToken.None);
+
+            Assert.AreEqual(requireLength ? 0 : 1, song.Candidates?.Count ?? 0);
+        }
+
+        [TestMethod]
+        [DataRow(false)]
+        [DataRow(true)]
         public async Task AutomaticTrackSearch_RejectsWrongLengthUntilFallbackRelaxesAdmission(bool group)
         {
             var response = new SearchResponse("User", 1, true, 1000, 0,
@@ -113,6 +134,7 @@ namespace Tests.Unit
             var client = CreateMockClient([response]);
             var settings = TestHelpers.CreateDefaultSettings().Download;
             settings.Search.MinGroupShares = 1;
+            settings.Search.NecessaryCond.LengthTolerance = 3;
             var searcher = CreateSearcher(client, settings);
             var query = new SongQuery { Artist = "Artist", Title = "Twilight", Length = 522 };
             async Task<(Job Job, int Candidates)> Discover()

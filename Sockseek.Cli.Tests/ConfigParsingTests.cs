@@ -86,12 +86,10 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Defaults_NecessaryCondLengthTolerance_IsSet()
+        public void Defaults_NecessaryCondLengthTolerance_IsDisabled()
         {
             var config = Cfg();
-            // A set required tolerance is inert for queries without a known length, but
-            // prevents known wrong-length candidates from being accepted when length is provided.
-            Assert.IsTrue(config.Search.NecessaryCond.LengthTolerance > 0);
+            Assert.IsNull(config.Search.NecessaryCond.LengthTolerance);
         }
 
         [TestMethod]

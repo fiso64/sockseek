@@ -165,7 +165,7 @@ public sealed class JobSettingsComposerTests
         Assert.AreEqual(track.Search.PreferredCond, album.Search.PreferredCond);
         CollectionAssert.AreEqual(SearchDefaults.Formats.ToArray(), track.Search.NecessaryCond.Formats);
         Assert.AreEqual(0, track.Search.PreferredCond.Formats.Length);
-        Assert.AreEqual(3, track.Search.NecessaryCond.LengthTolerance);
+        Assert.IsNull(track.Search.NecessaryCond.LengthTolerance);
         Assert.IsNull(track.Search.PreferredCond.MinBitrate);
         Assert.IsNull(track.Search.PreferredCond.MaxBitrate);
         Assert.IsNull(track.Search.PreferredCond.MaxSampleRate);

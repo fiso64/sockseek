@@ -118,6 +118,7 @@ public class SearchFallbackTests
         using var searcher = CreateSearcher(client);
         var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Some Song", Album = "Some Song", Length = 200 });
         var search = new SearchSettings { DesperateSearch = desperate };
+        search.NecessaryCond.LengthTolerance = 3;
 
         await searcher.SearchSong(song, search, new ResponseData(), CancellationToken.None);
 
@@ -298,11 +299,25 @@ public class SearchFallbackTests
         var normal = SearchAttemptPlanner.Create(new SongQuery { Artist = "Artist;artist;Artist?", Title = "Song" }, new SearchSettings());
         Assert.AreEqual(1, normal.SelectMany(x => x).Count());
 
-        var desperate = SearchAttemptPlanner.Create(new SongQuery { Artist = "Artist", Title = "Song", Length = 200 }, new SearchSettings { DesperateSearch = true });
+        var search = new SearchSettings { DesperateSearch = true };
+        search.NecessaryCond.LengthTolerance = 3;
+        var desperate = SearchAttemptPlanner.Create(new SongQuery { Artist = "Artist", Title = "Song", Length = 200 }, search);
         var sameText = desperate.SelectMany(x => x).Where(x => x.Query.SearchText == "artist song").ToArray();
         Assert.AreEqual(2, sameText.Length);
         Assert.AreEqual(3, sameText[0].Conditions.LengthTolerance);
         Assert.AreEqual(-1, sameText[1].Conditions.LengthTolerance);
+    }
+
+    [TestMethod]
+    public void Planner_DefaultDurationConditions_DoNotRetrySameQueryWithRelaxedLength()
+    {
+        var attempts = SearchAttemptPlanner.Create(
+            new SongQuery { Artist = "Artist", Title = "Song", Length = 200 },
+            new SearchSettings { DesperateSearch = true });
+        var sameText = attempts.SelectMany(x => x).Where(x => x.Query.SearchText == "artist song").ToArray();
+
+        Assert.AreEqual(1, sameText.Length);
+        Assert.IsNull(sameText[0].Conditions.LengthTolerance);
     }
 
     [TestMethod]

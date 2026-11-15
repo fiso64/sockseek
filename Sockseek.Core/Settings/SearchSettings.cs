@@ -29,7 +29,6 @@ public class SearchSettings
     public FileConditions NecessaryCond { get; set; } = new()
     {
         Formats = [.. SearchDefaults.Formats],
-        LengthTolerance = 3,
     };
 
     [SettingOption("--paf", "--pf", "--pref-format", Member = "Formats", Parser = nameof(ParseFormats))]
@@ -57,6 +56,17 @@ public class SearchSettings
         LengthTolerance  = 3,
         StrictTitle      = true,
         StrictAlbum      = true,
+        // TODO [v4]: Revisit pref-strict-artist's default and priority in ResultSorter.
+        // Searches send artist + title/album; most peers require all whitespace-separated
+        // terms somewhere in the path. Strict artist adds word contiguity/order with
+        // space/symbol normalization, not performer detection; any semicolon-delimited artist suffices.
+        // Already a late tie-breaker; enabling promotes strict/fuzzy matches above duration,
+        // format, quality, slots/speed, and affects fast-search preferred-condition checks.
+        // Usually neutral for standard paths; helps reject scattered-word matches, especially
+        // in broad fallbacks. But "Johann Sebastian Bach" beats "Bach, Johann Sebastian"
+        // regardless of duration/quality, and "Tribute to David Bowie" also matches Bowie.
+        // Uploader/channel names can favor video rips; ArtistMaybeWrong does not suppress it.
+        // Should contiguity outrank duration/quality, or remain a late tie-breaker?
     };
 
     [SettingOption("--matc", "--min-album-track-count", Member = "MinTrackCount")]
