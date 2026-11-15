@@ -281,7 +281,7 @@
     {/if}
   </div>
   {#if variant === 'content' && settingsMounted}
-    <section data-shortcuts-blocked={settingsOpen} class="popover-panel search-config-popover" aria-label="Search configuration" style="top: 62px; max-height: calc(100dvh - 87px)" style:display={settingsOpen ? undefined : 'none'}>
+    <section data-shortcuts-blocked={settingsOpen} class="popover-panel form search-config-popover" aria-label="Search configuration" style="top: 62px; max-height: calc(100dvh - 87px)" style:display={settingsOpen ? undefined : 'none'}>
       <SearchConfiguration draft={value} active={settingsOpen} bind:resolved={conditionsResolved} bind:customized={configurationCustomized} {onchange} onvalidation={(message, pending) => { configurationError = message; configurationPending = pending; }} onclose={() => settingsOpen = false} />
     </section>
   {/if}
@@ -296,7 +296,7 @@
   <Modal title="Search modes" closeLabel="Close search modes" onclose={() => modeHelpOpen = false}>
     <div class="search-mode-help-cards">
       {#each modes as mode}
-        <button type="button" class="search-mode-help-card" aria-label={`Use ${mode.label}`} aria-describedby={`search-mode-help-${mode.value}`} aria-pressed={value.resultMode === mode.value}
+        <button type="button" class="surface-card selectable search-mode-help-card" aria-label={`Use ${mode.label}`} aria-describedby={`search-mode-help-${mode.value}`} aria-pressed={value.resultMode === mode.value}
           onclick={() => { setMode(mode.value); modeHelpOpen = false; }}>
           <span class="search-mode-help-icon"><Icon name={mode.icon} /></span>
           <span class="search-mode-help-copy"><strong>{mode.label}</strong><span id={`search-mode-help-${mode.value}`}>{mode.description}</span></span>

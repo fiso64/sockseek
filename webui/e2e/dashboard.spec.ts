@@ -178,7 +178,8 @@ test('refreshes retained analytics after the terminal transfer commit', async ({
     } }],
   } satisfies Schema<'SubmitJobListRequestDto'> });
   expect(submitted.status()).toBe(202);
-  await expect(page.locator('.current-transfer-panel')).toContainText('1 active download');
+  await expect(page.getByTestId('dashboard-active-downloads').locator('strong')).toHaveText('1');
+  await expect(page.getByTestId('dashboard-active-uploads').locator('strong')).toHaveText('0');
   const refreshes: Array<number | string> = [];
   await page.route('**/api/dashboard/analytics?*', async route => {
     const response = await route.fetch();
@@ -187,10 +188,10 @@ test('refreshes retained analytics after the terminal transfer commit', async ({
     await route.fulfill({ response });
   });
   await daemon.command('release-download');
-  await expect(page.locator('.current-transfer-panel')).toContainText('0 active downloads');
+  await expect(page.getByTestId('dashboard-active-downloads').locator('strong')).toHaveText('0');
   await expect(downloaded).toHaveText('128 B');
   expect(refreshes).toContain(128);
-  await expect(page.locator('.dashboard-metric-card').first().locator('small')).toHaveText('1 file in range');
+  await expect(page.locator('.dashboard-metric-card').first().locator('small')).toHaveText('1 file');
   await expect(page.locator('.dashboard-metric-card').nth(2).locator('small')).toHaveText('—');
   await expect(page.locator('.dashboard-metric-card').first().locator('.metric-sparkline i:not(.zero)')).toHaveCount(1);
   await expect(page.locator('.dashboard-metric-card').first().locator('.metric-sparkline i.zero').first()).toHaveCSS('height', '0px');

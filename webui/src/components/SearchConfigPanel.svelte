@@ -114,8 +114,8 @@
 
 {#snippet actions()}
   <div class="search-config-actions">
-    <button class="button" type="button" data-testid="search-config-clear" disabled={resetting} onclick={clearActiveTab}>Clear</button>
-    <button class="button" type="button" data-testid="search-config-reset" disabled={resetting} onclick={resetActiveTab}>Reset</button>
+    <button class="button secondary" type="button" data-testid="search-config-clear" disabled={resetting} onclick={clearActiveTab}>Clear</button>
+    <button class="button secondary" type="button" data-testid="search-config-reset" disabled={resetting} onclick={resetActiveTab}>Reset</button>
   </div>
 {/snippet}
 

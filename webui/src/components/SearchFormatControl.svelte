@@ -55,12 +55,12 @@
 {#if view === 'buttons'}
   <div class="format-control-row">
     <div class="format-buttons">
-      <button class="button" type="button" class:active={values.length === 0} aria-pressed={values.length === 0} onclick={clearFormats}>Any</button>
+      <button class="button option" type="button" class:active={values.length === 0} aria-pressed={values.length === 0} onclick={clearFormats}>Any</button>
       {#each buttons as format}
-        <button class="button" type="button" class:active={values.includes(format)} aria-pressed={values.includes(format)} onclick={() => toggleFormat(format)}>{format}</button>
+        <button class="button option" type="button" class:active={values.includes(format)} aria-pressed={values.includes(format)} onclick={() => toggleFormat(format)}>{format}</button>
       {/each}
     </div>
-    <button type="button" class="button format-view-button" onclick={showCustomFormats}>custom…</button>
+    <button type="button" class="button option format-view-button" onclick={showCustomFormats}>custom…</button>
   </div>
 {:else}
   <div class="custom-format-row">

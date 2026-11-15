@@ -100,8 +100,8 @@
     return value == null ? '—' : formatKnownCount(value);
   }
 
-  function filesInRange(value: number | string | null | undefined): string {
-    return value == null ? '— files in range' : `${formatCountWithNoun(value, 'file')} in range`;
+  function formatFiles(value: number | string | null | undefined): string {
+    return value == null ? '— files' : formatCountWithNoun(value, 'file');
   }
 
   function metricBarHeight(values: number[], value: number): number {
@@ -196,7 +196,7 @@
     <article class="dashboard-metric-card">
       <div class="metric-label download"><span aria-hidden="true">↓</span> Downloaded</div>
       <strong>{formatBytes(summary?.downloadedBytes)}</strong>
-      <small>{filesInRange(summary?.downloadedFiles)}</small>
+      <small>{formatFiles(summary?.downloadedFiles)}</small>
       <div class="metric-sparkline" aria-hidden="true">
         {#if hasDownloadHistory}
           {#each downloadBytes.slice(-8) as point}
@@ -208,7 +208,7 @@
     <article class="dashboard-metric-card">
       <div class="metric-label upload"><span aria-hidden="true">↑</span> Uploaded</div>
       <strong>{formatBytes(summary?.uploadedBytes)}</strong>
-      <small>{filesInRange(summary?.uploadedFiles)}</small>
+      <small>{formatFiles(summary?.uploadedFiles)}</small>
       <div class="metric-sparkline upload" aria-hidden="true">
         {#if hasUploadHistory}
           {#each uploadBytes.slice(-8) as point}
@@ -232,7 +232,7 @@
     <article class="dashboard-metric-card">
       <div class="metric-label"><span aria-hidden="true">◎</span> Distinct peers</div>
       <strong>{formatCount(summary?.distinctPeers)}</strong>
-      <small>across transfers in range</small>
+      <small>across transfers</small>
     </article>
   </div>
 
@@ -360,17 +360,18 @@
           <div>
             <span>Download</span>
             <strong class="rate-value download"><i aria-hidden="true">↓</i>{dashboardTransferRate(transfers.downloadRate)}</strong>
-            <small>{transfers.downloads} active download{transfers.downloads === 1 ? '' : 's'}</small>
           </div>
           <div>
             <span>Upload</span>
             <strong class="rate-value upload"><i aria-hidden="true">↑</i>{dashboardTransferRate(transfers.uploadRate)}</strong>
-            <small>{transfers.uploads} active upload{transfers.uploads === 1 ? '' : 's'}</small>
           </div>
-          <div>
-            <span>Active transfers</span>
-            <strong>{transfers.active}</strong>
-            <small>{transfers.queued} queued transfer row{transfers.queued === 1 ? '' : 's'}</small>
+          <div data-testid="dashboard-active-downloads">
+            <span>Active downloads</span>
+            <strong>{formatCount(transfers.downloads)}</strong>
+          </div>
+          <div data-testid="dashboard-active-uploads">
+            <span>Active uploads</span>
+            <strong>{formatCount(transfers.uploads)}</strong>
           </div>
         </div>
       </section>

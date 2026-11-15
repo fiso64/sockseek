@@ -11,28 +11,34 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   color: var(--text);
   cursor: pointer;
 }
+.button.secondary { border-color: var(--border); background-color: var(--secondary-control-background); color: var(--muted); }
+.button.option { border-color: var(--border); background-color: var(--option-control-background); color: var(--muted); }
 .button:hover:not(:disabled) { background-color: var(--surface-raised); border-color: var(--border-strong); }
 .button:is(.active, [aria-pressed="true"]) {
+  border-color: var(--accent);
   background-color: var(--accent-soft);
   background-image: var(--selected-image);
   color: var(--accent-text);
   box-shadow: var(--selected-shadow);
 }
-.button:is(.active, [aria-pressed="true"]):hover:not(:disabled) { background-color: color-mix(in srgb, var(--accent-soft) 85%, var(--surface-raised)); }
+.button:is(.active, [aria-pressed="true"]):hover:not(:disabled) { border-color: var(--accent); background-color: color-mix(in srgb, var(--accent-soft) 85%, var(--surface-raised)); }
 .button.primary { background-color: var(--accent-fill); border-color: transparent; color: white; }
 .button.primary:hover:not(:disabled) { background-color: color-mix(in srgb, var(--accent-fill) 85%, #000); }
 .button.quiet { border-color: transparent; background-color: transparent; background-image: none; box-shadow: none; color: var(--muted); }
 .button.quiet:hover:not(:disabled, .active, [aria-expanded="true"], [aria-pressed="true"]) { background-color: var(--surface-subtle); color: var(--text); }
 .button.quiet:is(.active, [aria-pressed="true"]) { background-color: var(--accent-soft); color: var(--accent-text); }
-/* An open disclosure is pressed in; a selected value uses the accent. */
+/* Open controls stay neutral; hovering alone keeps the raised face. */
 .button[aria-expanded="true"], .button[aria-expanded="true"]:hover:not(:disabled) {
   background-color: var(--surface-subtle);
   background-image: none;
   color: var(--text);
-  box-shadow: var(--control-pressed-shadow);
 }
 .button.danger:hover:not(:disabled) { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); background-color: color-mix(in srgb, var(--danger) 8%, var(--surface)); color: var(--danger); }
-.button:active:not(:disabled, .quiet) { transform: translateY(var(--control-press-offset)); box-shadow: var(--control-pressed-shadow); }
+/* Menu triggers stay down until dismissed; panel toggles spring back on release. */
+.button:is(:active, [aria-haspopup="menu"][aria-expanded="true"]):not(:disabled, .quiet) {
+  transform: translateY(var(--control-press-offset));
+  box-shadow: var(--control-pressed-shadow);
+}
 .button:disabled { opacity: .45; cursor: default; }
 
 .field, .field-group, .well {
@@ -57,7 +63,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   box-shadow: var(--panel-shadow);
 }
 .panel.inset { background: color-mix(in srgb, var(--surface) 68%, var(--well)); }
-.panel.subtle { border-color: var(--border); box-shadow: var(--surface-shadow); }
+.panel.subtle { border-color: var(--border); background: var(--panel-subtle-background); box-shadow: var(--surface-shadow); }
 .popover-panel {
   border: 1px solid var(--border-strong);
   border-radius: 10px;
@@ -65,14 +71,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   color: var(--text);
   box-shadow: var(--popover-shadow);
 }
+.popover-panel.form { border-color: var(--form-popover-border); background: var(--panel-background); box-shadow: var(--form-popover-shadow); }
+.popover-panel.modal { background: var(--panel-background); box-shadow: var(--modal-shadow); }
 .panel-header { border-bottom: 1px solid var(--panel-border); background: var(--header-background); box-shadow: var(--control-shadow); }
 .surface-card {
   border: 1px solid var(--border);
   background-color: var(--surface);
   background-image: var(--surface-image);
   box-shadow: var(--surface-shadow);
+  color: var(--text);
 }
 .surface-card:hover { border-color: var(--border-strong); background-color: color-mix(in srgb, var(--surface-subtle) 45%, var(--surface)); }
+.surface-card[aria-pressed="true"] { border-color: var(--accent); }
 
 .resource-state-notice {
   border: 1px solid var(--border);
@@ -88,13 +98,19 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   background: transparent;
   color: var(--text);
 }
-.menu-item:is(:hover, :focus-visible, .active) { background-color: var(--surface-subtle); }
+.menu-item:is(:hover, :focus-visible, :focus-within) {
+  background-color: var(--surface-subtle);
+  background-image: var(--surface-image);
+}
+.menu-item:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
 .menu-item.danger { color: var(--danger); }
 .menu-item:disabled { opacity: .45; cursor: default; }
 
 .choice { border: 0; background-color: transparent; color: var(--muted); }
 .choice:hover { background-color: var(--surface-subtle); color: var(--text); }
-.choice.active {
+.choice.active,
+.menu-item:is(.active, [aria-checked="true"], :has(input:checked)),
+.surface-card[aria-pressed="true"] {
   position: relative;
   z-index: 1;
   background-color: var(--accent-soft);
@@ -102,6 +118,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   color: var(--text);
   box-shadow: var(--selected-shadow);
 }
+.surface-card.selectable { background-color: var(--selectable-card-background); }
+.surface-card.selectable:is(:hover, :focus-visible) { background-color: var(--surface-raised); }
+.surface-card.selectable:focus-visible { border-color: var(--accent); }
+.surface-card.selectable[aria-pressed="true"] { background-color: var(--selectable-card-selected-background); }
 .segmented-control { border: 1px solid var(--border); background: var(--well); box-shadow: var(--field-shadow); }
 .segmented-control > button { border: 0; background: transparent; color: var(--muted); }
 .segmented-control > button:hover { background-color: var(--surface-subtle); color: var(--text); }

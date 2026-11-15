@@ -7,7 +7,7 @@
   import type { UserBrowseDto, UserProfileDto } from '../../api/types';
   import type { DaemonLiveClient, LiveConnectionStatus } from '../../api/live';
   import { daemonApi } from '../../api/client';
-  import { formatBytes, formatCount, formatSpeed, userInitials } from '../../app/format';
+  import { formatBytes, formatCount, formatSpeed } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
   import LinkifiedText from '../../components/LinkifiedText.svelte';
 
@@ -212,10 +212,6 @@
               onclick={() => (profilePictureOpen = true)}>
               <img class="user-profile-picture" src={pictureUrl} alt="" />
             </button>
-          {:else}
-            <div class="user-profile-picture user-profile-placeholder" aria-label="No profile picture">
-              <Icon name="user"/><span>{userInitials(profile.username)}</span>
-            </div>
           {/if}
           <div class="user-profile-copy">
             <div class="user-profile-name-line">

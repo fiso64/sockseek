@@ -25,13 +25,19 @@
   --status-partial: light-dark(#945807, #f6b93b);
 
   --panel-background: var(--surface);
+  --panel-subtle-background: color-mix(in srgb, var(--surface-subtle) 52%, var(--surface));
   --panel-border: var(--border);
   --panel-shadow: none;
   --popover-background: var(--surface-raised);
   --popover-shadow: 0 12px 32px #0004;
+  --modal-shadow: 0 22px 60px #0005;
+  --form-popover-border: var(--border);
+  --form-popover-shadow: 0 18px 50px #1414232e;
   --well: var(--bg);
   --field-shadow: none;
   --control-image: none;
+  --option-control-background: var(--bg);
+  --secondary-control-background: transparent;
   --control-shadow: none;
   --control-pressed-shadow: none;
   --control-press-offset: 0px;
@@ -39,6 +45,8 @@
   --selected-shadow: none;
   --surface-image: none;
   --surface-shadow: none;
+  --selectable-card-background: var(--surface-subtle);
+  --selectable-card-selected-background: var(--surface-subtle);
   --badge-image: none;
   --badge-shadow: none;
   --progress-image: none;
@@ -53,11 +61,10 @@
 
   --header-background: var(--surface);
   --header-shadow: none;
+  --sidebar-background: var(--panel-background);
   --sidebar-shadow: none;
   --workspace-image: none;
   --brand-filter: none;
-  --avatar-background: var(--surface-subtle);
-  --avatar-color: var(--faint);
 }
 
 :root:is([data-theme="2009-dark"], [data-theme="2009-light"]) {
@@ -79,13 +86,19 @@
   --edge-light: light-dark(#ffffffd9, #ffffff24);
   --edge-dark: light-dark(#8c827638, #00000099);
   --panel-background: linear-gradient(145deg, light-dark(#fffdfa, #2b3038), var(--surface));
+  --panel-subtle-background: var(--panel-background);
   --panel-border: var(--edge-dark);
   --panel-shadow: inset 0 1px var(--edge-light), 0 2px 3px var(--edge-dark), 0 9px 18px light-dark(#443a2f12, #00000030);
   --popover-background: var(--panel-background);
   --popover-shadow: inset 0 1px var(--edge-light), 0 12px 32px light-dark(#443a2f40, #0007);
-  --well: light-dark(#e4e0da, #13161b);
+  --modal-shadow: var(--popover-shadow);
+  --form-popover-border: var(--border-strong);
+  --form-popover-shadow: var(--popover-shadow);
+  --well: light-dark(#e4e0da, #191d23);
   --field-shadow: inset 0 2px 5px light-dark(#0003, #0007), 0 1px var(--edge-light);
   --control-image: linear-gradient(180deg, #ffffff20, transparent 52%, #00000016);
+  --option-control-background: var(--surface);
+  --secondary-control-background: var(--surface);
   --control-shadow: inset 0 1px var(--edge-light), 0 2px 3px var(--edge-dark);
   --control-pressed-shadow: inset 0 2px 4px #0004, 0 1px var(--edge-light);
   --control-press-offset: 1px;
@@ -93,6 +106,8 @@
   --selected-shadow: inset 0 1px var(--edge-light), 0 2px 4px var(--edge-dark);
   --surface-image: linear-gradient(145deg, light-dark(#ffffffcc, #ffffff0c), transparent);
   --surface-shadow: inset 0 1px var(--edge-light), 0 2px 5px var(--edge-dark);
+  --selectable-card-background: var(--surface);
+  --selectable-card-selected-background: var(--accent-soft);
   --badge-image: linear-gradient(180deg, #ffffff18, transparent 65%);
   --badge-shadow: inset 0 1px #ffffff1a, 0 1px 2px #0003;
   --progress-image: linear-gradient(180deg, #ffffff55, transparent 65%);
@@ -107,9 +122,8 @@
 
   --header-background: linear-gradient(180deg, light-dark(#f8f6f2, #30353d), light-dark(#e8e4de, #20242a));
   --header-shadow: inset 0 -1px var(--edge-light), 0 4px 14px #0003;
+  --sidebar-background: linear-gradient(145deg, light-dark(#fffdfa, #282d35), light-dark(var(--surface), #191d23));
   --sidebar-shadow: 4px 0 18px light-dark(#3a322a1a, #0006);
   --workspace-image: radial-gradient(ellipse at 55% 0%, light-dark(#ffffff5c, #4852602e), transparent 65%);
   --brand-filter: drop-shadow(0 2px 2px #0007);
-  --avatar-background: linear-gradient(145deg, light-dark(#e9e5df, #222730), light-dark(#dcd8d2, #15181e));
-  --avatar-color: var(--accent-text);
 }

@@ -36,7 +36,7 @@
   function dismiss(): void { if (!locked) dialog.close(); }
 </script>
 
-<dialog class="popover-panel" bind:this={dialog} class:wide class:compact aria-label={label} onclose={onclose} onkeydown={acceptByKey}
+<dialog class="popover-panel modal" bind:this={dialog} class:wide class:compact aria-label={label} onclose={onclose} onkeydown={acceptByKey}
   oncancel={(event) => { event.preventDefault(); dismiss(); }}
   onpointerdown={(event) => { pressedOutside = event.target === dialog && outside(event); }}
   onclick={(event) => { if (pressedOutside && event.target === dialog && outside(event)) dismiss(); }}>

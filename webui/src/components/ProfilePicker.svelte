@@ -50,7 +50,7 @@
       aria-label="Profiles" ontoggle={(event) => open = event.newState === 'open'}>
       {#each names as name (name)}
         {@const automatic = inherited.find(profile => profile.name === name)}
-        <label class="profile-option" title={automatic ? `Applied by ${automatic.source === 'automatic' ? 'auto-profile' : 'daemon startup'}` : undefined}>
+        <label class="menu-item profile-option" title={automatic ? `Applied by ${automatic.source === 'automatic' ? 'auto-profile' : 'daemon startup'}` : undefined}>
           <input type="checkbox" aria-label={name} checked={value.includes(name) || Boolean(automatic)}
             disabled={disabled || Boolean(automatic)}
             onchange={(event) => onchange(event.currentTarget.checked ? [...value, name] : value.filter(item => item !== name))} />
@@ -69,8 +69,7 @@
   .profile-trigger :global(svg) { width: 14px; height: 14px; }
   .profile-popout { position: fixed; inset: auto; width: min(250px, calc(100vw - 24px)); box-sizing: border-box; margin: 0; padding: 5px; overflow-y: auto; border-radius: 9px; color: var(--text); }
   .profile-option { position: relative; display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 5px; cursor: pointer; font-size: .76rem; }
-  .profile-option:hover, .profile-option:has(input:focus-visible) { background: var(--surface-subtle); }
-  .profile-option:has(input:focus-visible) { outline: 1px solid var(--accent); }
+  .profile-option + .profile-option { margin-top: 2px; }
   .profile-option input { position: absolute; opacity: 0; width: 1px; height: 1px; }
   .profile-check { display: flex; width: 15px; flex-shrink: 0; color: var(--accent); visibility: hidden; }
   input:checked + .profile-check { visibility: visible; }

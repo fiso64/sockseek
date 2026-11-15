@@ -552,7 +552,7 @@
     }
     return tiers.map(tier => ({ tier, rows: rowsByTier.get(tier)! }))
       .filter(({ rows }) => rows.length > 0)
-      .map(({ tier, rows }) => ({ tier, count: rows.length, groups: samePeerGroups(rows) }));
+      .map(({ tier, rows }) => ({ tier, groups: samePeerGroups(rows) }));
   }
   let groupedRows: SearchRow[] | null = null;
   let groupedByPreference = false;
@@ -786,7 +786,7 @@
       <SearchConditionPills mode={viewState.draft.resultMode} bind:conditions />
     {/if}
     {#if conditionsOpen && viewState.draft}
-      <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="popover-panel search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsAnchor, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
+      <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="popover-panel form search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsAnchor, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
         <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="Search configuration" loadDefaults={async signal => {
           const draft = viewState.draft!;
           const response = await daemonApi.resolveEffectiveSettings({ job: searchJobDraft(draft) }, signal);
@@ -890,10 +890,10 @@
       {/each}
     </div>
   {:else}
-    {#each groupedTiers as { tier, count, groups } (tier)}
+    {#each groupedTiers as { tier, groups } (tier)}
         {#if tier !== 'All' && (tier !== 'Other' || groupedTiers.some(group => group.tier === 'Preferred'))}
           <div class:preferred={tier === 'Preferred'} class="result-tier-heading">
-            <span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span><small>{count}</small>
+            <span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span>
             {#if tier === 'Preferred'}
               <HelpPopover title="Preferred matches" testId="preferred-matches-help">
                 {#snippet children(close, anchor)}

@@ -41,10 +41,12 @@
 </script>
 
 {#if error}<Notice variant="unavailable">{error}<button class="button auth-button" onclick={() => retry++}>Retry</button></Notice>{/if}
-{#if !status && !error}<LoadingIndicator />{/if}
 <div class="status-grid">
   <section class="panel status-card" aria-labelledby="daemon-heading">
-    <h2 id="daemon-heading">Daemon</h2>
+    <div class="status-card-heading">
+      <h2 id="daemon-heading">Daemon</h2>
+      {#if !status && !error}<LoadingIndicator label="Loading system status" />{/if}
+    </div>
     <dl>
       <div><dt>Version</dt><dd>{info?.version ?? '—'}</dd></div>
       <div><dt>Started</dt><dd>{date(info?.startedAtUtc)}</dd></div>
@@ -103,6 +105,8 @@
 <style>
   .status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .status-card { padding: 20px 22px; border-radius: 12px; min-width: 0; }
+  .status-card-heading { position: relative; }
+  .status-card-heading :global(.loading-indicator) { position: absolute; top: 0; right: 0; padding: 0; }
   h2 { margin: 0; padding-bottom: 12px; border-bottom: 1px solid var(--border); font-size: .95rem; font-weight: 650; }
   dl { margin: 14px 0 0; display: grid; gap: 12px; font-size: .8125rem; line-height: 1.4; }
   dl > div { display: grid; grid-template-columns: minmax(100px, .85fr) minmax(0, 1.15fr); gap: 14px; }
