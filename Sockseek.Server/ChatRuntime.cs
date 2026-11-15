@@ -30,6 +30,7 @@ public sealed class ChatRuntime : IAsyncDisposable
     private readonly ILogger<ChatRuntime> logger;
     private readonly FeatureHealthLogger healthLog;
     private readonly RepeatedWarningGate ingressCapacityWarningGate = new();
+    private readonly RepeatedWarningGate restrictionRefreshWarningGate = new();
     private readonly Channel<IngressItem> ingress;
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim summaryMutationGate = new(1, 1);
@@ -114,20 +115,27 @@ public sealed class ChatRuntime : IAsyncDisposable
             soulseek.Restrictions.IsPrivateMessageBlocked(value.DisplayUsername));
     }
 
-    public async Task PublishPeerRestrictionsChangedAsync(
-        string username,
+    internal async Task PublishPeerRestrictionsChangedAsync(
+        IEnumerable<string> usernames,
         CancellationToken cancellationToken)
     {
-        username = PeerUsername.Validate(username);
-        ConversationRecord? conversation = await store.GetConversationByPeerAsync(
-            Account,
-            username,
-            cancellationToken).ConfigureAwait(false);
-        if (conversation is not null)
-            await PublishConversationAsync(
-                conversation.ConversationId,
-                message: null,
-                cancellationToken).ConfigureAwait(false);
+        try
+        {
+            foreach (string username in usernames)
+            {
+                ConversationRecord? conversation = await store.GetConversationByPeerAsync(
+                    Account, username, cancellationToken).ConfigureAwait(false);
+                if (conversation is not null)
+                    await PublishConversationAsync(conversation.ConversationId, message: null,
+                        cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Enforcement is already updated; a history/UI failure must not reject configuration.
+            if (restrictionRefreshWarningGate.TryAcquire(out long suppressedCount))
+                ServerLogMessages.PeerRestrictionStatusRefreshFailed(logger, exception, suppressedCount);
+        }
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)

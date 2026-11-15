@@ -235,128 +235,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/users/{username}/restrictions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Gets independent upload-access and private-message restrictions for one exact username. */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    username: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["UserRestrictionsDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Authentication required or credential expired/revoked. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Access denied. */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        /**
-         * Sets or removes one durable exact-username restriction override.
-         * @description Upload-access blocking denies future search, browse, directory, and upload admissions from the peer. Private-message blocking discards future incoming DMs only. Allowed supersedes that kind's configured username block. Null removes only that override. Configured upload IP denial remains independent.
-         */
-        put: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    username: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["SetUserRestrictionOverrideRequestDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["UserRestrictionsDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Authentication required or credential expired/revoked. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Access denied. */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Service Unavailable */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/user-browses/download-settings": {
         parameters: {
             query?: never;
@@ -13485,10 +13363,6 @@ export interface components {
             expiresAt?: null | string;
             antiforgeryToken: string;
         };
-        SetUserRestrictionOverrideRequestDto: {
-            kind: components["schemas"]["UserRestrictionKind"];
-            override?: null | components["schemas"]["UserRestrictionOverrideState"];
-        };
         ShareCatalogStateDto: {
             /** Format: uuid */
             generationId?: null | string;
@@ -15587,11 +15461,6 @@ export interface components {
         UserBrowsePhase: "waiting-for-peer" | "receiving" | "indexing" | "ready";
         /** @enum {unknown} */
         UserBrowseState: "queued" | "running" | "complete" | "failed" | "cancelled";
-        UsernameRestrictionStateDto: {
-            isBlocked: boolean;
-            configuredUsernameBlocked: boolean;
-            override?: null | components["schemas"]["UserRestrictionOverrideState"];
-        };
         UserNotificationDto: {
             /** Format: uuid */
             notificationId: string;
@@ -15653,15 +15522,6 @@ export interface components {
         UserProfileSectionDto: {
             state: components["schemas"]["ResourceSectionState"];
             reason?: null | string;
-        };
-        /** @enum {unknown} */
-        UserRestrictionKind: "upload-access" | "private-messages";
-        /** @enum {unknown} */
-        UserRestrictionOverrideState: "blocked" | "allowed" | null;
-        UserRestrictionsDto: {
-            username: string;
-            uploadAccess: components["schemas"]["UsernameRestrictionStateDto"];
-            privateMessages: components["schemas"]["UsernameRestrictionStateDto"];
         };
         UserShareResolutionSummaryDto: {
             /** Format: int32 */

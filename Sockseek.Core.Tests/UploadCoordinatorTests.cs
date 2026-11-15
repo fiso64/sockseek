@@ -11,6 +11,38 @@ namespace Sockseek.Core.Tests;
 public sealed class UploadCoordinatorTests
 {
     [TestMethod]
+    public async Task ConfiguredBlocksTakeEffectBeforeActiveUploadsFinish()
+    {
+        await using var fixture = await CatalogFixture.CreateAsync(("One.bin", "one"));
+        var protocol = new BlockingProtocolInvoker();
+        var policy = new PeerRestrictionPolicy(new());
+        await using var coordinator = new UploadCoordinator(fixture, protocol, policy,
+            new UploadScheduler(new UploadSettings { Slots = 1 }));
+        var active = await coordinator.AdmitAsync("active", null, @"Public\One.bin");
+        await protocol.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        policy.ReloadConfigured(new() { UploadAccess = new() { BlockedUsernames = ["Blocked"] } });
+        var denied = await coordinator.AdmitAsync("Blocked", null, @"Public\One.bin");
+        Assert.AreEqual(UploadAdmissionRejection.Denied, denied.Rejection);
+        Assert.IsNull(denied.TransferId);
+        var exactPeer = await coordinator.AdmitAsync("blocked", null, @"Public\One.bin");
+        Assert.IsNotNull(exactPeer.TransferId);
+        policy.ReloadConfigured(new());
+        var allowed = await coordinator.AdmitAsync("Blocked", null, @"Public\One.bin");
+        Assert.IsNotNull(allowed.TransferId);
+        Assert.AreEqual(UploadTransferState.InProgress,
+            coordinator.Snapshot().Single(item => item.TransferId == active.TransferId).State);
+        Assert.AreEqual(UploadTransferState.Queued,
+            coordinator.Snapshot().Single(item => item.TransferId == allowed.TransferId).State);
+
+        // Both reloads and their admission checks completed with the first
+        // upload still held open. Release transfers only for test cleanup.
+        protocol.Release.TrySetResult();
+        await WaitForStateAsync(coordinator, active.TransferId!.Value, UploadTransferState.Completed);
+        await WaitForStateAsync(coordinator, exactPeer.TransferId.Value, UploadTransferState.Completed);
+        await WaitForStateAsync(coordinator, allowed.TransferId.Value, UploadTransferState.Completed);
+    }
+
+    [TestMethod]
     public async Task AdjacentUploadDirectoryRunsHaveDistinctOpaqueGroupRefs()
     {
         await using var fixture = await CatalogFixture.CreateAsync(

@@ -80,7 +80,7 @@
   let activeUserBlocked = $derived(activeConversation?.privateMessagesBlocked ?? false);
   const presence = userPresence(() => activeUsername, () => liveClient, () => liveStatus);
   let activeMessages = $derived(mergeMessages(historicalMessages, targetSnapshot?.messages ?? []));
-  let composerDisabled = $derived(liveStatus !== 'connected' || runtime?.state !== 'Ready' || activeUserBlocked || !target);
+  let composerDisabled = $derived(liveStatus !== 'connected' || runtime?.state !== 'Ready' || !target);
 
   onMount(() => {
     void loadLists(true);
@@ -493,22 +493,6 @@
     else if (adding === 'user') { openOrCreateConversation(addDraft); addDraft = ''; adding = null; }
   }
 
-  async function blockActiveUser(): Promise<void> {
-    if (!activeUsername || mutation.phase === 'pending') return;
-    const username = activeUsername;
-    const revision = selectionRevision;
-    mutation = { phase: 'pending', label: 'Updating peer access…' };
-    try {
-      const restrictions = await daemonApi.setPrivateMessageBlocked(username, !activeUserBlocked);
-      const blocked = restrictions.privateMessages.isBlocked;
-      conversations = conversations.map((item) => item.username === username ? { ...item, privateMessagesBlocked: blocked } : item);
-      if (revision !== selectionRevision) return;
-      if (targetSnapshot?.conversation) targetSnapshot = { ...targetSnapshot, conversation: { ...targetSnapshot.conversation, privateMessagesBlocked: blocked } };
-      mutation = { phase: 'succeeded', label: blocked ? 'User blocked' : 'User unblocked' };
-      menuOpen = false;
-    } catch (cause) { if (revision === selectionRevision) mutation = { phase: 'rejected', label: 'Restriction update failed', detail: asError(cause).message }; }
-  }
-
   async function deleteActiveConversation(): Promise<void> {
     if (!activeConversation || mutation.phase === 'pending') return;
     const id = activeConversation.conversationId;
@@ -734,18 +718,14 @@
         {/if}
         <div class="chat-thread-options" bind:this={chatOptionsElement}>
           <button type="button" class="button quiet chat-options-button" aria-label="Chat options"
-            aria-haspopup="menu" aria-expanded={menuOpen} disabled={!target}
+            aria-haspopup="menu" aria-expanded={menuOpen} disabled={!activeConversation && !activeRoom}
             onclick={() => (menuOpen = !menuOpen)}><Icon name="more"/></button>
           {#if menuOpen}
             <div class="popover-panel chat-options-menu" role="menu" aria-label="Chat options"
               use:anchoredMenu={{ anchor: chatOptionsElement, align: 'end' }}>
-              {#if activeConversation || target?.kind === 'draft'}
-                <button class="menu-item" type="button" role="menuitem"
-                  onclick={() => void blockActiveUser()}>{activeUserBlocked ? 'Unblock user' : 'Block user'}</button>
-                {#if activeConversation}
-                  <button type="button" role="menuitem" class="menu-item danger"
-                    onclick={() => void deleteActiveConversation()}>Delete chat</button>
-                {/if}
+              {#if activeConversation}
+                <button type="button" role="menuitem" class="menu-item danger"
+                  onclick={() => void deleteActiveConversation()}>Delete chat</button>
               {:else if activeRoom}
                 <button type="button" role="menuitem" class="menu-item danger"
                   onclick={() => void leaveActiveRoom()}>Leave room</button>
@@ -822,9 +802,7 @@
         {/if}
       </div>
       <div class="chat-composer">
-        {#if activeUserBlocked}
-          <span class="composer-state">Unblock {activeUsername} to send messages.</span>
-        {:else if liveStatus === 'offline'}
+        {#if liveStatus === 'offline'}
           <span class="composer-state">Chat disabled · Daemon unavailable</span>
         {:else if liveStatus !== 'connected'}
           <span class="composer-state">Chat {liveStatus === 'reconnecting' ? 'reconnecting' : liveStatus === 'connecting' ? 'connecting' : 'unavailable'}</span>

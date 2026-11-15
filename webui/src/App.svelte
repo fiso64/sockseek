@@ -15,7 +15,7 @@
   import TransfersPage from './domains/transfers/TransfersPage.svelte';
   import { TransferTimelineController } from './domains/transfers/controller.svelte';
   import Dashboard from './domains/dashboard/Dashboard.svelte';
-  import { userBrowserSession, type UserBrowseView } from './domains/users/session';
+  import { userBrowserSession, loadUserBrowserSession, saveUserBrowserUsername, type UserBrowseView } from './domains/users/session';
   import ConfigurationDialog from './domains/system/ConfigurationDialog.svelte';
   import type { SystemTab } from './domains/system/tabs';
   import { DaemonLiveClient, type LiveConnectionStatus } from './api/live';
@@ -76,7 +76,7 @@
   });
   let userBrowse = $state<{ query: string; mode: UserBrowseView }>({ query: '', mode: 'user' });
   let systemTab = $state<SystemTab>('status');
-  let userBrowsers = $state({ user: userBrowserSession(), shares: userBrowserSession() });
+  let userBrowsers = $state({ user: loadUserBrowserSession('user'), shares: loadUserBrowserSession('shares') });
   let userView = $derived<UserBrowseView>(activePage === 'shares' ? 'shares' : 'user');
   let activeUsername = $derived(userBrowsers[userView].username);
   let initialChatUsername = $state<string | null>(null);
@@ -170,11 +170,13 @@
 
   function applyPath(pathname: string): void {
     cancelDeferredSearchRender();
-    automaticJobId = null;
-    jobRouteError = null;
+    routeRequest?.abort();
     const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
     const root = parts[0];
     if (root === 'jobs') {
+      automaticJobId = null;
+      automaticInitialDetail = null;
+      jobRouteError = null;
       activePage = 'jobs';
       showingSearch = Boolean(parts[1]);
       pendingJobId = parts[1] ? decodeSegment(parts[1]) : null;
@@ -288,19 +290,26 @@
     const wasOnJobs = activePage === 'jobs';
     routeRequest?.abort();
     jobRouteError = null;
-    automaticJobId = null;
-    automaticInitialDetail = null;
-    pendingJobId = null;
     composingJob = false;
     if (page === 'jobs') {
       activePage = 'jobs';
-      if (wasOnJobs && showingSearch) {
-        showingSearch = false;
-        pendingJobId = null;
-      } else if (showingSearch && searchState.job?.jobId && searchState.draft) {
+      if (wasOnJobs) {
+        backToJobs();
+        return;
+      }
+      if (automaticJobId) {
+        setPath(`/jobs/${encodeURIComponent(automaticJobId)}`);
+        return;
+      }
+      if (showingSearch && searchState.job?.jobId === pendingJobId && searchState.draft) {
         pendingJobId = searchState.job.jobId;
         renderCachedSearchAfterPaint();
         setPath(searchJobPath(pendingJobId, searchState.draft.resultMode));
+        return;
+      }
+      if (pendingJobId) {
+        setPath(`/jobs/${encodeURIComponent(pendingJobId)}`);
+        void openJobFromPath(pendingJobId, routeLocation());
         return;
       }
       setPath(jobsListPath());
@@ -334,6 +343,8 @@
         searchModeByJob.set(submitted.job.jobId, submitted.draft.resultMode);
       }
       await searchController.open(submitted);
+      automaticJobId = null;
+      automaticInitialDetail = null;
       activePage = 'jobs';
       showingSearch = true;
       pendingJobId = submitted.job.jobId ?? null;
@@ -341,8 +352,7 @@
     } catch (error) {
       mutationError = asError(error);
       activePage = 'jobs';
-      showingSearch = false;
-      setPath(jobsListPath());
+      backToJobs();
     } finally {
       searchBusy = false;
     }
@@ -438,6 +448,7 @@
       return;
     }
     automaticJobId = null;
+    automaticInitialDetail = null;
     openingJobKey = openKey;
     mutationError = null;
     try {
@@ -507,7 +518,10 @@
   });
 
   function selectBrowseUser(mode: UserBrowseView, username: string): void {
-    if (userBrowsers[mode].username !== username) userBrowsers[mode] = userBrowserSession(username);
+    if (userBrowsers[mode].username !== username) {
+      userBrowsers[mode] = userBrowserSession(username);
+      saveUserBrowserUsername(mode, username);
+    }
   }
 
   function openUserView(mode: UserBrowseView, username: string): void {
@@ -643,10 +657,10 @@
       {observeJobs}
       onnew={() => { composerSearch = null; composingJob = true; }}
       jobs={jobList.items}
-      loading={jobList.loading || liveStatus === 'connecting'}
+      loading={jobList.loading || liveStatus === 'connecting' || liveStatus === 'reconnecting'}
       daemonOffline={liveStatus === 'offline'}
       hasMore={Boolean(jobList.cursor)}
-      error={jobList.error ?? liveError}
+      error={jobList.error ?? (liveStatus === 'offline' || liveStatus === 'failed' ? liveError : null)}
       actionError={mutationError}
       onretry={() => jobList.refresh()}
       onopen={(job, detail) => void openJob(job, detail)}

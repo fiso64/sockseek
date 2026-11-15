@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures';
 import type { Schema } from '../src/api/types';
-import type { Page } from '@playwright/test';
+import type { Page, WebSocketRoute } from '@playwright/test';
 import { stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
@@ -100,7 +100,30 @@ test('removes a terminal user root from detail, preserving rejected actions and 
   await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
   await expect(page.locator('.job-detail-meta')).not.toContainText('fixture-peer');
   await expect(page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
+  const childRoute = page.url();
+  const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
+  await navigation.getByRole('button', { name: 'Downloads', exact: true }).click();
+  await navigation.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await expect(page).toHaveURL(childRoute);
+  await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
+
+  // Browser-history navigation away must preserve the same remembered job too.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/downloads$/);
+  await navigation.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await expect(page).toHaveURL(childRoute);
+  await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
   await page.getByRole('button', { name: 'Back to Deletion detail fixture', exact: true }).click();
+  await navigation.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await navigation.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/jobs/${root.jobId}$`));
+  await expect(page.locator('.automatic-job-detail h1')).toHaveText('Deletion detail fixture');
+
+  // Clicking the already-selected Jobs tab still returns to its downloads list.
+  await navigation.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await expect(page).toHaveURL(/\/jobs\?tab=downloads$/);
+  await page.locator('.search-history-open').filter({ hasText: 'Deletion detail fixture' }).click();
+  await expect(remove).toBeVisible();
 
   let rejectDeletion = true;
   let release!: () => void;
@@ -286,6 +309,34 @@ test('reconciles an open job when a recovery snapshot misses its entire live wor
 });
 
 test('shows the accepted remote-directory files and keeps them after completion', async ({ page, daemon }) => {
+  let rejectProgress = false;
+  let reconnecting = false;
+  let socket: WebSocketRoute;
+  let observed = () => {};
+  let resumeConnection!: () => void;
+  const connectionResumed = new Promise<void>(resolve => { resumeConnection = resolve; });
+  await page.route('**/api/events/negotiate?**', async route => {
+    if (reconnecting) await connectionResumed;
+    await route.continue();
+  });
+  await page.routeWebSocket('**/api/events?**', route => {
+    socket = route;
+    const server = route.connectToServer();
+    route.onMessage(payload => {
+      if (typeof payload !== 'string') { server.send(payload); return; }
+      for (const frame of payload.split('\u001e').filter(Boolean)) {
+        const message = JSON.parse(frame);
+        if (message.type === 4 && message.target === 'ObserveJobs') {
+          observed();
+          if (rejectProgress) {
+            route.send(JSON.stringify({ type: 3, invocationId: message.invocationId, error: 'Fixture progress read failed' }) + '\u001e');
+            continue;
+          }
+        }
+        server.send(frame + '\u001e');
+      }
+    });
+  });
   const childReads = observeUnfilteredChildReads(page);
   await daemon.command('hold-download');
   await daemon.command('hold-art-download');
@@ -354,6 +405,56 @@ test('shows the accepted remote-directory files and keeps them after completion'
   }
   await expect(folder.locator('.transfer-state').first()).toHaveText('Complete');
   await page.unroute(manifestPath);
+
+  // A terminal job's plan is initially unknown on reload and tab return. It
+  // becomes unavailable only after the manifest endpoint confirms its absence.
+  for (const reload of [true, false]) {
+    let release!: () => void;
+    let requested!: () => void;
+    const released = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { requested = resolve; });
+    const hold = async (route: import('@playwright/test').Route) => {
+      requested();
+      await released;
+      await route.continue();
+    };
+    await page.route(manifestPath, hold);
+    try {
+      if (reload) await page.reload();
+      else {
+        const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
+        await navigation.getByRole('button', { name: 'Dashboard', exact: true }).click();
+        await navigation.getByRole('button', { name: 'Jobs', exact: true }).click();
+      }
+      await started;
+      await expect(folder.locator('.item-data-state')).toHaveCount(0);
+      await expect(page.getByTestId('job-live-progress-notice')).toHaveCount(0);
+    } finally { release(); }
+    await expect(folder.locator('.folder-file-row')).toHaveCount(2);
+    await page.unroute(manifestPath, hold);
+  }
+
+  // Genuine stream failures stay visible and can be retried independently.
+  rejectProgress = true;
+  await page.reload();
+  const progressNotice = page.getByTestId('job-live-progress-notice');
+  await expect(folder.locator('.folder-file-row')).toHaveCount(2);
+  await expect(progressNotice).toBeVisible();
+  rejectProgress = false;
+  const retried = new Promise<void>(resolve => { observed = resolve; });
+  await progressNotice.getByRole('button', { name: 'Retry', exact: true }).click();
+  await retried;
+  await expect(progressNotice).toHaveCount(0);
+
+  // Closing the transport while progress is subscribed is a connection state,
+  // not a second file-progress failure notice.
+  try {
+    reconnecting = true;
+    await socket!.close({ code: 1012, reason: 'E2E progress reconnect' });
+    await expect(page.getByLabel('Connection status').locator('strong')).toHaveText('Daemon reconnecting');
+    await expect(progressNotice).toHaveCount(0);
+  } finally { reconnecting = false; resumeConnection(); }
+  await expect(page.getByLabel('Connection status')).toContainText('Connected');
 
   let manifestRead: 'failed' | 'missing' | 'ready' = 'failed';
   await page.route(manifestPath, route => manifestRead === 'failed' ? route.abort('failed')

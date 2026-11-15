@@ -16,7 +16,6 @@ using Sockseek.Server.Persistence;
 using Sockseek.Server.PeerBrowsing;
 using Sockseek.Server.UserProfiles;
 using Sockseek.Server.Planning;
-using Sockseek.Server.PeerRestrictions;
 using Sockseek.Server.Authentication;
 
 namespace Sockseek.Server;
@@ -290,8 +289,6 @@ public static class ServerHost
         builder.Services.AddHostedService<PersistenceMaintenanceHostedService>();
         builder.Services.AddSingleton<InputArtifactCoordinator>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<InputArtifactCoordinator>());
-        builder.Services.AddSingleton<PeerRestrictionCoordinator>();
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<PeerRestrictionCoordinator>());
         builder.Services.AddSingleton<EngineSupervisor>();
         builder.Services.AddSingleton(sp => sp.GetRequiredService<EngineSupervisor>().StateStore);
         builder.Services.AddSingleton(sp => sp.GetRequiredService<EngineSupervisor>().Runtime);
@@ -388,7 +385,6 @@ public static class ServerHost
     private static void MapEndpoints(WebApplication app)
     {
         UserProfileEndpoints.Map(app);
-        PeerRestrictionEndpoints.Map(app);
         UserBrowseEndpoints.Map(app);
         InputArtifactEndpoints.Map(app);
         JobPreviewEndpoints.Map(app);

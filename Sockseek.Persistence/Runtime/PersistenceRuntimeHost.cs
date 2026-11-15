@@ -6,7 +6,6 @@ using Sockseek.Persistence.Chat;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Persistence;
-using Sockseek.Persistence.PeerRestrictions;
 using Sockseek.Persistence.Planning;
 
 namespace Sockseek.Persistence.Runtime;
@@ -91,7 +90,6 @@ public sealed class PersistenceRuntimeHost
     public ITransferHistoryReader? TransferHistory { get; private set; }
     public ITransferAnalyticsReader? TransferAnalytics { get; private set; }
     public ChatPersistenceStore? Chat { get; private set; }
-    public PeerRestrictionOverrideStore? PeerRestrictions { get; private set; }
     public InputArtifactStore? InputArtifacts { get; private set; }
     public Authentication.ApiKeyStore? ApiKeys { get; private set; }
     public long? DatabaseSizeBytes => FileSize(sqliteOptions.DatabasePath);
@@ -145,7 +143,6 @@ public sealed class PersistenceRuntimeHost
             writerTask = writer.RunAsync(writerStop.Token);
             Chat = new ChatPersistenceStore(readers, inbox);
             await Chat.ReconcilePendingMessagesAsync(cancellationToken).ConfigureAwait(false);
-            PeerRestrictions = new PeerRestrictionOverrideStore(readers, Health, inbox);
             ApiKeys = new Authentication.ApiKeyStore(readers, inbox);
             var inputArtifacts = new InputArtifactStore(
                 Path.Combine(
@@ -184,7 +181,6 @@ public sealed class PersistenceRuntimeHost
             writerStop?.Dispose();
             writerStop = null;
             Chat = null;
-            PeerRestrictions = null;
             if (InputArtifacts is not null)
                 await InputArtifacts.DisposeAsync().ConfigureAwait(false);
             InputArtifacts = null;

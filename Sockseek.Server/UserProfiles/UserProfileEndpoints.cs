@@ -1,6 +1,5 @@
 using Sockseek.Api;
 using Sockseek.Core.UserProfiles;
-using Sockseek.Server.PeerRestrictions;
 
 namespace Sockseek.Server.UserProfiles;
 
@@ -38,7 +37,6 @@ internal static class UserProfileEndpoints
     private static async Task<IResult> GetProfileAsync(
         string username,
         DaemonRuntime runtime,
-        PeerRestrictionCoordinator peerRestrictions,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken,
         bool refresh = false)
@@ -57,11 +55,11 @@ internal static class UserProfileEndpoints
                 username,
                 refresh,
                 cancellationToken).ConfigureAwait(false);
-            UserRestrictionsDto restrictions = peerRestrictions.Get(profile.Username);
+            var restrictions = runtime.SoulseekRuntime!.Restrictions;
             return Results.Ok(profile with
             {
-                UploadAccessBlocked = restrictions.UploadAccess.IsBlocked,
-                PrivateMessagesBlocked = restrictions.PrivateMessages.IsBlocked,
+                UploadAccessBlocked = restrictions.IsUploadUsernameBlocked(profile.Username),
+                PrivateMessagesBlocked = restrictions.IsPrivateMessageBlocked(profile.Username),
             });
         }
         catch (Exception exception)

@@ -168,7 +168,7 @@ public sealed class PeerBrowseArtifactStoreTests
     }
 
     [TestMethod]
-    public async Task FreshLookup_IsStrictAtFiveMinuteBoundary()
+    public async Task LatestLookup_UsesOptionalFreshnessWithoutExtendingRetention()
     {
         await using var directory = new TemporaryDirectory();
         var clock = new ManualTimeProvider(new DateTimeOffset(2026, 8, 12, 10, 0, 0, TimeSpan.Zero));
@@ -178,14 +178,17 @@ public sealed class PeerBrowseArtifactStoreTests
         clock.Advance(TimeSpan.FromMinutes(5) - TimeSpan.FromTicks(1));
         Assert.AreEqual(
             resource.BrowseId,
-            (await store.FindFreshAsync("local", "Peer", TimeSpan.FromMinutes(5)))!.BrowseId);
+            (await store.FindLatestAsync("local", "Peer", TimeSpan.FromMinutes(5)))!.BrowseId);
 
         clock.Advance(TimeSpan.FromTicks(1));
-        Assert.IsNull(await store.FindFreshAsync("local", "Peer", TimeSpan.FromMinutes(5)));
+        Assert.IsNull(await store.FindLatestAsync("local", "Peer", TimeSpan.FromMinutes(5)));
+        Assert.AreEqual(resource.BrowseId, (await store.FindLatestAsync("local", "Peer", maximumAge: null))!.BrowseId);
+        clock.Advance(TimeSpan.FromHours(24) - TimeSpan.FromMinutes(5));
+        Assert.IsNull(await store.FindLatestAsync("local", "Peer", maximumAge: null));
     }
 
     [TestMethod]
-    public async Task FreshLookup_IgnoresACompletedResourceWhoseArtifactIsMissing()
+    public async Task LatestLookup_IgnoresACompletedResourceWhoseArtifactIsMissing()
     {
         await using var directory = new TemporaryDirectory();
         await using var store = new PeerBrowseArtifactStore(directory.Path);
@@ -195,7 +198,7 @@ public sealed class PeerBrowseArtifactStoreTests
             "*.browse.gz").Single();
         File.Delete(artifactPath);
 
-        PeerBrowseResource? fresh = await store.FindFreshAsync(
+        PeerBrowseResource? fresh = await store.FindLatestAsync(
             "local",
             "Peer",
             TimeSpan.FromMinutes(5));

@@ -78,10 +78,18 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         previous.Dispose();
     }
 
-    public async Task<PeerBrowseResource> StartAsync(
+    /// <summary>Manual browsing reuses retained shares until explicitly refreshed.</summary>
+    public Task<PeerBrowseResource> StartAsync(
         string username,
         bool refresh = false,
         CancellationToken cancellationToken = default)
+        => AcquireAsync(username, refresh, maximumAge: null, cancellationToken);
+
+    private async Task<PeerBrowseResource> AcquireAsync(
+        string username,
+        bool refresh,
+        TimeSpan? maximumAge,
+        CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposeState) != 0, this);
         username = PeerUsername.Validate(username);
@@ -123,20 +131,20 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
 
             if (!refresh)
             {
-                PeerBrowseResource? fresh = await store.FindFreshAsync(
+                PeerBrowseResource? cached = await store.FindLatestAsync(
                     localAccount,
                     username,
-                    Freshness,
+                    maximumAge,
                     cancellationToken).ConfigureAwait(false);
-                if (fresh is not null)
+                if (cached is not null)
                 {
-                    PeerBrowseTelemetry.RecordReuse("fresh");
-                    PeerBrowseLogMessages.ReusedFresh(
+                    PeerBrowseTelemetry.RecordReuse("cached");
+                    PeerBrowseLogMessages.ReusedCached(
                         logger,
-                        fresh.BrowseId,
+                        cached.BrowseId,
                         peerHash,
-                        (long)(DateTimeOffset.UtcNow - (fresh.CompletedAt ?? fresh.UpdatedAt)).TotalMilliseconds);
-                    return fresh;
+                        (long)(DateTimeOffset.UtcNow - (cached.CompletedAt ?? cached.UpdatedAt)).TotalMilliseconds);
+                    return cached;
                 }
             }
 
@@ -310,7 +318,9 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         bool refresh = false,
         CancellationToken cancellationToken = default)
     {
-        PeerBrowseResource resource = await StartAsync(username, refresh, cancellationToken).ConfigureAwait(false);
+        // Job retrieval needs a recent index, but shares the same acquisition
+        // and completed generations as manual browsing.
+        PeerBrowseResource resource = await AcquireAsync(username, refresh, Freshness, cancellationToken).ConfigureAwait(false);
         if (resource.State == PeerBrowseState.Complete)
             return resource;
         if (resource.State is PeerBrowseState.Failed or PeerBrowseState.Cancelled)
@@ -818,10 +828,10 @@ internal static partial class PeerBrowseLogMessages
 {
     [LoggerMessage(
         EventId = 4200,
-        EventName = "peer-browse.reused-fresh",
+        EventName = "peer-browse.reused-cached",
         Level = LogLevel.Debug,
-        Message = "Reused fresh peer browse {BrowseId} for peer hash {PeerHash} at age {AgeMs} ms")]
-    public static partial void ReusedFresh(
+        Message = "Reused cached peer browse {BrowseId} for peer hash {PeerHash} at age {AgeMs} ms")]
+    public static partial void ReusedCached(
         ILogger logger, Guid browseId, string peerHash, long ageMs);
 
     [LoggerMessage(

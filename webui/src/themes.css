@@ -19,6 +19,7 @@
   --success: light-dark(#307451, #69b58c);
   --warning: light-dark(#8a601e, #d0a15c);
   --danger: light-dark(#a54750, #df7e86);
+  --danger-fill: light-dark(#a54750, #a83e4b);
   --status-active: light-dark(#1d4ed8, #6ea0ff);
   --status-complete: light-dark(#137638, #4cdb85);
   --status-failed: light-dark(#c52424, #ff7272);

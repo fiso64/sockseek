@@ -1,8 +1,43 @@
-import { expect, test } from './fixtures';
+import { expect, test, deferInitialDaemonSnapshot } from './fixtures';
 import type { WebSocketRoute } from '@playwright/test';
 
 // Authenticate normally, then exercise unavailable application reads/streams.
 // A failed initial session check is covered by the authentication journey.
+
+test('keeps initial loading separate from unavailable jobs, transfers and daemon status', async ({ page }) => {
+  const releaseSnapshot = await deferInitialDaemonSnapshot(page);
+  let releaseTransfers!: () => void;
+  const transfers = new Promise<void>(resolve => { releaseTransfers = resolve; });
+  await page.route('**/api/transfers/timeline', async route => {
+    await transfers;
+    await route.continue();
+  });
+  await page.addInitScript(() => {
+    const notices: string[] = [];
+    Object.assign(window, { initialFailureNotices: notices });
+    const selector = '.resource-state-notice.unavailable, .resource-state-notice.offline';
+    new MutationObserver(records => {
+      for (const record of records) for (const node of record.addedNodes) {
+        if (!(node instanceof Element)) continue;
+        if (node.matches(selector)) notices.push(node.textContent ?? '');
+        for (const notice of node.querySelectorAll(selector)) notices.push(notice.textContent ?? '');
+      }
+    }).observe(document, { childList: true, subtree: true });
+  });
+  try {
+    for (const path of ['/jobs', '/jobs?tab=downloads', '/downloads', '/uploads']) {
+      await page.goto(path);
+      await expect(page.getByRole('status', { name: /^Loading (jobs|downloads|uploads)$/ })).toBeVisible();
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      expect(await page.evaluate(() => (window as unknown as { initialFailureNotices: string[] }).initialFailureNotices)).toEqual([]);
+    }
+    await page.goto('/dashboard');
+    await expect(page.locator('.health-badge')).toHaveText('Connecting');
+    await expect(page.locator('.health-badge')).not.toHaveClass(/offline/);
+    await page.goto('/system');
+    await expect(page.locator('.status-card').filter({ has: page.getByRole('heading', { name: 'Soulseek', exact: true }) }).locator('dd').first()).toHaveText('Connecting');
+  } finally { releaseSnapshot(); releaseTransfers(); }
+});
 
 test('keeps navigation and drafts usable while a deferred page loads', async ({ page }) => {
   const chatChunk = /\/assets\/ChatPage-[^/]+\.js$/;
@@ -119,6 +154,8 @@ test('reloads an open Jobs page when the daemon first becomes reachable', async 
     outage = true;
     await socket!.close({ code: 1012, reason: 'E2E reconnect history check' });
     await expect(page.getByLabel('Connection status').locator('strong')).toHaveText('Daemon reconnecting');
+    await expect(page.getByRole('status', { name: 'Loading jobs', exact: true })).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveCount(0);
     outage = false;
     release();
     await expect(page.getByLabel('Connection status').locator('strong')).toContainText('Connected');

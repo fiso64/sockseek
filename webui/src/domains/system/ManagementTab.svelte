@@ -4,14 +4,19 @@
   import { formatCount } from '../../app/format';
   import Modal from '../../components/Modal.svelte';
   import Notice from '../../components/Notice.svelte';
+  import Icon from '../../components/Icon.svelte';
 
-  const actions = [
-    { id: 'searches', title: 'Delete all completed searches', category: 'Searches' },
-    { id: 'jobs', title: 'Delete all completed download jobs', category: 'Downloads' },
-    { id: 'downloads', title: 'Delete all completed downloads', direction: 'download' },
-    { id: 'uploads', title: 'Delete all completed uploads', direction: 'upload' },
+  const groups = [
+    { id: 'jobs', title: 'Jobs & searches', actions: [
+      { id: 'searches', title: 'Delete all completed searches', category: 'Searches' },
+      { id: 'jobs', title: 'Delete all completed download jobs', category: 'Downloads' },
+    ] },
+    { id: 'transfers', title: 'Transfer history', actions: [
+      { id: 'downloads', title: 'Delete all completed downloads', direction: 'download' },
+      { id: 'uploads', title: 'Delete all completed uploads', direction: 'upload' },
+    ] },
   ] as const;
-  type Action = typeof actions[number];
+  type Action = typeof groups[number]['actions'][number];
   let confirming = $state<Action | null>(null);
   let pending = $state(false);
   let error = $state<string | null>(null);
@@ -41,37 +46,52 @@
 </script>
 
 <section class="panel management-actions" aria-label="Management actions">
+  <header>
+    <h2>Cleanup</h2>
+  </header>
   {#if result}<Notice ondismiss={() => result = null}>{result}</Notice>{/if}
-  <ul>
-    {#each actions as action}
-      <li>
-        <span id={`action-${action.id}`}>{action.title}</span>
-        <button class="button auth-button" onclick={() => { confirming = action; error = null; }} aria-describedby={`action-${action.id}`}>Run</button>
-      </li>
+  <div class="management-groups">
+    {#each groups as group}
+      <section aria-labelledby={`management-group-${group.id}`}>
+        <h3 id={`management-group-${group.id}`}>{group.title}</h3>
+        <div class="management-action-buttons">
+          {#each group.actions as action}
+            <button class="button danger management-action" data-testid={`management-${action.id}`} onclick={() => { confirming = action; error = null; }}>
+              <Icon name="trash" /><span>{action.title}</span>
+            </button>
+          {/each}
+        </div>
+      </section>
     {/each}
-  </ul>
+  </div>
 </section>
 
 {#if confirming}
   <Modal title={`${confirming.title}?`} compact locked={pending} onclose={() => confirming = null}>
     <div class="confirmation">
-      <p>This includes failed, cancelled and interrupted entries, across all pages. Active work is kept.</p>
-      <p>{'category' in confirming ? 'Job details and search results cannot be restored. Submissions with active jobs will be kept.' : 'Transfers will be removed from the list. Statistics will be kept.'} Downloaded files are untouched.</p>
+      <p>Includes failed, cancelled and interrupted entries.{#if 'direction' in confirming}{' '}Files and statistics are kept.{/if}</p>
       {#if error}<Notice variant="unavailable">{error}</Notice>{/if}
-      <button class="button auth-button" disabled={pending} onclick={() => void remove()} aria-keyshortcuts="Control+Enter">{pending ? 'Running…' : 'Run'}</button>
+      <div class="confirmation-actions">
+        <button class="button auth-button" disabled={pending} onclick={() => confirming = null}>Cancel</button>
+        <button class="button primary danger auth-button" data-testid="management-confirm" disabled={pending} onclick={() => void remove()} aria-keyshortcuts="Control+Enter">{pending ? 'Working…' : 'category' in confirming ? 'Delete' : 'Remove'}</button>
+      </div>
     </div>
   </Modal>
 {/if}
 
 <style>
-  .management-actions { border-radius: 14px; overflow: hidden; }
-  .management-actions :global(.resource-state-notice) { margin: 14px 18px; }
-  ul { list-style: none; padding: 0; margin: 0; }
-  li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; border-bottom: 1px solid var(--border); font-size: .8125rem; }
-  li:nth-child(even) { background-color: var(--stripe); }
-  li:last-child { border-bottom: 0; }
-  li button { flex-shrink: 0; }
+  .management-actions { display: grid; gap: 20px; width: 100%; max-width: 42rem; padding: 20px; }
+  h2, h3 { margin: 0; font-weight: 600; }
+  h2 { font-size: 1rem; }
+  h3 { margin-bottom: 12px; font-size: .8125rem; }
+  .management-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+  .management-groups > section { min-width: 0; }
+  .management-action-buttons { display: grid; gap: 10px; }
+  .management-action { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 10px 14px; text-align: left; font-size: .8125rem; }
+  .management-action span { min-width: 0; }
+  .management-action :global(.app-icon) { --app-icon-size: 16px; flex-shrink: 0; }
   .confirmation { display: grid; gap: 14px; }
   .confirmation p { margin: 0; color: var(--muted); font-size: .8125rem; line-height: 1.5; }
-  .confirmation button { justify-self: end; }
+  .confirmation-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  @media (max-width: 600px) { .management-groups { grid-template-columns: minmax(0, 1fr); } }
 </style>

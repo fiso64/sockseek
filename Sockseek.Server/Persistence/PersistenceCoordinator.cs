@@ -10,7 +10,6 @@ using System.Diagnostics;
 using Sockseek.Api;
 using Sockseek.Core.Transfers.Uploads;
 using Sockseek.Persistence.Chat;
-using Sockseek.Persistence.PeerRestrictions;
 using Sockseek.Persistence.Planning;
 using Sockseek.Server.Planning;
 
@@ -49,7 +48,6 @@ public sealed class PersistenceCoordinator(
     public ITransferHistoryReader? TransferHistory => host?.TransferHistory;
     public ITransferAnalyticsReader? TransferAnalytics => host?.TransferAnalytics;
     public ChatPersistenceStore? Chat => host?.Chat;
-    public PeerRestrictionOverrideStore? PeerRestrictions => host?.PeerRestrictions;
     public InputArtifactStore? InputArtifacts => host?.InputArtifacts;
     public Sockseek.Persistence.Authentication.ApiKeyStore? ApiKeys => host?.ApiKeys;
     internal int SearchResultBatchSize => options.Persistence.SearchResultFlushCount;

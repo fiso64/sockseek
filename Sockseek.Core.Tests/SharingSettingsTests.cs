@@ -125,72 +125,29 @@ public sealed class SharingSettingsTests
     }
 
     [TestMethod]
-    public void PeerRestrictionPolicyAtomicallyMergesIndependentBaselinesAndOverrides()
+    public void PeerRestrictionPolicyReloadsIndependentConfiguredBlocks()
     {
         var policy = new PeerRestrictionPolicy(new PeerRestrictionSettings
         {
-            UploadAccess = new UploadAccessSettings
-            {
-                BlockedUsernames = ["Configured", "ResetMe"],
-                BlockedIpAddresses = ["192.0.2.7"],
-            },
-            PrivateMessages = new PrivateMessageAccessSettings
-            {
-                BlockedUsernames = ["MessageConfigured"],
-            },
+            UploadAccess = new() { BlockedUsernames = ["Upload"], BlockedIpAddresses = ["192.0.2.7"] },
+            PrivateMessages = new() { BlockedUsernames = ["Message"] },
         });
-
-        policy.ReplaceUsernameOverrides(new Dictionary<
-            (PeerRestrictionKind Kind, string Username), PeerUsernameRestrictionOverride>
-        {
-            [(PeerRestrictionKind.UploadAccess, "Configured")] =
-                PeerUsernameRestrictionOverride.Allowed,
-            [(PeerRestrictionKind.UploadAccess, "OverrideOnly")] =
-                PeerUsernameRestrictionOverride.Blocked,
-            [(PeerRestrictionKind.PrivateMessages, "OverrideOnly")] =
-                PeerUsernameRestrictionOverride.Allowed,
-        });
-
-        Assert.IsFalse(policy.IsUploadUsernameBlocked("Configured"));
-        Assert.IsTrue(policy.IsUploadUsernameBlocked("OverrideOnly"));
-        Assert.IsFalse(policy.IsPrivateMessageBlocked("OverrideOnly"));
-        Assert.IsTrue(policy.IsPrivateMessageBlocked("MessageConfigured"));
-        Assert.IsTrue(policy.IsUploadAccessBlocked(
-            "Configured",
-            new IPEndPoint(IPAddress.Parse("192.0.2.7"), 1)),
-            "Configured IP denial must win over an allowed username override.");
-        Assert.IsFalse(policy.IsUploadUsernameBlocked("configured"),
-            "Soulseek username matching remains exact ordinal.");
-
+        Assert.IsTrue(policy.IsUploadUsernameBlocked("Upload"));
+        Assert.IsFalse(policy.IsPrivateMessageBlocked("Upload"));
+        Assert.IsTrue(policy.IsPrivateMessageBlocked("Message"));
+        Assert.IsFalse(policy.IsUploadUsernameBlocked("upload"));
+        Assert.IsTrue(policy.IsUploadAccessBlocked("Other", new IPEndPoint(IPAddress.Parse("192.0.2.7"), 1)));
         policy.ReloadConfigured(new PeerRestrictionSettings
         {
-            UploadAccess = new UploadAccessSettings
-            {
-                BlockedUsernames = ["Configured", "NewConfigured"],
-                BlockedIpAddresses = ["192.0.2.8"],
-            },
-            PrivateMessages = new PrivateMessageAccessSettings
-            {
-                BlockedUsernames = ["NewMessageConfigured"],
-            },
+            UploadAccess = new() { BlockedUsernames = ["NewUpload"], BlockedIpAddresses = ["192.0.2.8"] },
+            PrivateMessages = new() { BlockedUsernames = ["NewMessage"] },
         });
-        Assert.IsFalse(policy.IsUploadUsernameBlocked("Configured"));
-        Assert.IsTrue(policy.IsUploadUsernameBlocked("NewConfigured"));
-        Assert.IsTrue(policy.IsUploadUsernameBlocked("OverrideOnly"));
+        Assert.IsFalse(policy.IsUploadUsernameBlocked("Upload"));
+        Assert.IsFalse(policy.IsPrivateMessageBlocked("Message"));
+        Assert.IsTrue(policy.IsUploadUsernameBlocked("NewUpload"));
         Assert.IsFalse(policy.IsUploadIpAddressBlocked(IPAddress.Parse("192.0.2.7")));
         Assert.IsTrue(policy.IsUploadIpAddressBlocked(IPAddress.Parse("192.0.2.8")));
-        Assert.IsTrue(policy.IsPrivateMessageBlocked("NewMessageConfigured"));
-
-        policy.SetUsernameOverride(PeerRestrictionKind.UploadAccess, "Configured", null);
-        Assert.IsTrue(policy.IsUploadUsernameBlocked("Configured"),
-            "Removing an override resets the username to configured policy.");
-        policy.SetUsernameOverride(
-            PeerRestrictionKind.UploadAccess,
-            "OverrideOnly",
-            PeerUsernameRestrictionOverride.Allowed);
-        Assert.IsFalse(policy.IsUploadUsernameBlocked("OverrideOnly"));
-        Assert.IsFalse(policy.IsPrivateMessageBlocked("OverrideOnly"),
-            "Changing upload access must not change private-message policy.");
+        Assert.IsTrue(policy.IsPrivateMessageBlocked("NewMessage"));
     }
 
     [TestMethod]
@@ -229,21 +186,21 @@ public sealed class SharingSettingsTests
             for (int index = 0; index < 64; index++)
             {
                 PeerRestrictionSnapshot observed = policy.Snapshot;
-                bool isFirst = observed.UploadAccess.ConfiguredBlockedUsernames.Contains("First");
-                bool isSecond = observed.UploadAccess.ConfiguredBlockedUsernames.Contains("Second");
+                bool isFirst = observed.UploadBlockedUsernames.Contains("First");
+                bool isSecond = observed.UploadBlockedUsernames.Contains("Second");
                 Assert.AreNotEqual(isFirst, isSecond);
                 Assert.AreEqual(
                     isFirst,
-                    observed.ConfiguredUploadBlockedIpAddresses.Contains(
+                    observed.UploadBlockedIpAddresses.Contains(
                         IPAddress.Parse("192.0.2.1")));
                 Assert.AreEqual(
                     isSecond,
-                    observed.ConfiguredUploadBlockedIpAddresses.Contains(
+                    observed.UploadBlockedIpAddresses.Contains(
                         IPAddress.Parse("192.0.2.2")));
                 Assert.AreEqual(isFirst,
-                    observed.PrivateMessages.ConfiguredBlockedUsernames.Contains("First"));
+                    observed.PrivateMessageBlockedUsernames.Contains("First"));
                 Assert.AreEqual(isSecond,
-                    observed.PrivateMessages.ConfiguredBlockedUsernames.Contains("Second"));
+                    observed.PrivateMessageBlockedUsernames.Contains("Second"));
             }
         });
 

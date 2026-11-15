@@ -1,4 +1,5 @@
 using System.Net;
+using System.Collections.Concurrent;
 using System.Net.Sockets;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
@@ -61,6 +62,8 @@ public sealed class ChatApiTests
             await app.StartAsync();
             using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
             var api = new SockseekApiClient(http);
+            Assert.AreEqual(HttpStatusCode.NotFound, (await http.GetAsync("/api/users/Alice/restrictions")).StatusCode);
+            Assert.AreEqual(HttpStatusCode.NotFound, (await http.PutAsync("/api/users/Alice/restrictions", new StringContent("{}"))).StatusCode);
             await WaitUntilAsync(async () =>
             {
                 try { return (await api.GetChatStatusAsync()).State == DaemonFeatureState.Ready; }
@@ -102,70 +105,36 @@ public sealed class ChatApiTests
                 .Items.Single(item => item.Username == "Alice");
             Assert.IsFalse(conversation.PrivateMessagesBlocked);
 
-            UserRestrictionsDto configured =
-                (await api.GetUserRestrictionsAsync("Configured"))!;
-            Assert.IsTrue(configured.UploadAccess.IsBlocked);
-            Assert.IsTrue(configured.PrivateMessages.IsBlocked);
-            UserRestrictionsDto allowedUpload = await api.SetUserRestrictionAsync(
-                "Configured",
-                new SetUserRestrictionOverrideRequestDto(
-                    UserRestrictionKind.UploadAccess,
-                    UserRestrictionOverrideState.Allowed));
-            Assert.IsFalse(allowedUpload.UploadAccess.IsBlocked);
-            Assert.IsTrue(allowedUpload.PrivateMessages.IsBlocked);
-            Assert.IsTrue((await api.SetUserRestrictionAsync(
-                "Configured",
-                new SetUserRestrictionOverrideRequestDto(
-                    UserRestrictionKind.UploadAccess,
-                    null))).UploadAccess.IsBlocked);
-
-            UserRestrictionsDto blocked = await api.SetUserRestrictionAsync(
-                "Alice",
-                new SetUserRestrictionOverrideRequestDto(
-                    UserRestrictionKind.PrivateMessages,
-                    UserRestrictionOverrideState.Blocked));
-            Assert.IsTrue(blocked.PrivateMessages.IsBlocked);
-            Assert.IsFalse(blocked.UploadAccess.IsBlocked);
-            Assert.IsFalse((await api.GetUserRestrictionsAsync("alice"))!
-                .PrivateMessages.IsBlocked,
-                "Soulseek username restrictions remain exact ordinal.");
-            Assert.IsTrue((await api.GetConversationAsync(
-                conversation.ConversationId))!.PrivateMessagesBlocked);
-            UserProfileDto messageBlockedProfile = await api.GetUserProfileAsync("Alice");
-            Assert.IsTrue(messageBlockedProfile.PrivateMessagesBlocked);
-            Assert.IsFalse(messageBlockedProfile.UploadAccessBlocked);
-            Assert.AreEqual(ResourceSectionState.Available, messageBlockedProfile.Info.State,
-                "Restrictions annotate profiles; they do not hide outbound profile data.");
-
-            UserRestrictionsDto uploadBlocked = await api.SetUserRestrictionAsync(
-                "Alice",
-                new SetUserRestrictionOverrideRequestDto(
-                    UserRestrictionKind.UploadAccess,
-                    UserRestrictionOverrideState.Blocked));
-            Assert.IsTrue(uploadBlocked.UploadAccess.IsBlocked);
-            Assert.IsTrue(uploadBlocked.PrivateMessages.IsBlocked);
-            UserProfileDto fullyBlockedProfile = await api.GetUserProfileAsync("Alice");
-            Assert.IsTrue(fullyBlockedProfile.UploadAccessBlocked);
-            Assert.IsTrue(fullyBlockedProfile.PrivateMessagesBlocked);
-            Assert.AreEqual(ResourceSectionState.Available, fullyBlockedProfile.Info.State);
-
-            await api.SetUserRestrictionAsync(
-                "Alice",
-                new SetUserRestrictionOverrideRequestDto(
-                    UserRestrictionKind.PrivateMessages,
-                    UserRestrictionOverrideState.Allowed));
-            Assert.IsFalse((await api.GetConversationAsync(
-                conversation.ConversationId))!.PrivateMessagesBlocked);
-            Assert.IsTrue((await api.GetUserRestrictionsAsync("Alice"))!
-                .UploadAccess.IsBlocked,
-                "Changing private-message policy must not change upload access.");
-
             var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
-            var peerRestrictions = app.Services.GetRequiredService<
-                Sockseek.Server.PeerRestrictions.PeerRestrictionCoordinator>();
-            Assert.AreSame(peerRestrictions.Policy, supervisor.Runtime.SoulseekRuntime!.Restrictions);
-            Assert.AreSame(peerRestrictions.Policy, supervisor.Runtime.Sharing!.Restrictions);
-            Assert.AreSame(peerRestrictions.Policy, supervisor.Runtime.Chat!.Restrictions);
+            var policy = supervisor.Runtime.SoulseekRuntime!.Restrictions;
+            Assert.AreSame(policy, supervisor.Runtime.Sharing!.Restrictions);
+            Assert.AreSame(policy, supervisor.Runtime.Chat!.Restrictions);
+            Assert.IsTrue(policy.IsUploadUsernameBlocked("Configured"));
+            Assert.IsTrue(policy.IsPrivateMessageBlocked("Configured"));
+            var restrictionChanges = new ConcurrentQueue<ChatTargetDeltaDto>();
+            supervisor.Runtime.Chat.TargetChanged += restrictionChanges.Enqueue;
+            var changedSettings = new EngineSettings
+            {
+                PeerRestrictions = new()
+                {
+                    PrivateMessages = new() { BlockedUsernames = ["Alice"] },
+                    UploadAccess = new() { BlockedUsernames = ["Alice"] },
+                },
+            };
+            await supervisor.Runtime.ReloadConfigurationAsync(changedSettings, new());
+            Assert.IsTrue(restrictionChanges.Any(change => change.Conversation?.ConversationId == conversation.ConversationId
+                && change.Conversation.PrivateMessagesBlocked));
+            Assert.IsTrue((await api.GetConversationAsync(conversation.ConversationId))!.PrivateMessagesBlocked);
+            var profile = await api.GetUserProfileAsync("Alice");
+            Assert.IsTrue(profile.PrivateMessagesBlocked);
+            Assert.IsTrue(profile.UploadAccessBlocked);
+            Assert.IsFalse(policy.IsPrivateMessageBlocked("alice"));
+            restrictionChanges.Clear();
+            await supervisor.Runtime.ReloadConfigurationAsync(new EngineSettings(), new());
+            Assert.IsTrue(restrictionChanges.Any(change => change.Conversation?.ConversationId == conversation.ConversationId
+                && !change.Conversation.PrivateMessagesBlocked));
+            Assert.IsFalse((await api.GetConversationAsync(conversation.ConversationId))!.PrivateMessagesBlocked);
+            Assert.IsFalse(policy.IsUploadUsernameBlocked("Alice"));
 
             ChatMessagePageDto messages = await api.GetConversationMessagesAsync(
                 conversation.ConversationId);

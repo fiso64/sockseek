@@ -5,7 +5,7 @@
   import { downloadOptionsFromResolved, buildDownloadOptionsPatch, rebaseOptions, type DownloadOptions } from '../jobs/download-options';
   import { keyboardList } from '../../lib/keyboard';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, untrack, type Snippet } from 'svelte';
   import type { BrowseDirectoryEntryDto, BrowseFileEntryDto, BrowseSearchPageDto, Schema } from '../../api/types';
   import { formatBytes, formatCount } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
@@ -27,7 +27,9 @@
   interface TreeRowPage { kind: 'page'; parentKey: string; page: PageState; depth: number; }
   type TreeRow = TreeRowDirectory | TreeRowFile | TreeRowPage;
 
-  let { source: input, session = {} }: { source: ShareBrowserSource; session?: ShareBrowserSession } = $props();
+  let { source: input, session = {}, filterActions }: {
+    source: ShareBrowserSource; session?: ShareBrowserSession; filterActions?: Snippet;
+  } = $props();
   // The parent keys the browser by immutable generation.
   const source = untrack(() => input);
   const browse = source;
@@ -430,6 +432,7 @@
             {@const matchingCount = Number(filterPage.publicMatchingFileCount) + Number(filterPage.lockedMatchingFileCount)}
             <span class="shares-filter-count">{formatCount(matchingCount)} matching {matchingCount === 1 ? 'file' : 'files'}</span>
           {/if}
+          {#if filterActions}<div class="shares-filter-actions">{@render filterActions()}</div>{/if}
         </div>
         {#if source.download}<SelectionToolbar {selectedCount} floatingLabel={`Download ${selectedCount}`}
           actionDisabled={selectedCount === 0 || mutation.phase === 'pending' || optionsLoading || Boolean(optionsError)}

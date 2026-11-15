@@ -92,6 +92,7 @@
   let hasHistory = $derived(hasDownloadHistory || hasUploadHistory);
   let shareRatioSamples = $derived(uploadBytes.map((upload, index) => downloadBytes[index] ? upload / downloadBytes[index]! : 0));
   let daemonReachable = $derived(liveStatus === 'connected');
+  const connectionPending = $derived(liveStatus === 'connecting' || liveStatus === 'reconnecting');
 
   function formatBytes(value: number | string | null | undefined): string {
     return value == null ? '—' : formatKnownBytes(value);
@@ -383,10 +384,10 @@
       <section class="panel dashboard-panel health-panel">
         <div class="dashboard-panel-heading compact">
           <h2>Daemon health</h2>
-          <span class:offline={!daemonReachable} class="badge health-badge"><i></i>{daemonReachable ? 'Healthy' : 'Offline'}</span>
+          <span class:offline={!daemonReachable && !connectionPending} class:pending={connectionPending} class="badge health-badge"><i></i>{connectionPending ? humanizeStateValue(liveStatus) : daemonReachable ? 'Healthy' : 'Offline'}</span>
         </div>
         <div class="health-list">
-          <div><span>Soulseek</span><strong>{soulseekStatusLabel(soulseek, daemonReachable)}</strong></div>
+          <div><span>Soulseek</span><strong>{soulseekStatusLabel(soulseek, liveStatus)}</strong></div>
           <div><span>Daemon</span><strong>{humanizeStateValue(liveStatus)}</strong></div>
           <div><span>Transfer errors</span><strong>{activity.failed} recent</strong></div>
           <div><span>API latency</span><strong>{daemonReachable && apiLatencyMs !== null ? `${apiLatencyMs} ms` : '—'}</strong></div>

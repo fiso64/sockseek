@@ -454,7 +454,7 @@
   </header>
 
   <div class="transfer-resource-state">
-    {#if !loading && !error && coverage?.state !== 'Available'}
+    {#if !loading && !error && coverage && coverage.state !== 'Available'}
       <div class="resource-state-notice unavailable" role="status"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Retained history {coverage?.state?.toLowerCase() ?? 'unavailable'}</strong><small>{coverage?.reason ?? 'Live transfers remain available.'}</small></span></div>
     {/if}
     {#if error && groups.length}<div class="resource-state-notice unavailable" role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Transfers unavailable</strong><small>{error.message}</small></span><button class="button" type="button" disabled={loading} onclick={() => void onchanged()}>Retry</button></div>{/if}
@@ -462,7 +462,7 @@
     <MutationStatus state={mutation} />
   </div>
 
-  {#if loading && !groups.length}
+  {#if (loading || !coverage && !error) && !groups.length}
     <LoadingIndicator label={`Loading ${direction}s`} blocking />
   {:else if error && !groups.length}
     <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Transfers unavailable'}</strong><small>{daemonOffline ? direction === 'download' ? 'Current download state cannot be loaded while the daemon is offline.' : 'Current upload state cannot be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button class="button" type="button" onclick={() => void onchanged()}>Retry</button>{/if}</div>

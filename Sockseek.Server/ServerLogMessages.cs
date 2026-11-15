@@ -117,20 +117,8 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4542, LogLevel.Error, "Search View {ViewId} could not replay retrieval observation {ObservationId}")]
     internal static partial void SearchViewRetrievalReplayFailed(ILogger logger, Exception exception, Guid viewId, Guid observationId);
 
-    [LoggerMessage(4552, LogLevel.Warning, "Peer restriction override persistence is unavailable; configured restriction baselines remain active")]
-    internal static partial void PeerRestrictionsUnavailable(ILogger logger);
-
-    [LoggerMessage(4553, LogLevel.Information, "Peer restrictions initialized with {OverrideCount} durable username overrides")]
-    internal static partial void PeerRestrictionsInitialized(ILogger logger, int overrideCount);
-
-    [LoggerMessage(4554, LogLevel.Warning, "Peer restriction overrides are unavailable; configured restriction baselines remain active")]
-    internal static partial void PeerRestrictionsInitializationFailed(ILogger logger, Exception exception);
-
-    [LoggerMessage(4555, LogLevel.Error, "Peer restriction mutation {OperationId} for user {UserHash} failed after {DurationMs} ms; runtime policy was not changed")]
-    internal static partial void PeerRestrictionMutationFailed(ILogger logger, Exception exception, string operationId, string userHash, long durationMs);
-
-    [LoggerMessage(4556, LogLevel.Information, "Peer restriction mutation {OperationId} for user {UserHash} completed with outcome Applied after {DurationMs} ms; kind={Kind}, override={Override}, blocked={Blocked}")]
-    internal static partial void PeerRestrictionMutationApplied(ILogger logger, string operationId, string userHash, long durationMs, string kind, string @override, bool blocked);
+    [LoggerMessage(4557, LogLevel.Warning, "Private-message blocks were reloaded, but conversation status could not be refreshed; suppressedWarnings={SuppressedCount}")]
+    internal static partial void PeerRestrictionStatusRefreshFailed(ILogger logger, Exception exception, long suppressedCount);
 
     [LoggerMessage(4560, LogLevel.Warning, "Dashboard transfer accounting is unavailable; suppressedWarnings={SuppressedWarnings}")]
     internal static partial void DashboardAccountingUnavailable(ILogger logger, Exception exception, int suppressedWarnings);

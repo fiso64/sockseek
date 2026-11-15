@@ -78,6 +78,7 @@ test('renders populated and partial peer profiles without inventing missing fact
   await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
   await expect(card).toHaveCount(0);
   await expect(page.locator('.shares-username')).toHaveText('fixture-peer');
+  await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
   await page.getByRole('navigation', { name: 'User browser views' }).getByRole('button', { name: 'User', exact: true }).click();
   await expect(navigation.getByRole('button', { name: 'Users', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(card).toBeVisible();
@@ -127,6 +128,80 @@ test('renders populated and partial peer profiles without inventing missing fact
   ]);
   await page.setViewportSize({ width: 390, height: 900 });
   await page.emulateMedia({ colorScheme: 'dark' });
+});
+
+test('restores each user tab after reloading elsewhere without fetching peer shares again', async ({ page, daemon }) => {
+  const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
+  await page.goto('/users/Profile%20Peer');
+  await expect(page.locator('.user-profile-card h2')).toHaveText('Profile Peer');
+  await page.goto('/shares/fixture-peer');
+  await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
+  await navigation.getByRole('button', { name: 'Dashboard', exact: true }).click();
+  await page.reload();
+  await navigation.getByRole('button', { name: 'Users', exact: true }).click();
+  await expect(page).toHaveURL(/\/users\/Profile%20Peer$/);
+  await expect(page.locator('.user-profile-card h2')).toHaveText('Profile Peer');
+  await navigation.getByRole('button', { name: 'Shares', exact: true }).click();
+  await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
+  await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
+  await daemon.command('report-peer-browses');
+  expect(daemon.logs().filter(line => line.startsWith('E2E_METRIC peer-browses ')).at(-1)).toBe('E2E_METRIC peer-browses count=1');
+});
+
+test('refreshes shares explicitly and preserves the displayed tree and selections until success', async ({ page, daemon }) => {
+  await page.goto('/shares/fixture-peer');
+  const file = page.locator('.share-tree-row.file').filter({ has: page.getByText('Selected.txt', { exact: true }) });
+  await expect(file).toBeVisible();
+  await file.getByRole('checkbox').check();
+  const refresh = page.getByTestId('refresh-user-shares');
+  await daemon.command('fail-next-peer-browse');
+  await daemon.command('hold-directory-browse');
+  await refresh.click();
+  await expect(refresh).toBeDisabled();
+  await expect(file.getByRole('checkbox')).toBeChecked();
+  await daemon.command('release-directory-browse');
+  await expect(page.getByRole('alert')).toContainText('Shares unavailable');
+  await expect(refresh).toBeEnabled();
+  await expect(file.getByRole('checkbox')).toBeChecked();
+
+  // Retrying uses a new shared generation; only success replaces the old tree.
+  await daemon.command('hold-directory-browse');
+  await refresh.click();
+  await expect(refresh).toBeDisabled();
+  await expect(file.getByRole('checkbox')).toBeChecked();
+  await daemon.command('release-directory-browse');
+  await expect(refresh).toBeEnabled();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(file.getByRole('checkbox')).not.toBeChecked();
+  await daemon.command('report-peer-browses');
+  expect(daemon.logs().filter(line => line.startsWith('E2E_METRIC peer-browses ')).at(-1)).toBe('E2E_METRIC peer-browses count=3');
+});
+
+test('distinguishes offline profiles from failed status lookups and follows live recovery', async ({ page, daemon }) => {
+  const card = page.locator('.user-profile-card');
+  const presence = card.locator('[data-presence]');
+
+  await page.goto('/users/status-unavailable-peer');
+  await expect(presence).toHaveAttribute('data-presence', 'unavailable');
+  await expect(presence).toHaveText('Status unavailable');
+  const unavailableColor = await presence.evaluate(element => getComputedStyle(element).color);
+
+  // A failed watch alone says nothing about whether the peer is offline.
+  // Here the info request independently confirms it.
+  await page.goto('/users/offline-info-peer');
+  await expect(presence).toHaveAttribute('data-presence', 'offline');
+  await expect(presence).toHaveText('Offline');
+  await expect(card.getByLabel('Profile section availability')).toHaveCount(0);
+  expect(await presence.evaluate(element => getComputedStyle(element).color)).not.toBe(unavailableColor);
+
+  // A live update takes precedence over the cached offline profile.
+  await daemon.command('profile-peer-online');
+  await expect(presence).toHaveAttribute('data-presence', 'online');
+
+  await page.goto('/users/offline-peer');
+  await expect(presence).toHaveAttribute('data-presence', 'offline');
+  await expect(presence).toHaveText('Offline');
+  await expect(card.getByLabel('Profile section availability')).toHaveCount(0);
 });
 
 test('filters shared files through the daemon and restores the tree when cleared', async ({ page, daemon }) => {

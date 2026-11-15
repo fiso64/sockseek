@@ -80,6 +80,22 @@ public sealed class ChatRuntimeTests
         Assert.AreEqual(0, summary.UnreadPrivateMessages,
             "A private-message restriction applies only to incoming direct messages.");
         Assert.AreEqual(0, summary.UnreadNotifications);
+
+        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fake.Acknowledged = id => { if (id == 3) received.TrySetResult(); return Task.CompletedTask; };
+        session.Restrictions.ReloadConfigured(new());
+        fake.RaisePrivateMessage(new PrivateMessageReceivedEventArgs(
+            3, DateTime.UtcNow, "Alice", "allowed after reload", replayed: false));
+        await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(1, (await database.Host.Chat.GetSummaryAsync("local")).UnreadPrivateMessages);
+        var blockedAck = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fake.Acknowledged = id => { if (id == 4) blockedAck.TrySetResult(); return Task.CompletedTask; };
+        session.Restrictions.ReloadConfigured(settings.PeerRestrictions);
+        fake.RaisePrivateMessage(new PrivateMessageReceivedEventArgs(
+            4, DateTime.UtcNow, "Alice", "blocked after reload", replayed: false));
+        await blockedAck.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(1, (await database.Host.Chat.GetSummaryAsync("local")).UnreadPrivateMessages);
+
     }
 
     [TestMethod]

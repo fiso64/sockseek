@@ -104,6 +104,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
         {
             "fixture-peer" => new Soulseek.UserInfo("A small shared library.\n\nMore at https://example.org/fixture", 3, 1, true, profilePicture),
             "info-unavailable-peer" => throw new IOException("Peer info unavailable."),
+            "offline-peer" or "offline-info-peer" => throw new Soulseek.UserOfflineException("Peer is offline."),
             _ => new Soulseek.UserInfo("", 0, 0, false),
         };
         peer.ProfileStatisticsForPeer = username => username switch
@@ -112,6 +113,13 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             "mixed-peer" => new Soulseek.UserStatistics(username, 0, 0, 2, 3),
             "statistics-unavailable-peer" => throw new IOException("Peer statistics unavailable."),
             _ => new Soulseek.UserStatistics(username, 0, 0, 0, 0),
+        };
+        peer.Watch = (username, _) => username switch
+        {
+            "offline-info-peer" or "status-unavailable-peer" => throw new TimeoutException(),
+            _ => Task.FromResult(new Soulseek.UserData(username,
+                username == "offline-peer" ? Soulseek.UserPresence.Offline : Soulseek.UserPresence.Online,
+                0, 0, 0, 0, "")),
         };
         bool albumGroupSearch = false;
         bool mixedAlbumGroupSearch = false;
@@ -124,6 +132,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
         bool pacedMusicSearch = false;
         int networkSearches = 0;
         int peerBrowseCount = 0;
+        bool failNextPeerBrowse = false;
         bool mixedRetrievalSearch = false;
         bool concurrentRetrievalSearch = false;
         TaskCompletionSource? directoryBrowseGate = null;
@@ -198,6 +207,11 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             Interlocked.Increment(ref peerBrowseCount);
             if (directoryBrowseGate is { } gate)
                 await gate.Task.WaitAsync(cancellationToken);
+            if (failNextPeerBrowse)
+            {
+                failNextPeerBrowse = false;
+                throw new IOException("Fixture peer browse failed.");
+            }
             if (largeMusicSearch) Console.WriteLine("E2E_METRIC large-music-browse files=100000");
             return peer.BrowseForPeer?.Invoke(username) ?? peer.SharedFiles;
         };
@@ -720,6 +734,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     break;
                 }
                 case "presence-away": peer.RaiseUserStatus("Presence Peer", Soulseek.UserPresence.Away); break;
+                case "profile-peer-online": peer.RaiseUserStatus("offline-info-peer", Soulseek.UserPresence.Online); break;
                 case "terminal-transfer-committed":
                     app.Services.GetRequiredService<EngineStateStore>().NotifyTerminalTransferCommitted();
                     break;
@@ -982,6 +997,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 case "concurrent-retrieval-search": concurrentRetrievalSearch = true; break;
                 case "mixed-retrieval-search": mixedRetrievalSearch = true; break;
                 case "hold-directory-browse": directoryBrowseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); break;
+                case "fail-next-peer-browse": failNextPeerBrowse = true; break;
                 case "release-directory-browse": directoryBrowseGate?.TrySetResult(); directoryBrowseGate = null; break;
                 case "staged-search":
                     nextSearchBatch = new(TaskCreationOptions.RunContinuationsAsynchronously);

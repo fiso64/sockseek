@@ -27,7 +27,6 @@ public sealed class DaemonRuntime
     private readonly EngineStateStore StateStore;
     private readonly PersistenceCoordinator? persistence;
     private readonly ILoggerFactory loggerFactory;
-    private readonly PeerRestrictionPolicy? peerRestrictions;
     private readonly Func<int> restartCount;
 
     public SharingRuntime? Sharing { get; private set; }
@@ -40,7 +39,7 @@ public sealed class DaemonRuntime
 
     internal DaemonRuntime(ServerOptions options, EngineSettings engineSettings,
         EngineStateStore stateStore, PersistenceCoordinator? persistence,
-        ILoggerFactory loggerFactory, PeerRestrictionPolicy? peerRestrictions, Func<int> restartCount)
+        ILoggerFactory loggerFactory, Func<int> restartCount)
     {
         this.options = options;
         this.engineSettings = engineSettings;
@@ -48,7 +47,6 @@ public sealed class DaemonRuntime
         StateStore = stateStore;
         this.persistence = persistence;
         this.loggerFactory = loggerFactory;
-        this.peerRestrictions = peerRestrictions;
         this.restartCount = restartCount;
     }
 
@@ -65,8 +63,7 @@ public sealed class DaemonRuntime
             engineSettings,
             options.ClientFactory,
             localProfile,
-            loggerFactory.CreateLogger<SoulseekClientManager>(),
-            peerRestrictions);
+            loggerFactory.CreateLogger<SoulseekClientManager>());
         await using var sharing = new SharingRuntime(
             engineSettings,
             dataDirectory,
@@ -286,7 +283,18 @@ public sealed class DaemonRuntime
             // owners even if the next edit restores the previous configuration.
             appliedConfiguration = null;
             await sharing.ReloadConfigurationAsync(active, cancellationToken).ConfigureAwait(false);
+            var previous = sharing.Restrictions.Snapshot;
             sharing.Restrictions.ReloadConfigured(active.PeerRestrictions);
+            var current = sharing.Restrictions.Snapshot;
+            if (!previous.UploadBlockedUsernames.SetEquals(current.UploadBlockedUsernames)
+                || !previous.UploadBlockedIpAddresses.SetEquals(current.UploadBlockedIpAddresses))
+                sharing.PublishPeerRestrictionsChanged();
+            if (Chat is { } chat)
+            {
+                var changedUsers = previous.PrivateMessageBlockedUsernames.Except(current.PrivateMessageBlockedUsernames, StringComparer.Ordinal)
+                    .Concat(current.PrivateMessageBlockedUsernames.Except(previous.PrivateMessageBlockedUsernames, StringComparer.Ordinal));
+                await chat.PublishPeerRestrictionsChangedAsync(changedUsers, cancellationToken).ConfigureAwait(false);
+            }
             appliedConfiguration = active;
         }
         options.WebUi = webUi;

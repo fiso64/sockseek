@@ -338,28 +338,6 @@ internal sealed class TransferAccountingStateConfiguration : IEntityTypeConfigur
     }
 }
 
-internal sealed class PeerRestrictionOverrideConfiguration
-    : IEntityTypeConfiguration<PeerRestrictionOverrideEntity>
-{
-    public void Configure(EntityTypeBuilder<PeerRestrictionOverrideEntity> builder)
-    {
-        builder.ToTable("peer_restriction_overrides");
-        builder.HasKey(x => new { x.RestrictionKind, x.Username });
-        builder.Property(x => x.RestrictionKind)
-            .HasColumnName("restriction_kind")
-            .HasMaxLength(32);
-        builder.Property(x => x.Username)
-            .HasColumnName("username")
-            .HasMaxLength(256)
-            .UseCollation("BINARY");
-        builder.Property(x => x.OverrideState)
-            .HasColumnName("override_state")
-            .HasMaxLength(16);
-        builder.Property(x => x.UpdatedAtUtc).HasColumnName("updated_at_utc");
-        builder.HasIndex(x => new { x.Username, x.RestrictionKind });
-    }
-}
-
 internal sealed class InputArtifactConfiguration : IEntityTypeConfiguration<InputArtifactEntity>
 {
     public void Configure(EntityTypeBuilder<InputArtifactEntity> builder)

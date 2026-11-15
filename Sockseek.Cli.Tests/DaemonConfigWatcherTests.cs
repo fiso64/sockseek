@@ -7,7 +7,6 @@ using Sockseek.Cli;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
 using Sockseek.Server;
-using Sockseek.Server.PeerRestrictions;
 using Sockseek.Server.Persistence;
 using Tests.ClientTests;
 using UserInfo = Soulseek.UserInfo;
@@ -114,14 +113,41 @@ public sealed class DaemonConfigWatcherTests
     }
 
     [TestMethod]
-    public async Task ReloadPreservesOverridesRejectsInvalidEditsAndReportsRestart()
+    public async Task UsernameBlocksReloadWithoutRestartingTheRuntime()
+    {
+        await using var fixture = new Fixture("upload-blocked-user = First\nprivate-message-blocked-user = First", []);
+        await fixture.StartRuntimeAsync();
+        var policy = fixture.Restrictions;
+        Assert.IsTrue(policy.IsUploadUsernameBlocked("First"));
+        Assert.IsTrue(policy.IsPrivateMessageBlocked("First"));
+        var publishedCounts = new List<int>();
+        fixture.Supervisor.Runtime.Sharing!.StateChanged += (state, _) => publishedCounts.Add(state.UploadBlockedUsernameCount);
+        fixture.Write("upload-blocked-user = Upload\nupload-blocked-user = + Other\nprivate-message-blocked-user = Message");
+        Assert.IsTrue(await fixture.Watcher.ReloadAsync());
+        Assert.AreSame(policy, fixture.Restrictions);
+        Assert.AreEqual(2, publishedCounts[^1]);
+        Assert.IsFalse(fixture.Supervisor.GetStatus().Configuration!.RestartRequired);
+        Assert.IsFalse(policy.IsUploadUsernameBlocked("First"));
+        Assert.IsFalse(policy.IsPrivateMessageBlocked("First"));
+        Assert.IsTrue(policy.IsUploadUsernameBlocked("Upload"));
+        Assert.IsFalse(policy.IsPrivateMessageBlocked("Upload"));
+        Assert.IsTrue(policy.IsPrivateMessageBlocked("Message"));
+        Assert.IsFalse(policy.IsPrivateMessageBlocked("message"));
+        fixture.Write("");
+        Assert.IsTrue(await fixture.Watcher.ReloadAsync());
+        Assert.IsFalse(policy.IsUploadUsernameBlocked("Upload"));
+        Assert.IsFalse(policy.IsPrivateMessageBlocked("Message"));
+        Assert.AreEqual(0, publishedCounts[^1]);
+        Assert.IsFalse(fixture.Supervisor.GetStatus().Configuration!.RestartRequired);
+    }
+
+    [TestMethod]
+    public async Task ReloadRejectsInvalidEditsAndReportsRestart()
     {
         const string initial = "pref-format = mp3\nserver-port = 5030\nupload-blocked-user = blocked";
         await using var fixture = new Fixture(initial, ["--pref-min-bitrate", "192"]);
         await fixture.StartRuntimeAsync();
         Assert.IsTrue(await fixture.Watcher.ReloadAsync());
-        fixture.Restrictions.Policy.SetUsernameOverride(PeerRestrictionKind.UploadAccess,
-            "override", PeerUsernameRestrictionOverride.Blocked);
         fixture.Write("pref-format = flac\npref-min-bitrate = 320\nserver-port = 5031\n" +
             "[lossless]\npref-format = wav\n[interactive]\nprofile-cond = interactive\npref-format = flac");
         Assert.IsTrue(await fixture.Watcher.ReloadAsync());
@@ -130,8 +156,7 @@ public sealed class DaemonConfigWatcherTests
         Assert.AreEqual(192, settings.Search.PreferredCond.MinBitrate);
         Assert.IsTrue(fixture.Supervisor.GetStatus().Configuration!.RestartRequired);
         Assert.AreEqual(2, fixture.Supervisor.Submissions.GetProfiles().Count);
-        Assert.IsFalse(fixture.Restrictions.Policy.IsUploadUsernameBlocked("blocked"));
-        Assert.IsTrue(fixture.Restrictions.Policy.IsUploadUsernameBlocked("override"));
+        Assert.IsFalse(fixture.Restrictions.IsUploadUsernameBlocked("blocked"));
 
         foreach (string bad in new[] { "pref-format = ogg\nserver-port = 70000", "[broken]\nprofile-cond = (album &&", "upload-blocked-ip = nonsense" })
         {
@@ -194,7 +219,7 @@ public sealed class DaemonConfigWatcherTests
     {
         public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"sockseek-reload-{Guid.NewGuid():N}", "sockseek.conf");
         public EngineSupervisor Supervisor { get; }
-        public PeerRestrictionCoordinator Restrictions { get; }
+        public PeerRestrictionPolicy Restrictions => Supervisor.Runtime.SoulseekRuntime!.Restrictions;
         public DaemonConfigWatcher Watcher { get; }
         public ServerOptions ServerOptions { get; }
         public ReloadLog Log { get; } = new();
@@ -215,9 +240,7 @@ public sealed class DaemonConfigWatcherTests
             configured.Persistence.DataDirectory = System.IO.Path.GetDirectoryName(Path)!;
             var options = Options.Create(configured);
             ServerOptions = options.Value;
-            Restrictions = new(options, new PersistenceCoordinator(options), NullLogger<PeerRestrictionCoordinator>.Instance);
-            Supervisor = new EngineSupervisor(options, null, null, retireTerminalWorkflows: true,
-                peerRestrictions: Restrictions.Policy);
+            Supervisor = new EngineSupervisor(options, null, null, retireTerminalWorkflows: true);
             Watcher = new(file, invocation, daemon.NoConfigWatch, Supervisor, Log);
         }
         public void Write(string text) => File.WriteAllText(Path, text);
@@ -241,7 +264,6 @@ public sealed class DaemonConfigWatcherTests
                 catch (OperationCanceledException) { }
             }
             lifetime.Dispose();
-            await Restrictions.DisposeAsync();
             Supervisor.Dispose();
             Directory.Delete(System.IO.Path.GetDirectoryName(Path)!, recursive: true);
         }

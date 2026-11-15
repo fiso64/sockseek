@@ -990,6 +990,7 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 .health-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border-radius: 999px; background-color: color-mix(in srgb, var(--success) 12%, var(--surface)); color: var(--success); font-size: 0.64rem; }
 .health-badge i { width: 6px; height: 6px; border-radius: 50%; background-color: currentColor; box-shadow: var(--indicator-shadow); }
 .health-badge.offline { color: var(--danger); background-color: color-mix(in srgb, var(--danger) 12%, var(--surface)); }
+.health-badge.pending { color: var(--muted); background-color: var(--surface-subtle); }
 .health-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; padding-top: 5px; }
 .health-list > div { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 0.72rem; }
 .health-list > div:nth-last-child(-n+2) { border-bottom: 0; }
@@ -1925,7 +1926,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 }
 .user-presence i { width: 6px; height: 6px; border-radius: 50%; background-color: currentColor; box-shadow: var(--indicator-shadow); }
 .user-presence.away { background-color: color-mix(in srgb, var(--warning) 12%, var(--surface)); color: var(--warning); }
-.user-presence.offline { background-color: var(--surface-subtle); color: var(--muted); }
+.user-presence.offline { background-color: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--danger); }
 .user-profile-copy p {
   max-width: 680px;
   margin: 12px 0 0;
@@ -1995,8 +1996,9 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .shares-title-row > div { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
 .shares-username { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 0.78rem; }
 .shares-title-row strong { font-size: 1rem; font-weight: 620; white-space: nowrap; }
-.shares-refine-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.shares-refine-row .result-filter-control { width: min(620px, 100%); }
+.shares-refine-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.shares-refine-row .result-filter-control { flex: 1 1 0; min-width: 0; max-width: 620px; }
+.shares-filter-actions { flex-shrink: 0; margin-left: auto; }
 .shares-filter-count { color: var(--faint); font-size: 0.7rem; white-space: nowrap; }
 
 .share-tree {
@@ -2100,8 +2102,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   .user-profile-stats { grid-template-columns: 1fr; }
   .user-profile-stats > div { border-right: 0; border-bottom: 1px solid var(--border); }
   .user-profile-stats > div:last-child { border-bottom: 0; }
-  .shares-refine-row { align-items: stretch; flex-direction: column; }
-  .shares-filter-count { padding-left: 2px; }
+  .shares-filter-count { padding-left: 2px; order: 1; flex-basis: 100%; }
   .share-tree-row.folder {
     grid-template-columns: 15px minmax(0, 1fr);
     grid-template-areas: 'check body';

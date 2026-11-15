@@ -246,8 +246,6 @@ public class OpenApiContractTests
         StringAssert.Contains(json, nameof(ChatRoomDetailDto));
         StringAssert.Contains(json, nameof(NotificationPageDto));
         StringAssert.Contains(json, nameof(UserProfileDto));
-        StringAssert.Contains(json, nameof(UserRestrictionsDto));
-        StringAssert.Contains(json, nameof(SetUserRestrictionOverrideRequestDto));
         StringAssert.Contains(json, nameof(UserBrowseDto));
         StringAssert.Contains(json, nameof(BrowseDirectoryEntryDto));
         StringAssert.Contains(json, nameof(BrowseFileEntryDto));
@@ -514,7 +512,7 @@ public class OpenApiContractTests
         Assert.IsTrue(document.RootElement
             .GetProperty("paths")
             .TryGetProperty("/api/users/{username}/profile", out _));
-        Assert.IsTrue(document.RootElement
+        Assert.IsFalse(document.RootElement
             .GetProperty("paths")
             .TryGetProperty("/api/users/{username}/restrictions", out _));
         Assert.IsFalse(document.RootElement

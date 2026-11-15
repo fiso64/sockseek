@@ -219,9 +219,14 @@ export class DaemonLiveClient {
     const connection = this.connection;
     if (!connection || connection.state !== HubConnectionState.Connected)
       throw new Error('The daemon live connection is not ready.');
+    const fail = (cause: unknown) => {
+      // Connection status owns transport interruption; a connected stream's
+      // failure is an independent job/progress error with its own Retry.
+      if (connection.state === HubConnectionState.Connected) error(asError(cause));
+    };
     const subscription = connection.stream<Schema<'JobObservationUpdateDto'>>(observeJobsMethod, jobId, jobIds)
-      .subscribe({ next, error: failure => error(asError(failure)),
-        complete: () => error(new Error('Live job updates stopped. Retry to reconnect.')) });
+      .subscribe({ next, error: fail,
+        complete: () => fail(new Error('Live job updates stopped. Retry to reconnect.')) });
     return () => subscription.dispose();
   }
 

@@ -259,15 +259,15 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
         return null;
     }
 
-    public async Task<PeerBrowseResource?> FindFreshAsync(
+    public async Task<PeerBrowseResource?> FindLatestAsync(
         string localAccount,
         string username,
-        TimeSpan freshness,
+        TimeSpan? maximumAge,
         CancellationToken cancellationToken = default)
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
-        if (freshness <= TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(nameof(freshness));
+        if (maximumAge <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(maximumAge));
         localAccount = PeerIdentityValidator.ValidateUsername(localAccount);
         username = PeerIdentityValidator.ValidateUsername(username);
 
@@ -284,7 +284,7 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
                  WHERE local_account = $account
                    AND username = $username
                    AND state = $complete
-                   AND completed_at_utc > $cutoff
+                   AND ($cutoff IS NULL OR completed_at_utc > $cutoff)
                    AND expires_at_utc > $now
                  ORDER BY completed_at_utc DESC
                  LIMIT 1;
@@ -293,7 +293,7 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
             Add(command, "$username", username);
             Add(command, "$complete", (int)PeerBrowseState.Complete);
             DateTimeOffset now = timeProvider.GetUtcNow();
-            Add(command, "$cutoff", Format(now - freshness));
+            Add(command, "$cutoff", maximumAge is { } age ? Format(now - age) : null);
             Add(command, "$now", Format(now));
             await using SqliteDataReader reader = await command
                 .ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

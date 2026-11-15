@@ -41,8 +41,8 @@ export class JobListController {
     if (this.active === active && this.status === status) return;
     this.active = active;
     this.status = status;
-    this.stop();
-    if (active && status !== 'connecting' && status !== 'reconnecting') this.refresh();
+    if (active) this.refresh();
+    else this.stop();
   }
 
   stop(): void {
@@ -71,6 +71,7 @@ export class JobListController {
     const generation = this.generation;
     this.loading = true;
     this.error = null;
+    if (this.status === 'connecting' || this.status === 'reconnecting') return;
     const scope: Schema<'JobListScopeDto'> = {
       query: { lifecycleState: null, terminalOutcome: null, kind: this.tab === 'searches' ? 'search' : null, workflowId: null,
         submissionId: this.submissionId, includeAll: false, newestFirst: true, excludeExtractResults: true, excludeKinds: this.tab === 'downloads' ? ['search', 'retrieve-folder'] : null },

@@ -11,15 +11,14 @@ using Sockseek.Core.Planning;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
+using Sockseek.Core.Sharing;
 using Sockseek.Core.Snapshots;
 using Soulseek;
 using Sockseek.Api;
 using Sockseek.Server.Persistence;
-using Sockseek.Core.Sharing;
 using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Events;
 using Sockseek.Server.Planning;
-using Sockseek.Server.PeerRestrictions;
 
 namespace Sockseek.Server;
 
@@ -65,23 +64,12 @@ public sealed class EngineSupervisor : IDisposable
     {
     }
 
-    public EngineSupervisor(
-        IOptions<ServerOptions> options,
-        PersistenceCoordinator? persistence,
-        ILoggerFactory? loggerFactory,
-        InputArtifactCoordinator inputArtifacts,
-        PeerRestrictionCoordinator peerRestrictions)
-        : this(options, persistence, loggerFactory, retireTerminalWorkflows: true, inputArtifacts, peerRestrictions.Policy)
-    {
-    }
-
     internal EngineSupervisor(
         IOptions<ServerOptions> options,
         PersistenceCoordinator? persistence,
         ILoggerFactory? loggerFactory,
         bool retireTerminalWorkflows,
-        InputArtifactCoordinator? inputArtifacts = null,
-        PeerRestrictionPolicy? peerRestrictions = null)
+        InputArtifactCoordinator? inputArtifacts = null)
     {
         this.options = options.Value;
         this.persistence = persistence;
@@ -98,7 +86,7 @@ public sealed class EngineSupervisor : IDisposable
 
         StateStore = new EngineStateStore(persistenceOwnsJobRetirement: persistence?.IsEnabled == true);
         transientResults = new(StateStore.RetireJobProjections);
-        Runtime = new(this.options, engineSettings, StateStore, persistence, this.loggerFactory, peerRestrictions, () => restartCount);
+        Runtime = new(this.options, engineSettings, StateStore, persistence, this.loggerFactory, () => restartCount);
         Submissions = new(this.options, engineSettings, persistence, StateStore, Runtime,
             EnqueueAccepted, inputArtifacts, this.loggerFactory);
         if (persistence != null)

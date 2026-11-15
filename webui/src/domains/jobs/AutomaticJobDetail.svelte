@@ -108,6 +108,7 @@
   let manifestEntries = $state.raw<Schema<'DirectoryManifestEntryDto'>[]>([]);
   let manifestNext = $state<number | null>(null);
   let manifestError = $state<Error | null>(null);
+  let manifestMissing = $state(false);
   let manifestLoading = $state(false);
   let manifestCheckedAt = 0;
   let pendingManifestRefresh: { attempt?: number } | null = null;
@@ -126,12 +127,12 @@
   ])].sort().join(','));
   $effect(() => {
     transferRetry;
+    transferError = null;
     if (!connected) return;
     const ids = observedJobIds.split(',');
     const requestedIds = new Set(ids);
     const rootId = jobId;
     untrack(() => scopedTransfers.clear());
-    transferError = null;
     let disposed = false;
     let initializing = true;
     const stop = observeJobs(rootId, ids, update => {
@@ -216,9 +217,8 @@
   let displayedRelatedRows = $derived(showRelatedChildren ? relatedRows : []);
   let displayedRelatedTotal = $derived((showRelatedChildren ? relatedTotal ?? relatedRows.length : 0)
     + (sourceJobId ? 1 : 0));
-  let planStateLabel = $derived(manifest ? undefined : job?.lifecycleState === 'Terminal'
-    ? 'The accepted file plan is not available for this job.'
-    : manifestLoading ? 'Loading the accepted file plan…' : 'Waiting for the accepted file plan.');
+  let planStateLabel = $derived(!manifest && manifestMissing && job?.lifecycleState === 'Terminal'
+    ? 'The accepted file plan is not available for this job.' : undefined);
   let activeFileTransfer = $derived(liveTransfers.find((transfer) => transfer.identity.jobId === jobId && !transfer.status.isTerminal));
   let selectedFile = $derived(selectedJobFile(payload, activeFileTransfer));
   let selectedPeerUploadSpeed = $derived(activeFileTransfer?.identity.peerUploadSpeed
@@ -311,6 +311,7 @@
     manifestEntries = [];
     manifestNext = null;
     manifestError = null;
+    manifestMissing = false;
     manifestLoading = false;
     manifestCheckedAt = 0;
     pendingManifestRefresh = null;
@@ -351,6 +352,7 @@
         const directory = next.payload?.kind === 'album' || next.payload?.kind === 'remote-directory'
           ? next.payload.directory : null;
         const attempt = directory?.attemptNumber == null ? null : Number(directory.attemptNumber);
+        if (directory && attempt === null) manifestMissing = next.summary.lifecycleState === 'Terminal';
         if (attempt === null && manifest) {
           manifest = null;
           manifestEntries = [];
@@ -536,6 +538,7 @@
       return;
     }
     manifestLoading = true;
+    manifestMissing = false;
     manifestCheckedAt = Date.now();
     try {
       const pinnedAttempt = attempt ?? (manifest?.attemptNumber == null ? undefined : Number(manifest.attemptNumber));
@@ -561,6 +564,7 @@
       if (cause instanceof DaemonApiError && cause.status === 404) {
         if (reset) { manifest = null; manifestEntries = []; manifestNext = null; }
         manifestError = null;
+        manifestMissing = true;
       } else {
         manifestError = cause instanceof Error ? cause : new Error(String(cause));
       }
@@ -625,7 +629,7 @@
   </header>
   {#if !detail && !error}<LoadingIndicator label="Loading job" blocking />{/if}
   {#if error}<div class="resource-state-notice unavailable" role="alert">{error.message}</div>{/if}
-  {#if transferError}<div class="resource-state-notice unavailable" role="alert"><span>Live file progress unavailable: {transferError.message}</span><button class="button" type="button" onclick={() => transferRetry++}>Retry</button></div>{/if}
+  {#if connected && transferError}<div class="resource-state-notice unavailable" role="alert" data-testid="job-live-progress-notice"><span>Live file progress unavailable: {transferError.message}</span><button class="button" type="button" onclick={() => transferRetry++}>Retry</button></div>{/if}
   {#if parentError}<div class="resource-state-notice unavailable" role="alert">Parent job unavailable: {parentError.message}</div>{/if}
   {#if childError}<div class="resource-state-notice unavailable" role="alert"><span>Child jobs unavailable: {childError.message}</span><button class="button" type="button" disabled={loading} onclick={() => void loadChildren(true)}>Retry</button></div>{/if}
   {#if retrievalError && payload?.kind === 'album'}<div class="resource-state-notice unavailable" role="alert"><span>Related jobs unavailable: {retrievalError.message}</span><button class="button" type="button" disabled={retrievalLoading} onclick={() => void loadRetrievalChildren(true)}>Retry</button></div>{/if}

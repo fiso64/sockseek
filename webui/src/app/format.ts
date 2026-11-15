@@ -1,4 +1,5 @@
 import type { Schema } from '../api/types';
+import type { LiveConnectionStatus } from '../api/live';
 
 export function humanizeStateValue(value: string): string {
   const normalized = value
@@ -19,9 +20,10 @@ export function userInitials(value: string): string {
 
 export function soulseekStatusLabel(
   status: Schema<'SoulseekClientStatusDto'> | null | undefined,
-  reachable: boolean,
+  connection: LiveConnectionStatus,
 ): string {
-  if (!reachable) return 'Unavailable';
+  if (connection === 'connecting' || connection === 'reconnecting') return humanizeStateValue(connection);
+  if (connection !== 'connected') return 'Unavailable';
   if (!status) return 'Connecting';
   const flags = status.flags.filter((flag) => flag && flag !== 'None');
   const values = flags.length

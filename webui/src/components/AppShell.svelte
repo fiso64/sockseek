@@ -45,7 +45,7 @@
   let downloadCount = $derived(liveState.activitySummary.downloads);
   let uploadCount = $derived(liveState.activitySummary.uploads);
   let unreadChats = $derived(Number(liveState.daemon?.chat.unreadPrivateMessageCount ?? 0) + Number(liveState.daemon?.chat.unreadRoomMessageCount ?? 0));
-  let soulseek = $derived(soulseekStatusLabel(liveState.daemon?.soulseekClient, daemonReachable));
+  let soulseek = $derived(soulseekStatusLabel(liveState.daemon?.soulseekClient, liveStatus));
   let connectionLabel = $derived(daemonReachable ? soulseek : `Daemon ${liveStatus === 'offline' ? 'disconnected' : humanizeStateValue(liveStatus).toLowerCase()}`);
   function navigateByKey(event: KeyboardEvent): void {
     if (event.repeat || keyboardShortcutsBlocked(event) || !/^[1-9]$/.test(event.key)) return;

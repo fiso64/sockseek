@@ -590,35 +590,6 @@ namespace Sockseek.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("Sockseek.Persistence.Entities.PeerRestrictionOverrideEntity", b =>
-                {
-                    b.Property<string>("RestrictionKind")
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("restriction_kind");
-
-                    b.Property<string>("Username")
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("username")
-                        .UseCollation("BINARY");
-
-                    b.Property<string>("OverrideState")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("override_state");
-
-                    b.Property<long>("UpdatedAtUtc")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("updated_at_utc");
-
-                    b.HasKey("RestrictionKind", "Username");
-
-                    b.HasIndex("Username", "RestrictionKind");
-
-                    b.ToTable("peer_restriction_overrides", (string)null);
-                });
 
             modelBuilder.Entity("Sockseek.Persistence.Entities.RuntimeSessionEntity", b =>
                 {

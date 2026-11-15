@@ -421,11 +421,6 @@ export class DaemonApiClient {
     return this.http.delete(`/chat/rooms/${encodeURIComponent(roomId)}/history`, signal);
   }
 
-  setPrivateMessageBlocked(username: string, blocked: boolean, signal?: AbortSignal): Promise<Schema<'UserRestrictionsDto'>> {
-    const request: Schema<'SetUserRestrictionOverrideRequestDto'> = { kind: 'private-messages', override: blocked ? 'blocked' : 'allowed' };
-    return this.http.put(`/users/${encodeURIComponent(username)}/restrictions`, request, signal);
-  }
-
   getSearchView(viewId: string, signal?: AbortSignal): Promise<SearchViewSummaryDto> {
     return this.http.get(`/search-views/${encodeURIComponent(viewId)}`, signal);
   }

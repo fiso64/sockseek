@@ -467,27 +467,6 @@ public sealed class SockseekApiClient
             request,
             ct);
 
-    public Task<UserRestrictionsDto?> GetUserRestrictionsAsync(
-        string username,
-        CancellationToken ct = default)
-        => GetOptionalAsync<UserRestrictionsDto>(
-            $"api/users/{Uri.EscapeDataString(username)}/restrictions",
-            ct);
-
-    public async Task<UserRestrictionsDto> SetUserRestrictionAsync(
-        string username,
-        SetUserRestrictionOverrideRequestDto request,
-        CancellationToken ct = default)
-    {
-        using HttpResponseMessage response = await http.PutAsJsonAsync(
-            $"api/users/{Uri.EscapeDataString(username)}/restrictions",
-            request,
-            jsonOptions,
-            ct);
-        await EnsureSuccessAsync(response, ct);
-        return await ReadRequiredAsync<UserRestrictionsDto>(response, ct);
-    }
-
     /// <summary>Returns available daemon profiles.</summary>
     public async Task<IReadOnlyList<ProfileSummaryDto>> GetProfilesAsync(CancellationToken ct = default)
     {

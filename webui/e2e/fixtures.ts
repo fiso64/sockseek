@@ -61,9 +61,9 @@ export async function deferInitialDaemonSnapshot(page: Page): Promise<() => void
 type FixtureCommand = `configuration:${boolean}:${boolean}:${boolean}` | `webui-settings:${'dark' | 'light' | 'auto' | '2009-dark' | '2009-light'}:${'generic' | 'track' | 'album' | 'song-groups' | 'album-groups'}` | `prune-search-results:${string}` | `wait-job-complete:${string}` | 'hold-download' | 'wait-download-started' | 'wait-search-started' | 'release-download' | 'reject-next-download' | 'report-peer-browses' | 'music-search' | 'ordinary-track-search'
   | 'large-search' | 'large-directory-search' | 'large-distributed-search' | 'staged-large-directory-search' | 'large-music-search' | 'large-music-search-100k' | 'large-single-peer-music-search' | 'large-varied-music-search' | 'large-shared-album-search' | 'paced-music-search' | 'large-peer-shares' | 'large-retained-transfers' | 'retained-imports' | 'expire-search-views' | 'expire-job-previews' | 'forget-job-previews' | 'mixed-visibility-search' | 'staged-rich-group-search'
   | 'empty-search' | 'staged-search' | 'next-search-batch' | 'finish-search' | 'incoming-chat' | 'directory-selection-search' | 'concurrent-retrieval-search' | 'mixed-retrieval-search' | 'hold-directory-browse' | 'release-directory-browse' | 'group-search' | 'rich-group-search' | 'album-group-search' | 'rich-album-group-search' | 'paged-album-group-search'
-  | 'fail-next-upload' | 'request-upload' | 'request-queued-upload' | 'release-upload' | 'incoming-room-chat' | 'seed-chat-history' | 'seed-chat-outage'
+  | 'fail-next-upload' | 'fail-next-peer-browse' | 'request-upload' | 'request-queued-upload' | 'release-upload' | 'incoming-room-chat' | 'seed-chat-history' | 'seed-chat-outage'
   | 'album-art-search' | 'large-album-art-search' | 'bare-filename-search' | 'hold-art-download' | 'release-art-download' | 'wait-directory-complete' | 'staged-conditioned-music-search' | 'mixed-album-group-search'
-  | 'long-song-fallback' | 'report-fallback-downloads' | `report-search-projection:${string}` | 'terminal-transfer-committed' | 'presence-away';
+  | 'long-song-fallback' | 'report-fallback-downloads' | `report-search-projection:${string}` | 'terminal-transfer-committed' | 'presence-away' | 'profile-peer-online';
 
 function startDaemonWorker() {
   const child = spawn('dotnet', [assembly, webRoot], { stdio: ['pipe', 'pipe', 'pipe'] });

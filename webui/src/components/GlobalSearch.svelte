@@ -78,7 +78,7 @@
   const modes = [
     {
       value: 'generic', label: 'File Search', icon: 'generic' as const, description:
-      'Standard Soulseek file search. No music filters or ranking is applied by default.'
+      'Standard Soulseek file search.'
     },
     {
       value: 'track', label: 'Track Search', icon: 'track' as const, description:

@@ -453,8 +453,8 @@ public sealed class SharingRuntime : IAsyncDisposable
                 .Select(root => root.EffectiveAlias)
                 .Order(StringComparer.Ordinal)
                 .ToArray(),
-            restrictionSnapshot.UploadAccess.BlockedUsernameCount,
-            restrictionSnapshot.ConfiguredUploadBlockedIpAddresses.Count,
+            restrictionSnapshot.UploadBlockedUsernames.Count,
+            restrictionSnapshot.UploadBlockedIpAddresses.Count,
             new ShareCatalogStateDto(
                 metadata?.GenerationId,
                 metadata?.DirectoryCount ?? 0,

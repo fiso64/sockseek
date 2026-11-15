@@ -272,6 +272,23 @@ public sealed class SqliteInitializationTests
     }
 
     [TestMethod]
+    public async Task UpgradeRemovesStoredPeerRestrictionOverridesWithoutRemovingOtherData()
+    {
+        await using var database = new TemporaryDatabase();
+        await using var context = await database.Factory.CreateDbContextAsync();
+        await context.GetService<IMigrator>().MigrateAsync("20261114160000_OperationRetention");
+        await context.Database.ExecuteSqlRawAsync("INSERT INTO peer_restriction_overrides VALUES ('PrivateMessages', 'ExactPeer', 'Blocked', 0)");
+        Guid id = Guid.NewGuid();
+        context.RuntimeSessions.Add(new RuntimeSessionEntity { Id = id, Version = "preserved" });
+        await context.SaveChangesAsync();
+        await context.Database.MigrateAsync();
+        var removedTables = await context.Database.SqlQueryRaw<string>(
+            "SELECT name AS Value FROM sqlite_master WHERE type = 'table' AND name = 'peer_restriction_overrides'").ToListAsync();
+        Assert.AreEqual(0, removedTables.Count);
+        Assert.AreEqual(id, (await context.RuntimeSessions.SingleAsync()).Id);
+    }
+
+    [TestMethod]
     public async Task FeatureReadConnectionsCannotBypassTheWriter()
     {
         await using var database = new TemporaryDatabase();
@@ -279,15 +296,17 @@ public sealed class SqliteInitializationTests
         var readers = new SockseekDbContextFactory(SockseekDbContextOptions.CreateReadOnly(database.Options));
         await using var context = await readers.CreateDbContextAsync();
         var failure = await Assert.ThrowsExactlyAsync<Microsoft.Data.Sqlite.SqliteException>(
-            () => context.Database.ExecuteSqlRawAsync("DELETE FROM peer_restriction_overrides"));
+            () => context.Database.ExecuteSqlRawAsync("DELETE FROM runtime_sessions"));
         Assert.AreEqual(8, failure.SqliteErrorCode, "SQLite must enforce the read-only boundary.");
 
-        var store = new Sockseek.Persistence.PeerRestrictions.PeerRestrictionOverrideStore(
-            readers, new PersistenceHealth(), database.Writes);
-        await store.SetAsync(Sockseek.Core.Sharing.PeerRestrictionKind.UploadAccess, "ExactPeer",
-            Sockseek.Core.Sharing.PeerUsernameRestrictionOverride.Blocked);
-        Assert.AreEqual("ExactPeer", (await store.ReadAllAsync()).Single().Username,
-            "The same store can still write through the transaction owner's context.");
+        Guid id = Guid.NewGuid();
+        await database.Writes.ExecuteAsync((writer, ct) =>
+        {
+            writer.RuntimeSessions.Add(new RuntimeSessionEntity { Id = id, Version = "writer" });
+            return Task.FromResult(true);
+        }, CancellationToken.None);
+        Assert.AreEqual(id, (await context.RuntimeSessions.SingleAsync()).Id);
+
     }
 
     [TestMethod]
@@ -375,7 +394,6 @@ public sealed class SqliteInitializationTests
                 "chat_conversations", "chat_room_subscriptions", "chat_messages", "notifications", "chat_sequences",
                 "submissions", "submission_specifications",
                 "transfer_accounting_checkpoints", "transfer_byte_buckets", "transfer_accounting_state",
-                "peer_restriction_overrides",
                 "input_artifacts",
                 "search_observation_sources",
                 "directory_manifests", "directory_manifest_entries",

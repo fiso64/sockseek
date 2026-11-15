@@ -238,133 +238,6 @@
         ]
       }
     },
-    "/api/users/{username}/restrictions": {
-      "get": {
-        "tags": [
-          "User Restrictions"
-        ],
-        "summary": "Gets independent upload-access and private-message restrictions for one exact username.",
-        "parameters": [
-          {
-            "name": "username",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserRestrictionsDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required or credential expired/revoked."
-          },
-          "403": {
-            "description": "Access denied."
-          }
-        },
-        "security": [
-          {
-            "ApiKey": [ ]
-          },
-          {
-            "Browser": [ ]
-          }
-        ]
-      },
-      "put": {
-        "tags": [
-          "User Restrictions"
-        ],
-        "summary": "Sets or removes one durable exact-username restriction override.",
-        "description": "Upload-access blocking denies future search, browse, directory, and upload admissions from the peer. Private-message blocking discards future incoming DMs only. Allowed supersedes that kind's configured username block. Null removes only that override. Configured upload IP denial remains independent.",
-        "parameters": [
-          {
-            "name": "username",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetUserRestrictionOverrideRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserRestrictionsDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required or credential expired/revoked."
-          },
-          "403": {
-            "description": "Access denied."
-          }
-        },
-        "security": [
-          {
-            "ApiKey": [ ]
-          },
-          {
-            "Browser": [ ]
-          }
-        ]
-      }
-    },
     "/api/user-browses/download-settings": {
       "post": {
         "tags": [
@@ -24617,27 +24490,6 @@
           }
         }
       },
-      "SetUserRestrictionOverrideRequestDto": {
-        "required": [
-          "kind"
-        ],
-        "type": "object",
-        "properties": {
-          "kind": {
-            "$ref": "#/components/schemas/UserRestrictionKind"
-          },
-          "override": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/UserRestrictionOverrideState"
-              }
-            ]
-          }
-        }
-      },
       "ShareCatalogStateDto": {
         "required": [
           "directoryCount",
@@ -33511,31 +33363,6 @@
           "cancelled"
         ]
       },
-      "UsernameRestrictionStateDto": {
-        "required": [
-          "isBlocked",
-          "configuredUsernameBlocked"
-        ],
-        "type": "object",
-        "properties": {
-          "isBlocked": {
-            "type": "boolean"
-          },
-          "configuredUsernameBlocked": {
-            "type": "boolean"
-          },
-          "override": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/UserRestrictionOverrideState"
-              }
-            ]
-          }
-        }
-      },
       "UserNotificationDto": {
         "required": [
           "notificationId",
@@ -33783,38 +33610,6 @@
               "null",
               "string"
             ]
-          }
-        }
-      },
-      "UserRestrictionKind": {
-        "enum": [
-          "upload-access",
-          "private-messages"
-        ]
-      },
-      "UserRestrictionOverrideState": {
-        "enum": [
-          "blocked",
-          "allowed",
-          null
-        ]
-      },
-      "UserRestrictionsDto": {
-        "required": [
-          "username",
-          "uploadAccess",
-          "privateMessages"
-        ],
-        "type": "object",
-        "properties": {
-          "username": {
-            "type": "string"
-          },
-          "uploadAccess": {
-            "$ref": "#/components/schemas/UsernameRestrictionStateDto"
-          },
-          "privateMessages": {
-            "$ref": "#/components/schemas/UsernameRestrictionStateDto"
           }
         }
       },
@@ -34172,9 +33967,6 @@
     },
     {
       "name": "User Browsing"
-    },
-    {
-      "name": "User Restrictions"
     },
     {
       "name": "Workflows"

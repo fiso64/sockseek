@@ -105,11 +105,11 @@ test('uses byte progress for directories and count progress for running containe
 });
 
 function listFixture() {
-  const subscriptions: { next: Parameters<DaemonLiveClient['observeJobList']>[1]; stop: ReturnType<typeof vi.fn> }[] = [];
+  const subscriptions: { next: Parameters<DaemonLiveClient['observeJobList']>[1]; error: Parameters<DaemonLiveClient['observeJobList']>[2]; stop: ReturnType<typeof vi.fn> }[] = [];
   const getJobListSnapshot = vi.fn().mockResolvedValue({ jobs: [], removedJobIds: [], windowJobIds: [], nextCursor: null });
-  const observe = vi.fn<DaemonLiveClient['observeJobList']>((_, next) => {
+  const observe = vi.fn<DaemonLiveClient['observeJobList']>((_, next, error) => {
     const stop = vi.fn();
-    subscriptions.push({ next, stop });
+    subscriptions.push({ next, error, stop });
     return stop;
   });
   const controller = new JobListController({ getJobListSnapshot }, observe);
@@ -129,6 +129,7 @@ function listSnapshot(...rows: Schema<'JobStateDto'>[]): Schema<'JobListUpdateDt
 test('Jobs uses one server scope for navigation, expansion and authoritative reconnect', () => {
   const f = listFixture();
   f.controller.setActive(true, 'connecting');
+  expect(f.controller.loading).toBe(true);
   expect(f.observe).not.toHaveBeenCalled();
   f.controller.setActive(true, 'connected');
   expect(f.observe.mock.lastCall?.[0].limit).toBe(100);
@@ -143,7 +144,12 @@ test('Jobs uses one server scope for navigation, expansion and authoritative rec
   expect(f.observe.mock.lastCall?.[0].limit).toBe(200);
   f.subscriptions[1]!.next(listSnapshot(listedJob('2', 0), listedJob('1', 0)));
   expect(f.controller.items[0]!.lifecycleState).toBe('Running');
+  f.subscriptions[1]!.error(new Error('Connection interrupted'));
+  expect(f.controller.error).not.toBeNull();
   f.controller.setActive(true, 'reconnecting');
+  expect(f.controller.loading).toBe(true);
+  expect(f.controller.error).toBeNull();
+  expect(f.controller.items.map(row => row.jobId)).toEqual(['2', '1']);
   f.controller.setActive(true, 'connected');
   expect(f.observe.mock.lastCall?.[0].limit).toBe(200);
   f.subscriptions[2]!.next(listSnapshot(listedJob('3', 0)));

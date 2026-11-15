@@ -18,6 +18,16 @@ export function userBrowserSession(username = ''): UserBrowserSession {
   return { username, shares: {} };
 }
 
+export function loadUserBrowserSession(view: UserBrowseView): UserBrowserSession {
+  try { return userBrowserSession(sessionStorage.getItem(`sockseek.userBrowser.${view}`) ?? ''); }
+  catch { return userBrowserSession(); }
+}
+
+export function saveUserBrowserUsername(view: UserBrowseView, username: string): void {
+  try { sessionStorage.setItem(`sockseek.userBrowser.${view}`, username); }
+  catch { /* Navigation still works when browser storage is disabled. */ }
+}
+
 export interface ShareBrowserSession {
   snapshot?: {
     browseId: string;

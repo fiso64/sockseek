@@ -117,14 +117,19 @@ test('browses the served catalog and confirms cleanup without deleting active wo
   const active = await (await page.request.post('/api/jobs/search', { data: { queryText: 'Still searching' } })).json() as Schema<'JobSummaryDto'>;
   await daemon.command('wait-search-started');
   await page.getByRole('tab', { name: 'Management', exact: true }).click();
-  await page.getByRole('listitem').filter({ has: page.locator('#action-searches') }).getByRole('button', { name: 'Run', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible();
-  await page.keyboard.press('Escape');
+  for (const id of ['searches', 'jobs', 'downloads', 'uploads']) {
+    await page.getByTestId(`management-${id}`).click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId('management-confirm')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.locator('dialog')).toHaveCount(0);
+  }
+  expect(requests.filter(path => path === 'POST /api/transfers/remove')).toEqual([]);
   expect(requests.filter(path => path === 'POST /api/jobs/delete-completed')).toEqual([]);
-  await page.getByRole('listitem').filter({ has: page.locator('#action-searches') }).getByRole('button', { name: 'Run', exact: true }).click();
+  await page.getByTestId('management-searches').click();
   const deleted = page.waitForResponse(response => new URL(response.url()).pathname === '/api/jobs/delete-completed');
-  await dialog.getByRole('button', { name: 'Run', exact: true }).click();
+  await dialog.getByTestId('management-confirm').click();
   expect(await (await deleted).json()).toMatchObject({ deletedSubmissions: 1, deletedJobs: 1 });
   expect((await page.request.get(`/api/jobs/${completed.jobId}`)).status()).toBe(404);
   expect((await page.request.get(`/api/jobs/${active.jobId}`)).status()).toBe(200);
@@ -135,9 +140,9 @@ test('browses the served catalog and confirms cleanup without deleting active wo
   await daemon.command('request-upload');
   await expect(page.locator('.file-item-card').filter({ hasText: 'Uploaded.txt' }).getByRole('button', { name: 'Failed', exact: true })).toBeVisible();
   await page.goto('/system/management');
-  await page.getByRole('listitem').filter({ has: page.locator('#action-uploads') }).getByRole('button', { name: 'Run', exact: true }).click();
+  await page.getByTestId('management-uploads').click();
   const removed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/transfers/remove');
-  await page.getByRole('dialog').getByRole('button', { name: 'Run', exact: true }).click();
+  await page.getByRole('dialog').getByTestId('management-confirm').click();
   const receipt = await removed;
   expect(receipt.request().postDataJSON()).toEqual({ direction: 'upload' });
   expect(await receipt.json()).toMatchObject({ succeededCount: 1, failedCount: 0 });

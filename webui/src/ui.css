@@ -26,6 +26,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .button:is(.active, [aria-pressed="true"]):hover:not(:disabled) { border-color: var(--accent); background-color: color-mix(in srgb, var(--accent-soft) 85%, var(--surface-raised)); }
 .button.primary { background-color: var(--accent-fill); border-color: transparent; color: white; }
 .button.primary:hover:not(:disabled) { background-color: color-mix(in srgb, var(--accent-fill) 85%, #000); }
+.button.danger { color: var(--danger); }
 .button.quiet { border-color: transparent; background-color: transparent; background-image: none; box-shadow: none; color: var(--muted); }
 .button.quiet:hover:not(:disabled, .active, [aria-expanded="true"], [aria-pressed="true"]) { background-color: var(--surface-subtle); color: var(--text); }
 .button.quiet:is(.active, [aria-pressed="true"]) { background-color: var(--accent-soft); color: var(--accent-text); }
@@ -36,6 +37,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   color: var(--text);
 }
 .button.danger:hover:not(:disabled) { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); background-color: color-mix(in srgb, var(--danger) 8%, var(--surface)); color: var(--danger); }
+.button.primary.danger { background-color: var(--danger-fill); border-color: transparent; color: white; }
+.button.primary.danger:hover:not(:disabled) { background-color: color-mix(in srgb, var(--danger-fill) 85%, #000); border-color: transparent; color: white; }
 /* Menu triggers stay down until dismissed; panel toggles spring back on release. */
 .button:is(:active, [aria-haspopup="menu"][aria-expanded="true"]):not(:disabled, .quiet) {
   transform: translateY(var(--control-press-offset));

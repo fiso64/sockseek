@@ -200,14 +200,6 @@ internal sealed class TransferAccountingStateEntity
     public long UpdatedAtUtc { get; set; }
 }
 
-internal sealed class PeerRestrictionOverrideEntity
-{
-    public string RestrictionKind { get; set; } = "";
-    public string Username { get; set; } = "";
-    public string OverrideState { get; set; } = "";
-    public long UpdatedAtUtc { get; set; }
-}
-
 internal sealed class InputArtifactEntity
 {
     public string Id { get; set; } = "";

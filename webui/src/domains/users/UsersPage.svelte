@@ -32,6 +32,8 @@
   let profileError = $state<Error | null>(null);
   let profilePictureOpen = $state(false);
   let browse = $state<UserBrowseDto | null>(saved?.browse ?? null);
+  let displayedBrowse = $state<UserBrowseDto | null>(saved?.browse?.state === 'complete' ? saved.browse : null);
+  let browseStarting = $state(false);
   let browseError = $state<Error | null>(null);
   let lifetime = new AbortController();
   let browseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -40,6 +42,7 @@
   let browseStreamFailed = false;
   const activeBrowseId = $derived(view === 'shares' && browse
     && (browse.state === 'queued' || browse.state === 'running') ? browse.browseId : null);
+  const browsePending = $derived(browseStarting || (!browseError && (browse?.state === 'queued' || browse?.state === 'running')));
 
   let pictureUrl = $derived(profile?.picture?.url ? absoluteApiPath(profile.picture.url) : null);
 
@@ -52,8 +55,9 @@
 
   $effect(() => {
     const currentView = view;
-    const currentUsername = username;
-    if (currentView === 'shares' && (!browse || browse.username !== currentUsername)) void acquireBrowse(currentUsername);
+    untrack(() => {
+      if (currentView === 'shares' && (!browse || browse.username !== username)) void acquireBrowse(username);
+    });
   });
 
   $effect(() => {
@@ -93,7 +97,7 @@
     };
     void liveClient.subscribeUserBrowse(browseId, value => {
       if (!active || lifetime.signal.aborted) return;
-      browse = value;
+      updateBrowse(value);
       browseError = null;
       void advanceBrowse();
     }, failed).then(release => {
@@ -106,10 +110,21 @@
   onDestroy(() => {
     lifetime.abort();
     if (browseTimer) clearTimeout(browseTimer);
-    session.snapshot = { profile, browse };
+    session.snapshot = { profile, browse: displayedBrowse ?? browse };
   });
 
   const presence = userPresence(() => view === 'user' ? username : null, () => liveClient, () => liveStatus);
+  // Only an explicit offline result can fill in a failed status lookup. Cached
+  // profile details must not override live presence or a lost connection.
+  const displayedPresence = $derived(
+    (presence.state === 'unavailable' || presence.state === 'unknown')
+      && (profile?.info.reason === 'offline' || profile?.statistics.reason === 'offline')
+      ? 'offline' : presence.state);
+  const unavailableSections = $derived(profile ? [
+    { label: 'Info', ...profile.info },
+    { label: 'Statistics', ...profile.statistics },
+    { label: 'Picture', ...profile.pictureSection },
+  ].filter(section => section.state !== 'available' && section.reason !== 'offline') : []);
 
   async function loadProfile(value: string, refresh = false): Promise<void> {
     const signal = lifetime.signal;
@@ -124,18 +139,27 @@
   }
 
   async function acquireBrowse(value: string, refresh = false): Promise<void> {
+    if (browsePending) return;
     if (browse?.username === value && (browse.state === 'running' || browse.state === 'queued' || browse.state === 'complete') && !refresh) return;
+    browseStarting = true;
     browseError = null;
     const signal = lifetime.signal;
     try {
       const result = await daemonApi.startUserBrowse(value, refresh, signal);
       if (signal.aborted) return;
-      browse = result;
+      updateBrowse(result);
       browsePollAttempts = 0;
       await advanceBrowse();
     } catch (cause) {
       if (!signal.aborted) browseError = asError(cause);
+    } finally {
+      if (!signal.aborted) browseStarting = false;
     }
+  }
+
+  function updateBrowse(value: UserBrowseDto): void {
+    browse = value;
+    if (value.state === 'complete') displayedBrowse = value;
   }
 
   async function advanceBrowse(): Promise<void> {
@@ -156,7 +180,7 @@
       try {
         const result = await daemonApi.getUserBrowse(browse.browseId, signal);
         if (signal.aborted) return;
-        browse = result;
+        updateBrowse(result);
         await advanceBrowse();
       } catch (cause) {
         if (!signal.aborted) browseError = asError(cause);
@@ -171,6 +195,13 @@
 <svelte:window onkeydown={(event) => {
   if (event.key === 'Escape') profilePictureOpen = false;
 }} />
+
+{#snippet refreshShares()}
+  <button type="button" class="button user-message-button" data-testid="refresh-user-shares"
+    disabled={browsePending} onclick={() => void acquireBrowse(username, true)}>
+    <Icon name="refresh"/><span>{browsePending ? 'Refreshing…' : 'Refresh'}</span>
+  </button>
+{/snippet}
 
 <section class="page user-browser-page">
   <header class="user-browser-heading">
@@ -216,7 +247,7 @@
           <div class="user-profile-copy">
             <div class="user-profile-name-line">
               <h2>{profile.username}</h2>
-              <span class={`badge user-presence ${presence.state}`} data-presence={presence.state}><i></i>{presence.label}</span>
+              <span class={`badge user-presence ${displayedPresence}`} data-presence={displayedPresence}><i></i>{displayedPresence === 'offline' ? 'Offline' : presence.label}</span>
               <span class="user-capacity-inline" aria-label="Upload capacity">
                 <span class:available={profile.hasFreeUploadSlot === true}
                   class:unknown={profile.hasFreeUploadSlot == null} class="slot-state"><i></i>{profile.hasFreeUploadSlot == null ? 'Slot unknown' : profile.hasFreeUploadSlot ? 'Free slot' : 'No free slot'}</span>
@@ -240,17 +271,11 @@
             </div>
           </div>
         </div>
-        {#if profile.info.state !== 'available' || profile.statistics.state !== 'available' || profile.pictureSection.state !== 'available'}
+        {#if unavailableSections.length}
           <div class="profile-section-states" aria-label="Profile section availability">
-            {#if profile.info.state !== 'available'}
-              <span>Info {profile.info.state}{profile.info.reason ? ` · ${profile.info.reason}` : ''}</span>
-            {/if}
-            {#if profile.statistics.state !== 'available'}
-              <span>Statistics {profile.statistics.state}{profile.statistics.reason ? ` · ${profile.statistics.reason}` : ''}</span>
-            {/if}
-            {#if profile.pictureSection.state !== 'available'}
-              <span>Picture {profile.pictureSection.state}{profile.pictureSection.reason ? ` · ${profile.pictureSection.reason}` : ''}</span>
-            {/if}
+            {#each unavailableSections as section (section.label)}
+              <span>{section.label} {section.state}{section.reason ? ` · ${section.reason}` : ''}</span>
+            {/each}
           </div>
         {/if}
         <div class="user-profile-stats">
@@ -264,15 +289,16 @@
   {:else}
     {#if browseError}
       <div class={`resource-state-notice ${liveStatus === 'offline' ? 'offline' : 'unavailable'}`}
-        class:blocking={!browse || browse.state !== 'complete'} role="alert">
+        class:blocking={!displayedBrowse} role="alert">
         <span class="resource-state-dot"></span>
         <span class="resource-state-copy">
           <strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Shares unavailable'}</strong>
           <small>{liveStatus === 'offline' ? 'Shared files cannot be loaded while the daemon is offline.' : browseError.message}</small>
         </span>
+        {#if !displayedBrowse}{@render refreshShares()}{/if}
       </div>
     {/if}
-    {#if !browseError && (!browse || browse.state === 'queued' || browse.state === 'running')}
+    {#if !browseError && !displayedBrowse && (!browse || browsePending)}
       {#if browse && Number(browse.compressedBytesReceived) > 0}
         <div class="resource-state-notice loading blocking">
           <span class="resource-state-dot"></span>
@@ -285,9 +311,9 @@
         <LoadingIndicator label="Loading shares" blocking />
       {/if}
     {/if}
-    {#if browse?.state === 'complete'}
-      {#key browse.browseId}
-        <ShareBrowser source={peerShareSource(browse)} session={session.shares} />
+    {#if displayedBrowse}
+      {#key displayedBrowse.browseId}
+        <ShareBrowser source={peerShareSource(displayedBrowse)} session={session.shares} filterActions={refreshShares} />
       {/key}
     {/if}
   {/if}

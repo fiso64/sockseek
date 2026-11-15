@@ -61,7 +61,7 @@
   <section class="panel status-card" aria-labelledby="soulseek-heading">
     <h2 id="soulseek-heading">Soulseek</h2>
     <dl>
-      <div><dt>Connection</dt><dd class:healthy={client?.isReady}>{soulseekStatusLabel(client, liveStatus === 'connected')}</dd></div>
+      <div><dt>Connection</dt><dd class:healthy={liveStatus === 'connected' && client?.isReady}>{soulseekStatusLabel(client, liveStatus)}</dd></div>
       <div><dt>Username</dt><dd>{connection?.username ?? '—'}</dd></div>
       <div><dt>Server</dt><dd>{connection?.serverAddress ? `${connection.serverAddress}:${connection.serverPort}` : '—'}</dd></div>
       <div><dt>Server address</dt><dd>{connection?.serverEndpoint ?? '—'}</dd></div>

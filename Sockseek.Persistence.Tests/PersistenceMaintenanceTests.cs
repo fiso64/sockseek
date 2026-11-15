@@ -30,15 +30,12 @@ public sealed class PersistenceMaintenanceTests
         try
         {
             pending = [
-                host.PeerRestrictions!.SetAsync(Sockseek.Core.Sharing.PeerRestrictionKind.UploadAccess,
-                    "Peer", Sockseek.Core.Sharing.PeerUsernameRestrictionOverride.Blocked),
                 host.InputArtifacts!.CreateAsync(new MemoryStream([1, 2, 3]), "input.csv"),
                 host.RunRetentionAsync(CancellationToken.None),
                 host.CheckpointAsync(CancellationToken.None),
             ];
             Assert.IsTrue(pending.All(task => !task.IsCompleted), "Durable mutations must share the held writer.");
-            Assert.AreEqual(0, (await host.PeerRestrictions.ReadAllAsync()).Count,
-                "Independent readers see committed data while commands wait.");
+
         }
         finally
         {
@@ -46,7 +43,6 @@ public sealed class PersistenceMaintenanceTests
             await held;
             await Task.WhenAll(pending);
         }
-        Assert.AreEqual("Peer", (await host.PeerRestrictions!.ReadAllAsync()).Single().Username);
         Assert.AreEqual(PersistenceHealthState.Healthy, host.HealthSnapshot!.State);
     }
 

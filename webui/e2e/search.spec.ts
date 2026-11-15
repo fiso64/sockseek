@@ -1556,7 +1556,15 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
 
 test('paints the Jobs tab before remounting cached search results and cancels on navigation', async ({ page, daemon }) => {
   await daemon.command('directory-selection-search');
-  await page.goto('/jobs');
+  const download = await page.request.post('/api/jobs/lists', { data: {
+    name: 'Previous download', jobs: [{ kind: 'remote-file', target: {
+      username: 'fixture-peer', filename: 'Fixture\\Selected.txt', size: 128, extension: '.txt',
+    } }],
+  } satisfies Schema<'SubmitJobListRequestDto'> });
+  expect(download.status()).toBe(202);
+  const job = await download.json() as Schema<'JobSummaryDto'>;
+  await page.goto(`/jobs/${job.jobId}`);
+  await expect(page.locator('.automatic-job-detail h1')).toHaveText('Previous download');
   await chooseFileSearch(page);
   await page.locator('#global-search-simple').fill('Fixture');
   await page.locator('#global-search-simple').press('Enter');

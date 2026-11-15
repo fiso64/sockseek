@@ -322,6 +322,7 @@ test('opens an exact peer conversation outside the loaded sidebar page', async (
     expect(continuedReads.map(request => new URL(request.url()).pathname)).toEqual(['/api/chat/conversations']);
     for (const request of continuedReads) await (await request.response())?.finished();
     await page.getByRole('button', { name: 'Chat options', exact: true }).click();
+    await expect(page.getByRole('menuitem')).toHaveCount(1);
     await page.getByRole('menuitem', { name: 'Delete chat', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Open conversation with Peer', exact: true })).toHaveCount(0);
     await expect(page.locator('.chat-thread-heading')).toContainText('peer');

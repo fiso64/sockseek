@@ -68,6 +68,29 @@ public sealed class PeerBrowseServiceTests
     }
 
     [TestMethod]
+    public async Task ManualBrowsingAndJobRetrievalShareIndexesWithDifferentFreshness()
+    {
+        var clock = new BrowseClock();
+        await using var fixture = await Fixture.CreateAsync(clock: clock);
+        PeerBrowseResource first = await fixture.Service.WaitForCompletionAsync("Peer");
+        clock.Advance(TimeSpan.FromMinutes(5));
+
+        PeerBrowseResource manual = await fixture.Service.StartAsync("Peer");
+        Assert.AreEqual(first.BrowseId, manual.BrowseId);
+        Assert.AreEqual(1, fixture.Transport.CallCount);
+
+        // The job path requires a recent index and publishes it to the same store.
+        var directory = await fixture.Service.RetrieveDirectoryAsync(new("Peer", "Music"));
+        Assert.AreEqual(1, directory.Files.Count);
+        PeerBrowseResource newer = await fixture.Service.StartAsync("Peer");
+        Assert.AreNotEqual(first.BrowseId, newer.BrowseId);
+        Assert.AreEqual(2, fixture.Transport.CallCount);
+        await fixture.Service.RetrieveDirectoryAsync(new("Peer", "Music"));
+        Assert.AreEqual(2, fixture.Transport.CallCount);
+        Assert.IsNotNull(await fixture.Service.GetAsync(first.BrowseId));
+    }
+
+    [TestMethod]
     public async Task WaiterCancellation_DetachesWithoutCancellingAcquisition()
     {
         await using var fixture = await Fixture.CreateAsync(gated: true);
@@ -104,10 +127,12 @@ public sealed class PeerBrowseServiceTests
     }
 
     [TestMethod]
-    public async Task FailedRefresh_PreservesFreshPreviousGenerationForNextOrdinaryCall()
+    public async Task FailedRefresh_PreservesRetainedPreviousGenerationForNextManualCall()
     {
-        await using var fixture = await Fixture.CreateAsync();
+        var clock = new BrowseClock();
+        await using var fixture = await Fixture.CreateAsync(clock: clock);
         PeerBrowseResource first = await fixture.Service.WaitForCompletionAsync("Peer");
+        clock.Advance(TimeSpan.FromMinutes(6));
         fixture.Transport.FailNext = true;
 
         PeerBrowseResource refresh = await fixture.Service.StartAsync("Peer", refresh: true);
@@ -291,11 +316,12 @@ public sealed class PeerBrowseServiceTests
         private Fixture(
             string directory,
             FakeTransport transport,
-            ILogger<PeerBrowseService>? logger)
+            ILogger<PeerBrowseService>? logger,
+            TimeProvider? clock)
         {
             this.directory = directory;
             Transport = transport;
-            Store = new PeerBrowseArtifactStore(directory);
+            Store = new PeerBrowseArtifactStore(directory, clock);
             Service = new PeerBrowseService(
                 Store,
                 Transport,
@@ -310,14 +336,15 @@ public sealed class PeerBrowseServiceTests
 
         public static async Task<Fixture> CreateAsync(
             bool gated = false,
-            ILogger<PeerBrowseService>? logger = null)
+            ILogger<PeerBrowseService>? logger = null,
+            TimeProvider? clock = null)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
                 "sockseek-peer-service-tests",
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
-            var fixture = new Fixture(directory, new FakeTransport(gated), logger);
+            var fixture = new Fixture(directory, new FakeTransport(gated), logger, clock);
             await fixture.Store.InitializeAsync();
             return fixture;
         }
@@ -344,6 +371,13 @@ public sealed class PeerBrowseServiceTests
                 }
             }
         }
+    }
+
+    private sealed class BrowseClock : TimeProvider
+    {
+        private DateTimeOffset now = DateTimeOffset.UtcNow;
+        public override DateTimeOffset GetUtcNow() => now;
+        public void Advance(TimeSpan amount) => now += amount;
     }
 
     private sealed class FakeTransport(bool gated) : IPeerBrowseTransport
