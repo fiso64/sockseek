@@ -180,7 +180,7 @@ public static partial class Help
 
     --format <formats>              Required file format(s). Comma-separated, unordered. See
                                     also --pref-format for soft preferences.
-    --length-tol <sec>              Length tolerance in seconds, -1 to disable (default: 3)
+    --length-tol <sec>              Length tolerance in seconds, -1 to disable (default: -1)
     --min-bitrate <rate>            Minimum file bitrate
     --max-bitrate <rate>            Maximum file bitrate
     --min-samplerate <rate>         Minimum file sample rate
@@ -498,19 +498,20 @@ File conditions
   By contrast, conditions without the pref prefix are mandatory. For example, --format flac will
   reject non-flac files entirely.
   Note: Format conditions are UNORDERED! --pref-format mp3,flac is the same as flac,mp3.
-  The default required conditions accept common formats and enforce the source length (when both
-  source and file length are known):
+  The only default required conditions are for the files to be audio:
 
   format = mp3,flac,ogg,m4a,opus,wav,aac,alac
-  length-tol = 3
 
-  The default preferred conditions are:
+  The preferred conditions determine ranking. The defaults are:
 
   pref-format = mp3
-  pref-length-tol = 3
   pref-min-bitrate = 200
   pref-max-bitrate = 2500
   pref-max-samplerate = 48000
+
+  # Prefer songs whose duration differs from the supplied one
+  # by at most 3 seconds.
+  pref-length-tol = 3
 
   # Prefer files whose paths contain the supplied title and album.
   # Changing these is not recommended.
@@ -768,31 +769,46 @@ Tips
     'Waiting'). By default it is configured to allow up to 34 searches every 220 seconds.
 
   Why are some of my downloads wrong or missing?
-    The default settings favor recall over precision: when the correct file is available in results,
-    it will almost always be ranked first. The tradeoff is that if it's absent and something else
-    loosely passes the filters, that something else gets downloaded. The options below let you
-    control where you fall on that spectrum.
-    It downloaded a wrong song or album. To tighten matching for song downloads, add one or more
-    strict filters:
 
-    sockseek ""https://spotify.com/playlist/blah"" --strict-title --strict-artist
+    It downloaded a wrong song or album!
+      By default, Sockseek doesn't do any filtering on the results returned by Soulseek, erring on
+      the side of downloading incorrect files rather than missing files entirely. If the correct
+      result exists among the things returned by the network, it will usually be chosen. But if
+      Soulseek doesn't have it, Sockseek might download something incorrect. If you're bothered by
+      this, you can make matching more strict as shown below, at the cost of increased chance of
+      missing correct items in other cases.
+      For song downloads, you can:
 
-    These require that the file path contains the song title and artist name (case-insensitive).
-    For album downloads, the cleanest filter is usually the expected track count:
+-
+Set the length tolerance --length-tol to something like 3, in order to ignore all files whose length
+differs from the supplied length by more than 3 seconds. This is useful only when your source
+actually provides length metadata, such as in the case of playlists from streaming services or a CSV
+file with a track duration column. Note that lengths from streaming services can differ from the
+actual files on Soulseek (like from a CD rip).
+  Add filters for the title and artist:
 
-    sockseek ""Artist - Album"" --album-track-count 10
+  sockseek ""https://spotify.com/playlist/blah"" --strict-title --strict-artist
 
-    Use inequalities like 10+ or 12- when expanded or incomplete editions are acceptable. You can
-    also add --strict-album to require the album name in the folder path.
-    It didn't find a song or album. This usually means one of two things:
-    1. Your searches are non-standard, like an uncommon artist spelling. You can try cleaning them
-      up with options like --regex and --remove-ft. See also the next section.
-    2. Whatever you're looking for is just not available on Soulseek.
-    For songs, there is also the possibility of a length mismatch: When using Spotify or YouTube as
-    input, the reported length can differ from the actual file on Soulseek (like from a CD rip) by
-    more than the default 3-second tolerance. Try --length-tol 10, or --length-tol -1 to disable
-    length filtering entirely.
-    Use --print results-full to inspect what Soulseek returned without downloading anything.
+  These require that the file path contains the song title and artist name (case-insensitive). Be
+  careful with spelling differences and weird names.
+  For album downloads, the cleanest filter is usually the expected track count:
+
+  sockseek ""Artist - Album"" --album-track-count 10
+
+  Use an inequality like 10+ when an expanded edition is acceptable. You can also add --strict-album
+  to require the album name in the folder path, or --strict-artist as in the song case.
+
+    It says no results for a song or album!
+      Sockseek passes your input (i.e. artist + song name in case of songs, and artist + album name
+      in case of albums) directly to Soulseek. It doesn't do any hard filtering by default, which
+      means that no results found almost always implies that your inputs itself have no matches on
+      Soulseek. Some things to try:
+      - Clean up your inputs when they contain uncommon names or artist spellings, for example, with
+        options like --regex and --remove-ft. See also the next section.
+      - Set --fallback-level 3. This will make Sockseek launch additional searches (e.g. without the
+        artist name) whenever it receives no results. Note that this can make searches slower and
+        sometimes results in more incorrect files getting downloaded.
+      Use --print results-full to inspect what Soulseek returned without downloading anything.
 
   Searching
     - It's always best to provide the least input necessary to uniquely identify an album or song.
@@ -804,18 +820,6 @@ Tips
     - When dealing with YouTube playlists you may want to remove any text in parentheses (like
       (Video)), as well as ""Official"" and ""Lyrics"" with --regex
       ""[\[\(].*?[\]\)]|(?i:lyrics)|(?i:official)""
-
-  Speeding things up
-    The following options will make it go faster, but may decrease search result quality or cause
-    instability:
-    - --fast-search skips waiting until the search completes and downloads as soon as a file
-      matching the preferred conditions is found (songs only)
-    - --search-timeout decrease to make searches end faster at the possible cost of fewer results
-    - --concurrent-jobs controls how many leaf jobs can run at once (default: 20)
-    - --concurrent-searches controls how many Soulseek searches can run at once (default: 2)
-    - --concurrent-extractors controls how many inputs can be extracted at once (default: 4)
-    - --max-stale-time is set to 30 seconds by default, Sockseek will wait a long time before giving
-      up on a file once it's chosen.
 
   Testing Options
     You can test almost any aspect of the search and downloading logic with --mock-files-dir and

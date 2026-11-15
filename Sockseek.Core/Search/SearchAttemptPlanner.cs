@@ -130,7 +130,7 @@ internal static class SearchAttemptPlanner
             yield return new Variant($"{query.Artist} {query.Album}", conditions, timeout);
         }
 
-        if (query.Length != -1 && search.NecessaryCond.LengthTolerance != -1)
+        if (query.Length != -1 && search.NecessaryCond.LengthTolerance is >= 0)
         {
             var conditions = new FileConditions(search.NecessaryCond)
             {

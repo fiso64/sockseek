@@ -68,7 +68,9 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public async Task SearchSong_FiltersKnownWrongLength_ByDefault()
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task SearchSong_FiltersKnownWrongLength_OnlyWhenRequired(bool requireLength)
         {
             var response = new SearchResponse("User", 1, true, 1000, 0,
             [
@@ -76,12 +78,14 @@ namespace Tests.Unit
             ]);
             var client = CreateMockClient([response]);
             var settings = TestHelpers.CreateDefaultSettings().Download;
+            if (requireLength)
+                settings.Search.NecessaryCond.LengthTolerance = 3;
             var searcher = CreateSearcher(client, settings);
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Twilight", Length = 522 });
 
             await searcher.SearchSong(song, settings.Search, new ResponseData(), CancellationToken.None);
 
-            Assert.AreEqual(0, song.Candidates?.Count ?? 0);
+            Assert.AreEqual(requireLength ? 0 : 1, song.Candidates?.Count ?? 0);
         }
 
         [TestMethod]
