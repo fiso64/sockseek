@@ -13,11 +13,11 @@
   --faint: light-dark(#777b7f, #868e97);
   --border: light-dark(#dcd8d2, #353b43);
   --border-strong: light-dark(#c9c4bd, #505761);
-  --accent: light-dark(#303ac2, #7b85f7);
-  --accent-strong: light-dark(#25309c, #a6adff);
-  --accent-fill: light-dark(#303ac2, #3d4bb7);
-  --accent-soft: light-dark(#e2e6fa, #292f55);
-  --accent-text: light-dark(#303c9d, #c2c8ff);
+  --accent: light-dark(#294db5, #7294f0);
+  --accent-strong: light-dark(#203e91, #a9bff9);
+  --accent-fill: light-dark(#294db5, #355bb7);
+  --accent-soft: light-dark(#e0e8fa, #283857);
+  --accent-text: light-dark(#29468f, #c3d2fa);
   --success: light-dark(#307451, #69b58c);
   --warning: light-dark(#8a601e, #d0a15c);
   --danger: light-dark(#a54750, #df7e86);
@@ -126,11 +126,11 @@ input[type="checkbox"]:indeterminate {
 }
 .sidebar-nav button:hover { background: var(--surface-subtle); color: var(--text); }
 .sidebar-nav button.active, .new-job-type-choice.active {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 85%, var(--surface-raised)), var(--accent-soft));
+  background-color: var(--accent-soft);
+  background-image: linear-gradient(180deg, #ffffff1c, transparent);
   color: var(--text);
-  box-shadow: inset 0 1px var(--edge-light), inset 0 -1px var(--edge-dark), 0 2px 5px #0003;
+  box-shadow: inset 0 1px var(--edge-light), 0 2px 4px #0005;
 }
-.sidebar-nav button.active .nav-icon { color: var(--accent); }
 .nav-icon { --app-icon-size: 20px; width: 20px; flex: 0 0 20px; display: grid; place-items: center; line-height: 1; }
 .nav-label { min-width: 0; white-space: nowrap; }
 .nav-count { margin-left: auto; color: var(--muted); font-size: 0.75rem; }
@@ -2242,7 +2242,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   place-items: center;
   align-content: center;
   gap: 7px;
-  color: #c2c8ff;
+  color: #c3d2fa;
   border-color: #101219;
   background: linear-gradient(145deg, #222730, #15181e);
   box-shadow: inset 0 2px 9px #0009, 0 1px var(--edge-light);
@@ -3241,7 +3241,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 }
 .new-job-type-choice:hover:not(.active) { background: var(--surface-raised); }
 .new-job-type-choice .app-icon { --app-icon-size: 17px; color: var(--muted); }
-.new-job-type-choice.active .app-icon { color: var(--accent); }
+.new-job-type-choice.active .app-icon { color: inherit; }
 .new-job-type-choice > span { min-width: 0; display: grid; gap: 1px; }
 .new-job-type-choice strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .74rem; font-weight: 630; }
 .new-job-type-choice small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .6rem; }
