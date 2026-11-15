@@ -42,8 +42,8 @@
   }: Props = $props();
 
   let daemonReachable = $derived(liveStatus === 'connected');
-  let downloadCount = $derived(liveState.transferSummary.downloads);
-  let uploadCount = $derived(liveState.transferSummary.uploads);
+  let downloadCount = $derived(liveState.activitySummary.downloads);
+  let uploadCount = $derived(liveState.activitySummary.uploads);
   let unreadChats = $derived(Number(liveState.daemon?.chat.unreadPrivateMessageCount ?? 0) + Number(liveState.daemon?.chat.unreadRoomMessageCount ?? 0));
   let soulseek = $derived(soulseekStatusLabel(liveState.daemon?.soulseekClient, daemonReachable));
   let connectionLabel = $derived(daemonReachable ? soulseek : `Daemon ${liveStatus === 'offline' ? 'disconnected' : humanizeStateValue(liveStatus).toLowerCase()}`);

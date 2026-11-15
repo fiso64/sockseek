@@ -87,7 +87,7 @@ public sealed class SubmissionCommitCoordinatorTests
             1,
             0,
             0,
-            []);
+            [], RootJobId: Guid.NewGuid());
         try
         {
             var firstPersistence = new PersistenceCoordinator(options);
@@ -298,6 +298,7 @@ public sealed class SubmissionCommitCoordinatorTests
         Assert.AreEqual(expected.PreviewId, actual.PreviewId);
         Assert.AreEqual(expected.SubmissionId, actual.SubmissionId);
         Assert.AreEqual(expected.WorkflowId, actual.WorkflowId);
+        Assert.AreEqual(expected.RootJobId, actual.RootJobId);
         Assert.AreEqual(expected.SubmittedCount, actual.SubmittedCount);
         Assert.AreEqual(0, actual.RejectionReasons.Count);
     }

@@ -318,9 +318,6 @@
   function composeSearchDownload(draft: SearchDraft): void {
     if (composingJobCommitPending) return;
     composerSearch = JSON.parse(JSON.stringify(draft)) as SearchDraft;
-    activePage = 'jobs';
-    jobsTab = 'downloads';
-    backToJobs();
     composingJob = true;
   }
 
@@ -393,6 +390,21 @@
     }
   }
 
+  function openAutomaticJob(jobId: string, detail: Schema<'JobDetailDto'> | null = null): void {
+    routeRequest?.abort();
+    jobRouteError = null;
+    jobsTab = 'downloads';
+    automaticJobId = jobId;
+    automaticInitialDetail = detail;
+    openingJobKey = null;
+    showingSearch = false;
+    composingJob = false;
+    activePage = 'jobs';
+    pendingJobId = jobId;
+    mutationError = null;
+    setPath(`/jobs/${encodeURIComponent(jobId)}`);
+  }
+
   async function openJob(job: JobSummaryDto, detail?: Schema<'JobDetailDto'>): Promise<void> {
     if (!job.jobId) return;
     if (!job.kind) {
@@ -416,15 +428,7 @@
     }
     jobsTab = job.kind === 'search' ? 'searches' : 'downloads';
     if (!showsSearchResults(job)) {
-      automaticJobId = job.jobId;
-      automaticInitialDetail = detail ?? null;
-      openingJobKey = null;
-      showingSearch = false;
-      composingJob = false;
-      activePage = 'jobs';
-      pendingJobId = job.jobId;
-      mutationError = null;
-      setPath(`/jobs/${encodeURIComponent(job.jobId)}`);
+      openAutomaticJob(job.jobId, detail);
       return;
     }
     searchResults.load();
@@ -654,7 +658,7 @@
     {/key}
     {/if}
   {:else if activePage === 'dashboard'}
-    <Dashboard liveStatus={liveStatus} terminalTransferCommitRevision={liveState.daemon?.terminalTransferCommitRevision ?? 0} soulseek={liveState.daemon?.soulseekClient} transfers={liveState.transferSummary} {userActions} />
+    <Dashboard liveStatus={liveStatus} terminalTransferCommitRevision={liveState.daemon?.terminalTransferCommitRevision ?? 0} soulseek={liveState.daemon?.soulseekClient} activity={liveState.activitySummary} {userActions} />
   {:else if activePage === 'downloads'}
     <TransfersPage
       direction="download"
@@ -727,9 +731,9 @@
 
 <ConfigurationDialog configuration={liveState.daemon?.configuration} epoch={liveState.epoch} />
 
-{#if activePage === 'jobs' && !showingSearch && !automaticJobId && composingJob}
+{#if composingJob}
   <Modal title="Create new job" label="New job" closeLabel="Close new job" wide locked={composingJobCommitPending}
     onclose={() => { composingJob = false; }}>
-    <NewJobComposer initialSearch={composerSearch} oncommittingchange={(pending) => (composingJobCommitPending = pending)} onstarted={() => { composingJobCommitPending = false; composingJob = false; if (jobLists.downloads.submissionId) jobLists.downloads.filterSubmission(null); else jobLists.downloads.refresh(); changeJobsTab('downloads'); }} />
+    <NewJobComposer initialSearch={composerSearch} oncommittingchange={(pending) => (composingJobCommitPending = pending)} onstarted={(rootJobId) => { composingJobCommitPending = false; openAutomaticJob(rootJobId); }} />
   </Modal>
 {/if}

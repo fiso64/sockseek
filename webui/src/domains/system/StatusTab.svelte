@@ -5,9 +5,13 @@
   import { browserSession } from '../../api/session.svelte';
   import { formatBytes, formatCount, humanizeStateValue, soulseekStatusLabel } from '../../app/format';
   import Notice from '../../components/Notice.svelte';
-  import LoadingIndicator from '../../components/LoadingIndicator.svelte';
 
-  let { daemon, liveStatus, liveClient }: { liveClient: DaemonLiveClient; daemon: Schema<'DaemonStateDto'> | null; liveStatus: LiveConnectionStatus } = $props();
+  let { daemon, liveStatus, liveClient, onloadingchange }: {
+    liveClient: DaemonLiveClient;
+    daemon: Schema<'DaemonStateDto'> | null;
+    liveStatus: LiveConnectionStatus;
+    onloadingchange: (loading: boolean) => void;
+  } = $props();
   const http = new DaemonHttpClient();
   let info = $state<Schema<'ServerInfoDto'> | null>(null);
   let status = $state<Schema<'ServerStatusDto'> | null>(null);
@@ -19,6 +23,8 @@
   const persistence = $derived(status?.persistence);
   const connection = $derived(status?.connection);
   const client = $derived(daemon?.soulseekClient ?? status?.soulseekClient);
+
+  $effect(() => onloadingchange(!status && !error));
 
   // Live counters/status already arrive through App's stream. Fetch storage and
   // connection details on entry, reconnect or retry, without polling.
@@ -43,10 +49,7 @@
 {#if error}<Notice variant="unavailable">{error}<button class="button auth-button" onclick={() => retry++}>Retry</button></Notice>{/if}
 <div class="status-grid">
   <section class="panel status-card" aria-labelledby="daemon-heading">
-    <div class="status-card-heading">
-      <h2 id="daemon-heading">Daemon</h2>
-      {#if !status && !error}<LoadingIndicator label="Loading system status" />{/if}
-    </div>
+    <h2 id="daemon-heading">Daemon</h2>
     <dl>
       <div><dt>Version</dt><dd>{info?.version ?? '—'}</dd></div>
       <div><dt>Started</dt><dd>{date(info?.startedAtUtc)}</dd></div>
@@ -105,8 +108,6 @@
 <style>
   .status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .status-card { padding: 20px 22px; border-radius: 12px; min-width: 0; }
-  .status-card-heading { position: relative; }
-  .status-card-heading :global(.loading-indicator) { position: absolute; top: 0; right: 0; padding: 0; }
   h2 { margin: 0; padding-bottom: 12px; border-bottom: 1px solid var(--border); font-size: .95rem; font-weight: 650; }
   dl { margin: 14px 0 0; display: grid; gap: 12px; font-size: .8125rem; line-height: 1.4; }
   dl > div { display: grid; grid-template-columns: minmax(100px, .85fr) minmax(0, 1.15fr); gap: 14px; }

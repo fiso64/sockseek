@@ -10861,6 +10861,8 @@ export interface components {
             /** Format: int32 */
             rejectedCount: number | string;
             rejectionReasons: components["schemas"]["SubmissionReasonCountDto"][];
+            /** Format: uuid */
+            rootJobId?: null | string;
         };
         CommitSearchViewSelectionRequestDto: {
             /** Format: int64 */
@@ -12315,7 +12317,7 @@ export interface components {
                     hasEarlierMessages?: null | boolean;
                 }[];
                 userBrowse?: components["schemas"]["UserBrowseDto"] | null;
-                transferSummary?: {
+                activitySummary?: {
                     /** Format: int32 */
                     active: number | string;
                     /** Format: int32 */
@@ -12330,6 +12332,16 @@ export interface components {
                     downloadRate: number | string;
                     /** Format: int64 */
                     uploadRate: number | string;
+                    /**
+                     * Format: int32
+                     * @default 0
+                     */
+                    runningJobCount: number | string;
+                    /**
+                     * Format: int32
+                     * @default 0
+                     */
+                    pendingJobCount: number | string;
                 };
             };
             /** Format: int32 */
@@ -12716,20 +12728,7 @@ export interface components {
             /** @default true */
             remember: boolean;
         };
-        /** @enum {unknown} */
-        LiveClientInvocation: "SubscribeAll" | "UnsubscribeAll" | "SubscribeWorkflow" | "UnsubscribeWorkflow" | "SubscribeChat" | "UnsubscribeChat" | "SubscribeUserBrowse" | "UnsubscribeUserBrowse" | "ObserveUserPresence" | "ObserveSearchView" | "ObserveTransferTimeline" | "ObserveJobs" | "ObserveJobList";
-        /** @enum {integer} */
-        LiveProtocolContractVersion: 19;
-        /** @enum {unknown} */
-        LiveServerMessage: "stateUpdateBatch";
-        LiveTransferPageDto: {
-            items: components["schemas"]["TransferStateDto"][];
-            nextCursor?: null | string;
-            /** Format: int64 */
-            observedQueueRevision: number | string;
-            queueChanged: boolean;
-        };
-        LiveTransferSummaryDto: {
+        LiveActivitySummaryDto: {
             /** Format: int32 */
             active: number | string;
             /** Format: int32 */
@@ -12744,6 +12743,29 @@ export interface components {
             downloadRate: number | string;
             /** Format: int64 */
             uploadRate: number | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            runningJobCount: number | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            pendingJobCount: number | string;
+        };
+        /** @enum {unknown} */
+        LiveClientInvocation: "SubscribeAll" | "UnsubscribeAll" | "SubscribeWorkflow" | "UnsubscribeWorkflow" | "SubscribeChat" | "UnsubscribeChat" | "SubscribeUserBrowse" | "UnsubscribeUserBrowse" | "ObserveUserPresence" | "ObserveSearchView" | "ObserveTransferTimeline" | "ObserveJobs" | "ObserveJobList";
+        /** @enum {integer} */
+        LiveProtocolContractVersion: 20;
+        /** @enum {unknown} */
+        LiveServerMessage: "stateUpdateBatch";
+        LiveTransferPageDto: {
+            items: components["schemas"]["TransferStateDto"][];
+            nextCursor?: null | string;
+            /** Format: int64 */
+            observedQueueRevision: number | string;
+            queueChanged: boolean;
         };
         LoginRequestDto: {
             username: string;
@@ -14298,7 +14320,7 @@ export interface components {
                 hasEarlierMessages?: null | boolean;
             }[];
             userBrowse?: components["schemas"]["UserBrowseDto"] | null;
-            transferSummary?: {
+            activitySummary?: {
                 /** Format: int32 */
                 active: number | string;
                 /** Format: int32 */
@@ -14313,6 +14335,16 @@ export interface components {
                 downloadRate: number | string;
                 /** Format: int64 */
                 uploadRate: number | string;
+                /**
+                 * Format: int32
+                 * @default 0
+                 */
+                runningJobCount: number | string;
+                /**
+                 * Format: int32
+                 * @default 0
+                 */
+                pendingJobCount: number | string;
             };
         };
         StateSnapshotDto: {
@@ -14327,7 +14359,7 @@ export interface components {
             transfers: components["schemas"]["TransferStateDto"][];
             chatTarget?: null | components["schemas"]["ChatTargetSnapshotDto"];
             userBrowse?: null | components["schemas"]["UserBrowseDto"];
-            transferSummary?: null | components["schemas"]["LiveTransferSummaryDto"];
+            activitySummary?: null | components["schemas"]["LiveActivitySummaryDto"];
             jobHistoryPosition?: null | components["schemas"]["StateStreamPositionDto"];
         };
         StateStreamPositionDto: {
@@ -15046,7 +15078,7 @@ export interface components {
                     hasEarlierMessages?: null | boolean;
                 }[];
                 userBrowse?: components["schemas"]["UserBrowseDto"] | null;
-                transferSummary?: {
+                activitySummary?: {
                     /** Format: int32 */
                     active: number | string;
                     /** Format: int32 */
@@ -15061,6 +15093,16 @@ export interface components {
                     downloadRate: number | string;
                     /** Format: int64 */
                     uploadRate: number | string;
+                    /**
+                     * Format: int32
+                     * @default 0
+                     */
+                    runningJobCount: number | string;
+                    /**
+                     * Format: int32
+                     * @default 0
+                     */
+                    pendingJobCount: number | string;
                 };
             };
             activity: {

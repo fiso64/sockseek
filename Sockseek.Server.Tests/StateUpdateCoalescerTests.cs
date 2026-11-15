@@ -78,30 +78,30 @@ public class StateUpdateCoalescerTests
     }
 
     [TestMethod]
-    public void GlobalTransferTotalsCoalesceAndRecoverIndependentlyOfCachedRows()
+    public void GlobalActivityTotalsCoalesceAndRecoverIndependentlyOfCachedRows()
     {
         StateUpdateBatchDto? published = null;
         var coalescer = new StateUpdateCoalescer(batches => published = batches.Single().ToDto());
         var epoch = Guid.NewGuid();
         var client = new DaemonClientStore();
-        Assert.IsNull(client.GetTransferSummary());
-        var first = new LiveTransferSummaryDto(12, 10, 2, 3, 0, 100, 20);
-        var latest = first with { Queued = 2, DownloadRate = 200 };
+        Assert.IsNull(client.GetActivitySummary());
+        var first = new LiveActivitySummaryDto(12, 10, 2, 3, 0, 100, 20, 4, 5);
+        var latest = first with { Queued = 2, DownloadRate = 200, RunningJobCount = 5, PendingJobCount = 4 };
         client.ApplySnapshot(new(StateStreamScopeDto.Daemon, new(epoch, 0), DateTimeOffset.UnixEpoch,
-            null, [], [], [], [], TransferSummary: first));
+            null, [], [], [], [], ActivitySummary: first));
         CaptureUpdate(coalescer, new(StateStreamScopeDto.Daemon, epoch, 0, 1, DateTimeOffset.UnixEpoch,
-            StateDelta.Empty with { TransferSummary = first }, []));
+            StateDelta.Empty with { ActivitySummary = first }, []));
         CaptureUpdate(coalescer, new(StateStreamScopeDto.Daemon, epoch, 1, 2, DateTimeOffset.UnixEpoch,
-            StateDelta.Empty with { TransferSummary = latest }, []));
+            StateDelta.Empty with { ActivitySummary = latest }, []));
         coalescer.Flush();
         Assert.IsNotNull(published);
         Assert.AreEqual(DaemonClientApplyStatus.Applied, client.Apply(published).Status);
-        Assert.AreEqual(latest, client.GetTransferSummary());
-        Assert.AreEqual(latest, client.GetLiveStateView().TransferSummary);
+        Assert.AreEqual(latest, client.GetActivitySummary());
+        Assert.AreEqual(latest, client.GetLiveStateView().ActivitySummary);
         Assert.AreEqual(0, client.GetTransfers().Count);
         client.ApplySnapshot(new(StateStreamScopeDto.Daemon, new(Guid.NewGuid(), 0), DateTimeOffset.UnixEpoch,
-            null, [], [], [], [], TransferSummary: LiveTransferSummaryDto.Empty));
-        Assert.AreEqual(LiveTransferSummaryDto.Empty, client.GetTransferSummary());
+            null, [], [], [], [], ActivitySummary: LiveActivitySummaryDto.Empty));
+        Assert.AreEqual(LiveActivitySummaryDto.Empty, client.GetActivitySummary());
     }
 
     [TestMethod]

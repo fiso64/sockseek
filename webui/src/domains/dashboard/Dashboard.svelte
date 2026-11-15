@@ -1,13 +1,14 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import type { DashboardAnalyticsDto } from '../../api/types';
-  import type { LiveTransferSummary } from '../../api/state.svelte';
+  import type { LiveActivitySummary } from '../../api/state.svelte';
   import type { LiveConnectionStatus } from '../../api/live';
   import type { UserLinkActions } from '../../app/navigation';
   import { daemonApi } from '../../api/client';
   import { formatBytes as formatKnownBytes, formatCount as formatKnownCount, formatCountWithNoun, humanizeStateValue, soulseekStatusLabel } from '../../app/format';
   import UsernameLink from '../../components/UsernameLink.svelte';
   import Icon from '../../components/Icon.svelte';
+  import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { availableDashboardSummary, dashboardByteAxis, dashboardChartLabels, dashboardTransferRate, shareRatioDelta } from './presentation';
 
   const rangeIds = ['24h', '7d', '30d', '90d', '1y', 'all'] as const;
@@ -22,11 +23,11 @@
     liveStatus: LiveConnectionStatus;
     terminalTransferCommitRevision: number | string;
     soulseek?: import('../../api/types').Schema<'SoulseekClientStatusDto'> | null;
-    transfers: Readonly<LiveTransferSummary>;
+    activity: Readonly<LiveActivitySummary>;
     userActions: UserLinkActions;
   }
 
-  let { liveStatus, terminalTransferCommitRevision, soulseek = null, transfers, userActions }: Props = $props();
+  let { liveStatus, terminalTransferCommitRevision, soulseek = null, activity, userActions }: Props = $props();
   let range = $state<RangeId>('30d');
   let rankingTab = $state<'transfers' | 'content' | 'errors'>('transfers');
   let data = $state<DashboardAnalyticsDto | null>(null);
@@ -170,7 +171,7 @@
       <h1>Dashboard</h1>
     </div>
     <div class="dashboard-range-control" aria-label="Dashboard history range">
-      <span class="dashboard-range-label" role="status">{loading ? 'Loading analytics' : ''}</span>
+      <span class="page-loading">{#if loading}<LoadingIndicator compact label="Loading analytics" />{/if}</span>
       <div class="segmented-control range-buttons">
         {#each rangeIds as id}
           <button type="button" class:active={range === id} onclick={() => (range = id)}>{rangeLabels[id]}</button>
@@ -359,19 +360,23 @@
         <div class="summary-metrics">
           <div>
             <span>Download</span>
-            <strong class="rate-value download"><i aria-hidden="true">↓</i>{dashboardTransferRate(transfers.downloadRate)}</strong>
+            <strong class="rate-value download"><i aria-hidden="true">↓</i>{dashboardTransferRate(activity.downloadRate)}</strong>
           </div>
           <div>
             <span>Upload</span>
-            <strong class="rate-value upload"><i aria-hidden="true">↑</i>{dashboardTransferRate(transfers.uploadRate)}</strong>
+            <strong class="rate-value upload"><i aria-hidden="true">↑</i>{dashboardTransferRate(activity.uploadRate)}</strong>
           </div>
           <div data-testid="dashboard-active-downloads">
             <span>Active downloads</span>
-            <strong>{formatCount(transfers.downloads)}</strong>
+            <strong>{formatCount(activity.downloads)}</strong>
           </div>
           <div data-testid="dashboard-active-uploads">
             <span>Active uploads</span>
-            <strong>{formatCount(transfers.uploads)}</strong>
+            <strong>{formatCount(activity.uploads)}</strong>
+          </div>
+          <div data-testid="dashboard-running-jobs">
+            <span>Running / Pending jobs</span>
+            <strong>{formatCount(activity.runningJobCount)} / {formatCount(activity.pendingJobCount)}</strong>
           </div>
         </div>
       </section>
@@ -383,7 +388,7 @@
         <div class="health-list">
           <div><span>Soulseek</span><strong>{soulseekStatusLabel(soulseek, daemonReachable)}</strong></div>
           <div><span>Daemon</span><strong>{humanizeStateValue(liveStatus)}</strong></div>
-          <div><span>Transfer errors</span><strong>{transfers.failed} recent</strong></div>
+          <div><span>Transfer errors</span><strong>{activity.failed} recent</strong></div>
           <div><span>API latency</span><strong>{daemonReachable && apiLatencyMs !== null ? `${apiLatencyMs} ms` : '—'}</strong></div>
         </div>
       </section>

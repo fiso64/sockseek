@@ -1,7 +1,7 @@
 <script lang="ts">
   import ProfilePicker from '../../components/ProfilePicker.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import Icon from '../../components/Icon.svelte';
   import PageTabs from '../../components/PageTabs.svelte';
   import DownloadOptionsPanel from '../../components/DownloadOptionsPanel.svelte';
@@ -24,7 +24,7 @@
   import { jobKindIcon, jobKindLabel } from './kind';
   import { basename } from '../presentation/items';
 
-  let { initialSearch = null, onstarted, oncommittingchange }: { initialSearch?: SearchDraft | null; onstarted: () => void; oncommittingchange: (committing: boolean) => void } = $props();
+  let { initialSearch = null, onstarted, oncommittingchange }: { initialSearch?: SearchDraft | null; onstarted: (rootJobId: string) => void; oncommittingchange: (committing: boolean) => void } = $props();
   const initial = untrack(() => initialSearch);
   let draft = $state(initial ? newJobDraftFromSearch(initial) : createNewJobDraft());
   const initialChoice = untrack(() => draft.choice);
@@ -51,6 +51,9 @@
   let downloadValues = $state<DownloadOptions | null>(null);
   let downloadBaseline = $state<DownloadOptions | null>(null);
   let settingsLoading = $state(false);
+  let settingsReady: Promise<void> = Promise.resolve();
+  let preparing = $state(false);
+  let stopped = false;
   let settingsError = $state<Error | null>(null);
   let settingsRetry = $state(0);
   let downloadCapabilities = $derived({ albumFolderEnrichment: draft.choice !== 'song' && draft.choice !== 'soulseek-link', playlistOutput: ['spotify', 'youtube', 'soundcloud', 'bandcamp', 'musicbrainz', 'csv', 'list'].includes(draft.choice), nameFormat: true });
@@ -82,7 +85,7 @@
     : draft.choice === 'album' ? Boolean(draft.album.trim())
     : draft.choice === 'csv' || draft.choice === 'list' ? (draft.fileInput === 'path' ? Boolean(draft.source.trim()) : Boolean(draft.artifactId))
     : draft.choice === 'spotify' && draft.spotifyInput !== 'url' || Boolean(draft.source.trim()));
-  let busy = $derived(uploading || settingsLoading || Boolean(settingsError) || preview.loading || preview.summary?.state === 'Planning' || Boolean(preview.committing));
+  let busy = $derived(uploading || !downloadBaseline || preparing || Boolean(settingsError) || preview.loading || preview.summary?.state === 'Planning' || Boolean(preview.committing));
   $effect(() => oncommittingchange(Boolean(preview.committing)));
   let subtreeCounts = $derived(new Map([...preview.branches.values()].flatMap((page) =>
     page.items.map((node) => [node.ref, Number(node.selectableSubtreeCount)] as const))));
@@ -120,10 +123,12 @@
     const carriedSettings = carriedSearchSettings;
     const requestFamily: ConditionFamily = requestDraft.choice === 'song' ? 'track' : requestDraft.choice === 'album' ? 'album' : 'mixed';
     const abort = new AbortController();
+    let settled!: () => void;
+    settingsReady = new Promise<void>((resolve) => { settled = resolve; });
     const timer = untrack(() => {
       settingsLoading = true;
       settingsError = null;
-      // Coalesce typing, but keep submission blocked until the current draft resolves.
+      // Refresh in the background; explicit actions await this request before planning.
       return setTimeout(async () => {
         try {
           const resolved = await daemonApi.resolveEffectiveSettings({ ...buildJobSettingsRequest(requestDraft),
@@ -154,10 +159,10 @@
           downloadBaseline = baseline;
         } catch (cause) {
           if (!abort.signal.aborted) settingsError = cause instanceof Error ? cause : new Error(String(cause));
-        } finally { if (!abort.signal.aborted) settingsLoading = false; }
+        } finally { if (!abort.signal.aborted) settingsLoading = false; settled(); }
       }, downloadBaseline ? 200 : 0);
     });
-    return () => { clearTimeout(timer); abort.abort(); };
+    return () => { clearTimeout(timer); abort.abort(); settled(); };
   });
 
   $effect(() => {
@@ -179,9 +184,9 @@
         automaticStart = false;
         void controller.commit({ mode: 'AllExcept', refs: [] });
       }
-      if (state.receipt?.submissionId) onstarted();
+      if (state.receipt?.rootJobId) onstarted(state.receipt.rootJobId);
     });
-    return () => { unsubscribe(); controller.stop(); upload?.abort(); };
+    return () => { stopped = true; unsubscribe(); controller.stop(); upload?.abort(); };
   });
 
   function change(next: NewJobDraft): void {
@@ -241,9 +246,14 @@
     } finally { if (upload === request) uploading = false; }
   }
 
-  function plan(start: boolean): void {
+  async function plan(start: boolean): Promise<void> {
     if (busy) return;
+    preparing = true;
     try {
+      // Flush the latest input and freeze editing before awaiting its settings.
+      await tick();
+      await settingsReady;
+      if (stopped || settingsError || !valid) return;
       const settings: Schema<'DownloadSettingsPatchDto'> = { ...downloadPatch.downloadSettings, search: carriedSearchSettings };
       if (conditionSession && draft.choice !== 'soulseek-link') {
         const searchEdits = searchConditionsPatchForFamily(family, conditionSession.baseline, conditionSession.values);
@@ -266,6 +276,7 @@
       automaticStart = start;
       void controller.create(request);
     } catch (cause) { error = cause instanceof Error ? cause : new Error(String(cause)); }
+    finally { preparing = false; }
   }
 
   function toggle(ref: string, selected: boolean): void {
@@ -280,7 +291,7 @@
 </script>
 
 <section class="new-job-composer" aria-label="New job">
-  <div class="new-job-layout" inert={preview.committing ? true : undefined}>
+  <div class="new-job-layout" inert={preparing || preview.committing ? true : undefined}>
     <JobTypeNav value={draft.choice} onchange={choose} />
     <div class="new-job-workspace">
       <div class="new-job-scroll-area">
@@ -294,12 +305,12 @@
               <PageTabs variant="segmented" id="new-job-options" label="Job options" items={optionTabs} value={optionsTab} onchange={(tab) => (optionsTab = tab)} />
               <div class="search-config-actions">
                 {#if optionsTab === 'filtering' || optionsTab === 'ranking'}
-                  <button class="button" type="button" data-testid="search-config-clear" disabled={settingsLoading || Boolean(settingsError) || !conditionPanel} onclick={() => conditionPanel?.clearActiveTab()}>Clear</button>
-                  <button class="button" type="button" data-testid="search-config-reset" disabled={settingsLoading || Boolean(settingsError) || !conditionPanel} onclick={() => conditionPanel?.resetActiveTab()}>Reset</button>
+                  <button class="button" type="button" data-testid="search-config-clear" disabled={Boolean(settingsError) || !conditionPanel} onclick={() => conditionPanel?.clearActiveTab()}>Clear</button>
+                  <button class="button" type="button" data-testid="search-config-reset" disabled={Boolean(settingsError) || !conditionPanel} onclick={() => conditionPanel?.resetActiveTab()}>Reset</button>
                 {:else if optionsTab === 'review'}
                   <button class="button" type="button" data-testid="new-job-selection-toggle" onclick={() => { all = !all; selectionRules = []; }}>{all ? 'Deselect all' : 'Select all'}</button>
                 {:else}
-                  <button class="button" type="button" data-testid="new-job-options-reset" disabled={settingsLoading || Boolean(settingsError)} onclick={() => {
+                  <button class="button" type="button" data-testid="new-job-options-reset" disabled={!downloadBaseline || Boolean(settingsError)} onclick={() => {
                     if (optionsTab === 'import') {
                       importOptions = { ...(importBaseline ?? createImportOptions()) };
                       if (draft.choice === 'csv') csvMapping = { ...(csvBaseline ?? {}) };

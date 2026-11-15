@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, type Snippet } from 'svelte';
+  import { onMount, tick, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
 
   let { title, label = title, closeLabel = 'Close dialog', wide = false, compact = false, locked = false, onclose, children }: {
@@ -13,8 +13,21 @@
     children: Snippet;
   } = $props();
   let dialog: HTMLDialogElement;
+  let heading: HTMLHeadingElement;
+  let closeButton: HTMLButtonElement;
   let pressedOutside = false;
-  onMount(() => dialog.showModal());
+  onMount(() => {
+    dialog.showModal();
+    void tick().then(() => {
+      // Respect explicit content focus; prefer a visible field over dialog chrome.
+      if (!dialog.open || document.activeElement !== closeButton && document.activeElement !== heading) return;
+      const field = [...dialog.querySelectorAll<HTMLElement>(
+        '.modal-body :is(input:not([type="hidden"], [type="checkbox"], [type="radio"]), textarea, select)',
+      )].find(element => !element.matches(':disabled') && !element.closest('[inert]')
+        && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }));
+      (field ?? heading).focus({ preventScroll: true });
+    });
+  });
 
   function outside(event: MouseEvent): boolean {
     const bounds = dialog.getBoundingClientRect();
@@ -41,8 +54,8 @@
   onpointerdown={(event) => { pressedOutside = event.target === dialog && outside(event); }}
   onclick={(event) => { if (pressedOutside && event.target === dialog && outside(event)) dismiss(); }}>
   <header class="panel-header">
-    <h2>{title}</h2>
-    <button type="button" class="button modal-close" aria-label={closeLabel} disabled={locked} onclick={dismiss}><Icon name="x" /></button>
+    <h2 bind:this={heading} tabindex="-1">{title}</h2>
+    <button bind:this={closeButton} type="button" class="button modal-close" aria-label={closeLabel} disabled={locked} onclick={dismiss}><Icon name="x" /></button>
   </header>
   <div class="modal-body">{@render children()}</div>
 </dialog>
@@ -56,6 +69,7 @@
   dialog::backdrop { background: color-mix(in srgb, var(--bg) 74%, transparent); backdrop-filter: blur(3px); }
   header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; }
   h2 { margin: 0; font-size: 1.08rem; font-weight: 650; }
+  h2:focus { outline: none; }
   .modal-close { width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border-radius: 8px; }
   .modal-close :global(.app-icon) { --app-icon-size: 16px; }
   .modal-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 18px; }

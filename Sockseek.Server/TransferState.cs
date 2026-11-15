@@ -7,6 +7,13 @@ using Sockseek.Core.Transfers.Uploads;
 
 namespace Sockseek.Server;
 
+internal readonly record struct TransferSummary(
+    int Active, int Downloads, int Uploads, int Queued, int Failed,
+    long DownloadRate, long UploadRate)
+{
+    public static TransferSummary Empty => default;
+}
+
 /// <summary>
 /// The live transfer facts and their read revision have one mutation boundary.
 /// EngineStateStore holds its gate; callers receive read-only dictionaries so a
@@ -21,7 +28,6 @@ internal sealed class TransferState
     private readonly Dictionary<TransferOwner, Counts> ownerCounts = [];
     private readonly HashSet<Guid> visibleWorkflows = [];
     private Counts totals;
-    private LiveTransferSummaryDto? summary;
     private readonly Guid epoch = Guid.NewGuid();
     private long revision;
     internal TransferPersistence? Persistence { get; set; }
@@ -37,7 +43,7 @@ internal sealed class TransferState
         => jobIds.Where(transfersByJob.ContainsKey).SelectMany(id => transfersByJob[id])
             .Select(id => active[id]).ToArray();
     public StateStreamPositionDto Position => new(epoch, revision);
-    public LiveTransferSummaryDto Summary => summary ??= new(totals.Active, totals.Downloads,
+    public TransferSummary Summary => new(totals.Active, totals.Downloads,
         totals.Uploads, totals.Queued, totals.Failed, totals.DownloadRate, totals.UploadRate);
 
     public int AttemptCount => attempts.Count;
@@ -218,7 +224,6 @@ internal sealed class TransferState
         if (changed && ownerCounts.TryGetValue(new(workflowId), out var counts))
         {
             totals.Add(counts, visible ? 1 : -1);
-            summary = null;
         }
     }
     // Subscribers buffer facts only. Reads and transport publication run after
@@ -300,7 +305,6 @@ internal sealed class TransferState
         if (owner.WorkflowId is null || visibleWorkflows.Contains(owner.WorkflowId.Value))
         {
             totals.Add(contribution, sign);
-            summary = null;
         }
     }
 

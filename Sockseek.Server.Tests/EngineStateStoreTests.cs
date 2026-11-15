@@ -17,6 +17,53 @@ namespace Tests.Server;
 public class EngineStateStoreTests
 {
     [TestMethod]
+    public void JobCountsTrackLifecycleInDaemonSnapshotsAndUpdates()
+    {
+        var store = new EngineStateStore();
+        var updates = new List<(int Running, int Pending)>();
+        store.StateBatchPublished += batch =>
+        {
+            if (batch.Scope.Kind == StateStreamScopeKind.Daemon && batch.State.ActivitySummary is { } summary)
+            {
+                Assert.IsNull(batch.State.Daemon, "Job counts must not republish unrelated daemon state.");
+                updates.Add((summary.RunningJobCount, summary.PendingJobCount));
+            }
+        };
+        var root = new SearchJob("Running count");
+        Register(store, root);
+        Assert.AreEqual(0, store.GetDaemonSnapshot(DaemonStateDetail.Overview).ActivitySummary!.RunningJobCount);
+        Assert.AreEqual(1, store.GetDaemonSnapshot(DaemonStateDetail.Overview).ActivitySummary!.PendingJobCount);
+        root.UpdateActivity(JobActivityPhase.Searching);
+        UpdateState(store, root);
+        UpdateState(store, root);
+        Assert.AreEqual(1, store.GetDaemonSnapshot().ActivitySummary!.RunningJobCount);
+        var child = new SongJob(new SongQuery { Title = "Nested execution" }) { WorkflowId = root.WorkflowId };
+        Register(store, child, root);
+        Assert.AreEqual(1, store.GetDaemonSnapshot().ActivitySummary!.PendingJobCount);
+        child.UpdateActivity(JobActivityPhase.Downloading);
+        UpdateState(store, child);
+        Assert.AreEqual(2, store.GetDaemonSnapshot(DaemonStateDetail.Overview).ActivitySummary!.RunningJobCount);
+        root.SetAwaitingSelection();
+        UpdateState(store, root);
+        Assert.AreEqual(1, store.GetDaemonSnapshot().ActivitySummary!.RunningJobCount);
+        child.SetDone();
+        UpdateState(store, child);
+        UpdateState(store, child);
+        Assert.AreEqual(0, store.GetDaemonSnapshot().ActivitySummary!.RunningJobCount);
+        root.SetDone();
+        UpdateState(store, root);
+        Assert.AreEqual(0, store.GetDaemonSnapshot().ActivitySummary!.RunningJobCount);
+        Assert.AreEqual(0, store.GetDaemonSnapshot().ActivitySummary!.PendingJobCount);
+        var pending = new SearchJob("Pending removal") { SubmissionId = Guid.NewGuid() };
+        Register(store, pending);
+        Assert.AreEqual(1, store.GetDaemonSnapshot().ActivitySummary!.PendingJobCount);
+        store.RemoveSubmissions([pending.SubmissionId.Value]);
+        store.FlushStateUpdates();
+        Assert.AreEqual(0, store.GetDaemonSnapshot().ActivitySummary!.PendingJobCount);
+        CollectionAssert.AreEqual(new[] { (0, 1), (1, 0), (1, 1), (2, 0), (1, 0), (0, 0), (0, 1), (0, 0) }, updates);
+    }
+
+    [TestMethod]
     public void SubmissionDeletionInvalidatesReadersAndRemovesLiveMembers()
     {
         var store = new EngineStateStore();
@@ -333,10 +380,10 @@ public class EngineStateStoreTests
             UploadCancellationSource.None, 0, 0, null, null, null);
         state.ApplyDownload(download, terminal: false);
         state.ApplyUpload(upload);
-        Assert.AreEqual(LiveTransferSummaryDto.Empty, state.Summary);
+        Assert.AreEqual(TransferSummary.Empty, state.Summary);
         state.SetWorkflowVisible(workflow, true);
-        Assert.AreEqual(new LiveTransferSummaryDto(1, 1, 0, 0, 0, 10, 0), state.Summary);
-        LiveTransferSummaryDto earlier = state.Summary;
+        Assert.AreEqual(new TransferSummary(1, 1, 0, 0, 0, 10, 0), state.Summary);
+        TransferSummary earlier = state.Summary;
 
         upload = upload with { Revision = 2, State = UploadTransferState.InProgress, BytesPerSecond = 7,
             Attempt = new(Guid.NewGuid(), 1, DateTimeOffset.UnixEpoch, null, 0, 7) };
@@ -345,28 +392,28 @@ public class EngineStateStoreTests
         state.ApplyDownload(download, terminal: false);
         Assert.AreEqual(download.Id, state.ForJobs(new HashSet<Guid> { job }).Single().TransferId);
         Assert.AreEqual(0, state.ForJobs(new HashSet<Guid> { Guid.NewGuid() }).Count);
-        Assert.AreEqual(new LiveTransferSummaryDto(2, 1, 1, 0, 0, 30, 7), state.Summary);
+        Assert.AreEqual(new TransferSummary(2, 1, 1, 0, 0, 30, 7), state.Summary);
         Assert.AreEqual(10, earlier.DownloadRate, "Previously published totals must not mutate.");
 
         state.SetWorkflowVisible(workflow, false);
-        Assert.AreEqual(new LiveTransferSummaryDto(1, 0, 1, 0, 0, 0, 7), state.Summary);
+        Assert.AreEqual(new TransferSummary(1, 0, 1, 0, 0, 0, 7), state.Summary);
         Assert.AreEqual(2, state.Active.Count, "Visibility must not retire the underlying transfer facts.");
         state.SetWorkflowVisible(workflow, true);
         download = download with { Revision = 3, State = "Queued, Remotely", BytesPerSecond = 0 };
         state.ApplyDownload(download, terminal: false);
-        Assert.AreEqual(new LiveTransferSummaryDto(2, 1, 1, 1, 0, 0, 7), state.Summary);
+        Assert.AreEqual(new TransferSummary(2, 1, 1, 1, 0, 0, 7), state.Summary);
         Assert.AreEqual("Queued, Remotely", state.Active[download.Id].State);
         download = download with { Revision = 4,
             State = "Failed", TerminalOutcome = TransferSnapshotTerminalOutcome.Failed };
         state.ApplyDownload(download, terminal: false);
-        Assert.AreEqual(new LiveTransferSummaryDto(1, 0, 1, 0, 1, 0, 7), state.Summary);
+        Assert.AreEqual(new TransferSummary(1, 0, 1, 0, 1, 0, 7), state.Summary);
         state.SetWorkflowVisible(workflow, false);
         Assert.AreEqual(0, state.Summary.Failed);
         state.SetWorkflowVisible(workflow, true);
         Assert.AreEqual(1, state.Summary.Failed);
         state.Remove(download.Id);
         state.Remove(upload.TransferId);
-        Assert.AreEqual(LiveTransferSummaryDto.Empty, state.Summary);
+        Assert.AreEqual(TransferSummary.Empty, state.Summary);
         Assert.AreEqual(0, state.ForJobs(new HashSet<Guid> { job }).Count);
     }
 
@@ -547,8 +594,8 @@ public class EngineStateStoreTests
         }
         Assert.AreEqual(0, daemon.GetJobs().Count);
         Assert.AreEqual(0, daemon.GetTransfers().Count);
-        Assert.AreEqual(LiveTransferSummaryDto.Empty, daemon.GetTransferSummary());
-        Assert.AreEqual(store.GetDaemonSnapshot().TransferSummary, daemon.GetTransferSummary());
+        Assert.AreEqual(LiveActivitySummaryDto.Empty, daemon.GetActivitySummary());
+        Assert.AreEqual(store.GetDaemonSnapshot().ActivitySummary, daemon.GetActivitySummary());
         AssertClientMatchesProjection(store, firstClient, first.WorkflowId);
         AssertClientMatchesProjection(store, secondClient, search.WorkflowId);
         var earlier = captured.Select(update => System.Text.Json.JsonSerializer.Serialize(update.ToDto())).ToArray();
@@ -636,7 +683,7 @@ public class EngineStateStoreTests
             var stats = snapshot.Jobs.Single(row => row.JobId == directory.Id).Stats!;
             Assert.IsTrue(stats.ProgressPercent >= 99, "A burst of progress must also publish its containing job's counters.");
         }
-        Assert.AreEqual(new LiveTransferSummaryDto(2, 2, 0, 0, 0, 0, 0), store.GetDaemonSnapshot().TransferSummary);
+        Assert.AreEqual(new LiveActivitySummaryDto(2, 2, 0, 0, 0, 0, 0, 2, 2), store.GetDaemonSnapshot().ActivitySummary);
     }
 
     [TestMethod]

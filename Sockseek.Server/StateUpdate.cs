@@ -33,7 +33,7 @@ public sealed record StateDelta(
     IReadOnlyList<UserNotificationDto>? Notifications = null,
     IReadOnlyList<ChatTargetDeltaDto>? ChatTargets = null,
     UserBrowseDto? UserBrowse = null,
-    LiveTransferSummaryDto? TransferSummary = null)
+    LiveActivitySummaryDto? ActivitySummary = null)
 {
     public static StateDelta Empty { get; } = new(null, [], [], [], [], [], [], [], []);
 
@@ -41,7 +41,7 @@ public sealed record StateDelta(
         && Searches.Count == 0 && Transfers.Count == 0 && RemovedWorkflowIds.Count == 0
         && RemovedJobIds.Count == 0 && RemovedSearchJobIds.Count == 0 && RemovedTransferIds.Count == 0
         && Notifications is null or { Count: 0 } && ChatTargets is null or { Count: 0 }
-        && UserBrowse is null && TransferSummary is null;
+        && UserBrowse is null && ActivitySummary is null;
 
     public StateDeltaDto ToDto()
     {
@@ -49,7 +49,7 @@ public sealed record StateDelta(
         for (int index = 0; index < jobs.Length; index++) jobs[index] = Jobs[index].ToDto();
         return new(Daemon, Workflows, jobs, Searches, Transfers.Select(transfer => transfer.ToDto()).ToArray(),
             RemovedWorkflowIds, RemovedJobIds, RemovedSearchJobIds, RemovedTransferIds,
-            Notifications, ChatTargets, UserBrowse, TransferSummary);
+            Notifications, ChatTargets, UserBrowse, ActivitySummary);
     }
 }
 

@@ -28,6 +28,7 @@
   const http = new DaemonHttpClient();
   const sharesSession: ShareBrowserSession = {};
   let pending = $state(false);
+  let statusLoading = $state(true);
   let error = $state<string | null>(null);
   let scanPending = $state(false);
   let scanError = $state<string | null>(null);
@@ -67,6 +68,7 @@
       </div>
     </div>
     <div class="settings-actions">
+      <span class="page-loading">{#if tab === 'status' && statusLoading}<LoadingIndicator compact label="Loading system status" />{/if}</span>
       <button class="button auth-button" onclick={() => void rescan()} disabled={scanDisabled}
         title={sharing?.state === 'Disabled' ? 'Configure shared folders before rescanning.' : undefined}>
         <Icon name="refresh" spin={scanning} />{scanning ? 'Scanning…' : 'Rescan shares'}
@@ -106,7 +108,7 @@
     </Notice>
   {/if}
   {#if tab === 'status'}
-    <StatusTab {daemon} {liveStatus} {liveClient} />
+    <StatusTab {daemon} {liveStatus} {liveClient} onloadingchange={(loading) => statusLoading = loading} />
   {:else if tab === 'shares'}
     {#if sharing?.catalog.generationId}
       {#key sharing.catalog.generationId}

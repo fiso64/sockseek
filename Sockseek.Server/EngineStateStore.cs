@@ -38,7 +38,8 @@ public sealed class EngineStateStore
     private bool publishingStateBatches;
     private readonly JobState jobState = new();
     private readonly TransferState transferState = new();
-    private LiveTransferSummaryDto publishedTransferSummary = LiveTransferSummaryDto.Empty;
+    private TransferSummary publishedTransferSummary;
+    private LiveActivitySummaryDto publishedActivitySummary = LiveActivitySummaryDto.Empty;
     private IReadOnlyDictionary<Guid, TransferReadSnapshot> activeTransfers => transferState.Active;
     private IReadOnlyDictionary<Guid, TransferReadSnapshot> liveUploadTransfers => transferState.Uploads;
     private readonly Dictionary<Guid, long> workflowStreamSequences = [];
@@ -471,7 +472,7 @@ public sealed class EngineStateStore
                         transfer.WorkflowId is null
                         || workflowIds.Contains(transfer.WorkflowId.Value))
                     .OrderBy(transfer => transfer.TransferId)
-                    .Select(transfer => transfer.ToDto()).ToList() : [], TransferSummary: transferState.Summary,
+                    .Select(transfer => transfer.ToDto()).ToList() : [], ActivitySummary: CaptureActivitySummary(),
                 JobHistoryPosition: new(streamEpoch, stateUpdates.LastJobSequence));
         }
     }
@@ -1205,7 +1206,7 @@ public sealed class EngineStateStore
         }
         if (terminalWorkflows != null)
             foreach (Guid id in terminalWorkflows) (daemon ??= BeginDaemonChange(occurredAtUtc)).RemoveWorkflow(id);
-        AppendTransferSummary(occurredAtUtc, daemon);
+        AppendActivitySummary(occurredAtUtc, daemon);
     }
 
     private void SetDaemonWorkflowVisible(Guid workflowId, bool visible)
@@ -1248,19 +1249,30 @@ public sealed class EngineStateStore
             GetOrCreateWorkflowStreamEpoch(workflowId), previous, previous + 1, occurredAtUtc);
     }
 
-    private void AppendTransferSummary(DateTimeOffset occurredAtUtc, StateUpdateCoalescer.PendingBatch? pending = null)
+    private LiveActivitySummaryDto CaptureActivitySummary()
     {
-        LiveTransferSummaryDto summary = transferState.Summary;
-        if (summary == publishedTransferSummary) return;
-        publishedTransferSummary = summary;
-        (pending ?? BeginDaemonChange(occurredAtUtc)).SetSummary(summary);
+        var transfers = transferState.Summary;
+        return new(transfers.Active, transfers.Downloads, transfers.Uploads, transfers.Queued,
+            transfers.Failed, transfers.DownloadRate, transfers.UploadRate,
+            jobState.RunningJobCount, jobState.PendingJobCount);
+    }
+
+    private void AppendActivitySummary(DateTimeOffset occurredAtUtc, StateUpdateCoalescer.PendingBatch? pending = null)
+    {
+        var transfers = transferState.Summary;
+        if (transfers == publishedTransferSummary
+            && jobState.RunningJobCount == publishedActivitySummary.RunningJobCount
+            && jobState.PendingJobCount == publishedActivitySummary.PendingJobCount) return;
+        publishedTransferSummary = transfers;
+        publishedActivitySummary = CaptureActivitySummary();
+        (pending ?? BeginDaemonChange(occurredAtUtc)).SetActivitySummary(publishedActivitySummary);
     }
 
     private void AppendDaemonChanges(StateDelta delta, DateTimeOffset occurredAtUtc)
     {
         var pending = delta.IsEmpty ? null : BeginDaemonChange(occurredAtUtc);
         pending?.Merge(delta, []);
-        AppendTransferSummary(occurredAtUtc, pending);
+        AppendActivitySummary(occurredAtUtc, pending);
     }
 
     private void AppendWorkflowChanges(Guid workflowId, StateDelta delta, DateTimeOffset occurredAtUtc)

@@ -59,7 +59,7 @@ public sealed class UploadPersistenceTests
         var summaryOnly = state.GetDaemonSnapshot(detail: DaemonStateDetail.Overview);
         Assert.AreEqual(3, full.Transfers.Count);
         Assert.AreEqual(0, summaryOnly.Transfers.Count);
-        Assert.AreEqual(full.TransferSummary, summaryOnly.TransferSummary);
+        Assert.AreEqual(full.ActivitySummary, summaryOnly.ActivitySummary);
         Assert.AreEqual(full.Position, summaryOnly.Position);
         var observationTime = Stopwatch.StartNew();
         var phases = new List<(string Name, long Milliseconds)>();

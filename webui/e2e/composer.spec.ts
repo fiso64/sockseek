@@ -68,7 +68,7 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   expect(started.options?.downloadSettings?.skip).toBeUndefined();
   expect(started.options?.downloadSettings?.search?.necessaryCond?.formats?.replace).toEqual(['flac']);
   expect(started.options?.downloadSettings?.output?.nameFormat).toBe('direct/{stitle}');
-  await expect(page.locator('.search-history-open').filter({ hasText: 'Fixture song' })).toBeVisible();
+  await expect(page.locator('.automatic-job-detail h1')).toHaveText('Fixture song');
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Downloads', exact: true }).click();
   await expect(page.locator('.file-item-card').getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   const transfersResponse = await page.request.get('/api/transfers?direction=download&limit=500');
@@ -90,7 +90,8 @@ test('Ctrl+Enter prepares music downloads with the current query and edited sear
     if (request.method() === 'POST' && new URL(request.url()).pathname.startsWith('/api/jobs/search')) searches++;
   });
   for (const mode of ['Album Search', 'Track Search']) {
-    await page.goto('/jobs');
+    const origin = mode === 'Album Search' ? '/dashboard' : '/system';
+    await page.goto(origin);
     await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
     await page.getByRole('menuitemradio', { name: mode, exact: true }).click();
     await page.locator('#global-search-simple').fill(mode === 'Album Search' ? 'Fixture artist - Fixture album' : 'Fixture song');
@@ -102,7 +103,9 @@ test('Ctrl+Enter prepares music downloads with the current query and edited sear
     await input.press('Control+Enter');
     const dialog = page.getByRole('dialog', { name: 'New job', exact: true });
     await expect(dialog).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Download jobs', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(dialog.getByPlaceholder('Artist…', { exact: true })).toBeFocused();
+    await expect(page).toHaveURL(new RegExp(`${origin}$`));
+    await expect(page.locator(mode === 'Album Search' ? '.dashboard-page' : '.system-page')).toBeVisible();
     await expect(dialog.getByPlaceholder(mode === 'Album Search' ? 'Album title…' : 'Song title…')).toHaveValue(mode === 'Album Search' ? 'Fixture album' : 'Fixture song');
     await expect(dialog.getByPlaceholder('Artist…', { exact: true })).toHaveValue(mode === 'Album Search' ? 'Fixture artist' : '');
     await dialog.locator('#new-job-options-filtering').click();
@@ -119,8 +122,54 @@ test('Ctrl+Enter prepares music downloads with the current query and edited sear
     expect(preview.options?.downloadSettings?.search?.necessaryCond?.formats?.replace)
       .toEqual(mode === 'Album Search' ? ['flac'] : ['flac', 'mp3']);
     await dialog.getByRole('button', { name: 'Close new job', exact: true }).click();
+    await expect(page.locator('.new-job-composer')).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`${origin}$`));
   }
   expect(searches).toBe(0);
+  await page.locator('#global-search-simple').press('Control+Enter');
+  const dialog = page.getByRole('dialog', { name: 'New job', exact: true });
+  await expect(dialog).toBeVisible();
+  const origin = page.url();
+  const committed = page.waitForResponse(reply => reply.request().method() === 'POST'
+    && /\/api\/job-previews\/[^/]+\/commit$/.test(new URL(reply.url()).pathname));
+  const jobReads: string[] = [];
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'GET' && path.startsWith('/api/jobs')) jobReads.push(path);
+  });
+  const start = dialog.getByRole('button', { name: 'Start', exact: true });
+  await expect(start).toBeEnabled();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let requested!: () => void;
+  const pending = new Promise<void>(resolve => { requested = resolve; });
+  const holdSettings = async (route: import('@playwright/test').Route) => { requested(); await held; await route.continue(); };
+  await page.route('**/api/jobs/effective-settings', holdSettings);
+  await dialog.getByPlaceholder('Artist…', { exact: true }).fill('Latest artist');
+  await pending;
+  await expect(start).toBeEnabled();
+  await expect(dialog.getByTestId('new-job-options-reset')).toBeEnabled();
+  const plans: Schema<'CreateJobPreviewRequestDto'>[] = [];
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/job-previews') plans.push(request.postDataJSON());
+  });
+  try {
+    await start.click();
+    expect(plans).toEqual([]);
+  } finally { release(); }
+  const receipt = await (await committed).json() as Schema<'CommitJobPreviewResponseDto'>;
+  expect(receipt.rootJobId).toBeTruthy();
+  await expect(page).toHaveURL(new RegExp(`/jobs/${receipt.rootJobId}$`));
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.automatic-job-detail h1')).toContainText('Fixture song');
+  await page.unroute('**/api/jobs/effective-settings', holdSettings);
+  expect(plans).toHaveLength(1);
+  expect(plans[0]!.job.kind === 'song' && plans[0]!.job.songQuery.artist).toBe('Latest artist');
+  expect(jobReads.filter(path => path === '/api/jobs' || path === '/api/jobs/snapshot')).toEqual([]);
+  // Browser Back returns to the page beneath the composer, with no intermediate list.
+  await page.goBack();
+  await expect(page).toHaveURL(origin);
+  await expect(dialog).toHaveCount(0);
 });
 
 test('keeps Review reachable with edited Album settings on narrow screens', async ({ page }) => {
@@ -246,13 +295,17 @@ test('blocks stale settings after a failed refresh and retries the shared resolv
     await expect(output).toBeVisible();
     expect(await originalControl!.evaluate(node => node.isConnected)).toBe(true);
     await output.fill('/tmp/edited-during-settings-refresh');
-    await expect(page.locator('.new-job-start-button')).toBeDisabled();
+    await expect(page.locator('.new-job-start-button')).toBeEnabled();
+    await expect(page.getByTestId('new-job-options-reset')).toBeEnabled();
+    await page.getByRole('button', { name: 'Review', exact: true }).click();
   } finally { release(); }
   await page.locator('#new-job-options-filtering').click();
   const filtering = page.locator('#new-job-options-panel');
   await expect(filtering.getByRole('alert')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeDisabled();
+  const retried = page.waitForResponse(response => new URL(response.url()).pathname === '/api/jobs/effective-settings' && response.ok());
   await filtering.getByTestId('new-job-settings-retry').click();
+  await retried;
   await expect(filtering.getByRole('button', { name: 'FLAC', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeEnabled();
   expect(attempts).toBe(2);
@@ -448,9 +501,7 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   expect(Number(receipt.requestedCount)).toBe(1);
   expect(Number(receipt.submittedCount)).toBe(1);
   await expect(page.getByRole('dialog', { name: 'New job' })).toHaveCount(0);
-  const importRow = page.locator('.search-history-row').filter({ hasText: 'browser-input.csv' });
-  await expect(importRow).toBeVisible();
-  await importRow.locator('.search-history-open').click();
+  expect(receipt.rootJobId).toBeTruthy();
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('browser-input');
   await expect(page.locator('[data-testid="job-row"]')).toHaveCount(1);
   await expect(page.locator('[data-testid="job-row"]')).toContainText('Fixture CSV Song');
@@ -481,9 +532,7 @@ test('pages a CSV Review and commits an item beyond the first preview page', asy
   await tail.locator('input[type=checkbox]').check();
   await expect(page.getByRole('button', { name: 'Start 1 job' })).toBeEnabled();
   await page.getByRole('button', { name: 'Start 1 job' }).click();
-  const root = page.locator('.search-history-row').filter({ hasText: 'paged-review.csv' });
-  await expect(root).toBeVisible();
-  await root.locator('.search-history-open').click();
+  await expect(page.locator('.automatic-job-detail h1')).toHaveText('paged-review');
   await expect(page.locator('[data-testid="job-row"]')).toHaveCount(1);
   await expect(page.locator('[data-testid="job-row"]')).toContainText('Paged Item 101');
 });

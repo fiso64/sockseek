@@ -172,25 +172,25 @@ describe('DaemonStateReducer', () => {
     const download = transfer('download');
     const upload = transfer('upload', 'Upload');
     reducer.applySnapshot({ ...snapshot(), transfers: [download, upload],
-      transferSummary: { active: '12', downloads: '10', uploads: '2',
-        queued: 2, failed: 0, downloadRate: 0, uploadRate: 0 } });
+      activitySummary: { active: '12', downloads: '10', uploads: '2',
+        queued: 2, failed: 0, downloadRate: 0, uploadRate: 0, runningJobCount: '4', pendingJobCount: '5' } });
     const state = reducer.state;
     expect(reducer.takeChanges().initialSnapshot).toBe(true);
-    expect(state.transferSummary).toEqual({ active: 12, downloads: 10, uploads: 2,
-      queued: 2, failed: 0, downloadRate: 0, uploadRate: 0 });
+    expect(state.activitySummary).toEqual({ active: 12, downloads: 10, uploads: 2,
+      queued: 2, failed: 0, downloadRate: 0, uploadRate: 0, runningJobCount: 4, pendingJobCount: 5 });
     const originalJob = state.jobs.get(jobId);
     const progress = { ...download.progress, bytesTransferred: 25, bytesPerSecond: 12 };
     reducer.applyBatch(batch({ state: { ...batch().state,
-      transferSummary: { active: 12, downloads: 10, uploads: 2,
-        queued: 1, failed: 0, downloadRate: 12, uploadRate: 0 }, transfers: [{
+      activitySummary: { active: 12, downloads: 10, uploads: 2,
+        queued: 1, failed: 0, downloadRate: 12, uploadRate: 0, runningJobCount: 3, pendingJobCount: 6 }, transfers: [{
       transferId: download.transferId, revision: 2, progress,
       status: { ...download.status, state: 'InProgress' },
     }] } }));
     expect(state.transfers.get('download')?.progress).toEqual(progress);
     expect(state.jobs.get(jobId)).toBe(originalJob);
     expect(state.transfers.get('upload')).toBe(upload);
-    expect(state.transferSummary).toEqual({ active: 12, downloads: 10, uploads: 2,
-      queued: 1, failed: 0, downloadRate: 12, uploadRate: 0 });
+    expect(state.activitySummary).toEqual({ active: 12, downloads: 10, uploads: 2,
+      queued: 1, failed: 0, downloadRate: 12, uploadRate: 0, runningJobCount: 3, pendingJobCount: 6 });
     const changes = reducer.takeChanges();
     expect(changes.jobs.size).toBe(0);
     expect([...changes.transfers.keys()]).toEqual(['download']);
@@ -199,33 +199,33 @@ describe('DaemonStateReducer', () => {
       transferId: 'download', revision: 1, added: download,
     }] } }));
     expect(reducer.takeChanges().transfers.size).toBe(0);
-    expect(state.transferSummary.downloadRate).toBe(12);
+    expect(state.activitySummary.downloadRate).toBe(12);
     expect(reducer.applyBatch(batch({ sequence: 11, previousSequence: 10, state: { ...batch().state,
-      transferSummary: { active: 0, downloads: 0, uploads: 0, queued: 0, failed: 0, downloadRate: 0, uploadRate: 0 },
+      activitySummary: { active: 0, downloads: 0, uploads: 0, queued: 0, failed: 0, downloadRate: 0, uploadRate: 0, runningJobCount: 0, pendingJobCount: 0 },
     } }))).toBe('stale');
-    expect(state.transferSummary.active).toBe(12);
+    expect(state.activitySummary.active).toBe(12);
     reducer.applyBatch(batch({ sequence: 13, previousSequence: 12, state: { ...batch().state,
-      transferSummary: { active: 11, downloads: 9, uploads: 2,
-        queued: 1, failed: 1, downloadRate: 0, uploadRate: 0 }, transfers: [{
+      activitySummary: { active: 11, downloads: 9, uploads: 2,
+        queued: 1, failed: 1, downloadRate: 0, uploadRate: 0, runningJobCount: 0, pendingJobCount: 0 }, transfers: [{
       transferId: 'download', revision: 3,
       status: { ...download.status, state: 'Failed', isTerminal: true, terminalOutcome: 'Failed' },
     }] } }));
-    expect(state.transferSummary).toEqual({ active: 11, downloads: 9, uploads: 2,
-      queued: 1, failed: 1, downloadRate: 0, uploadRate: 0 });
+    expect(state.activitySummary).toEqual({ active: 11, downloads: 9, uploads: 2,
+      queued: 1, failed: 1, downloadRate: 0, uploadRate: 0, runningJobCount: 0, pendingJobCount: 0 });
     reducer.applyBatch(batch({ sequence: 14, previousSequence: 13,
       state: { ...batch().state, removedTransferIds: ['download'],
-        transferSummary: { active: 11, downloads: 9, uploads: 2,
-          queued: 1, failed: 0, downloadRate: 0, uploadRate: 0 } } }));
-    expect(state.transferSummary.failed).toBe(0);
+        activitySummary: { active: 11, downloads: 9, uploads: 2,
+          queued: 1, failed: 0, downloadRate: 0, uploadRate: 0, runningJobCount: 0, pendingJobCount: 0 } } }));
+    expect(state.activitySummary.failed).toBe(0);
     expect(state.transfers.has('download')).toBe(false);
     reducer.takeChanges();
     reducer.applySnapshot({ ...snapshot(), position: { epoch: 'restart', sequence: 1 }, transfers: [download],
-      transferSummary: { active: 1, downloads: 1, uploads: 0,
-        queued: 1, failed: 0, downloadRate: 0, uploadRate: 0 } });
+      activitySummary: { active: 1, downloads: 1, uploads: 0,
+        queued: 1, failed: 0, downloadRate: 0, uploadRate: 0, runningJobCount: 0, pendingJobCount: 0 } });
     expect(reducer.state).toBe(state);
     expect(state.transfers.has('upload')).toBe(false);
-    expect(state.transferSummary).toEqual({ active: 1, downloads: 1, uploads: 0,
-      queued: 1, failed: 0, downloadRate: 0, uploadRate: 0 });
+    expect(state.activitySummary).toEqual({ active: 1, downloads: 1, uploads: 0,
+      queued: 1, failed: 0, downloadRate: 0, uploadRate: 0, runningJobCount: 0, pendingJobCount: 0 });
     expect(reducer.takeChanges()).toMatchObject({ snapshot: true, initialSnapshot: false });
   });
 
@@ -235,8 +235,8 @@ describe('DaemonStateReducer', () => {
       relationships: { ...job(1).relationships, parentJobId: jobId } };
     const unrelated = { ...job(1), jobId: 'unrelated', display: { ...job(1).display, workflowId: 'other' } };
     reducer.applySnapshot({ ...snapshot(), jobs: [job(1), child, unrelated],
-      transferSummary: { active: 2, downloads: 1, uploads: 1,
-        queued: 2, failed: 0, downloadRate: 0, uploadRate: 0 },
+      activitySummary: { active: 2, downloads: 1, uploads: 1,
+        queued: 2, failed: 0, downloadRate: 0, uploadRate: 0, runningJobCount: 0, pendingJobCount: 0 },
       transfers: [transfer('child-transfer', 'Download', 'child'), transfer('other-transfer', 'Upload', 'unrelated', 'other')] });
     reducer.takeChanges();
     expect(reducer.state.childCounts.get(jobId)).toEqual({ total: 1, retrievals: 1 });
@@ -248,22 +248,22 @@ describe('DaemonStateReducer', () => {
     expect(reducer.state.childCounts.get('unrelated')).toEqual({ total: 1, retrievals: 1 });
     reducer.applyBatch(batch({ sequence: 12, previousSequence: 11,
       state: { ...batch().state, removedWorkflowIds: [workflowId],
-        transferSummary: { active: 1, downloads: 0, uploads: 1,
-          queued: 1, failed: 0, downloadRate: 0, uploadRate: 0 } } }));
+        activitySummary: { active: 1, downloads: 0, uploads: 1,
+          queued: 1, failed: 0, downloadRate: 0, uploadRate: 0, runningJobCount: 0, pendingJobCount: 0 } } }));
     expect([...reducer.state.jobs.keys()]).toEqual(['unrelated']);
     expect(reducer.state.childCounts.size).toBe(0);
     expect([...reducer.state.transfers.keys()]).toEqual(['other-transfer']);
-    expect(reducer.state.transferSummary.uploads).toBe(1);
+    expect(reducer.state.activitySummary.uploads).toBe(1);
     const changes = reducer.takeChanges();
     expect(changes.jobs.get('child')).toEqual({ previous: child, current: undefined });
     expect(changes.transfers.get('child-transfer')?.current).toBeUndefined();
     expect(changes.transfers.has('other-transfer')).toBe(false);
     reducer.applyBatch(batch({ sequence: 13, previousSequence: 12,
       state: { ...batch().state, removedJobIds: ['unrelated'],
-        transferSummary: { active: 0, downloads: 0, uploads: 0,
-          queued: 0, failed: 0, downloadRate: 0, uploadRate: 0 } } }));
+        activitySummary: { active: 0, downloads: 0, uploads: 0,
+          queued: 0, failed: 0, downloadRate: 0, uploadRate: 0, runningJobCount: 0, pendingJobCount: 0 } } }));
     expect(reducer.state.transfers.size).toBe(0);
-    expect(reducer.state.transferSummary.active).toBe(0);
+    expect(reducer.state.activitySummary.active).toBe(0);
   });
 
   it('hydrates a snapshot and applies overlapping component deltas once', () => {

@@ -5,7 +5,7 @@ namespace Sockseek.Api;
 /// <summary>The live replication protocol implemented by this API.</summary>
 public static class LiveProtocol
 {
-    public const int Version = 19;
+    public const int Version = 20;
     public const string HubPath = "api/events";
     public const string StateUpdateBatchMethod = "stateUpdateBatch";
     public const string SubscribeAllMethod = nameof(LiveClientInvocation.SubscribeAll);
@@ -157,12 +157,16 @@ public sealed record StateStreamScopeDto(
 /// </summary>
 public sealed record StateStreamPositionDto(Guid Epoch, long Sequence);
 
-/// <summary>Daemon-wide totals independent of the transfer rows a client is viewing.</summary>
-public sealed record LiveTransferSummaryDto(
+/// <summary>
+/// Daemon-wide activity totals independent of the rows a client is viewing.
+/// Active, Downloads, Uploads, Queued, Failed and rates describe transfers.
+/// Job counts include nested jobs in the Running or Pending lifecycle state.
+/// </summary>
+public sealed record LiveActivitySummaryDto(
     int Active, int Downloads, int Uploads, int Queued, int Failed,
-    long DownloadRate, long UploadRate)
+    long DownloadRate, long UploadRate, int RunningJobCount = 0, int PendingJobCount = 0)
 {
-    public static LiveTransferSummaryDto Empty { get; } = new(0, 0, 0, 0, 0, 0, 0);
+    public static LiveActivitySummaryDto Empty { get; } = new(0, 0, 0, 0, 0, 0, 0);
 }
 
 /// <summary>Small daemon state replicated to daemon-wide monitors.</summary>
@@ -533,7 +537,7 @@ public sealed record StateDeltaDto(
     IReadOnlyList<UserNotificationDto>? Notifications = null,
     IReadOnlyList<ChatTargetDeltaDto>? ChatTargets = null,
     UserBrowseDto? UserBrowse = null,
-    LiveTransferSummaryDto? TransferSummary = null)
+    LiveActivitySummaryDto? ActivitySummary = null)
 {
     public static StateDeltaDto Empty { get; } = new(null, [], [], [], [], [], [], [], []);
 
@@ -551,7 +555,7 @@ public sealed record StateDeltaDto(
         && Notifications is null or { Count: 0 }
         && ChatTargets is null or { Count: 0 }
         && UserBrowse is null
-        && TransferSummary is null;
+        && ActivitySummary is null;
 }
 
 public sealed record ChatTargetDeltaDto(
@@ -586,7 +590,7 @@ public sealed record StateSnapshotDto(
     IReadOnlyList<TransferStateDto> Transfers,
     ChatTargetSnapshotDto? ChatTarget = null,
     UserBrowseDto? UserBrowse = null,
-    LiveTransferSummaryDto? TransferSummary = null,
+    LiveActivitySummaryDto? ActivitySummary = null,
     // Last daemon-stream position that can invalidate Jobs history. Compare a
     // Jobs HTTP read position against this, rather than unrelated live updates.
     StateStreamPositionDto? JobHistoryPosition = null);

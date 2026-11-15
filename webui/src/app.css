@@ -897,7 +897,7 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 }
 .dashboard-title { margin: 0; }
 .dashboard-range-control { display: flex; align-items: center; gap: 10px; }
-.dashboard-range-control > span { color: var(--muted); font-size: 0.72rem; }
+.page-loading { display: flex; align-items: center; justify-content: center; flex: 0 0 14px; width: 14px; height: 14px; }
 .range-buttons { display: flex; overflow: hidden; border-radius: 8px; }
 .range-buttons button {
   min-width: 45px; height: 32px; padding: 0 10px; border-left: 1px solid var(--border); font-size: 0.72rem;
@@ -949,7 +949,8 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 .chart-hover-dot.download { border-color: var(--accent); }
 .chart-hover-dot.upload { border-color: var(--success); }
 
-.chart-x-labels { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; color: var(--faint); font-size: 0.62rem; }
+.chart-x-labels { display: flex; justify-content: space-between; gap: 8px; min-height: 1lh; margin-top: 6px; color: var(--faint); font-size: 0.62rem; }
+.chart-x-labels span { white-space: nowrap; }
 .chart-legend { display: flex; justify-content: flex-end; gap: 16px; margin-top: 9px; color: var(--muted); font-size: 0.68rem; }
 .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .chart-legend i { width: 14px; height: 2px; display: inline-block; }
@@ -980,10 +981,10 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 .errors-table .dashboard-ranking-row { grid-template-columns: 24px minmax(0, 1fr) 60px 84px; }
 .dashboard-ranking-row > span:nth-last-child(-n+2) { text-align: right; }
 .current-transfer-panel, .health-panel { padding: 14px; }
-.summary-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding-top: 12px; }
-.summary-metrics > div { min-width: 0; display: grid; gap: 3px; }
-.summary-metrics span { color: var(--muted); font-size: 0.68rem; }.summary-metrics strong { font-size: 1rem; font-weight: 600; }
-.rate-value { display: inline-flex; align-items: center; gap: 7px; }
+.summary-metrics { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 12px; }
+.summary-metrics > div { flex: 1 1 max-content; min-width: min-content; display: flex; flex-direction: column; gap: 3px; }
+.summary-metrics span { color: var(--muted); font-size: 0.68rem; }.summary-metrics strong { margin-top: auto; font-size: 1.15rem; font-weight: 600; }
+.rate-value { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
 .rate-value > i { width: 14px; flex: 0 0 14px; color: var(--accent); font-size: 1rem; font-style: normal; font-weight: 500; line-height: 1; }
 .rate-value.upload > i { color: var(--success); }
 .health-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border-radius: 999px; background-color: color-mix(in srgb, var(--success) 12%, var(--surface)); color: var(--success); font-size: 0.64rem; }
@@ -1002,7 +1003,6 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 }
 @media (max-width: 700px) {
   .dashboard-heading { align-items: stretch; flex-direction: column; }
-  .summary-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-range-control { justify-content: space-between; }
   .dashboard-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .health-list { grid-template-columns: 1fr; }
@@ -2398,6 +2398,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .loading-indicator { display: flex; justify-content: center; align-items: center; padding: 14px; }
 .loading-indicator.blocking { min-height: 160px; margin: 24px auto; }
 .loading-indicator .resource-state-dot { width: 22px; height: 22px; border-width: 2px; }
+.loading-indicator.compact { padding: 0; }
+.loading-indicator.compact .resource-state-dot { width: 14px; height: 14px; border-width: 1.5px; }
 @keyframes resource-state-spin { to { transform: rotate(360deg); } }
 .resource-state-notice.degraded .resource-state-dot,
 .resource-state-notice.interrupted .resource-state-dot { background: var(--warning); }
@@ -3122,7 +3124,6 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 
 .share-tree-page { padding-left: calc(var(--share-depth) * 20px); }
 
-.dashboard-range-label:empty { display: none; }
 @media (max-width: 560px) {
   .dashboard-range-control { min-width: 0; }
   .range-buttons { width: 100%; }

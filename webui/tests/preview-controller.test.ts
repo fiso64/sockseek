@@ -49,7 +49,7 @@ it('retries a lost commit response identically and does not repeat a confirmed s
     override async commitJobPreview(_id: string, body: Schema<'CommitJobPreviewRequestDto'>): Promise<Schema<'CommitJobPreviewResponseDto'>> {
       requests.push(body);
       if (requests.length === 1) throw new Error('Response lost');
-      return { previewId: 'preview', submissionId: 'submission', workflowId: 'workflow', requestedCount: 2, resolvedCount: 2, submittedCount: 2, skippedCount: 0, rejectedCount: 0, rejectionReasons: [] };
+      return { previewId: 'preview', submissionId: 'submission', workflowId: 'workflow', rootJobId: 'root', requestedCount: 2, resolvedCount: 2, submittedCount: 2, skippedCount: 0, rejectedCount: 0, rejectionReasons: [] };
     }
   }
   const controller = new PreviewController(new Api());

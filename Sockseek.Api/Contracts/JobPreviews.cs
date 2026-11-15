@@ -75,4 +75,5 @@ public sealed record CommitJobPreviewResponseDto(
     int SubmittedCount,
     int SkippedCount,
     int RejectedCount,
-    IReadOnlyList<SubmissionReasonCountDto> RejectionReasons);
+    IReadOnlyList<SubmissionReasonCountDto> RejectionReasons,
+    Guid? RootJobId = null);

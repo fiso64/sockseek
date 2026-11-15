@@ -75,9 +75,13 @@ test('retries analytics and never labels previous-range data as the selected ran
     await route.abort();
   });
   const metricsTop = (await page.locator('.dashboard-metrics').boundingBox())!.y;
+  const graphHeight = (await page.locator('.activity-panel').boundingBox())!.height;
+  const rankingsTop = (await page.locator('.dashboard-lower-area').boundingBox())!.y;
   await page.getByRole('button', { name: '7d', exact: true }).click();
-  await expect(page.getByText('Loading analytics', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status', { name: 'Loading analytics', exact: true })).toBeVisible();
   expect((await page.locator('.dashboard-metrics').boundingBox())!.y).toBe(metricsTop);
+  expect((await page.locator('.activity-panel').boundingBox())!.height).toBe(graphHeight);
+  expect((await page.locator('.dashboard-lower-area').boundingBox())!.y).toBe(rankingsTop);
   await expect(downloaded).toHaveText('—');
   await expect(page.locator('.activity-panel .panel-context')).toHaveText('Last 7 days');
   release();
@@ -172,6 +176,14 @@ test('refreshes retained analytics after the terminal transfer commit', async ({
   await page.goto('/dashboard');
   const downloaded = page.locator('.dashboard-metric-card').first().locator('strong');
   await expect(downloaded).toHaveText('0 B');
+  const runningJobs = page.getByTestId('dashboard-running-jobs').locator('strong');
+  await expect(runningJobs).toHaveText('0 / 0');
+  await expect(page.getByLabel('Connection status')).toHaveText('Connected, Logged In');
+  const requests: string[] = [];
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith('/api/')) requests.push(`${request.method()} ${path}`);
+  });
   const submitted = await page.request.post('/api/jobs/lists', { data: {
     name: 'Dashboard refresh fixture', jobs: [{ kind: 'remote-file', target: {
       username: 'fixture-peer', filename: 'Fixture\\Fixture song.txt', size: 128, extension: '.txt',
@@ -180,6 +192,8 @@ test('refreshes retained analytics after the terminal transfer commit', async ({
   expect(submitted.status()).toBe(202);
   await expect(page.getByTestId('dashboard-active-downloads').locator('strong')).toHaveText('1');
   await expect(page.getByTestId('dashboard-active-uploads').locator('strong')).toHaveText('0');
+  await expect(runningJobs).toHaveText('2 / 0');
+  expect(requests).toEqual([]);
   const refreshes: Array<number | string> = [];
   await page.route('**/api/dashboard/analytics?*', async route => {
     const response = await route.fetch();
@@ -189,13 +203,15 @@ test('refreshes retained analytics after the terminal transfer commit', async ({
   });
   await daemon.command('release-download');
   await expect(page.getByTestId('dashboard-active-downloads').locator('strong')).toHaveText('0');
+  await expect(runningJobs).toHaveText('0 / 0');
   await expect(downloaded).toHaveText('128 B');
+  expect(requests).toEqual(['GET /api/dashboard/analytics']);
   expect(refreshes).toContain(128);
   await expect(page.locator('.dashboard-metric-card').first().locator('small')).toHaveText('1 file');
   await expect(page.locator('.dashboard-metric-card').nth(2).locator('small')).toHaveText('—');
   await expect(page.locator('.dashboard-metric-card').first().locator('.metric-sparkline i:not(.zero)')).toHaveCount(1);
   await expect(page.locator('.dashboard-metric-card').first().locator('.metric-sparkline i.zero').first()).toHaveCSS('height', '0px');
-  await expect(page.getByText('Loading analytics', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('status', { name: 'Loading analytics', exact: true })).toHaveCount(0);
 
   const ranking = page.locator('.ranking-panel');
   await expect(ranking.locator('.peers-table .dashboard-ranking-row').nth(1)).toContainText('fixture-peer');

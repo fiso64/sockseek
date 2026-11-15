@@ -561,6 +561,12 @@ public sealed class JobPreviewTests
                     commit,
                     CancellationToken.None))!;
                 Assert.AreEqual(receipt.SubmissionId, repeated.SubmissionId);
+                Assert.IsNotNull(receipt.RootJobId);
+                Assert.AreEqual(receipt.RootJobId, repeated.RootJobId);
+                var reads = app.Services.GetRequiredService<Persistence.JobReadService>();
+                var root = await reads.GetJobAsync(receipt.RootJobId.Value);
+                Assert.IsNotNull(root);
+                Assert.AreEqual(receipt.SubmissionId, root.Summary.SubmissionId);
 
                 var persistence = app.Services.GetRequiredService<Persistence.PersistenceCoordinator>();
                 var retained = await persistence.Submissions!.GetSubmissionAsync(

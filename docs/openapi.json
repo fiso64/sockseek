@@ -13154,6 +13154,13 @@
             "items": {
               "$ref": "#/components/schemas/SubmissionReasonCountDto"
             }
+          },
+          "rootJobId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -19700,7 +19707,7 @@
                   }
                 ]
               },
-              "transferSummary": {
+              "activitySummary": {
                 "required": [
                   "active",
                   "downloads",
@@ -19767,6 +19774,24 @@
                       "string"
                     ],
                     "format": "int64"
+                  },
+                  "runningJobCount": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32",
+                    "default": 0
+                  },
+                  "pendingJobCount": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32",
+                    "default": 0
                   }
                 }
               }
@@ -21470,68 +21495,7 @@
           }
         }
       },
-      "LiveClientInvocation": {
-        "enum": [
-          "SubscribeAll",
-          "UnsubscribeAll",
-          "SubscribeWorkflow",
-          "UnsubscribeWorkflow",
-          "SubscribeChat",
-          "UnsubscribeChat",
-          "SubscribeUserBrowse",
-          "UnsubscribeUserBrowse",
-          "ObserveUserPresence",
-          "ObserveSearchView",
-          "ObserveTransferTimeline",
-          "ObserveJobs",
-          "ObserveJobList"
-        ]
-      },
-      "LiveProtocolContractVersion": {
-        "enum": [
-          19
-        ],
-        "type": "integer"
-      },
-      "LiveServerMessage": {
-        "enum": [
-          "stateUpdateBatch"
-        ]
-      },
-      "LiveTransferPageDto": {
-        "required": [
-          "items",
-          "observedQueueRevision",
-          "queueChanged"
-        ],
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TransferStateDto"
-            }
-          },
-          "nextCursor": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "observedQueueRevision": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "queueChanged": {
-            "type": "boolean"
-          }
-        }
-      },
-      "LiveTransferSummaryDto": {
+      "LiveActivitySummaryDto": {
         "required": [
           "active",
           "downloads",
@@ -21598,6 +21562,85 @@
               "string"
             ],
             "format": "int64"
+          },
+          "runningJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
+          },
+          "pendingJobCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
+          }
+        }
+      },
+      "LiveClientInvocation": {
+        "enum": [
+          "SubscribeAll",
+          "UnsubscribeAll",
+          "SubscribeWorkflow",
+          "UnsubscribeWorkflow",
+          "SubscribeChat",
+          "UnsubscribeChat",
+          "SubscribeUserBrowse",
+          "UnsubscribeUserBrowse",
+          "ObserveUserPresence",
+          "ObserveSearchView",
+          "ObserveTransferTimeline",
+          "ObserveJobs",
+          "ObserveJobList"
+        ]
+      },
+      "LiveProtocolContractVersion": {
+        "enum": [
+          20
+        ],
+        "type": "integer"
+      },
+      "LiveServerMessage": {
+        "enum": [
+          "stateUpdateBatch"
+        ]
+      },
+      "LiveTransferPageDto": {
+        "required": [
+          "items",
+          "observedQueueRevision",
+          "queueChanged"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransferStateDto"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "observedQueueRevision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "queueChanged": {
+            "type": "boolean"
           }
         }
       },
@@ -28095,7 +28138,7 @@
               }
             ]
           },
-          "transferSummary": {
+          "activitySummary": {
             "required": [
               "active",
               "downloads",
@@ -28162,6 +28205,24 @@
                   "string"
                 ],
                 "format": "int64"
+              },
+              "runningJobCount": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "format": "int32",
+                "default": 0
+              },
+              "pendingJobCount": {
+                "pattern": "^-?(?:0|[1-9]\\d*)$",
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "format": "int32",
+                "default": 0
               }
             }
           }
@@ -28243,13 +28304,13 @@
               }
             ]
           },
-          "transferSummary": {
+          "activitySummary": {
             "oneOf": [
               {
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/LiveTransferSummaryDto"
+                "$ref": "#/components/schemas/LiveActivitySummaryDto"
               }
             ]
           },
@@ -31226,7 +31287,7 @@
                   }
                 ]
               },
-              "transferSummary": {
+              "activitySummary": {
                 "required": [
                   "active",
                   "downloads",
@@ -31293,6 +31354,24 @@
                       "string"
                     ],
                     "format": "int64"
+                  },
+                  "runningJobCount": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32",
+                    "default": 0
+                  },
+                  "pendingJobCount": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32",
+                    "default": 0
                   }
                 }
               }

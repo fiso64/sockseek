@@ -7,14 +7,16 @@ import type {
 import { wireInteger } from './types';
 import type { BatchApplyStatus } from './live';
 
-export type LiveTransferSummary = { [Field in keyof Schema<'LiveTransferSummaryDto'>]: number };
+export type LiveActivitySummary = { [Field in keyof Schema<'LiveActivitySummaryDto'>]: number };
 
-function transferSummary(value?: Schema<'LiveTransferSummaryDto'> | null): LiveTransferSummary {
+function activitySummary(value?: Schema<'LiveActivitySummaryDto'> | null): LiveActivitySummary {
   return {
     active: Number(value?.active ?? 0), downloads: Number(value?.downloads ?? 0),
     uploads: Number(value?.uploads ?? 0), queued: Number(value?.queued ?? 0),
     failed: Number(value?.failed ?? 0), downloadRate: Number(value?.downloadRate ?? 0),
     uploadRate: Number(value?.uploadRate ?? 0),
+    runningJobCount: Number(value?.runningJobCount ?? 0),
+    pendingJobCount: Number(value?.pendingJobCount ?? 0),
   };
 }
 
@@ -28,7 +30,7 @@ export interface ReplicatedDaemonState {
   readonly searches: ReadonlyMap<string, SearchStateDto>;
   readonly transfers: ReadonlyMap<string, TransferStateDto>;
   readonly readTransfer: (id: string) => TransferStateDto | undefined;
-  readonly transferSummary: Readonly<LiveTransferSummary>;
+  readonly activitySummary: Readonly<LiveActivitySummary>;
   readonly epoch: string | null;
   readonly sequence: WireInteger;
 }
@@ -134,7 +136,7 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
   private searchRows = new SvelteMap<string, SearchStateDto>();
   private transferRows = new TransferRows();
   readonly readTransfer = this.transferRows.read;
-  private counts = $state.raw<LiveTransferSummary>(transferSummary());
+  private counts = $state.raw<LiveActivitySummary>(activitySummary());
   private jobsByWorkflow: Membership = new Map();
   private searchesByWorkflow: Membership = new Map();
   private transfersByWorkflow: Membership = new Map();
@@ -155,7 +157,7 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
   get childCounts(): ReadonlyMap<string, { total: number; retrievals: number }> { return this.children; }
   get searches(): ReadonlyMap<string, SearchStateDto> { return this.searchRows; }
   get transfers(): ReadonlyMap<string, TransferStateDto> { return this.transferRows; }
-  get transferSummary(): Readonly<LiveTransferSummary> { return this.counts; }
+  get activitySummary(): Readonly<LiveActivitySummary> { return this.counts; }
 
   /** Stable read facade, not a copied/sorted snapshot of every collection. */
   get state(): ReplicatedDaemonState { return this; }
@@ -180,7 +182,7 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
     this.snapshotApplied = true;
     this.jobHistoryPosition = snapshot.jobHistoryPosition ?? null;
     this.currentDaemon = snapshot.daemon ?? null;
-    this.counts = transferSummary(snapshot.transferSummary);
+    this.counts = activitySummary(snapshot.activitySummary);
     this.workflowRows.clear();
     for (const row of snapshot.workflows) this.workflowRows.set(row.summary.workflowId, row);
     // Replacement is authoritative even when a reconnect changes the epoch.
@@ -198,7 +200,7 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
     if (!newer(batch.sequence, this.currentSequence)) return 'stale';
     if (wireInteger(batch.previousSequence) > wireInteger(this.currentSequence)) return 'recovery-required';
     const state = batch.state;
-    if (state.transferSummary) this.counts = transferSummary(state.transferSummary);
+    if (state.activitySummary) this.counts = activitySummary(state.activitySummary);
     if (state.daemon && (!this.currentDaemon || newer(state.daemon.revision, this.currentDaemon.revision)))
       this.currentDaemon = state.daemon;
     for (const row of state.workflows) {

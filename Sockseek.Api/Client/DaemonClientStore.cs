@@ -50,7 +50,7 @@ public sealed record DaemonClientStateView(
     IReadOnlyList<JobSummaryDto> Jobs,
     IReadOnlyList<SearchStateDto> Searches,
     IReadOnlyList<TransferStateDto> Transfers,
-    LiveTransferSummaryDto? TransferSummary);
+    LiveActivitySummaryDto? ActivitySummary);
 
 /// <summary>
 /// Thread-safe reducer and query store shared by local, remote, and GUI clients.
@@ -69,7 +69,7 @@ public sealed class DaemonClientStore
     private readonly Dictionary<StateStreamScopeDto, StateStreamPositionDto> positions = [];
     private readonly HashSet<StateStreamScopeDto> staleScopes = [];
     private DaemonStateDto? daemon;
-    private LiveTransferSummaryDto? transferSummary;
+    private LiveActivitySummaryDto? activitySummary;
 
     public DaemonClientUpdate ApplySnapshot(StateSnapshotDto snapshot)
     {
@@ -163,9 +163,9 @@ public sealed class DaemonClientStore
     }
 
     /// <summary>Daemon-wide totals, or null before a daemon-scoped snapshot.</summary>
-    public LiveTransferSummaryDto? GetTransferSummary()
+    public LiveActivitySummaryDto? GetActivitySummary()
     {
-        lock (gate) return transferSummary;
+        lock (gate) return activitySummary;
     }
 
     public SharingStateDto? GetSharing()
@@ -254,7 +254,7 @@ public sealed class DaemonClientStore
                     .ToList(),
                 liveTransfers.Values
                     .OrderBy(transfer => transfer.TransferId)
-                    .ToList(), transferSummary);
+                    .ToList(), activitySummary);
         }
     }
 
@@ -387,7 +387,7 @@ public sealed class DaemonClientStore
             // read rows are rehydrated authoritatively through the paged API.
             liveNotifications.Clear();
             daemon = snapshot.Daemon;
-            transferSummary = snapshot.TransferSummary;
+            activitySummary = snapshot.ActivitySummary;
         }
         else if (snapshot.Scope.Kind == StateStreamScopeKind.Workflow)
         {
@@ -422,7 +422,7 @@ public sealed class DaemonClientStore
 
     private AppliedState ApplyState(StateDeltaDto state)
     {
-        if (state.TransferSummary is { } summary) transferSummary = summary;
+        if (state.ActivitySummary is { } summary) activitySummary = summary;
         if (state.Daemon != null && (daemon == null || state.Daemon.Revision > daemon.Revision))
             daemon = state.Daemon;
 
@@ -599,8 +599,8 @@ public sealed class DaemonClientStore
 
     private static void ValidateSnapshotScope(StateSnapshotDto snapshot)
     {
-        if (snapshot.Scope.Kind != StateStreamScopeKind.Daemon && snapshot.TransferSummary != null)
-            throw new ArgumentException("Transfer totals belong to the daemon scope.");
+        if (snapshot.Scope.Kind != StateStreamScopeKind.Daemon && snapshot.ActivitySummary != null)
+            throw new ArgumentException("Activity totals belong to the daemon scope.");
         if (snapshot.Position.Sequence < 0)
             throw new ArgumentOutOfRangeException(nameof(snapshot), "Snapshot sequence cannot be negative.");
 
@@ -672,8 +672,8 @@ public sealed class DaemonClientStore
 
     private static void ValidateBatch(StateUpdateBatchDto batch)
     {
-        if (batch.Scope.Kind != StateStreamScopeKind.Daemon && batch.State.TransferSummary != null)
-            throw new ArgumentException("Transfer totals belong to the daemon scope.");
+        if (batch.Scope.Kind != StateStreamScopeKind.Daemon && batch.State.ActivitySummary != null)
+            throw new ArgumentException("Activity totals belong to the daemon scope.");
         if (batch.PreviousSequence < 0 || batch.Sequence <= batch.PreviousSequence)
             throw new ArgumentException("A stream batch must advance beyond a non-negative previous sequence.");
         if (batch.Activity.Any(item => item.Sequence <= batch.PreviousSequence || item.Sequence > batch.Sequence))

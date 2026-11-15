@@ -667,7 +667,7 @@ public sealed class EnginePersistenceTests
         engine.Events.RaiseTransferAttemptCompleted(transferId, attemptId, 1, song, target, "/output/Track.bin");
         engine.Events.RaiseTransferCompleted(transferId, song, target, "/output/Track.bin", 100L, 1);
         DateTimeOffset completedAt = clock.Now;
-        var summary = store.GetDaemonSnapshot().TransferSummary;
+        var summary = store.GetDaemonSnapshot().ActivitySummary;
         clock.Now = clock.Now.AddMinutes(1);
         engine.Events.RaiseTransferOutputChanged(song, "/output/failed/Track.bin");
         engine.Events.RaiseTransferOutputChanged(song, "/output/failed/Track.bin");
@@ -677,7 +677,7 @@ public sealed class EnginePersistenceTests
         var live = store.GetJobTransferSnapshot(new HashSet<Guid> { song.Id }).Single().ToDto();
         Assert.AreEqual("/output/failed/Track.bin", live.Status.LocalPath);
         Assert.AreEqual(completedAt, live.Status.CompletedAtUtc);
-        Assert.AreEqual(summary, store.GetDaemonSnapshot().TransferSummary, "Moving output cannot add completions or bytes.");
+        Assert.AreEqual(summary, store.GetDaemonSnapshot().ActivitySummary, "Moving output cannot add completions or bytes.");
         var terminal = sink.Mutations.OfType<TransferTerminalPersistenceMutation>().Single();
         Assert.AreEqual(attemptId, terminal.FinalAttempt!.AttemptId);
         var moved = sink.Mutations.OfType<TransferPersistenceMutation>()

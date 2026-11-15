@@ -515,7 +515,8 @@ public sealed class JobPreviewCoordinator(
         var receipt = new CommitJobPreviewResponseDto(
             previewId, submissionId, root.WorkflowId, requestedCount,
             resolved.SelectedNodes.Count, resolved.SelectedNodes.Count, 0,
-            rejectedBeforeSubmission, RejectionReasons(failedCount, resolved.MissingRequestedRefCount));
+            rejectedBeforeSubmission, RejectionReasons(failedCount, resolved.MissingRequestedRefCount),
+            RootJobId: root.Id);
         try
         {
             await submissions.AcceptPreviewAsync(

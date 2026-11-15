@@ -86,7 +86,7 @@ internal sealed class StateUpdateCoalescer
         private DateTimeOffset occurredAtUtc;
         private DaemonStateDto? daemon;
         private UserBrowseDto? userBrowse;
-        private LiveTransferSummaryDto? transferSummary;
+        private LiveActivitySummaryDto? activitySummary;
         private readonly Dictionary<Guid, WorkflowStateDto> workflows = [];
         private readonly Dictionary<Guid, JobChange> jobs = [];
         private readonly Dictionary<Guid, SearchStateDto> searches = [];
@@ -148,7 +148,7 @@ internal sealed class StateUpdateCoalescer
         }
         public void RemoveSearch(Guid id) => removedSearches.Add(id);
         public void RemoveTransfer(Guid id) => removedTransfers.Add(id);
-        public void SetSummary(LiveTransferSummaryDto value) => transferSummary = value;
+        public void SetActivitySummary(LiveActivitySummaryDto value) => activitySummary = value;
         public void AddActivity(ActivityEventDto value) => activity.Add(value);
         public void SetUserBrowse(UserBrowseDto value)
         {
@@ -162,7 +162,7 @@ internal sealed class StateUpdateCoalescer
             if (RequiresPromptFlush(state)) owner.hasPromptChanges = true;
             daemon = Latest(daemon, state.Daemon);
             userBrowse = Latest(userBrowse, state.UserBrowse);
-            transferSummary = state.TransferSummary ?? transferSummary;
+            activitySummary = state.ActivitySummary ?? activitySummary;
             foreach (var workflow in state.Workflows) Add(workflow);
             foreach (var job in state.Jobs) Add(job);
             foreach (var search in state.Searches) Add(search);
@@ -200,7 +200,7 @@ internal sealed class StateUpdateCoalescer
                     removedTransfers.ToArray(),
                     notifications.Values.OrderBy(item => item.Sequence).ToArray(),
                     chatTargets.Values.OrderBy(item => item.Kind).ThenBy(item => item.TargetId).ToArray(),
-                    userBrowse, transferSummary),
+                    userBrowse, activitySummary),
                 activity.OrderBy(item => item.Sequence).ToArray());
     }
 

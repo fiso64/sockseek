@@ -26,6 +26,8 @@ internal sealed record JobPageCapture(
 // updates and stream capture. This owner has no stream scopes, queues or lifecycle.
 internal sealed class JobState
 {
+    internal int RunningJobCount { get; private set; }
+    internal int PendingJobCount { get; private set; }
     internal JobPersistence? Persistence { get; set; }
     internal event Action<JobReadChange>? ReadChanged;
     internal event Action? ListChanged;
@@ -598,6 +600,10 @@ internal sealed class JobState
     {
         records.TryGetValue(record.Id, out var entry);
         var oldRecord = entry?.Current;
+        RunningJobCount += (record.LifecycleState == ServerJobLifecycleState.Running ? 1 : 0)
+            - (oldRecord?.LifecycleState == ServerJobLifecycleState.Running ? 1 : 0);
+        PendingJobCount += (record.LifecycleState == ServerJobLifecycleState.Pending ? 1 : 0)
+            - (oldRecord?.LifecycleState == ServerJobLifecycleState.Pending ? 1 : 0);
         var parentJobId = record.ParentJobId;
         if (oldRecord is not null && oldRecord.ParentJobId != parentJobId)
             RemoveChildIndex(oldRecord.ParentJobId, record.Id);
@@ -1293,7 +1299,12 @@ internal sealed class JobState
         listProjections.Remove(jobId);
         groupProjections.Remove(jobId);
         albumGroupsProjections.Remove(jobId);
-        if (records.Remove(jobId, out var removed)) RemoveSubmissionMember(removed.Current.SubmissionId, jobId);
+        if (records.Remove(jobId, out var removed))
+        {
+            if (removed.Current.LifecycleState == ServerJobLifecycleState.Running) RunningJobCount--;
+            if (removed.Current.LifecycleState == ServerJobLifecycleState.Pending) PendingJobCount--;
+            RemoveSubmissionMember(removed.Current.SubmissionId, jobId);
+        }
         executionCompletedJobs.Remove(jobId);
         songTransferStates.Remove(jobId);
         searchStates.Remove(jobId);
