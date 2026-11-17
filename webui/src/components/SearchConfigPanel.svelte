@@ -7,7 +7,7 @@
     SEARCH_BIT_DEPTHS as bitDepths,
     SEARCH_GENERIC_FORMATS as genericFormats,
     SEARCH_SAMPLE_RATES as sampleRates,
-    searchConfigLabel,
+    SEARCH_CONFIG_FIELDS as fields,
     type SearchConfigTab as ConfigTab,
   } from '../domains/search/config-schema';
   import type { SearchModeFamily, SearchResultMode } from '../domains/search/model';
@@ -112,6 +112,12 @@
   }
 </script>
 
+{#snippet fieldHelp(field: { label: string; help: readonly string[] }, testId: string)}
+  <HelpPopover title={field.label} {testId}>
+    {#each field.help as paragraph}<span>{paragraph}</span>{/each}
+  </HelpPopover>
+{/snippet}
+
 {#snippet actions()}
   <div class="search-config-actions">
     <button class="button secondary" type="button" data-testid="search-config-clear" disabled={resetting} onclick={clearActiveTab}>Clear</button>
@@ -122,10 +128,10 @@
 <!-- Keep placement stable while editing: only album-group filtering puts Grouping below Peers. -->
 {#snippet grouping()}
   <section class="panel subtle search-config-section">
-    <h3>Grouping <HelpPopover title="Grouping" testId="search-grouping-help">Groups must have at least this many distinct sharers; tolerance controls near-length grouping.</HelpPopover></h3>
+    <h3>Grouping</h3>
     <div class="config-grid">
-      <label><span>Minimum sharers</span><input class="field" type="number" min="1" step="1" bind:value={conditions.group.minShares} /></label>
-      <label><span>Grouping tolerance <small>sec</small></span><input class="field" type="number" min="0" step="1" bind:value={conditions.group.lengthTolerance} /></label>
+      <label><span>{fields.minShares.conditions.label}</span><input class="field" type="number" min="1" step="1" bind:value={conditions.group.minShares} /></label>
+      <label><span>{fields.groupLengthTolerance.conditions.label} <small>sec</small></span><input class="field" type="number" min="0" step="1" bind:value={conditions.group.lengthTolerance} /></label>
     </div>
   </section>
 {/snippet}
@@ -151,7 +157,7 @@
       <h3>{genericMode ? 'File conditions' : 'Audio quality'}</h3>
       <SearchFormatControl
         bind:values={conditions.common.formats}
-        label={searchConfigLabel('formats', 'conditions')}
+        label={fields.formats.conditions.label}
         ariaLabel="Comma-separated required formats"
         idPrefix="search-config-conditions"
         suggestions={genericMode ? genericFormats : undefined}
@@ -160,25 +166,25 @@
 
       <div class="config-grid">
         <label>
-          <span>{searchConfigLabel('minBitrate', activeTab)} <small>kbps</small></span>
+          <span>{fields.minBitrate.conditions.label} <small>kbps</small></span>
           <input class="field" type="number" min="0" step="1" bind:value={conditions.common.minBitrate} placeholder="Any" />
         </label>
         <label>
-          <span>{searchConfigLabel('maxBitrate', activeTab)} <small>kbps</small></span>
+          <span>{fields.maxBitrate.conditions.label} <small>kbps</small></span>
           <input class="field" type="number" min="0" step="1" bind:value={conditions.common.maxBitrate} placeholder="Any" />
         </label>
       </div>
 
       <div class="config-grid">
         <label>
-          <span>Min {searchConfigLabel('sampleRate', 'conditions').toLowerCase()}</span>
+          <span>{fields.minSampleRate.conditions.label}</span>
           <select class="field" bind:value={conditions.common.minSampleRate}>
             <option value="">Any</option>
             {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
           </select>
         </label>
         <label>
-          <span>Max {searchConfigLabel('sampleRate', 'conditions').toLowerCase()}</span>
+          <span>{fields.maxSampleRate.conditions.label}</span>
           <select class="field" bind:value={conditions.common.maxSampleRate}>
             <option value="">Any</option>
             {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
@@ -188,14 +194,14 @@
 
       <div class="config-grid">
         <label>
-          <span>Min {searchConfigLabel('bitDepth', 'conditions').toLowerCase()}</span>
+          <span>{fields.minBitDepth.conditions.label}</span>
           <select class="field" bind:value={conditions.common.minBitDepth}>
             <option value="">Any</option>
             {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
           </select>
         </label>
         <label>
-          <span>Max {searchConfigLabel('bitDepth', 'conditions').toLowerCase()}</span>
+          <span>{fields.maxBitDepth.conditions.label}</span>
           <select class="field" bind:value={conditions.common.maxBitDepth}>
             <option value="">Any</option>
             {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
@@ -205,20 +211,14 @@
 
       {#if !genericMode}
         <div class="config-check-with-help">
-          <label class="config-check"><input type="checkbox" bind:checked={conditions.common.rejectUnknownMetadata} /> {searchConfigLabel('rejectUnknownMetadata', 'conditions')}</label>
-          <HelpPopover title="Reject unknown metadata" testId="unknown-metadata-help">
-            <span>Some peers' clients do not report properties such as bitrate. By default, a file with an unknown bitrate is still accepted even when you set a minimum bitrate.</span>
-            <span>Enable this to reject files when a property being checked is unknown. Use with care: this can exclude otherwise valid files simply because of the particular client sharing them.</span>
-          </HelpPopover>
+          <label class="config-check"><input type="checkbox" bind:checked={conditions.common.rejectUnknownMetadata} /> {fields.rejectUnknownMetadata.conditions.label}</label>
+          {@render fieldHelp(fields.rejectUnknownMetadata.conditions, 'unknown-metadata-help')}
         </div>
       {/if}
       {#if family === 'album' || family === 'mixed'}
         <div class="config-check-with-help">
-          <label class="config-check"><input type="checkbox" bind:checked={conditions.album.strictAlbumQuality} /> {searchConfigLabel('strictAlbumQuality', 'conditions')}</label>
-          <HelpPopover title="Every album track must satisfy quality" testId="album-quality-help">
-            <span>By default, mixed-quality folders are ranked by coverage. For example, if you prefer FLAC, a folder with 9 FLAC files and 1 MP3 is still accepted (ranking above a mostly-MP3 folder).</span>
-            <span>Enable this to require every audio file in the folder to meet your audio quality conditions.</span>
-          </HelpPopover>
+          <label class="config-check"><input type="checkbox" bind:checked={conditions.album.strictAlbumQuality} /> {fields.strictAlbumQuality.conditions.label}</label>
+          {@render fieldHelp(fields.strictAlbumQuality.conditions, 'album-quality-help')}
         </div>
       {/if}
     </section>
@@ -228,27 +228,39 @@
         {#if !genericMode}
           <section class="panel subtle search-config-section">
             <h3>Matching</h3>
-            <label class="config-check"><input type="checkbox" bind:checked={conditions.common.strictArtist} /> {searchConfigLabel('strictArtist', 'conditions')}</label>
+            <div class="config-check-with-help">
+              <label class="config-check"><input type="checkbox" bind:checked={conditions.common.strictArtist} /> {fields.strictArtist.conditions.label}</label>
+              {@render fieldHelp(fields.strictArtist.conditions, 'strict-artist-conditions-help')}
+            </div>
             {#if family === 'track' || family === 'mixed'}
               {#if family === 'mixed'}<div class="config-subgroup-label">Songs</div>{/if}
-              <label class="config-check"><input type="checkbox" bind:checked={conditions.track.strictTitle} /> {searchConfigLabel('strictTitle', 'conditions')}</label>
+              <div class="config-check-with-help">
+                <label class="config-check"><input type="checkbox" bind:checked={conditions.track.strictTitle} /> {fields.strictTitle.conditions.label}</label>
+                {@render fieldHelp(fields.strictTitle.conditions, 'strict-title-conditions-help')}
+              </div>
               <div class:single-config-field={!singleItem} class="config-grid config-grid-spaced">
                 {#if singleItem}
                   <label>
-                    <span>Expected length <small>sec</small></span>
+                    <span>{fields.expectedLength.conditions.label} <small>sec</small></span>
                     <input class="field" type="number" min="0" bind:value={conditions.track.expectedLength} placeholder="Any" />
                   </label>
                 {/if}
                 <label>
-                  <span>{searchConfigLabel('lengthTolerance', 'conditions')} <small>sec</small></span>
+                  <span>{fields.lengthTolerance.conditions.label} <small>sec</small></span>
                   <input class="field" type="number" min="0" bind:value={conditions.track.lengthTolerance} />
                 </label>
               </div>
-              <label class="config-check"><input type="checkbox" bind:checked={conditions.track.acceptNoLength} /> Accept unknown length</label>
+              <div class="config-check-with-help">
+                <label class="config-check"><input type="checkbox" bind:checked={conditions.track.acceptNoLength} /> {fields.acceptNoLength.conditions.label}</label>
+                {@render fieldHelp(fields.acceptNoLength.conditions, 'unknown-length-help')}
+              </div>
             {/if}
             {#if family === 'album' || family === 'mixed'}
               {#if family === 'mixed'}<div class="config-subgroup-label">Albums</div>{/if}
-              <label class="config-check"><input type="checkbox" bind:checked={conditions.album.strictAlbum} /> {searchConfigLabel('strictAlbum', 'conditions')}</label>
+              <div class="config-check-with-help">
+                <label class="config-check"><input type="checkbox" bind:checked={conditions.album.strictAlbum} /> {fields.strictAlbum.conditions.label}</label>
+                {@render fieldHelp(fields.strictAlbum.conditions, 'strict-album-conditions-help')}
+              </div>
             {/if}
           </section>
         {/if}
@@ -257,12 +269,12 @@
           <section class="panel subtle search-config-section">
             <h3>Album structure</h3>
             <div class="config-grid">
-              <label><span>{searchConfigLabel('minTrackCount', 'conditions')}</span><input class="field" type="number" min="0" bind:value={conditions.album.minTrackCount} placeholder="Any" /></label>
-              <label><span>{searchConfigLabel('maxTrackCount', 'conditions')}</span><input class="field" type="number" min="0" bind:value={conditions.album.maxTrackCount} placeholder="Any" /></label>
+              <label><span>{fields.minTrackCount.conditions.label}</span><input class="field" type="number" min="0" bind:value={conditions.album.minTrackCount} placeholder="Any" /></label>
+              <label><span>{fields.maxTrackCount.conditions.label}</span><input class="field" type="number" min="0" bind:value={conditions.album.maxTrackCount} placeholder="Any" /></label>
             </div>
 
             {#if singleItem}
-            <div class="config-label config-label-spaced">{searchConfigLabel('requiredTrackTitle', 'conditions')}</div>
+            <div class="config-label config-label-spaced">{fields.requiredTrackTitle.conditions.label}</div>
             <div class="required-track-row">
               <input class="field"
                 value={requiredTrackTitle}
@@ -297,11 +309,11 @@
         <section class="panel subtle search-config-section peer-config-section">
           <h3>Peers</h3>
           <div class="config-grid peer-config-grid">
-            <label><span>{searchConfigLabel('allowedUsers', 'conditions')}</span><input class="field" type="text" bind:value={conditions.common.allowedUsers} placeholder="e.g. user1, user2" /></label>
-            <label><span>{searchConfigLabel('bannedUsers', 'conditions')}</span><input class="field" type="text" bind:value={conditions.common.bannedUsers} placeholder="e.g. user1, user2" /></label>
+            <label><span>{fields.allowedUsers.conditions.label}</span><input class="field" type="text" bind:value={conditions.common.allowedUsers} placeholder="e.g. user1, user2" /></label>
+            <label><span>{fields.bannedUsers.conditions.label}</span><input class="field" type="text" bind:value={conditions.common.bannedUsers} placeholder="e.g. user1, user2" /></label>
           </div>
           {#if !automatic}
-            <label class="config-check"><input type="checkbox" bind:checked={conditions.common.excludeLocked} /> {searchConfigLabel('excludeLocked', 'conditions')}</label>
+            <label class="config-check"><input type="checkbox" bind:checked={conditions.common.excludeLocked} /> {fields.excludeLocked.conditions.label}</label>
           {/if}
         </section>
         {#if groupMode && family === 'album'}
@@ -316,7 +328,7 @@
       <h3>{genericMode ? 'File ranking' : 'Audio ranking'}</h3>
       <SearchFormatControl
         bind:values={conditions.ranking.common.formats}
-        label={searchConfigLabel('formats', 'ranking')}
+        label={fields.formats.ranking.label}
         ariaLabel="Comma-separated preferred formats"
         idPrefix="search-config-ranking"
         suggestions={genericMode ? genericFormats : undefined}
@@ -324,20 +336,20 @@
       />
 
       <div class="config-grid">
-        <label><span>{searchConfigLabel('minBitrate', activeTab)} <small>kbps</small></span><input class="field" type="number" min="0" bind:value={conditions.ranking.common.minBitrate} placeholder="Any" /></label>
-        <label><span>{searchConfigLabel('maxBitrate', activeTab)} <small>kbps</small></span><input class="field" type="number" min="0" bind:value={conditions.ranking.common.maxBitrate} placeholder="Any" /></label>
+        <label><span>{fields.minBitrate.ranking.label} <small>kbps</small></span><input class="field" type="number" min="0" bind:value={conditions.ranking.common.minBitrate} placeholder="Any" /></label>
+        <label><span>{fields.maxBitrate.ranking.label} <small>kbps</small></span><input class="field" type="number" min="0" bind:value={conditions.ranking.common.maxBitrate} placeholder="Any" /></label>
       </div>
 
       <div class="config-grid">
         <label>
-          <span>Min {searchConfigLabel('sampleRate', 'ranking').toLowerCase()}</span>
+          <span>{fields.minSampleRate.ranking.label}</span>
           <select class="field" bind:value={conditions.ranking.common.minSampleRate}>
             <option value="">Any</option>
             {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
           </select>
         </label>
         <label>
-          <span>Max {searchConfigLabel('sampleRate', 'ranking').toLowerCase()}</span>
+          <span>{fields.maxSampleRate.ranking.label}</span>
           <select class="field" bind:value={conditions.ranking.common.maxSampleRate}>
             <option value="">Any</option>
             {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
@@ -347,14 +359,14 @@
 
       <div class="config-grid">
         <label>
-          <span>Min {searchConfigLabel('bitDepth', 'ranking').toLowerCase()}</span>
+          <span>{fields.minBitDepth.ranking.label}</span>
           <select class="field" bind:value={conditions.ranking.common.minBitDepth}>
             <option value="">Any</option>
             {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
           </select>
         </label>
         <label>
-          <span>Max {searchConfigLabel('bitDepth', 'ranking').toLowerCase()}</span>
+          <span>{fields.maxBitDepth.ranking.label}</span>
           <select class="field" bind:value={conditions.ranking.common.maxBitDepth}>
             <option value="">Any</option>
             {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
@@ -368,17 +380,26 @@
         {#if !genericMode}
           <section class="panel subtle search-config-section">
             <h3>Matching</h3>
-            <label class="config-check"><input type="checkbox" bind:checked={conditions.ranking.common.strictArtist} /> {searchConfigLabel('strictArtist', 'ranking')}</label>
+            <div class="config-check-with-help">
+              <label class="config-check"><input type="checkbox" bind:checked={conditions.ranking.common.strictArtist} /> {fields.strictArtist.ranking.label}</label>
+              {@render fieldHelp(fields.strictArtist.ranking, 'strict-artist-ranking-help')}
+            </div>
             {#if family === 'track' || family === 'mixed'}
               {#if family === 'mixed'}<div class="config-subgroup-label">Songs</div>{/if}
-              <label class="config-check"><input type="checkbox" bind:checked={conditions.ranking.track.strictTitle} /> {searchConfigLabel('strictTitle', 'ranking')}</label>
+              <div class="config-check-with-help">
+                <label class="config-check"><input type="checkbox" bind:checked={conditions.ranking.track.strictTitle} /> {fields.strictTitle.ranking.label}</label>
+                {@render fieldHelp(fields.strictTitle.ranking, 'strict-title-ranking-help')}
+              </div>
               <div class="config-grid config-grid-spaced single-config-field">
-                <label><span>{searchConfigLabel('lengthTolerance', 'ranking')} <small>sec</small></span><input class="field" type="number" min="0" bind:value={conditions.ranking.track.lengthTolerance} placeholder="Disabled" /></label>
+                <label><span>{fields.lengthTolerance.ranking.label} <small>sec</small></span><input class="field" type="number" min="0" bind:value={conditions.ranking.track.lengthTolerance} placeholder="Disabled" /></label>
               </div>
             {/if}
             {#if family === 'album' || family === 'mixed'}
               {#if family === 'mixed'}<div class="config-subgroup-label">Albums</div>{/if}
-              <label class="config-check"><input type="checkbox" bind:checked={conditions.ranking.album.strictAlbum} /> {searchConfigLabel('strictAlbum', 'ranking')}</label>
+              <div class="config-check-with-help">
+                <label class="config-check"><input type="checkbox" bind:checked={conditions.ranking.album.strictAlbum} /> {fields.strictAlbum.ranking.label}</label>
+                {@render fieldHelp(fields.strictAlbum.ranking, 'strict-album-ranking-help')}
+              </div>
             {/if}
           </section>
         {/if}
@@ -388,11 +409,11 @@
         <section class="panel subtle search-config-section peer-config-section">
           <h3>Peers</h3>
           <div class="config-grid peer-config-grid">
-            <label><span>{searchConfigLabel('allowedUsers', 'ranking')}</span><input class="field" type="text" bind:value={conditions.ranking.common.allowedUsers} placeholder="e.g. user1, user2" /></label>
-            <label><span>{searchConfigLabel('bannedUsers', 'ranking')}</span><input class="field" type="text" bind:value={conditions.ranking.common.bannedUsers} placeholder="e.g. user1, user2" /></label>
+            <label><span>{fields.allowedUsers.ranking.label}</span><input class="field" type="text" bind:value={conditions.ranking.common.allowedUsers} placeholder="e.g. user1, user2" /></label>
+            <label><span>{fields.bannedUsers.ranking.label}</span><input class="field" type="text" bind:value={conditions.ranking.common.bannedUsers} placeholder="e.g. user1, user2" /></label>
           </div>
           {#if !automatic}
-            <label class="config-check"><input type="checkbox" bind:checked={conditions.ranking.common.excludeLocked} /> {searchConfigLabel('excludeLocked', 'ranking')}</label>
+            <label class="config-check"><input type="checkbox" bind:checked={conditions.ranking.common.excludeLocked} /> {fields.excludeLocked.ranking.label}</label>
           {/if}
         </section>
       </div>

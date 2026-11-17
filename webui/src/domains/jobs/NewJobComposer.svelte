@@ -17,8 +17,7 @@
   import { buildImportPatch, createImportOptions, importOptionsCustomized, importOptionsFromResolved, type ImportOptions } from './import-options';
   import type { Schema } from '../../api/types';
   import { daemonApi } from '../../api/client';
-  import { DaemonApiError } from '../../api/http';
-  import { PreviewController, type PreviewState } from './preview-controller';
+  import { PreviewController, previewNeedsReview, type PreviewState } from './preview-controller';
   import { selectedPreviewCount, selectedSubtreeCount, toggleSubtree, type SubtreeRule } from './preview-selection';
   import { buildJobPreviewRequest, buildJobSettingsRequest, createNewJobDraft, newJobDraftFromSearch, type NewJobChoice, type NewJobDraft } from './submission';
   import { jobKindIcon, jobKindLabel } from './kind';
@@ -85,13 +84,12 @@
     : draft.choice === 'album' ? Boolean(draft.album.trim())
     : draft.choice === 'csv' || draft.choice === 'list' ? (draft.fileInput === 'path' ? Boolean(draft.source.trim()) : Boolean(draft.artifactId))
     : draft.choice === 'spotify' && draft.spotifyInput !== 'url' || Boolean(draft.source.trim()));
-  let busy = $derived(uploading || !downloadBaseline || preparing || Boolean(settingsError) || preview.loading || preview.summary?.state === 'Planning' || Boolean(preview.committing));
+  let needsReview = $derived(previewNeedsReview(preview));
+  let busy = $derived(uploading || !downloadBaseline || preparing || Boolean(settingsError) || preview.loading || (preview.summary?.state === 'Planning' && !needsReview) || Boolean(preview.committing));
   $effect(() => oncommittingchange(Boolean(preview.committing)));
   let subtreeCounts = $derived(new Map([...preview.branches.values()].flatMap((page) =>
     page.items.map((node) => [node.ref, Number(node.selectableSubtreeCount)] as const))));
   let selectedCount = $derived(selectedPreviewCount(Number(preview.summary?.selectableNodeCount ?? 0), subtreeCounts, all, selectionRules));
-  let needsReview = $derived(preview.summary?.state === 'Expired' || preview.error instanceof DaemonApiError
-    && (preview.error.code === 'preview-not-found' || preview.error.code === 'preview-conflict'));
   let committable = $derived(!needsReview && (preview.summary?.state === 'Ready' || preview.summary?.state === 'PartiallyReady'));
   function previewNodeTitle(node: Schema<'JobPreviewNodeDto'>): string {
     if (node.kind === 'song' && node.songQuery) {
@@ -390,9 +388,11 @@
         {/if}
       </div>
     {/each}
-    {#if page?.error}<p role="alert">{page.error.message}</p>{/if}
-    {#if !page || page.nextCursor || page.error || page.loading}
-      <button type="button" disabled={page?.loading || preview.summary?.state === 'Planning'} onclick={() => void controller.loadBranch(parent)}>{page?.loading ? 'Loading…' : page?.error ? 'Retry' : 'Load jobs'}</button>
+    {#if !needsReview}
+      {#if page?.error}<p role="alert">{page.error.message}</p>{/if}
+      {#if !page || page.nextCursor || page.error || page.loading}
+        <button type="button" disabled={page?.loading || preview.summary?.state === 'Planning'} onclick={() => void controller.loadBranch(parent)}>{page?.loading ? 'Loading…' : page?.error ? 'Retry' : 'Load jobs'}</button>
+      {/if}
     {/if}
   </div>
 {/snippet}

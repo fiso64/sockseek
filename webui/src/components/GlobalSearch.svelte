@@ -307,10 +307,9 @@
     <section class="search-mode-help-notes" aria-labelledby="search-mode-notes-title">
       <h3 id="search-mode-notes-title">Notes</h3>
       <ul>
-        <li>Artist and the song/album title affect how results are filtered, ranked, and grouped. Separate them with a hyphen, for example Casiopea - Mint Jams.</li>
-        <li>You can change the default search mode by setting web-default-search-mode in the config.</li>
-        <li>Switch between search modes using up and down arrow keys.</li>
-        <li>Press Control+Enter while the search bar is focused to create an automatic download job.</li>
+        <li>For better ranking and grouping, separate the artist from the album/song title with a hyphen, like <code>Artist - Title</code>. Without a separator, your query will be implicitly treated as a title in track and album modes, and as artist in group modes.</li>
+        <li>While the search bar is focused, switch between search modes using the up and down arrow keys. Press Control+Enter to create an automatic job.</li>
+        <li>To change the default search mode, set <code>web-default-search-mode</code> in the config.</li>
       </ul>
     </section>
   </Modal>

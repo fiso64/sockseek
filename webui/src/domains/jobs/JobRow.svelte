@@ -40,7 +40,7 @@
   class="search-history-row" class:automatic-history-row={job.kind !== 'search'}>
   <button type="button" data-testid="job-open" data-keyboard-focus class="search-history-open"
     class:automatic-history-open={job.kind !== 'search'} onclick={() => onopen(job)}>
-    <span class="search-history-icon" role="img" aria-label={typeLabel} title={typeLabel}><Icon name={searchMode ?? jobKindIcon(job.kind)} /></span>
+    <span class="search-history-icon" data-job-type={searchMode ?? job.kind} role="img" aria-label={typeLabel} title={typeLabel}><Icon name={searchMode ?? jobKindIcon(job.kind)} /></span>
     <span class="search-history-copy"><span class="search-history-query">{title}</span><small>{typeLabel}</small></span>
     {#if job.kind === 'search' && statusLabel !== 'Complete'}
       <span class={`status-label search-status-badge ${resultState ? 'pending' : jobStatusClass(job)}`}>{statusLabel}</span>

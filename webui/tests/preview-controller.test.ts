@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { DaemonApiClient } from '../src/api/client';
+import { DaemonApiError } from '../src/api/http';
 import type { Schema } from '../src/api/types';
 import { PreviewController, type PreviewState } from '../src/domains/jobs/preview-controller';
 
@@ -117,6 +118,42 @@ it('loads only the requested branch and does not refetch exhausted pages', async
   expect(parents).toEqual([null]);
   await controller.loadBranch('expanded-parent');
   expect(parents).toEqual([null, 'expanded-parent']);
+  controller.stop();
+});
+
+it('keeps transient page failures retryable and handles a missing preview once for the whole review', async () => {
+  const unavailable = new DaemonApiError('Unavailable', 503, 'preview-unavailable');
+  const missing = new DaemonApiError('Not found', 404, 'preview-not-found');
+  let rejectCommit!: (error: Error) => void;
+  let reads = 0;
+  class Api extends DaemonApiClient {
+    override async createJobPreview() { return { preview: summary('preview') }; }
+    override async getJobPreviewNodes() {
+      if (++reads === 1) throw unavailable;
+      if (reads === 2) throw missing;
+      return { items: [], nextCursor: null };
+    }
+    override commitJobPreview(): Promise<Schema<'CommitJobPreviewResponseDto'>> {
+      return new Promise((_resolve, reject) => { rejectCommit = reject; });
+    }
+  }
+  const controller = new PreviewController(new Api());
+  let latest: PreviewState | undefined;
+  controller.subscribe(state => { latest = state; });
+  await controller.create(request);
+  expect(latest?.branches.get(null)?.error).toBe(unavailable);
+  expect(latest?.error).toBeNull();
+  const commit = controller.commit({ mode: 'AllExcept', refs: [] });
+  await controller.loadBranch(null);
+  rejectCommit(unavailable);
+  await commit;
+  expect(latest?.error).toBe(missing);
+  expect(latest?.branches.get(null)?.error).toBeNull();
+  await controller.loadBranch(null);
+  expect(reads).toBe(2);
+  await controller.create(request);
+  expect(reads).toBe(3);
+  expect(latest?.error).toBeNull();
   controller.stop();
 });
 

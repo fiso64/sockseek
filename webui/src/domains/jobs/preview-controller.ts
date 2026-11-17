@@ -1,5 +1,6 @@
 import { randomUUID } from '../../app/uuid';
 import { daemonApi, nestedPageSize, type DaemonApiClient } from '../../api/client';
+import { DaemonApiError } from '../../api/http';
 import type { Schema } from '../../api/types';
 import { sameWireInteger } from '../../api/types';
 import type { SubtreeRule } from './preview-selection';
@@ -14,6 +15,14 @@ export interface PreviewState {
   loading: boolean;
   branches: ReadonlyMap<string | null, Branch>;
   error: Error | null;
+}
+
+function requiresNewPreview(error: unknown): error is DaemonApiError {
+  return error instanceof DaemonApiError && (error.code === 'preview-not-found' || error.code === 'preview-conflict');
+}
+
+export function previewNeedsReview(state: PreviewState): boolean {
+  return state.summary?.state === 'Expired' || requiresNewPreview(state.error);
 }
 
 /** One browser-owned review session; no simulated planner or persisted selection. */
@@ -73,7 +82,7 @@ export class PreviewController {
   async commit(selection: Schema<'RefSelectionExpressionDto'>, subtreeOverrides?: readonly SubtreeRule[]): Promise<void> {
     const summary = this.state.summary;
     const signal = this.lifetime.signal;
-    if (!summary || signal.aborted || this.state.committing || this.state.receipt?.submissionId) return;
+    if (!summary || signal.aborted || previewNeedsReview(this.state) || this.state.committing || this.state.receipt?.submissionId) return;
     const previous = this.commitRequest;
     const refs = [...new Set(selection.refs)].sort();
     const overrides = subtreeOverrides ? [...subtreeOverrides].sort((a, b) => a.ref.localeCompare(b.ref)) : undefined;
@@ -95,7 +104,10 @@ export class PreviewController {
       this.commitRequest = null;
       this.publish({ ...this.state, committing: false, receipt });
     } catch (error) {
-      if (!signal.aborted) this.publish({ ...this.state, committing: false, error: asError(error) });
+      if (signal.aborted) return;
+      // A concurrent page read may already have established that this review is stale.
+      const commitError = requiresNewPreview(this.state.error) ? this.state.error : asError(error);
+      this.publish({ ...this.state, committing: false, error: commitError });
     }
   }
 
@@ -103,7 +115,8 @@ export class PreviewController {
     const summary = this.state.summary;
     const signal = this.lifetime.signal;
     const previous = this.state.branches.get(parentRef);
-    if (!summary || signal.aborted || summary.state === 'Planning' || previous?.loading || (previous && !previous.error && !previous.nextCursor)) return;
+    if (!summary || signal.aborted || previewNeedsReview(this.state) || summary.state === 'Planning'
+      || previous?.loading || (previous && !previous.error && !previous.nextCursor)) return;
     const pending: Branch = { items: previous?.items ?? [], nextCursor: previous?.nextCursor ?? null, loading: true, error: null };
     this.publish({ ...this.state, branches: new Map(this.state.branches).set(parentRef, pending) });
     try {
@@ -113,7 +126,14 @@ export class PreviewController {
       this.publish({ ...this.state, branches: new Map(this.state.branches).set(parentRef, { items: [...pending.items, ...page.items], nextCursor: page.nextCursor ?? null, loading: false, error: null }) });
     } catch (error) {
       if (signal.aborted || this.state.branches.get(parentRef) !== pending) return;
-      this.publish({ ...this.state, branches: new Map(this.state.branches).set(parentRef, { ...pending, loading: false, error: asError(error) }) });
+      const branches = new Map(this.state.branches);
+      if (requiresNewPreview(error)) {
+        branches.set(parentRef, { ...pending, loading: false });
+        this.publish({ ...this.state, branches, error });
+      } else {
+        branches.set(parentRef, { ...pending, loading: false, error: asError(error) });
+        this.publish({ ...this.state, branches });
+      }
     }
   }
 
@@ -156,7 +176,7 @@ export class PreviewController {
   private async followPlanning(signal: AbortSignal): Promise<void> {
     while (!signal.aborted && this.state.summary?.state === 'Planning') {
       await this.refresh(true);
-      if (signal.aborted) return;
+      if (signal.aborted || previewNeedsReview(this.state)) return;
       if (this.state.error) {
         // Back off only failed requests. A healthy request waits at the planner
         // and returns as soon as the reviewed commands are available.

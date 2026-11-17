@@ -16,6 +16,12 @@
   --accent-fill: light-dark(#2b529e, #355bb7);
   --accent-soft: light-dark(#e4ebfb, #21293b);
   --accent-text: light-dark(#435d92, #a2bbf1);
+  --job-song-background: light-dark(#b9e1d8, #29594e);
+  --job-album-background: light-dark(#d9cbed, #524169);
+  --job-song-groups-background: light-dark(#bbdded, #30556b);
+  --job-album-groups-background: light-dark(#edcbdc, #674056);
+  --job-list-background: light-dark(#e8dbae, #5b5032);
+  --job-import-background: light-dark(#edcbb5, #654633);
   --success: light-dark(#307451, #69b58c);
   --warning: light-dark(#8a601e, #d0a15c);
   --danger: light-dark(#a54750, #df7e86);

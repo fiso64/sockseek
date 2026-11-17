@@ -1043,7 +1043,7 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   text-align: left;
 }
 .search-history-copy { flex: 1 1 auto; min-width: 0; display: grid; gap: 3px; }
-.search-history-copy small { color: var(--faint); font-size: .69rem; font-weight: 400; }
+.search-history-copy small { color: var(--muted); font-size: .75rem; font-weight: 500; }
 .search-history-query {
   display: block;
   min-width: 0;
@@ -1053,8 +1053,26 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   font-size: 0.875rem;
   font-weight: 600;
 }
-.search-history-icon { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; border: 1px solid var(--border); border-radius: 8px; color: var(--accent-text); background-color: var(--surface-subtle); background-image: var(--surface-image); box-shadow: var(--surface-shadow); }
-.search-history-icon .app-icon { --app-icon-size: 16px; }
+.search-history-icon {
+  --app-icon-size: 16px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background-color: var(--accent-soft);
+  background-image: var(--surface-image);
+  box-shadow: var(--surface-shadow);
+}
+.search-history-icon:is([data-job-type="track"], [data-job-type="song"]) { background-color: var(--job-song-background); }
+.search-history-icon[data-job-type="album"] { background-color: var(--job-album-background); }
+.search-history-icon[data-job-type="song-groups"] { background-color: var(--job-song-groups-background); }
+.search-history-icon[data-job-type="album-groups"] { background-color: var(--job-album-groups-background); }
+.search-history-icon:is([data-job-type="job-list"], [data-job-type="remote-directory"], [data-job-type="retrieve-folder"]) { background-color: var(--job-list-background); }
+.search-history-icon[data-job-type="extract"] { background-color: var(--job-import-background); }
 .search-history-stats {
   flex: 0 1 auto;
   min-width: 0;

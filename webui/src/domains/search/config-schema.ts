@@ -5,7 +5,8 @@ export type SearchConfigRelationship = 'paired' | 'partial' | 'conditions-only';
 
 export interface SearchConfigSideDefinition {
   label: string;
-  section: 'quality' | 'matching' | 'peers' | 'album-structure';
+  section: 'quality' | 'matching' | 'peers' | 'album-structure' | 'grouping';
+  help?: readonly string[];
 }
 
 export interface SearchConfigFieldDefinition {
@@ -16,19 +17,21 @@ export interface SearchConfigFieldDefinition {
   ranking?: SearchConfigSideDefinition;
 }
 
-/**
- * Human-facing search configuration vocabulary.
- *
- * Keeping the required and ranking copy next to each other makes the daemon's
- * required <-> preferred correspondence obvious. A missing `ranking` entry is
- * intentional: there is no explicit pref-* control for that condition in the
- * documented CLI surface.
- *
- * Compound controls (format sets, exact-vs-range quality controls, track length)
- * are still rendered explicitly in Svelte; this registry is the single source
- * for their labels and relationship semantics rather than trying to force every
- * control into one generic form-field abstraction.
- */
+const artistMatchHelp = [
+  'Peers can return a path with the search words in different places. This match looks for the artist’s name as a contiguous string anywhere in the path.',
+  'Casing, underscores, spaces and special strings are ignored when comparing.',
+] as const;
+
+const titleMatchHelp = [
+  'Like the artist match option above, but for the track title. Matches only against the filename instead of full path.',
+] as const;
+
+const albumMatchHelp = [
+  'Like the artist match option above, but for the album name.',
+] as const;
+
+// TODO [v4]: Consider moving some matching and other options to an "advanced" (maybe collapsed) part of the search config panel.
+/** Filtering and ranking labels, help and mode coverage for the search configuration panel. */
 export const SEARCH_CONFIG_FIELDS = {
   formats: {
     id: 'formats', modes: 'all', relationship: 'paired',
@@ -45,33 +48,54 @@ export const SEARCH_CONFIG_FIELDS = {
     conditions: { label: 'Max bitrate', section: 'quality' },
     ranking: { label: 'Max bitrate', section: 'quality' },
   },
-  sampleRate: {
-    id: 'sampleRate', modes: 'all', relationship: 'paired',
-    conditions: { label: 'Sample rate', section: 'quality' },
-    ranking: { label: 'Sample rate', section: 'quality' },
+  minSampleRate: {
+    id: 'minSampleRate', modes: 'all', relationship: 'paired',
+    conditions: { label: 'Min sample rate', section: 'quality' },
+    ranking: { label: 'Min sample rate', section: 'quality' },
   },
-  bitDepth: {
-    id: 'bitDepth', modes: 'all', relationship: 'paired',
-    conditions: { label: 'Bit depth', section: 'quality' },
-    ranking: { label: 'Bit depth', section: 'quality' },
+  maxSampleRate: {
+    id: 'maxSampleRate', modes: 'all', relationship: 'paired',
+    conditions: { label: 'Max sample rate', section: 'quality' },
+    ranking: { label: 'Max sample rate', section: 'quality' },
+  },
+  minBitDepth: {
+    id: 'minBitDepth', modes: 'all', relationship: 'paired',
+    conditions: { label: 'Min bit depth', section: 'quality' },
+    ranking: { label: 'Min bit depth', section: 'quality' },
+  },
+  maxBitDepth: {
+    id: 'maxBitDepth', modes: 'all', relationship: 'paired',
+    conditions: { label: 'Max bit depth', section: 'quality' },
+    ranking: { label: 'Max bit depth', section: 'quality' },
   },
   strictArtist: {
     id: 'strictArtist', modes: ['track', 'album', 'song-groups', 'album-groups'], relationship: 'paired',
-    conditions: { label: 'Require artist in path', section: 'matching' },
-    ranking: { label: 'Prefer artist in path', section: 'matching' },
+    conditions: { label: 'Require artist name in path', section: 'matching', help: artistMatchHelp },
+    ranking: { label: 'Prefer artist name in path', section: 'matching', help: artistMatchHelp },
   },
   strictTitle: {
-    id: 'strictTitle', modes: ['track'], relationship: 'paired',
-    conditions: { label: 'Require track title in filename', section: 'matching' },
-    ranking: { label: 'Prefer track title in filename', section: 'matching' },
+    id: 'strictTitle', modes: ['track', 'song-groups'], relationship: 'paired',
+    conditions: { label: 'Require track title in filename', section: 'matching', help: titleMatchHelp },
+    ranking: { label: 'Prefer track title in filename', section: 'matching', help: titleMatchHelp },
   },
   strictAlbum: {
-    id: 'strictAlbum', modes: ['album'], relationship: 'paired',
-    conditions: { label: 'Require album in folder path', section: 'matching' },
-    ranking: { label: 'Prefer album in folder path', section: 'matching' },
+    id: 'strictAlbum', modes: ['album', 'album-groups'], relationship: 'paired',
+    conditions: { label: 'Require album name in folder path', section: 'matching', help: albumMatchHelp },
+    ranking: { label: 'Prefer album name in folder path', section: 'matching', help: albumMatchHelp },
+  },
+  expectedLength: {
+    id: 'expectedLength', modes: ['track', 'song-groups'], relationship: 'conditions-only',
+    conditions: { label: 'Expected length', section: 'matching' },
+  },
+  acceptNoLength: {
+    id: 'acceptNoLength', modes: ['track', 'song-groups'], relationship: 'conditions-only',
+    conditions: {
+      label: 'Accept unknown length', section: 'matching',
+      help: ['This applies only when the track has an expected length and a tolerance is set. Enable this to let a file pass the length check when its peer omits the duration.'],
+    },
   },
   lengthTolerance: {
-    id: 'lengthTolerance', modes: ['track'], relationship: 'partial',
+    id: 'lengthTolerance', modes: ['track', 'song-groups'], relationship: 'partial',
     conditions: { label: 'Tolerance', section: 'matching' },
     ranking: { label: 'Length tolerance', section: 'matching' },
   },
@@ -88,27 +112,47 @@ export const SEARCH_CONFIG_FIELDS = {
   bannedUsers: {
     id: 'bannedUsers', modes: 'all', relationship: 'paired',
     conditions: { label: 'Banned users', section: 'peers' },
-    ranking: { label: 'Downrank users', section: 'peers' },
+    ranking: { label: 'Downranked users', section: 'peers' },
   },
   rejectUnknownMetadata: {
-    id: 'rejectUnknownMetadata', modes: 'all', relationship: 'conditions-only',
-    conditions: { label: 'Reject unknown metadata', section: 'quality' },
+    id: 'rejectUnknownMetadata', modes: ['track', 'song-groups', 'album', 'album-groups'], relationship: 'conditions-only',
+    conditions: {
+      label: 'Reject unknown metadata', section: 'quality',
+      help: [
+        "Some peers' clients do not report properties such as bitrate. By default, a file with an unknown bitrate is still accepted even when you set a minimum bitrate.",
+        'Enable this to reject files when a property you require is unknown. Use with care: This can exclude otherwise valid files because of the client sharing them.',
+      ],
+    },
   },
   strictAlbumQuality: {
-    id: 'strictAlbumQuality', modes: ['album'], relationship: 'conditions-only',
-    conditions: { label: 'Every album track must satisfy quality', section: 'quality' },
+    id: 'strictAlbumQuality', modes: ['album', 'album-groups'], relationship: 'conditions-only',
+    conditions: {
+      label: 'Every album track must satisfy quality', section: 'quality',
+      help: [
+        'By default, mixed-quality folders are ranked by coverage. For example, if you prefer FLAC, a folder with 9 FLAC files and 1 MP3 is still accepted (ranking above a mostly-MP3 folder).',
+        'Enable this to require every audio file in the folder to meet your audio quality conditions.',
+      ],
+    },
   },
   minTrackCount: {
-    id: 'minTrackCount', modes: ['album'], relationship: 'conditions-only',
+    id: 'minTrackCount', modes: ['album', 'album-groups'], relationship: 'conditions-only',
     conditions: { label: 'Min tracks', section: 'album-structure' },
   },
   maxTrackCount: {
-    id: 'maxTrackCount', modes: ['album'], relationship: 'conditions-only',
+    id: 'maxTrackCount', modes: ['album', 'album-groups'], relationship: 'conditions-only',
     conditions: { label: 'Max tracks', section: 'album-structure' },
   },
   requiredTrackTitle: {
-    id: 'requiredTrackTitle', modes: ['album'], relationship: 'conditions-only',
+    id: 'requiredTrackTitle', modes: ['album', 'album-groups'], relationship: 'conditions-only',
     conditions: { label: 'Required track title', section: 'album-structure' },
+  },
+  minShares: {
+    id: 'minShares', modes: ['song-groups', 'album-groups'], relationship: 'conditions-only',
+    conditions: { label: 'Minimum sharers', section: 'grouping' },
+  },
+  groupLengthTolerance: {
+    id: 'groupLengthTolerance', modes: ['song-groups', 'album-groups'], relationship: 'conditions-only',
+    conditions: { label: 'Grouping tolerance', section: 'grouping' },
   },
 } as const satisfies Record<string, SearchConfigFieldDefinition>;
 
@@ -125,13 +169,3 @@ export const SEARCH_SAMPLE_RATES = [
   { value: '192000', label: '192 kHz' },
 ] as const;
 export const SEARCH_BIT_DEPTHS = ['16', '24', '32'] as const;
-
-export function searchConfigLabel(
-  field: keyof typeof SEARCH_CONFIG_FIELDS,
-  tab: SearchConfigTab,
-): string {
-  const definition = SEARCH_CONFIG_FIELDS[field];
-  if (tab === 'ranking' && 'ranking' in definition) return definition.ranking.label;
-  if (tab === 'ranking') return definition.conditions.label;
-  return definition.conditions.label;
-}

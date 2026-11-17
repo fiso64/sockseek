@@ -471,6 +471,7 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   await expect(page.getByRole('button', { name: 'Deselect all', exact: true })).toBeVisible();
   // Temporary preview data can also disappear across daemon restarts while
   // the durable uploaded artifact survives. This is a real 404, not a mock.
+  await expect(firstSong).toBeVisible();
   await daemon.command('forget-job-previews');
   const missing = page.waitForResponse(reply => new URL(reply.url()).pathname
     === `/api/job-previews/${next.preview.previewId}/commit`);
