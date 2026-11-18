@@ -627,6 +627,7 @@
           onopenoptions={(ref) => void searchController.openGroupOptions(ref)}
           onstepoption={(ref, direction) => void searchController.stepGroupOption(ref, direction)}
           oncloseoptions={() => searchController.closeGroupOptions()}
+          onfilteroptions={(text) => void searchController.filterGroupOptions(text)}
           onloadoptions={() => void searchController.loadMoreGroupOptions()}
           onchooseoption={(ref, option) => searchController.chooseGroupOption(ref, option)}
           ontogglealbumfile={(groupRef, fileRef, selected) => searchController.toggleAlbumGroupFile(groupRef, fileRef, selected)}

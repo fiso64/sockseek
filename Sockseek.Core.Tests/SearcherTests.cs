@@ -1454,9 +1454,10 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        [DataRow(false)]
-        [DataRow(true)]
-        public void IncrementalTrackGroups_LateTextMatchKeepsAdmissionTimePeerPenalties(bool readView)
+        [DataRow(false, "Rare")]
+        [DataRow(true, "Rare")]
+        [DataRow(true, "LATE")]
+        public void IncrementalTrackGroups_LateTextMatchKeepsAdmissionTimePeerPenalties(bool readView, string filter)
         {
             var settings = new SearchSettings
             {
@@ -1467,7 +1468,7 @@ namespace Tests.Unit
             counts["ignored"] = 2;
             counts["late"] = 1;
             var projector = new IncrementalTrackGroupProjector(
-                new SongQuery { Artist = "ELO", Title = "Track" }, settings, counts, filterText: "Rare");
+                new SongQuery { Artist = "ELO", Title = "Track" }, settings, counts, filterText: filter);
             SearchProjectionInput Input(long sequence, string user, string folder, int speed) => new(
                 sequence, 1, user, 1, folder + @"\ELO - Track.flac", 1000,
                 320, null, null, 180, ".flac", speed, true, null, DateTimeOffset.UnixEpoch);

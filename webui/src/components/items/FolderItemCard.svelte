@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { matchedText, matchedPath } from '../MatchedText.svelte';
   import type { Snippet } from 'svelte';
   import Icon from '../Icon.svelte';
   import LockedIndicator from '../LockedIndicator.svelte';
@@ -12,6 +13,7 @@
   import { fileTypeIcon } from '../../domains/presentation/file-types';
 
   interface Props {
+    highlight?: RegExp;
     path: string;
     sizeBytes: number | null;
     files: FolderItemFile[];
@@ -43,6 +45,7 @@
   }
 
   let {
+    highlight,
     path,
     sizeBytes,
     files,
@@ -140,7 +143,8 @@
       <strong class="folder-heading-path" class:folder-transfer-path={Boolean(transfer)} title={sources?.complete === false ? `Remote folders of loaded files: ${detailPath}` : detailPath}>
         <bdi dir="ltr">
           {#each headingPaths as folder, index}
-            {#if index > 0}<span class="folder-path-separator"> · </span>{/if}<span class="folder-path-ancestors">{parentPath(folder)}</span><b class:folder-transfer-name={Boolean(transfer)}>{basename(folder)}</b>
+            {@const parentLength = parentPath(folder).length}
+            {#if index > 0}<span class="folder-path-separator"> · </span>{/if}{@render matchedPath(folder, highlight, parentLength, Boolean(transfer))}
           {/each}
         </bdi>
       </strong>
@@ -273,14 +277,15 @@
             <span class="folder-subfolder-icon"><Icon name="folder" /></span>
           {/if}
           <span class="folder-subfolder-path">
-            <strong>{row.name}</strong>
-            <small>{row.relativePath}</small>
+            <strong>{@render matchedText(row.relativePath, highlight, row.relativePath.length - row.name.length)}</strong>
+            <small>{@render matchedText(row.relativePath, highlight)}</small>
           </span>
           <span class="folder-subfolder-count">{row.node.fileCount} {row.node.fileCount === 1 ? 'file' : 'files'}{filesComplete ? '' : ' loaded'}</span>
           <span class="folder-subfolder-size" title={subfolderSizeTitle(row.node)}>{row.node.sizeBytes === 0 && row.node.unknownSizeCount > 0 ? '—' : formatBytes(row.node.sizeBytes)}</span>
         </svelte:element>
       {:else}
         {@const file = row.file}
+        {@const matchPath = highlight && file.sourcePath?.endsWith(row.displayName) ? file.sourcePath : row.displayName}
         {@const fileDirectionClass = file.transfer?.direction ? `transfer-${file.transfer.direction}` : ''}
         {@const typeIcon = fileTypeIcon({ filename: file.relativePath, hasAudioMetadata: Boolean(file.audio) })}
         <svelte:element
@@ -312,7 +317,7 @@
             </span>
           {/if}
           <span class="folder-file-path" title={file.sourcePath ?? file.relativePath}>
-            <strong>{row.displayName}</strong>
+            <strong>{@render matchedText(matchPath, highlight, matchPath.length - row.displayName.length)}</strong>
           </span>
           {#if file.audio}
             <span class="folder-file-audio">{audioSummary(file.audio)}</span>

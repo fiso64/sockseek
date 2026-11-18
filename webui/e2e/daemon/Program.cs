@@ -365,8 +365,10 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                                 $@"Fixture\Album-{peerIndex:D3}\track-{peerIndex:D3}-{file:D3}.txt",
                                 128, ".txt", []))
                             .ToArray();
+                    // Keep the collapse target on the first page throughout the paced load journey.
+                    int speed = pacedMusicSearch && peerIndex == 0 ? 2_000_000 : 1_000_000;
                     receive(new Soulseek.SearchResponse($"fixture-peer-{peerIndex:D3}", peerIndex + 1,
-                        true, 1_000_000, 0, files));
+                        true, speed, 0, files));
                 }
                 if (stagedLargeDirectorySearch)
                 {

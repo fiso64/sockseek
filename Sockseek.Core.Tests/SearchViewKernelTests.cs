@@ -288,7 +288,10 @@ public sealed class SearchViewKernelTests
     }
 
     [TestMethod]
-    public void AlbumGroupTextMatchKeepsEveryDirectoryOption()
+    [DataRow("Peer-B", @"Special\ELO\Time", "02. Other.flac")]
+    [DataRow("Peer-B", @"ELO\Time", "02. Space Road.flac")]
+    [DataRow("Special-Peer", @"ELO\Time", "02. Other.flac")]
+    public void AlbumGroupTextMatchKeepsEveryDirectoryOption(string peer, string folder, string secondTrack)
     {
         var settings = new SearchSettings
         {
@@ -300,18 +303,20 @@ public sealed class SearchViewKernelTests
         var projection = new SearchViewProjectionDefinition(
             SearchViewProjectionKind.AlbumGroups,
             AlbumQuery: new AlbumQuery { Artist = "ELO", Album = "Time" },
-            FilterText: "Special");
+            FilterText: "sp");
         var kernel = new SearchViewKernel(projection, settings);
         kernel.Apply(
-            [Input(1, "Peer-A", @"ELO\Time\01. Track.flac", 900, SearchResultVisibility.Public)],
-            1, false);
+            [Input(1, "Peer-A", @"ELO\Time\01. Track.flac", 900, SearchResultVisibility.Public),
+             Input(2, "Peer-A", @"ELO\Time\02. Other.flac", 900, SearchResultVisibility.Public)],
+            2, false);
         Assert.AreEqual(0L, kernel.Snapshot().Counters.TopLevelItemCount);
         SearchViewKernelUpdate revealed = kernel.Apply(
-            [Input(2, "Peer-B", @"Special\ELO\Time\01. Track.flac", 900, SearchResultVisibility.Public)],
-            2, false);
+            [Input(3, peer, $@"{folder}\01. Track.flac", 900, SearchResultVisibility.Public),
+             Input(4, peer, $@"{folder}\{secondTrack}", 900, SearchResultVisibility.Public)],
+            4, false);
         SearchViewProjectedAlbumGroup group = revealed.ChangedAlbumGroups!.Single();
         Assert.AreEqual(2, group.Options.Count);
-        Assert.AreEqual(2L, revealed.Counters.ProjectedFileCount);
+        Assert.AreEqual(4L, revealed.Counters.ProjectedFileCount);
         Assert.AreEqual(1L, revealed.Counters.TopLevelItemCount);
     }
 

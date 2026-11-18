@@ -1173,6 +1173,9 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 .result-filter-control input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 0.82rem; }
 .result-filter-control input::placeholder { color: var(--faint); }
 .result-filter-control button { border: 0; padding: 0 2px; background: transparent; color: var(--muted); font-size: 1rem; }
+.result-filter-control.collapsible { padding: 0 8px 0 0; gap: 0; overflow: clip; }
+.result-filter-control .filter-toggle { flex: 0 0 32px; height: 100%; display: grid; place-items: center; padding: 0; }
+.result-filter-control .filter-toggle:focus-visible { outline-offset: -3px; }
 .result-sort-control { display: flex; align-items: center; gap: 7px; margin-left: auto; }
 .result-sort-control label { color: var(--muted); font-size: 0.76rem; }
 .result-sort-control select {
@@ -2674,6 +2677,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   position: relative;
   z-index: 1;
   width: min(1040px, calc(100vw - 72px));
+  height: 920px;
   max-height: calc(100dvh - 48px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -2690,7 +2694,9 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
-.group-options-header > div { min-width: 0; display: grid; gap: 3px; }
+.group-options-heading { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.group-options-header .result-filter-control { flex: none; width: 34px; height: 34px; }
+.group-options-header .result-filter-control.expanded { width: 19rem; }
 .group-options-header strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9rem; }
 .group-options-header small { color: var(--muted); font-size: .68rem; }
 .group-options-close {
@@ -2782,6 +2788,20 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   .group-option .file-result-row .item-length-detail { display: none; }
   .group-options-modal { padding: 12px; }
   .group-options-dialog { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
+}
+
+@media (max-width: 540px) {
+  .group-options-header { gap: 0; }
+  .group-options-close { flex: none; margin-inline-start: 12px; }
+  .group-options-heading { overflow: hidden; }
+  .group-options-heading small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .group-options-header:has(.result-filter-control.expanded) .group-options-heading { opacity: 0; }
+  .group-options-header .result-filter-control.expanded { width: calc(100% - 44px); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .group-options-header .result-filter-control { transition: width 100ms ease-out; }
+  .group-options-heading { transition: opacity 100ms ease-out; }
 }
 
 /* Jobs: automatic jobs, imports, and review-before-start planning. */

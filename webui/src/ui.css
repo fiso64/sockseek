@@ -227,3 +227,10 @@ button.status-label:focus-visible { outline: 2px solid var(--accent); outline-of
   .status-label { --status-spin-duration: 1400ms; }
 }
 @keyframes search-job-spin { to { transform: rotate(360deg); } }
+
+mark.filter-match {
+  color: var(--match-text);
+  background: var(--match-background);
+  border-radius: 2px;
+  box-shadow: inset 0 -1px color-mix(in srgb, currentColor 25%, transparent);
+}

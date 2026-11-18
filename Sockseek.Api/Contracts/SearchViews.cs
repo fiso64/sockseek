@@ -51,7 +51,8 @@ public sealed record SearchViewSummaryDto(
     bool IsComplete,
     SearchViewRetentionState RetentionState,
     SearchViewCountersDto Counters,
-    ServerSearchViewSortOrder SortOrder = ServerSearchViewSortOrder.Relevance);
+    ServerSearchViewSortOrder SortOrder = ServerSearchViewSortOrder.Relevance,
+    string? FilterText = null);
 
 public sealed record SearchViewDefinitionDto(
     Guid ViewId,
@@ -166,11 +167,15 @@ public sealed record SearchViewTrackGroupPageDto(
     IReadOnlyList<SearchViewTrackGroupDto> Items,
     string? NextCursor);
 
+/// <summary>PreviousTo or NextTo returns one neighbor of the exact option in this revision.</summary>
+public sealed record SearchViewGroupOptionQuery(string? FilterText = null, string? PreviousTo = null, string? NextTo = null);
+
 public sealed record SearchViewTrackGroupOptionPageDto(
     SearchViewRevisionDto Revision,
     string GroupRef,
     IReadOnlyList<SearchViewFileDto> Items,
-    string? NextCursor);
+    string? NextCursor,
+    IReadOnlyList<int>? Positions = null);
 
 public sealed record SearchViewAlbumGroupDto(
     string Ref,
@@ -189,7 +194,8 @@ public sealed record SearchViewAlbumGroupOptionPageDto(
     SearchViewRevisionDto Revision,
     string GroupRef,
     IReadOnlyList<SearchViewDirectoryDto> Items,
-    string? NextCursor);
+    string? NextCursor,
+    IReadOnlyList<int>? Positions = null);
 
 /// <summary>Reads browser-held group choices against one immutable revision; it does not save them.</summary>
 public sealed record ResolveSearchViewChosenOptionsRequestDto(

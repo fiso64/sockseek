@@ -2366,13 +2366,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Pages one track group's ordered alternatives. */
+        /**
+         * Pages one track group's ordered alternatives.
+         * @description Filter by peer or path, or use previousTo or nextTo with an exact option ref to read one unfiltered neighbor and its one-based position.
+         */
         get: {
             parameters: {
                 query: {
                     revision: number | string;
                     cursor?: string;
                     limit?: number | string;
+                    filterText?: string;
+                    previousTo?: string;
+                    nextTo?: string;
                 };
                 header?: never;
                 path: {
@@ -2533,13 +2539,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Pages one album group's directory alternatives. */
+        /**
+         * Pages one album group's directory alternatives.
+         * @description Filter by peer or path, or use previousTo or nextTo with an exact option ref to read one unfiltered neighbor and its one-based position.
+         */
         get: {
             parameters: {
                 query: {
                     revision: number | string;
                     cursor?: string;
                     limit?: number | string;
+                    filterText?: string;
+                    previousTo?: string;
+                    nextTo?: string;
                 };
                 header?: never;
                 path: {
@@ -13071,6 +13083,7 @@ export interface components {
             groupRef: string;
             items: components["schemas"]["SearchViewDirectoryDto"][];
             nextCursor?: null | string;
+            positions?: null | (number | string)[];
         };
         SearchViewAlbumGroupPageDto: {
             revision: components["schemas"]["SearchViewRevisionDto"];
@@ -13224,6 +13237,7 @@ export interface components {
             retentionState: components["schemas"]["SearchViewRetentionState"];
             counters: components["schemas"]["SearchViewCountersDto"];
             sortOrder?: components["schemas"]["ServerSearchViewSortOrder"];
+            filterText?: null | string;
         };
         SearchViewTrackGroupDto: {
             ref: string;
@@ -13241,6 +13255,7 @@ export interface components {
             groupRef: string;
             items: components["schemas"]["SearchViewFileDto"][];
             nextCursor?: null | string;
+            positions?: null | (number | string)[];
         };
         SearchViewTrackGroupPageDto: {
             revision: components["schemas"]["SearchViewRevisionDto"];

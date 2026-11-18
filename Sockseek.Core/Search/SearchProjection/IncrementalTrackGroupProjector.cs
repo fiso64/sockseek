@@ -257,7 +257,7 @@ public sealed class IncrementalTrackGroupProjector
             users.Add(input.Username);
             int failureCount = peerFailureCounts.GetValueOrDefault(input.Username, 0);
             if (failureCount >= search.EffectiveIgnoreOn) return null;
-            matchesText |= ContainsFilter(input.Filename);
+            matchesText = matchesText || SearchViewProjectionDefinition.MatchesFileInput(input, filterText);
             if (sorter is null)
             {
                 // Grouping and visibility only need admitted source facts.

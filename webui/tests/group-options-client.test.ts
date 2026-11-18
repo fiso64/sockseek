@@ -15,8 +15,8 @@ it.each(['track', 'album'] as const)('pages %s alternatives with exact refs, rev
   const api = new DaemonApiClient(new Http());
   const signal = new AbortController().signal;
   const request = kind === 'track'
-    ? api.getSearchViewTrackGroupOptions('view', 'Exact/Ref+?', '9007199254740993', 'next+cursor', 25, signal)
-    : api.getSearchViewAlbumGroupOptions('view', 'Exact/Ref+?', '9007199254740993', 'next+cursor', 25, signal);
+    ? api.getSearchViewTrackGroupOptions('view', 'Exact/Ref+?', '9007199254740993', { cursor: 'next+cursor', limit: 25 }, signal)
+    : api.getSearchViewAlbumGroupOptions('view', 'Exact/Ref+?', '9007199254740993', { cursor: 'next+cursor', limit: 25 }, signal);
   await expect(request).rejects.toThrow('Transport unavailable');
   const url = new URL(requestedPath, 'http://localhost');
   expect(url.pathname).toBe(`/search-views/view/${kind}-groups/Exact%2FRef%2B%3F/alternatives`);

@@ -1,15 +1,17 @@
 <script lang="ts">
+  import { matchedText } from './MatchedText.svelte';
   import Icon from './Icon.svelte';
   import type { UserLinkActions } from '../app/navigation';
   import { anchoredMenu } from '../lib/anchored-menu';
 
   interface Props {
+    highlight?: RegExp;
     username: string;
     actions: UserLinkActions;
     title?: string;
   }
 
-  let { username, actions, title }: Props = $props();
+  let { highlight, username, actions, title }: Props = $props();
   let root = $state<HTMLSpanElement | null>(null);
   let open = $state(false);
 
@@ -45,7 +47,7 @@
 </script>
 
 <span class="username-link-control" bind:this={root}>
-  <button type="button" class="username-link" title={title ?? `Actions for ${username}`} aria-label={`Actions for ${username}`} aria-haspopup="menu" aria-expanded={open} onclick={toggle}>{username}</button>
+  <button type="button" class="username-link" title={title ?? `Actions for ${username}`} aria-label={`Actions for ${username}`} aria-haspopup="menu" aria-expanded={open} onclick={toggle}>{@render matchedText(username, highlight)}</button>
   {#if open}
     <div class="popover-panel username-action-menu" role="menu" use:anchoredMenu={{ anchor: root, align: 'start', gap: 5 }}>
       <button class="menu-item" type="button" role="menuitem" onclick={(event) => choose('profile', event)}><Icon name="user" /><span>Profile</span></button>

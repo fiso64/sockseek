@@ -48,6 +48,14 @@ export const nestedPageSize = 100;
 export const searchFilePageSize = 100;
 export const searchDirectoryPageSize = 50;
 
+export interface GroupOptionQuery {
+  cursor?: string | null;
+  limit?: number;
+  filterText?: string;
+  previousTo?: string;
+  nextTo?: string;
+}
+
 export class DaemonApiClient {
   constructor(private readonly http = new DaemonHttpClient()) {}
 
@@ -473,13 +481,13 @@ export class DaemonApiClient {
   }
 
   getSearchViewTrackGroupOptions(viewId: string, groupRef: string, revision: number | string,
-    cursor?: string | null, limit = searchFilePageSize, signal?: AbortSignal): Promise<Schema<'SearchViewTrackGroupOptionPageDto'>> {
-    return this.http.get(`/search-views/${encodeURIComponent(viewId)}/track-groups/${encodeURIComponent(groupRef)}/alternatives${queryString({ revision, cursor, limit })}`, signal);
+    query: GroupOptionQuery = {}, signal?: AbortSignal): Promise<Schema<'SearchViewTrackGroupOptionPageDto'>> {
+    return this.http.get(`/search-views/${encodeURIComponent(viewId)}/track-groups/${encodeURIComponent(groupRef)}/alternatives${queryString({ revision, limit: searchFilePageSize, ...query })}`, signal);
   }
 
   getSearchViewAlbumGroupOptions(viewId: string, groupRef: string, revision: number | string,
-    cursor?: string | null, limit = searchDirectoryPageSize, signal?: AbortSignal): Promise<Schema<'SearchViewAlbumGroupOptionPageDto'>> {
-    return this.http.get(`/search-views/${encodeURIComponent(viewId)}/album-groups/${encodeURIComponent(groupRef)}/alternatives${queryString({ revision, cursor, limit })}`, signal);
+    query: GroupOptionQuery = {}, signal?: AbortSignal): Promise<Schema<'SearchViewAlbumGroupOptionPageDto'>> {
+    return this.http.get(`/search-views/${encodeURIComponent(viewId)}/album-groups/${encodeURIComponent(groupRef)}/alternatives${queryString({ revision, limit: searchDirectoryPageSize, ...query })}`, signal);
   }
 
   resolveSearchViewChosenOptions(viewId: string, request: Schema<'ResolveSearchViewChosenOptionsRequestDto'>, signal?: AbortSignal): Promise<Schema<'ResolveSearchViewChosenOptionsResponseDto'>> {

@@ -2584,6 +2584,7 @@
           "Search Views"
         ],
         "summary": "Pages one track group's ordered alternatives.",
+        "description": "Filter by peer or path, or use previousTo or nextTo with an exact option ref to read one unfiltered neighbor and its one-based position.",
         "parameters": [
           {
             "name": "viewId",
@@ -2632,6 +2633,27 @@
                 "string"
               ],
               "format": "int32"
+            }
+          },
+          {
+            "name": "filterText",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "previousTo",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nextTo",
+            "in": "query",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -2806,6 +2828,7 @@
           "Search Views"
         ],
         "summary": "Pages one album group's directory alternatives.",
+        "description": "Filter by peer or path, or use previousTo or nextTo with an exact option ref to read one unfiltered neighbor and its one-based position.",
         "parameters": [
           {
             "name": "viewId",
@@ -2854,6 +2877,27 @@
                 "string"
               ],
               "format": "int32"
+            }
+          },
+          {
+            "name": "filterText",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "previousTo",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nextTo",
+            "in": "query",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -23268,6 +23312,20 @@
               "null",
               "string"
             ]
+          },
+          "positions": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
           }
         }
       },
@@ -23930,6 +23988,12 @@
           },
           "sortOrder": {
             "$ref": "#/components/schemas/ServerSearchViewSortOrder"
+          },
+          "filterText": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -24004,6 +24068,20 @@
               "null",
               "string"
             ]
+          },
+          "positions": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
           }
         }
       },

@@ -47,16 +47,52 @@ public sealed partial class SearchViewSnapshot
     internal static (T[] Items, T? Next) Page<T>(ImmutableSortedSet<T> index, T? after, int limit) where T : class
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
-        int start = 0;
-        if (after != null)
-        {
-            int position = index.IndexOf(after);
-            start = position >= 0 ? position + 1 : ~position;
-        }
+        int start = PageStart(index, after);
         int count = Math.Min(limit, index.Count - start);
         var items = new T[count];
         for (int i = 0; i < count; i++) items[i] = index[start + i];
         return (items, start + count < index.Count && count > 0 ? items[^1] : null);
+    }
+
+    private static int PageStart<T>(ImmutableSortedSet<T> index, T? after) where T : class
+    {
+        if (after == null) return 0;
+        int position = index.IndexOf(after);
+        return position >= 0 ? position + 1 : ~position;
+    }
+
+    private static (T[] Items, T? Next, int[]? Positions) OptionPage<T>(
+        ImmutableSortedSet<T> index, T? after, int limit, SearchViewGroupOptionQuery? query,
+        Func<string, T?> positionOf, Func<T, string, bool> matches, CancellationToken cancellationToken) where T : class
+    {
+        if (query != null && (query.PreviousTo ?? query.NextTo) is { } anchor)
+        {
+            if (after != null || !string.IsNullOrWhiteSpace(query.FilterText) || (query.PreviousTo != null && query.NextTo != null))
+                throw new ArgumentException("An adjacent option requires a single anchor and no cursor or filter.");
+            int current = positionOf(anchor) is { } key ? index.IndexOf(key) : -1;
+            if (current < 0) throw new ArgumentException("The anchor does not belong to this group revision.");
+            int neighbor = current + (query.PreviousTo != null ? -1 : 1);
+            return neighbor >= 0 && neighbor < index.Count ? ([index[neighbor]], null, [neighbor + 1]) : ([], null, []);
+        }
+        if (string.IsNullOrWhiteSpace(query?.FilterText))
+        {
+            var page = Page(index, after, limit);
+            return (page.Items, page.Next, null);
+        }
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        string filter = query.FilterText.Trim();
+        List<T> items = [];
+        List<int> positions = [];
+        for (int i = PageStart(index, after); i < index.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            T item = index[i];
+            if (!matches(item, filter)) continue;
+            if (items.Count == limit) return ([.. items], items[^1], [.. positions]);
+            items.Add(item);
+            positions.Add(i + 1);
+        }
+        return ([.. items], null, [.. positions]);
     }
 
     internal static readonly IComparer<SearchViewDirectoryFilePosition> ChildComparer =
@@ -205,14 +241,16 @@ public sealed partial class SearchViewSnapshot
         return new(Revision,
             page.Items.Select(position => Tracks[position.Ref].Value).ToArray(), page.Next);
     }
-    public SearchViewTrackGroupOptionPage? GetTrackGroupOptions(string groupRef, SearchViewFilePosition? after, int limit, CancellationToken cancellationToken = default)
+    public SearchViewTrackGroupOptionPage? GetTrackGroupOptions(string groupRef, SearchViewFilePosition? after, int limit, CancellationToken cancellationToken = default, SearchViewGroupOptionQuery? query = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Tracks.TryGetValue(groupRef, out var group))
             return null;
-        var page = Page(group.Options, after, limit);
+        var page = OptionPage(group.Options, after, limit, query,
+            key => Files.TryGetValue(key, out var row) ? Position(row.Value, row.Key) : null,
+            (position, filter) => SearchViewProjectionDefinition.MatchesFileInput(Files[position.Ref].Value.Input, filter), cancellationToken);
         return new(Revision, groupRef,
-            page.Items.Select(position => Files[position.Ref].Value).ToArray(), page.Next);
+            page.Items.Select(position => Files[position.Ref].Value).ToArray(), page.Next, page.Positions);
     }
 
     internal static SearchViewAlbumGroup Album(SearchViewSnapshot snapshot, AlbumRow row)
@@ -239,17 +277,31 @@ public sealed partial class SearchViewSnapshot
         }
     }
 
-    public SearchViewAlbumGroupOptionPage? GetAlbumGroupOptions(string groupRef, SearchViewDirectoryPosition? after, int limit, int initialFileLimit = 0, CancellationToken cancellationToken = default)
+    public SearchViewAlbumGroupOptionPage? GetAlbumGroupOptions(string groupRef, SearchViewDirectoryPosition? after, int limit, int initialFileLimit = 0, CancellationToken cancellationToken = default, SearchViewGroupOptionQuery? query = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!Albums.TryGetValue(groupRef, out var group))
             return HiddenAlbums.ContainsKey(groupRef)
                 ? new(Revision, groupRef, [], null, new Dictionary<string, SearchViewDirectoryFilePreview>()) : null;
         var index = AlbumOptions(this, group);
-        var page = Page(index, after, limit);
+        var page = OptionPage(index, after, limit, query,
+            key => Directories.TryGetValue(key, out var row) ? DirectoryPosition(row.Value, row.Key) : null,
+            Matches, cancellationToken);
         var rows = page.Items.Select(position => Directories[position.Ref].Value).ToArray();
         return new(Revision, groupRef, rows, page.Next,
-            Previews(this, rows.Select(row => row.Ref), initialFileLimit));
+            Previews(this, rows.Select(row => row.Ref), initialFileLimit), page.Positions);
+
+        bool Matches(SearchViewDirectoryPosition position, string filter)
+        {
+            if (position.Username.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                || position.FolderPath.Contains(filter, StringComparison.OrdinalIgnoreCase)) return true;
+            foreach (var child in Directories[position.Ref].Children)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (Files[child.Ref].Value.Input.Filename.Contains(filter, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
     }
 
     public SearchViewChosenOptions ResolveChosenOptions(IReadOnlyDictionary<string, string> choices, int initialFileLimit = 0, CancellationToken cancellationToken = default)

@@ -424,7 +424,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                     page.NextPosition));
     }
 
-    public SearchViewTrackGroupOptionPageDto? GetTrackGroupOptions(Guid viewId, string groupRef, long revision, string? cursor, int limit, CancellationToken cancellationToken)
+    public SearchViewTrackGroupOptionPageDto? GetTrackGroupOptions(Guid viewId, string groupRef, long revision, string? cursor, int limit, CancellationToken cancellationToken, SearchViewGroupOptionQuery? query = null)
     {
         var snapshot = Cache.GetSnapshot(viewId, revision, cancellationToken);
         if (snapshot is null) return null;
@@ -435,7 +435,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 viewId,
                 groupRef,
                 revision);
-        SearchViewTrackGroupOptionPage? page = snapshot.GetTrackGroupOptions(groupRef, after, limit, cancellationToken);
+        SearchViewTrackGroupOptionPage? page = snapshot.GetTrackGroupOptions(groupRef, after, limit, cancellationToken, query);
         if (page == null)
             return null;
         return new(
@@ -448,7 +448,8 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                     viewId,
                     groupRef,
                     revision,
-                    page.NextPosition));
+                    page.NextPosition),
+            page.Positions);
     }
 
     public SearchViewAlbumGroupPageDto? GetAlbumGroups(Guid viewId, long revision, string? cursor, int limit, CancellationToken cancellationToken)
@@ -476,7 +477,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                     page.NextPosition));
     }
 
-    public SearchViewAlbumGroupOptionPageDto? GetAlbumGroupOptions(Guid viewId, string groupRef, long revision, string? cursor, int limit, CancellationToken cancellationToken)
+    public SearchViewAlbumGroupOptionPageDto? GetAlbumGroupOptions(Guid viewId, string groupRef, long revision, string? cursor, int limit, CancellationToken cancellationToken, SearchViewGroupOptionQuery? query = null)
     {
         var snapshot = Cache.GetSnapshot(viewId, revision, cancellationToken);
         if (snapshot is null) return null;
@@ -487,7 +488,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 viewId,
                 groupRef,
                 revision);
-        SearchViewAlbumGroupOptionPage? page = snapshot.GetAlbumGroupOptions(groupRef, after, limit, InitialDirectoryFileLimit, cancellationToken);
+        SearchViewAlbumGroupOptionPage? page = snapshot.GetAlbumGroupOptions(groupRef, after, limit, InitialDirectoryFileLimit, cancellationToken, query);
         if (page == null)
             return null;
         return new(
@@ -500,7 +501,8 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                     viewId,
                     groupRef,
                     revision,
-                    page.NextPosition));
+                    page.NextPosition),
+            page.Positions);
     }
 
     public ResolveSearchViewChosenOptionsResponseDto? ResolveChosenOptions(Guid viewId, ResolveSearchViewChosenOptionsRequestDto request, CancellationToken cancellationToken)
@@ -1262,7 +1264,8 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             view.IsComplete,
             ParseRetention(view.RetentionState),
             ToDto(view.Counters),
-            view.SortOrder.ToServer());
+            view.SortOrder.ToServer(),
+            view.Definition.Projection.FilterText);
 
     private static SearchViewRevisionDto ToDto(SearchViewRevision revision)
         => new(

@@ -1004,7 +1004,8 @@ for (const mode of modes) {
     definitions.set(restored.viewId, false);
     // Exercise input again once a substantial page is updating, rather than
     // qualifying responsiveness only against the first small publication.
-    await densePage;
+    const pageSize = Number(new URL((await densePage).url()).searchParams.get('limit'));
+    expect(pageSize).toBeGreaterThan(0);
     const broadResponse = page.waitForResponse(response => response.request().method() === 'POST'
       && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname)
       && response.request().postDataJSON()?.filterText === 'Fixture');
@@ -1049,7 +1050,7 @@ for (const mode of modes) {
       await expect(collapsed, 'Live insertion must preserve the collapsed peer group.').toBeVisible();
       await collapsed.click();
     }
-    await expect(page.locator(mode.selector)).toHaveCount(Math.min(mode.expectedRoots, mode.kind === 'Files' ? 500 : 100));
+    await expect(page.locator(mode.selector)).toHaveCount(Math.min(mode.expectedRoots, pageSize));
     await expect(page.getByRole('button', { name: /^Download \d+$/, exact: true })).toBeEnabled();
     page.off('requestfinished', observeFinished);
     await Promise.all(captured);
@@ -1067,7 +1068,7 @@ for (const mode of modes) {
         : mode.kind === 'AlbumGroups' ? (filtered ? 1 : 10)
         : peerCount * (filtered ? 1 : 10);
       expect(Number(result.revision.counters.topLevelItemCount)).toBe(roots);
-      expect(result.items).toHaveLength(Math.min(roots, mode.kind === 'Files' ? 500 : 100));
+      expect(result.items).toHaveLength(Math.min(roots, pageSize));
     }
     const rootRequests = requests.filter(request => request.method === 'GET'
       && new URL(request.path, daemon.url).pathname.endsWith(`/${mode.page}`));

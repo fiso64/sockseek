@@ -6,6 +6,7 @@
   import PeerSlot from './PeerSlot.svelte';
 
   interface Props {
+    highlight?: RegExp;
     peer: ItemPeerInfo;
     itemNoun?: string;
     itemNounPlural?: string;
@@ -14,6 +15,7 @@
   }
 
   let {
+    highlight,
     peer,
     itemNoun = 'result',
     itemNounPlural = `${itemNoun}s`,
@@ -40,7 +42,7 @@
     ></button>
     <svg class:collapsed class="peer-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5l6 5-6 5" /></svg>
     <span class="peer-identity">
-      <UsernameLink username={peer.username} actions={userActions} />
+      <UsernameLink {highlight} username={peer.username} actions={userActions} />
     </span>
     {#if hasPeerStats}
     <span class="peer-metadata" aria-label={`${peer.username} result metadata`}>

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DaemonApiClient } from '../src/api/client';
+import { DaemonApiClient, type GroupOptionQuery } from '../src/api/client';
 import { DaemonApiError } from '../src/api/http';
 import type { Schema, SearchViewFilePageDto, SearchViewSummaryDto, SearchViewUpdateDto } from '../src/api/types';
 import { allSearchResultsSelected, SearchSelection } from '../src/domains/search/selection';
@@ -1378,7 +1378,7 @@ describe('Search View request isolation', () => {
           shareCount: 2, selectableOptionCount: 2, optionCount: 2, representative: first,
         }], nextCursor: null };
       }
-      override getSearchViewTrackGroupOptions(id: string, _group: string, revision: number | string, cursor?: string | null) {
+      override getSearchViewTrackGroupOptions(id: string, _group: string, revision: number | string, { cursor }: GroupOptionQuery = {}) {
         if (Number(revision) === 1 && cursor) return olderPage.promise;
         return Promise.resolve({ revision: summary(id, Number(revision)), groupRef: 'group',
           items: Number(revision) === 1 ? [first] : [second],
@@ -1430,7 +1430,9 @@ describe('Search View request isolation', () => {
         return { revision: summary(id), items: [{ ref: 'group', query: { artist: 'Artist', title: 'Title',
           artistMaybeWrong: false }, shareCount: 2, selectableOptionCount: 1, optionCount: 2, representative: first }], nextCursor: null };
       }
-      override async getSearchViewTrackGroupOptions(id: string, _group: string, _revision: number | string, cursor?: string | null) {
+      override async getSearchViewTrackGroupOptions(id: string, _group: string, _revision: number | string, { cursor, previousTo, nextTo }: GroupOptionQuery = {}) {
+        if (nextTo === first.ref) return { revision: summary(id), groupRef: 'group', items: [second], positions: [2], nextCursor: null };
+        if (previousTo === second.ref) return { revision: summary(id), groupRef: 'group', items: [first], positions: [1], nextCursor: null };
         return { revision: summary(id), groupRef: 'group', items: cursor ? [second] : [first], nextCursor: cursor ? null : 'next' };
       }
       override async commitSearchView(...args: Parameters<DaemonApiClient['commitSearchView']>): Promise<Schema<'CommitSearchViewSelectionResponseDto'>> {

@@ -385,12 +385,13 @@ public sealed class SockseekApiClient
         long revision,
         string? cursor = null,
         int limit = ServerProtocol.DefaultPageSize,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        SearchViewGroupOptionQuery? query = null)
         => GetOptionalAsync<SearchViewTrackGroupOptionPageDto>(
             $"api/search-views/{viewId}/track-groups/{Uri.EscapeDataString(groupRef)}/alternatives"
             + $"?revision={revision.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + $"&limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
-            + QueryPart("cursor", cursor),
+            + QueryPart("cursor", cursor) + OptionQueryParts(query),
             ct);
 
     public Task<SearchViewAlbumGroupPageDto?> GetSearchViewAlbumGroupsAsync(
@@ -412,12 +413,13 @@ public sealed class SockseekApiClient
         long revision,
         string? cursor = null,
         int limit = ServerProtocol.DefaultNestedPageSize,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        SearchViewGroupOptionQuery? query = null)
         => GetOptionalAsync<SearchViewAlbumGroupOptionPageDto>(
             $"api/search-views/{viewId}/album-groups/{Uri.EscapeDataString(groupRef)}/alternatives"
             + $"?revision={revision.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             + $"&limit={limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
-            + QueryPart("cursor", cursor),
+            + QueryPart("cursor", cursor) + OptionQueryParts(query),
             ct);
 
     public Task<SearchViewUpdateDto?> GetSearchViewUpdatesAsync(
@@ -1284,6 +1286,9 @@ public sealed class SockseekApiClient
             return null;
         }
     }
+
+    private static string OptionQueryParts(SearchViewGroupOptionQuery? query)
+        => QueryPart("filterText", query?.FilterText) + QueryPart("previousTo", query?.PreviousTo) + QueryPart("nextTo", query?.NextTo);
 
     private static string QueryPart(string name, string? value)
         => string.IsNullOrEmpty(value) ? "" : $"&{Uri.EscapeDataString(name)}={Uri.EscapeDataString(value)}";

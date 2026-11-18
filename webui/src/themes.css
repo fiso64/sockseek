@@ -16,6 +16,8 @@
   --accent-fill: light-dark(#2b529e, #355bb7);
   --accent-soft: light-dark(#e4ebfb, #21293b);
   --accent-text: light-dark(#435d92, #a2bbf1);
+  --match-background: light-dark(#ffe36a, #edc955);
+  --match-text: #30250c;
   --job-song-background: light-dark(#b9e1d8, #29594e);
   --job-album-background: light-dark(#d9cbed, #524169);
   --job-song-groups-background: light-dark(#bbdded, #30556b);

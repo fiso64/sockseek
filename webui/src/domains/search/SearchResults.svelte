@@ -20,6 +20,7 @@
   import { rebaseOptions } from '../jobs/download-options';
   import DownloadOptionsPanel from '../../components/DownloadOptionsPanel.svelte';
   import ResultFilterControl from '../../components/ResultFilterControl.svelte';
+  import { filterPattern, matchedText } from '../../components/MatchedText.svelte';
   import SearchConditionPills from '../../components/SearchConditionPills.svelte';
   import SearchConfigPanel from '../../components/SearchConfigPanel.svelte';
   import { anchoredPopover } from '../../lib/anchored-menu';
@@ -65,6 +66,7 @@
     onopenoptions: (ref: string) => void;
     onstepoption: (ref: string, direction: -1 | 1) => void;
     oncloseoptions: () => void;
+    onfilteroptions: (text: string) => void;
     onloadoptions: () => void;
     onchooseoption: (groupRef: string, option: GroupOption) => void;
     ontogglealbumfile: (groupRef: string, fileRef: string, selected: boolean) => void;
@@ -104,6 +106,7 @@
     onopenoptions,
     onstepoption,
     oncloseoptions,
+    onfilteroptions,
     onloadoptions,
     onchooseoption,
     ontogglealbumfile,
@@ -116,6 +119,17 @@
   let searching = $derived((status ?? viewState.job)?.lifecycleState !== 'Terminal'
     && (status ?? viewState.job)?.activityPhase === 'Searching');
   let filterText = $state('');
+  let highlight = $derived(filterPattern(viewState.summary?.filterText));
+  let optionFilter = $state('');
+  let optionHighlight = $derived(filterPattern(viewState.groupOptions?.filterText ?? ''));
+  $effect(() => {
+    const panel = viewState.groupOptions;
+    if (!panel) { optionFilter = ''; return; }
+    const text = optionFilter.trim();
+    if (text === panel.filterText) return;
+    const timer = setTimeout(() => onfilteroptions(text), 200);
+    return () => clearTimeout(timer);
+  });
   let sort = $state<'relevance' | 'speed' | 'queue' | 'size' | 'count' | 'name'>('relevance');
   let sizeDirection = $state<'asc' | 'desc'>('desc');
   let conditions = $state<SearchConditions>(createEmptySearchConditions());
@@ -478,6 +492,7 @@
     const result: FolderItemFile = {
       id: file.ref,
       relativePath: path,
+      sourcePath: file.remoteFilename,
       locked: file.visibility === 'Locked',
       sizeBytes: Number(file.file.size),
       audio: audio(file.file),
@@ -598,9 +613,9 @@
 
 <svelte:window onkeydown={windowKeydown} onpointerdown={windowPointerDown} />
 
-{#snippet groupPeerSummary(peer: Schema<'SearchViewFileDto'>['peer'])}
+{#snippet groupPeerSummary(peer: Schema<'SearchViewFileDto'>['peer'], pattern: RegExp | undefined)}
   <div class="group-peer-summary">
-    <span class="group-peer-username"><UsernameLink username={peer.username} actions={userActions} /></span>
+    <span class="group-peer-username"><UsernameLink highlight={pattern} username={peer.username} actions={userActions} /></span>
     {#if peer.uploadSpeed != null}<span class="group-peer-speed"><strong>{(Number(peer.uploadSpeed) / 1_000_000).toFixed(1)} MB/s</strong></span>{/if}
     <PeerSlot available={peer.hasFreeUploadSlot} />
   </div>
@@ -624,8 +639,8 @@
     <section class:selected={isselected(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} data-range-disabled={representative.visibility === 'Locked' || undefined} tabindex="-1">
       <header class="group-result-header">
         <button type="button" class="group-header-select-button" data-range-toggle disabled={selectionReadOnly || representative.visibility === 'Locked'} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
-        <div class="group-result-identity"><strong>{row.value.query.title ?? 'Untitled track'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
-        <div class="group-result-source">{@render groupPeerSummary(representative.peer)}</div>
+        <div class="group-result-identity"><strong>{@render matchedText(row.value.query.title ?? 'Untitled track', highlight)}</strong>{#if row.value.query.artist}<small>{@render matchedText(row.value.query.artist, highlight)}</small>{/if}</div>
+        <div class="group-result-source">{@render groupPeerSummary(representative.peer, highlight)}</div>
         {@render groupOptionControls(row.ref, row.value.optionCount)}
       </header>
       {#if viewState.optionSteps.get(row.ref)?.error}<div class="resource-state-notice unavailable" role="alert">Could not load option: {viewState.optionSteps.get(row.ref)?.error?.message}</div>{/if}
@@ -640,7 +655,7 @@
           {#if viewState.staleChoices.has(row.ref)}<button class="button" type="button" onclick={() => onopenoptions(row.ref)}>Choose another</button>{/if}
         </div>
       {/if}
-      <FileItemCard path={representative.remoteFilename} sizeBytes={Number(representative.file.size)} audio={audio(representative.file)} locked={representative.visibility === 'Locked'} selected={isselected(row.ref)} selectable={!selectionReadOnly} onselect={(checked) => ontoggle(row.ref, checked)} />
+      <FileItemCard {highlight} path={representative.remoteFilename} sizeBytes={Number(representative.file.size)} audio={audio(representative.file)} locked={representative.visibility === 'Locked'} selected={isselected(row.ref)} selectable={!selectionReadOnly} onselect={(checked) => ontoggle(row.ref, checked)} />
     </section>
   {:else}
     {@const chosenDirectory = choiceIsCurrent(row.ref) && viewState.chosenOptions.get(row.ref)?.kind === 'album' ? viewState.chosenOptions.get(row.ref)?.value as Schema<'SearchViewDirectoryDto'> : row.value.representative}
@@ -652,8 +667,8 @@
     <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} data-range-disabled={directory.visibility === 'Locked' || undefined} tabindex="-1">
       <header class="group-result-header">
         <button type="button" class="group-header-select-button" data-range-toggle disabled={selectionReadOnly || directory.visibility === 'Locked'} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
-        <div class="group-result-identity"><strong>{row.value.query.album ?? 'Untitled album'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
-        <div class="group-result-source">{@render groupPeerSummary(directory.peer)}</div>
+        <div class="group-result-identity"><strong>{@render matchedText(row.value.query.album ?? 'Untitled album', highlight)}</strong>{#if row.value.query.artist}<small>{@render matchedText(row.value.query.artist, highlight)}</small>{/if}</div>
+        <div class="group-result-source">{@render groupPeerSummary(directory.peer, highlight)}</div>
         {@render groupOptionControls(row.ref, row.value.optionCount)}
       </header>
       {#if viewState.optionSteps.get(row.ref)?.error}<div class="resource-state-notice unavailable" role="alert">Could not load option: {viewState.optionSteps.get(row.ref)?.error?.message}</div>{/if}
@@ -668,7 +683,7 @@
           {#if viewState.staleChoices.has(row.ref)}<button class="button" type="button" onclick={() => onopenoptions(row.ref)}>Choose another</button>{/if}
         </div>
       {/if}
-      <FolderItemCard keyboardChildren
+      <FolderItemCard {highlight} keyboardChildren
         contentsState={!directory.ref.folderPath ? undefined : retrieval?.loading ? 'retrieving' : retrieval?.error ? 'failed' : directory.retrievalState === 'Complete' ? 'complete' : 'partial'}
         onloadfullcontents={() => onretrievedirectory(directory.ref.ref)}
         path={directory.ref.folderPath || 'Files without a folder'}
@@ -942,7 +957,7 @@
             {@const first = group.rows[0]}
             {@const peer = first.value.peer}
             {@const noun = genericMode ? (group.rows.some(row => row.kind === 'directory' && !row.value.ref.folderPath) ? 'group' : 'directory') : 'result'}
-            <PeerItemGroup
+            <PeerItemGroup {highlight}
               peer={{
                 username: peer.username,
                 freeUploadSlot: peer.hasFreeUploadSlot ?? undefined,
@@ -955,7 +970,7 @@
             >
                 {#each group.rows as row (row.ref)}
                   {#if row.kind === 'file'}
-                    <FileItemCard
+                    <FileItemCard {highlight}
                       keyboardKey={row.ref}
                       path={row.value.remoteFilename}
                       sizeBytes={Number(row.value.file.size)}
@@ -973,7 +988,7 @@
                     {@const folderSelection = ordinaryDirectorySelection(row.ref, files.filter(file => !file.locked).length, selectedFileIds.size)}
                     {@const totals = directoryTotals(row.value)}
                     {@const retrieval = viewState.retrievals.get(row.ref)}
-                    <FolderItemCard
+                    <FolderItemCard {highlight}
                       keyboardKey={row.ref}
                       contentsState={!row.value.ref.folderPath ? undefined : retrieval?.loading ? 'retrieving' : retrieval?.error ? 'failed' : row.value.retrievalState === 'Complete' ? 'complete' : 'partial'}
                       onloadfullcontents={() => onretrievedirectory(row.ref)}
@@ -1016,33 +1031,37 @@
     <button type="button" class="group-options-backdrop" aria-label="Close options" onclick={oncloseoptions}></button>
     <div class="popover-panel group-options-dialog" role="dialog" aria-modal="true" aria-label={`${panel.title} options`}>
       <header class="group-options-header">
-        <div>
+        <div class="group-options-heading">
           <strong>{panel.title}</strong>
-          <small>{panel.artist ? `${panel.artist} · ` : ''}{formatCountWithNoun(panel.shareCount, 'share')} · {panel.items.length === panel.optionCount && !panel.nextCursor
+          <small>{panel.artist ? `${panel.artist} · ` : ''}{formatCountWithNoun(panel.shareCount, 'share')} · {panel.filterText ? `${formatCount(panel.items.length)}${panel.nextCursor ? '+' : ''} matching of ${formatCountWithNoun(panel.optionCount, 'option')}` : panel.items.length === panel.optionCount && !panel.nextCursor
             ? formatCountWithNoun(panel.optionCount, 'option')
             : `${formatCount(panel.items.length)} of ${formatCountWithNoun(panel.optionCount, 'option')}`}</small>
         </div>
+        <ResultFilterControl collapsible bind:value={optionFilter} placeholder="Filter by peer or path…" ariaLabel="Filter group options" />
         <button type="button" class="button group-options-close" aria-label="Close options" onclick={oncloseoptions}>×</button>
       </header>
       <div class="group-options-list">
+        {#if panel.filterText && !panel.items.length && !panel.loading && !panel.error}
+          <p class="search-results-empty">No matching options.</p>
+        {/if}
         {#each panel.items as option (option.ref)}
           {@const peer = option.value.peer}
           <div class:current={(choiceIsCurrent(panel.groupRef) ? viewState.chosenOptions.get(panel.groupRef)?.ref : panel.representativeRef) === option.ref} class="group-option">
             <div class="group-option-toolbar">
-              {@render groupPeerSummary(peer)}
+              {@render groupPeerSummary(peer, optionHighlight)}
               <button type="button" class="button group-use-option" disabled={selectionReadOnly || option.value.visibility === 'Locked'} onclick={() => onchooseoption(panel.groupRef, option)}>Use this option</button>
             </div>
             <div class="group-option-card-wrap">
               {#if option.kind === 'track'}
                 <button type="button" class="group-option-card-picker" disabled={selectionReadOnly || option.value.visibility === 'Locked'} aria-label={`Use ${option.value.remoteFilename}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
-                <FileItemCard path={option.value.remoteFilename} sizeBytes={Number(option.value.file.size)} audio={audio(option.value.file)} locked={option.value.visibility === 'Locked'} />
+                <FileItemCard highlight={optionHighlight} path={option.value.remoteFilename} sizeBytes={Number(option.value.file.size)} audio={audio(option.value.file)} locked={option.value.visibility === 'Locked'} />
               {:else}
                 {@const children = viewState.directoryFiles.get(option.ref)}
                 {@const directory = children?.directorySummary ?? option.value}
                 {@const totals = directoryTotals(directory)}
                 {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
                 <button type="button" class="group-option-card-picker" disabled={selectionReadOnly || option.value.visibility === 'Locked'} aria-label={`Use ${directory.ref.folderPath || 'Files without a folder'}`} onclick={() => onchooseoption(panel.groupRef, option)}></button>
-                <FolderItemCard
+                <FolderItemCard highlight={optionHighlight}
                   contentsState={!directory.ref.folderPath ? undefined : retrieval?.loading ? 'retrieving' : retrieval?.error ? 'failed' : directory.retrievalState === 'Complete' ? 'complete' : 'partial'}
                   onloadfullcontents={() => onretrievedirectory(directory.ref.ref)}
                   path={directory.ref.folderPath || 'Files without a folder'}

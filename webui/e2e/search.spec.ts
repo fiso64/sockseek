@@ -331,10 +331,12 @@ test('applies projection-only sort and live track conditions through an all-exce
   const filtered = page.waitForResponse(response => response.ok()
     && response.request().method() === 'POST'
     && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname)
-    && response.request().postDataJSON()?.filterText === 'flac');
-  await page.getByRole('textbox', { name: 'Filter search results', exact: true }).fill('flac');
+    && response.request().postDataJSON()?.filterText === '.FLAC');
+  await page.getByRole('textbox', { name: 'Filter search results', exact: true }).fill('.FLAC');
+  expect(await page.locator('.file-item-card mark').count()).toBe(0);
   await page.clock.fastForward(350);
   const filteredView = await (await filtered).json() as Schema<'SearchViewSummaryDto'>;
+  await expect(page.locator('.file-item-card mark')).toHaveText(['.flac']);
   await expect(page.locator('.file-item-card')).toHaveCount(1);
   await page.getByRole('textbox', { name: 'Filter search results', exact: true }).blur();
   await page.keyboard.press('ArrowDown');
@@ -591,6 +593,35 @@ test('keeps a grouped track choice and all-except plan through live group reorde
   const optionsPage = await (await alternatives).json() as Schema<'SearchViewTrackGroupOptionPageDto'>;
   const chosen = optionsPage.items.find(item => item.peer.username === 'second-peer')!;
   expect(chosen).toBeTruthy();
+  const dialog = page.getByRole('dialog');
+  const filter = dialog.getByRole('textbox', { name: 'Filter group options' });
+  await expect(dialog.locator('.group-option')).toHaveCount(2);
+  const dialogBounds = await dialog.boundingBox();
+  const expandFilter = dialog.locator('header').getByTestId('expand-result-filter');
+  await expect(filter).toHaveCount(0);
+  await expandFilter.click();
+  await expect(filter).toBeFocused();
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/alternatives?*', async route => {
+    await pending;
+    await route.continue();
+  }, { times: 1 });
+  await filter.fill('[missing]');
+  try {
+    await expect(dialog.getByRole('status', { name: 'Loading options' })).toBeVisible();
+    expect(await dialog.boundingBox()).toEqual(dialogBounds);
+  } finally { release(); }
+  await expect(dialog.locator('.search-results-empty')).toBeVisible();
+  expect(await dialog.boundingBox()).toEqual(dialogBounds);
+  await filter.press('Escape');
+  await expect(expandFilter).toBeFocused();
+  await expect(dialog.locator('.group-option')).toHaveCount(2);
+  await expandFilter.press('Enter');
+  await filter.fill('SECOND-');
+  await expect(dialog.locator('.group-option')).toHaveCount(1);
+  expect(await dialog.boundingBox()).toEqual(dialogBounds);
+  await expect(dialog.locator('.username-link mark')).toHaveText('second-');
   await page.getByRole('dialog').locator('.group-option').filter({ hasText: 'second-peer' })
     .getByRole('button', { name: 'Use this option', exact: true }).click();
   await page.getByRole('button', { name: 'Select all', exact: true }).click();
@@ -685,6 +716,9 @@ test('downloads only checked public files from a mixed chosen group album folder
   await page.keyboard.press('Escape');
   await page.locator('.group-options-button').click();
   const dialog = page.getByRole('dialog', { name: /Fixture Album.*options/i });
+  await dialog.getByTestId('expand-result-filter').click();
+  await dialog.getByRole('textbox', { name: 'Filter group options' }).fill('INTRO.');
+  await expect(dialog.locator('.folder-file-row mark')).toHaveText(['Intro.', 'Intro.']);
   await dialog.locator('.group-option').filter({ hasText: 'second-peer' })
     .locator('.group-option-card-picker').click();
   await expect(dialog).toHaveCount(0);
@@ -783,16 +817,32 @@ test('pages album alternative files without hiding the card picker', async ({ pa
   await page.locator('.group-options-button').click();
   const dialog = page.getByRole('dialog', { name: /Fixture Album.*options/i });
   await expect(dialog.locator('.group-option')).toHaveCount(50);
+  const filter = dialog.getByRole('textbox', { name: 'Filter group options' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await dialog.getByTestId('expand-result-filter').click();
+  await expect(filter).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Close options' })).toBeInViewport();
+  await filter.fill('second-peer');
+  await expect(dialog.locator('.username-link mark')).toHaveText('second-peer');
+  await filter.fill('extra-peer');
+  await expect(dialog.locator('.group-option')).toHaveCount(50);
   await dialog.getByRole('button', { name: 'Load more', exact: true }).click();
-  await expect(dialog.locator('.group-option')).toHaveCount(100);
-  await dialog.getByRole('button', { name: 'Load more', exact: true }).click();
-  await expect(dialog.locator('.group-option')).toHaveCount(101);
+  await expect(dialog.locator('.group-option')).toHaveCount(99);
   await expect(dialog.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
+  await filter.fill('second\\fixture');
   const alternative = dialog.locator('.group-option').filter({ hasText: 'second-peer' });
   await expect(alternative.locator('.folder-file-row')).toHaveCount(25);
+  await expect(alternative.locator('.folder-heading-path mark')).toHaveText(['Second\\', 'Fixture']);
   await alternative.locator('.group-option-card-picker').click();
+  await expect(page.locator('.group-options-button')).toContainText('101 / 101');
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('.group-result-group')).toContainText('25 - Track.flac');
+  const neighbor = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/alternatives'));
+  await page.getByRole('button', { name: 'Previous option' }).click();
+  const neighborPage = await (await neighbor).json() as Schema<'SearchViewAlbumGroupOptionPageDto'>;
+  expect(neighborPage.items).toHaveLength(1);
+  expect(neighborPage.positions).toEqual([100]);
+  await expect(page.locator('.group-options-button')).toContainText('100 / 101');
 });
 
 test('preserves an independent global draft when opening a retained search', async ({ page, daemon }) => {

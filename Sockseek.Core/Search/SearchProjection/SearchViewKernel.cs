@@ -528,7 +528,7 @@ public sealed class SearchViewKernel
         => filterText == null
             || ContainsFilter(group.Query.Artist)
             || ContainsFilter(group.Query.Album)
-            || group.Options.Any(option => ContainsFilter(option.FolderPath));
+            || group.Options.Any(MatchesAlbumFolder);
 
     // A generic card root must itself have a direct hit. Sibling subfolders
     // stay separate until that ancestor arrives; the store reparents old

@@ -186,7 +186,8 @@ public sealed record SearchViewTrackGroupOptionPage(
     SearchViewRevision Revision,
     string GroupRef,
     IReadOnlyList<SearchViewFile> Items,
-    SearchViewFilePosition? NextPosition);
+    SearchViewFilePosition? NextPosition,
+    IReadOnlyList<int>? Positions = null);
 
 public sealed record SearchViewAlbumGroup(
     string Ref,
@@ -213,7 +214,8 @@ public sealed record SearchViewAlbumGroupOptionPage(
     string GroupRef,
     IReadOnlyList<SearchViewDirectory> Items,
     SearchViewDirectoryPosition? NextPosition,
-    IReadOnlyDictionary<string, SearchViewDirectoryFilePreview> DirectoryFilePreviews);
+    IReadOnlyDictionary<string, SearchViewDirectoryFilePreview> DirectoryFilePreviews,
+    IReadOnlyList<int>? Positions = null);
 
 public sealed record SearchViewChosenOptions(
     SearchViewRevision Revision,

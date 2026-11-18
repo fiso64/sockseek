@@ -83,6 +83,7 @@ internal static class SearchViewEndpoints
                 GetTrackGroupOptions)
             .WithTags("Search Views")
             .WithSummary("Pages one track group's ordered alternatives.")
+            .WithDescription("Filter by peer or path, or use previousTo or nextTo with an exact option ref to read one unfiltered neighbor and its one-based position.")
             .Produces<SearchViewTrackGroupOptionPageDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
@@ -101,6 +102,7 @@ internal static class SearchViewEndpoints
                 GetAlbumGroupOptions)
             .WithTags("Search Views")
             .WithSummary("Pages one album group's directory alternatives.")
+            .WithDescription("Filter by peer or path, or use previousTo or nextTo with an exact option ref to read one unfiltered neighbor and its one-based position.")
             .Produces<SearchViewAlbumGroupOptionPageDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
@@ -338,11 +340,14 @@ internal static class SearchViewEndpoints
         SearchViewCoordinator coordinator,
         CancellationToken cancellationToken,
         string? cursor,
-        int? limit)
+        int? limit,
+        string? filterText,
+        string? previousTo,
+        string? nextTo)
     {
         try
         {
-            SearchViewTrackGroupOptionPageDto? page = coordinator.GetTrackGroupOptions(viewId, groupRef, revision, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
+            SearchViewTrackGroupOptionPageDto? page = coordinator.GetTrackGroupOptions(viewId, groupRef, revision, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken, new(filterText, previousTo, nextTo));
             return page == null
                 ? NotFound("The track group revision was not found.")
                 : Results.Ok(page);
@@ -381,11 +386,14 @@ internal static class SearchViewEndpoints
         SearchViewCoordinator coordinator,
         CancellationToken cancellationToken,
         string? cursor,
-        int? limit)
+        int? limit,
+        string? filterText,
+        string? previousTo,
+        string? nextTo)
     {
         try
         {
-            SearchViewAlbumGroupOptionPageDto? page = coordinator.GetAlbumGroupOptions(viewId, groupRef, revision, cursor, limit ?? ServerProtocol.DefaultNestedPageSize, cancellationToken);
+            SearchViewAlbumGroupOptionPageDto? page = coordinator.GetAlbumGroupOptions(viewId, groupRef, revision, cursor, limit ?? ServerProtocol.DefaultNestedPageSize, cancellationToken, new(filterText, previousTo, nextTo));
             return page == null
                 ? NotFound("The album group revision was not found.")
                 : Results.Ok(page);

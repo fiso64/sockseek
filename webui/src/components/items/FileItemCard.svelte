@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { matchedPath } from '../MatchedText.svelte';
   import type { Snippet } from 'svelte';
   import TransferStateLabel from './TransferStateLabel.svelte';
   import RelativeTime from '../RelativeTime.svelte';
@@ -8,6 +9,7 @@
   import { audioSummary, basename, formatBytes, formatLength, parentPath } from '../../domains/presentation/items';
 
   interface Props {
+    highlight?: RegExp;
     path: string;
     sizeBytes: number | null;
     audio?: AudioAttributes;
@@ -22,6 +24,7 @@
   }
 
   let {
+    highlight,
     path,
     sizeBytes,
     audio,
@@ -35,6 +38,7 @@
     onselect,
   }: Props = $props();
 
+  let parentLength = $derived(parentPath(path).length);
   let transferDirectionClass = $derived(transfer?.direction ? `transfer-${transfer.direction}` : '');
 
   function transferFooterDetail(value: TransferPresentation): string {
@@ -95,7 +99,7 @@
       {/if}
 
       <div class="item-path-block result-path-block item-name-line result-name-line">
-        <strong class="folder-heading-path" title={path}><bdi dir="ltr"><span class="folder-path-ancestors">{parentPath(path)}</span><b>{basename(path)}</b></bdi></strong>
+        <strong class="folder-heading-path" title={path}><bdi dir="ltr">{@render matchedPath(path, highlight, parentLength)}</bdi></strong>
       </div>
 
       <strong class="item-detail result-detail item-size-detail">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong>

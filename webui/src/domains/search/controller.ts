@@ -1,5 +1,5 @@
 import { randomUUID } from '../../app/uuid';
-import { DaemonApiClient, daemonApi, searchFilePageSize, searchDirectoryPageSize, type SubmittedSearch } from '../../api/client';
+import { DaemonApiClient, daemonApi, searchFilePageSize, searchDirectoryPageSize, type GroupOptionQuery, type SubmittedSearch } from '../../api/client';
 import type {
   CommitSearchViewSelectionResponseDto,
   Schema,
@@ -42,7 +42,8 @@ export interface GroupOptionsPanel {
   optionCount: number;
   representativeRef: string;
   revision: number | string;
-  items: GroupOption[];
+  filterText: string;
+  items: (GroupOption & { position: number })[];
   nextCursor: string | null;
   loading: boolean;
   error: Error | null;
@@ -57,9 +58,17 @@ interface DirectoryFilesPage {
   error: Error | null;
 }
 
+interface GroupOptionStep {
+  loading: boolean;
+  error: Error | null;
+  position?: number;
+  optionRef?: string;
+  revision?: string;
+}
+
 export interface SearchViewState extends SearchSelectionState {
   groupOptions: GroupOptionsPanel | null;
-  optionSteps: ReadonlyMap<string, { loading: boolean; error: Error | null; position?: number; optionRef?: string; revision?: string }>;
+  optionSteps: ReadonlyMap<string, GroupOptionStep>;
   choiceValidationLoading: boolean;
   choiceValidationError: Error | null;
   retrievals: ReadonlyMap<string, { loading: boolean; error: Error | null }>;
@@ -96,7 +105,6 @@ export class SearchViewController {
   private readonly selection = new SearchSelection();
   private listeners = new Set<Listener>();
   private pages: SearchPage[] = [];
-  private optionPages = new Map<string, { revision: string; items: GroupOption[]; nextCursor: string | null; loaded: boolean }>();
   private retrievalJobs = new Map<string, string>();
   private retrievalInFlight = new Map<string, symbol>();
   private retrievalRequests = new Map<string, {
@@ -123,6 +131,7 @@ export class SearchViewController {
   private refinementRequest: AbortController | null = null;
   private countRequestKey: string | null = null;
   private countRequest: AbortController | null = null;
+  private groupOptionsRequest: AbortController | null = null;
   private choiceRequest: AbortController | null = null;
   private choiceRequestKey: string | null = null;
   private state: Omit<SearchViewState, keyof SearchSelectionState | 'canRetryPendingCommit'> = {
@@ -234,7 +243,6 @@ export class SearchViewController {
     this.stop();
     this.stopped = false;
     this.pages = [];
-    this.optionPages.clear();
     this.selection.reset();
     this.summaryError = null;
     this.directoryFileCounts.clear();
@@ -301,6 +309,7 @@ export class SearchViewController {
 
   stop(): void {
     this.stopObservation();
+    this.groupOptionsRequest?.abort();
     this.generation += 1;
     this.updateRequest?.abort();
     this.updateRequest = null;
@@ -587,6 +596,7 @@ export class SearchViewController {
   private groupOptionsPanel(
     row: Extract<SearchRow, { kind: 'track-group' | 'album-group' }>,
     revision: number | string,
+    filterText = '',
   ): GroupOptionsPanel {
     return {
       groupRef: row.ref,
@@ -597,14 +607,38 @@ export class SearchViewController {
       optionCount: Number(row.value.optionCount),
       representativeRef: row.kind === 'track-group'
         ? row.value.representative.ref : row.value.representative.ref.ref,
-      revision,
+      revision, filterText,
       items: [], nextCursor: null, loading: false, error: null,
     };
   }
 
+  async filterGroupOptions(filterText: string): Promise<void> {
+    const panel = this.state.groupOptions;
+    if (!panel || panel.filterText === filterText) return;
+    this.state = { ...this.state, groupOptions: { ...panel, filterText, items: [], nextCursor: null, loading: false, error: null } };
+    await this.loadMoreGroupOptions();
+  }
+
   closeGroupOptions(): void {
+    this.groupOptionsRequest?.abort();
     this.state = { ...this.state, groupOptions: null };
     this.emit();
+  }
+
+  private async readGroupOptions(kind: GroupOptionsPanel['kind'], viewId: string, groupRef: string,
+    revision: number | string, query: GroupOptionQuery, loaded = 0, signal?: AbortSignal) {
+    const page = kind === 'track'
+      ? await this.api.getSearchViewTrackGroupOptions(viewId, groupRef, revision, query, signal)
+      : await this.api.getSearchViewAlbumGroupOptions(viewId, groupRef, revision, query, signal);
+    if (!sameWireInteger(page.revision.revision, revision) || page.groupRef !== groupRef)
+      throw new Error('Group alternatives do not match the selected group and revision.');
+    const items: GroupOptionsPanel['items'] = page.items.map((value, index) => {
+      const position = Number(page.positions?.[index] ?? loaded + index + 1);
+      return 'remoteFilename' in value
+        ? { position, kind: 'track', ref: value.ref, value }
+        : { position, kind: 'album', ref: value.ref.ref, value };
+    });
+    return { items, nextCursor: page.nextCursor ?? null };
   }
 
   async loadMoreGroupOptions(): Promise<void> {
@@ -612,23 +646,20 @@ export class SearchViewController {
     const panel = this.state.groupOptions;
     if (!summary || !panel || panel.loading || (panel.items.length > 0 && !panel.nextCursor && !panel.error)) return;
     const generation = this.generation;
+    this.groupOptionsRequest?.abort();
+    const request = new AbortController();
+    this.groupOptionsRequest = request;
     const pending = { ...panel, loading: true, error: null };
     this.state = { ...this.state, groupOptions: pending };
     this.emit();
     try {
-      const page = panel.kind === 'track'
-        ? await this.api.getSearchViewTrackGroupOptions(summary.viewId, panel.groupRef, panel.revision, panel.nextCursor)
-        : await this.api.getSearchViewAlbumGroupOptions(summary.viewId, panel.groupRef, panel.revision, panel.nextCursor);
+      const { items, nextCursor } = await this.readGroupOptions(panel.kind, summary.viewId, panel.groupRef, panel.revision,
+        { cursor: panel.nextCursor, filterText: panel.filterText || undefined }, panel.items.length, request.signal);
       if (this.stopped || generation !== this.generation || this.state.groupOptions !== pending) return;
-      if (!sameWireInteger(page.revision.revision, panel.revision) || page.groupRef !== panel.groupRef)
-        throw new Error('Group alternatives do not match the selected group and revision.');
-      const items: GroupOption[] = panel.kind === 'track'
-        ? (page.items as Schema<'SearchViewFileDto'>[]).map(value => ({ kind: 'track', ref: value.ref, value }))
-        : (page.items as Schema<'SearchViewDirectoryDto'>[]).map(value => ({ kind: 'album', ref: value.ref.ref, value }));
       const directoryFiles = new Map(this.state.directoryFiles);
       for (const item of items) if (item.kind === 'album') this.seedDirectoryPreview(item.value, directoryFiles);
       this.state = { ...this.state, directoryFiles, groupOptions: {
-        ...pending, items: [...pending.items, ...items], nextCursor: page.nextCursor ?? null, loading: false,
+        ...pending, items: [...pending.items, ...items], nextCursor, loading: false,
       } };
     } catch (error) {
       if (this.stopped || generation !== this.generation || this.state.groupOptions !== pending) return;
@@ -639,10 +670,10 @@ export class SearchViewController {
 
   chooseGroupOption(groupRef: string, option: GroupOption): void {
     const panel = this.state.groupOptions;
-    if (!panel || panel.groupRef !== groupRef || panel.kind !== option.kind
-      || !panel.items.some(item => item.ref === option.ref)) return;
+    const chosen = panel?.items.find(item => item.ref === option.ref);
+    if (!panel || panel.groupRef !== groupRef || panel.kind !== option.kind || !chosen) return;
     const status = new Map(this.state.optionSteps);
-    status.set(groupRef, { loading: false, error: null, position: panel.items.findIndex(item => item.ref === option.ref) + 1,
+    status.set(groupRef, { loading: false, error: null, position: chosen.position,
       optionRef: option.ref, revision: `${this.state.summary?.viewId}:${String(panel.revision)}` });
     this.state = { ...this.state, optionSteps: status };
     this.applyGroupOption(groupRef, option);
@@ -662,47 +693,32 @@ export class SearchViewController {
     const summary = this.state.summary;
     const row = this.state.rows.find(item => item.ref === groupRef);
     if (!summary || !row || (row.kind !== 'track-group' && row.kind !== 'album-group') || this.state.optionSteps.get(groupRef)?.loading) return;
-    const generation = this.generation;
     const revision = `${summary.viewId}:${String(summary.revision)}`;
     const representative = row.kind === 'track-group' ? row.value.representative.ref : row.value.representative.ref.ref;
     const chosen = this.selection.value.chosenOptions.get(groupRef);
     const currentRef = chosen && this.selection.value.checkedChoiceRevisions.get(groupRef) === revision && !this.selection.value.staleChoices.has(groupRef) ? chosen.ref : representative;
-    let cache = this.optionPages.get(groupRef);
-    if (!cache || cache.revision !== revision) {
-      cache = { revision, items: [], nextCursor: null, loaded: false };
-      this.optionPages.set(groupRef, cache);
-    }
-    const setStatus = (status: { loading: boolean; error: Error | null; position?: number; optionRef?: string; revision?: string }) => {
-      this.state = { ...this.state, optionSteps: new Map(this.state.optionSteps).set(groupRef, { ...this.state.optionSteps.get(groupRef), ...status }) };
+    const setStatus = (status: GroupOptionStep) => {
+      this.state = { ...this.state, optionSteps: new Map(this.state.optionSteps).set(groupRef, status) };
       this.emit();
     };
-    setStatus({ loading: true, error: null });
+    const pending = { ...this.state.optionSteps.get(groupRef), loading: true, error: null };
+    const ownsRequest = () => !this.stopped && this.state.optionSteps.get(groupRef) === pending;
+    setStatus(pending);
     try {
-      let index = cache.items.findIndex(item => item.ref === currentRef);
-      while ((!cache.loaded || (cache.nextCursor && (index < 0 || (direction === 1 && index === cache.items.length - 1))))) {
-        const page = row.kind === 'track-group'
-          ? await this.api.getSearchViewTrackGroupOptions(summary.viewId, groupRef, summary.revision, cache.nextCursor)
-          : await this.api.getSearchViewAlbumGroupOptions(summary.viewId, groupRef, summary.revision, cache.nextCursor);
-        if (this.stopped || generation !== this.generation) return;
-        if (this.state.summary?.viewId !== summary.viewId || !sameWireInteger(this.state.summary.revision, summary.revision)) {
-          setStatus({ loading: false, error: null });
-          return;
-        }
-        if (!sameWireInteger(page.revision.revision, summary.revision) || page.groupRef !== groupRef) throw new Error('Group alternatives do not match the selected group and revision.');
-        const items: GroupOption[] = row.kind === 'track-group'
-          ? (page.items as Schema<'SearchViewFileDto'>[]).map(value => ({ kind: 'track', ref: value.ref, value }))
-          : (page.items as Schema<'SearchViewDirectoryDto'>[]).map(value => ({ kind: 'album', ref: value.ref.ref, value }));
-        cache.items.push(...items);
-        cache.nextCursor = page.nextCursor ?? null;
-        cache.loaded = true;
-        index = cache.items.findIndex(item => item.ref === currentRef);
+      const query = direction === -1 ? { previousTo: currentRef } : { nextTo: currentRef };
+      const { items: [target] } = await this.readGroupOptions(row.kind === 'track-group' ? 'track' : 'album',
+        summary.viewId, groupRef, summary.revision, query);
+      if (!ownsRequest()) return;
+      if (this.state.summary?.viewId !== summary.viewId || !sameWireInteger(this.state.summary.revision, summary.revision)
+        || this.selection.value.chosenOptions.get(groupRef)?.ref !== chosen?.ref) {
+        setStatus({ loading: false, error: null });
+        return;
       }
-      const target = index >= 0 ? cache.items[index + direction] : undefined;
-      if (target && this.selection.value.chosenOptions.get(groupRef)?.ref === chosen?.ref) this.applyGroupOption(groupRef, target, false);
-      setStatus({ loading: false, error: null, position: target ? index + direction + 1 : index + 1,
+      if (target) this.applyGroupOption(groupRef, target, false);
+      setStatus({ loading: false, error: null, position: target?.position ?? (direction === -1 ? 1 : Number(row.value.optionCount)),
         optionRef: target?.ref ?? currentRef, revision });
     } catch (error) {
-      if (!this.stopped && generation === this.generation) setStatus({ loading: false, error: asError(error) });
+      if (ownsRequest()) setStatus({ ...pending, loading: false, error: asError(error) });
     }
   }
 
@@ -1068,7 +1084,7 @@ export class SearchViewController {
         && (row.kind === 'track-group' ? 'track' : 'album') === previousPanel.kind)
       : null;
     const groupOptions = panelNeedsNewRevision
-      ? panelRow ? this.groupOptionsPanel(panelRow, summary.revision) : null
+      ? panelRow ? this.groupOptionsPanel(panelRow, summary.revision, previousPanel?.filterText) : null
       : previousPanel;
     this.state = {
       ...this.state,
