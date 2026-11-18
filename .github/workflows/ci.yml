@@ -45,6 +45,11 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # Each test host and the publish directory need the same native dependencies.
+    # Let MSBuild share those files across this runner's disposable outputs.
+    env:
+      CreateHardLinksForCopyLocalIfPossible: 'true'
+      CreateHardLinksForPublishFilesIfPossible: 'true'
     timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.full_load) && 15 || 7 }}
     steps:
     - uses: actions/checkout@v7

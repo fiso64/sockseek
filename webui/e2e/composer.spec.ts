@@ -245,23 +245,23 @@ test('edits source settings before upload and rebases them when the artifact arr
   await page.getByRole('button', { name: 'CSV file', exact: true }).click();
   await page.locator('#new-job-options-filtering').click();
   const filtering = page.locator('#new-job-options-panel');
-  await expect(filtering.getByLabel('Require track title in filename')).toBeVisible();
-  await expect(filtering.getByText('Expected length', { exact: false })).toHaveCount(0);
-  await expect(filtering.getByText('Required track title', { exact: true })).toHaveCount(0);
+  const strictTitle = filtering.getByTestId('strict-title-conditions');
   await expect(filtering.getByLabel('Min tracks')).toBeVisible();
   await expect(filtering.getByLabel('Max tracks')).toBeVisible();
+  await expect(filtering.getByRole('spinbutton', { name: /Expected length/i })).toHaveCount(0);
+  await expect(filtering.getByText('Required track title', { exact: true })).toHaveCount(0);
   const provisionalResponse = await provisional;
   expect(provisionalResponse.ok()).toBeTruthy();
   expect((await provisionalResponse.json()).isProvisional).toBe(true);
-  await filtering.getByLabel('Require track title in filename').check();
+  await strictTitle.check();
   const concrete = page.waitForResponse(response => new URL(response.url()).pathname === '/api/jobs/effective-settings'
     && response.request().method() === 'POST' && Boolean(response.request().postDataJSON()?.job?.artifactId));
   await page.locator('input[type=file]').setInputFiles({
     name: 'configure-first.csv', mimeType: 'text/csv',
     buffer: Buffer.from('artist,title\nFixture Artist,Configured Song\n'),
   });
-  await expect(filtering.getByLabel('Require track title in filename')).toBeChecked();
   expect((await (await concrete).json()).isProvisional).toBe(false);
+  await expect(strictTitle).toBeChecked();
   const request = page.waitForRequest(candidate => candidate.method() === 'POST'
     && new URL(candidate.url()).pathname === '/api/job-previews');
   await page.getByRole('button', { name: 'Review', exact: true }).click();

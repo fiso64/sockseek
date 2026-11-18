@@ -235,7 +235,7 @@
             {#if family === 'track' || family === 'mixed'}
               {#if family === 'mixed'}<div class="config-subgroup-label">Songs</div>{/if}
               <div class="config-check-with-help">
-                <label class="config-check"><input type="checkbox" bind:checked={conditions.track.strictTitle} /> {fields.strictTitle.conditions.label}</label>
+                <label class="config-check"><input type="checkbox" data-testid="strict-title-conditions" bind:checked={conditions.track.strictTitle} /> {fields.strictTitle.conditions.label}</label>
                 {@render fieldHelp(fields.strictTitle.conditions, 'strict-title-conditions-help')}
               </div>
               <div class:single-config-field={!singleItem} class="config-grid config-grid-spaced">

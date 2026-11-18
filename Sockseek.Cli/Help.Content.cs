@@ -485,7 +485,7 @@ Input types
   Search string
     A string input is a name of the track, album, or artist to search for. They come in these forms:
     1. Arbitrary search queries (like what you would type in the Soulseek search bar), e.g. sockseek
-      ""blah blah"".
+       ""blah blah"".
     This is equivalent to sockseek ""album=blah blah"" by default, and to sockseek ""title=blah
     blah"" when using -s/--song mode.
     2. An artist-album or artist-song combination, separated by a hyphen with spaces -:
@@ -496,8 +496,8 @@ Input types
     This is equivalent to sockseek ""artist=Artist, album=Album"" in the first case, and to sockseek
     ""artist=Artist, title=Song"" in the second case.
     3. A comma-separated list of properties, like title=Song Name, artist=Artist Name, length=215.
-      With an album field (and no title) it's treated as an album download. With a title field it's
-      treated as a song download (even if it includes an album field).
+       With an album field (and no title) it's treated as an album download. With a title field it's
+       treated as a song download (even if it includes an album field).
     Accepted fields are:
     - Song title title
     - Artist name artist
@@ -903,25 +903,24 @@ Tips
       this, you can make matching more strict as shown below, at the cost of increased chance of
       missing correct items in other cases.
       For song downloads, you can:
+      - Set the length tolerance --length-tol to something like 3, in order to ignore all files
+        whose length differs from the supplied length by more than 3 seconds. This is useful only
+        when your source actually provides length metadata, such as in the case of playlists from
+        streaming services or a CSV file with a track duration column. Note that lengths from
+        streaming services can differ from the actual files on Soulseek (like from a CD rip).
+      - Add filters for the title and artist:
 
--
-Set the length tolerance --length-tol to something like 3, in order to ignore all files whose length
-differs from the supplied length by more than 3 seconds. This is useful only when your source
-actually provides length metadata, such as in the case of playlists from streaming services or a CSV
-file with a track duration column. Note that lengths from streaming services can differ from the
-actual files on Soulseek (like from a CD rip).
-  Add filters for the title and artist:
+        sockseek ""https://spotify.com/playlist/blah"" --strict-title --strict-artist
 
-  sockseek ""https://spotify.com/playlist/blah"" --strict-title --strict-artist
+        These require that the file path contains the song title and artist name (case-insensitive).
+        Be careful with spelling differences and weird names.
+      For album downloads, the cleanest filter is usually the expected track count:
 
-  These require that the file path contains the song title and artist name (case-insensitive). Be
-  careful with spelling differences and weird names.
-  For album downloads, the cleanest filter is usually the expected track count:
+      sockseek ""Artist - Album"" --album-track-count 10
 
-  sockseek ""Artist - Album"" --album-track-count 10
-
-  Use an inequality like 10+ when an expanded edition is acceptable. You can also add --strict-album
-  to require the album name in the folder path, or --strict-artist as in the song case.
+      Use an inequality like 10+ when an expanded edition is acceptable. You can also add
+      --strict-album to require the album name in the folder path, or --strict-artist as in the song
+      case.
 
     It says no results for a song or album!
       Sockseek passes your input (i.e. artist + song name in case of songs, and artist + album name
@@ -937,6 +936,9 @@ actual files on Soulseek (like from a CD rip).
 
   Searching
     - It's always best to provide the least input necessary to uniquely identify an album or song.
+      - Sometimes including the artist can be undesirable (e.g. ""Various Artists""). For spotify or
+        bandcamp inputs, you can remove the artist name with --regex A:.*.
+      - Use --remove-ft to remove ""feat."" or ""ft."" artists
     - You can download an entire album based on the name of one of its songs by searching for that
       name in album mode: ""artist=ARTIST, title=SONG TITLE"" --album.
     - When searching for a single song with a string input, you can provide the album name in

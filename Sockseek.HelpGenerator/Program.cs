@@ -74,7 +74,6 @@ static string ToPlainText(string markdown)
     var pipeline = new MarkdownPipelineBuilder().Build();
     var document = Markdown.Parse(markdown, pipeline);
     var sb = new StringBuilder();
-    var currentIndent = 0;
 
     var headings = document.Descendants<HeadingBlock>();
     var minLevel = headings.Any() ? headings.Min(h => h.Level) : 1;
@@ -149,27 +148,26 @@ static string ToPlainText(string markdown)
     }
 
     // Local function to process each block
-    void ProcessBlock(MarkdownObject block)
+    void ProcessBlock(MarkdownObject block, int indent)
     {
         switch (block)
         {
             case HeadingBlock heading:
-                currentIndent = (heading.Level - minLevel) * 2;
                 sb.AppendLine();
-                sb.AppendLine(WrapAndIndent(GetInlineText(heading.Inline), currentIndent));
+                sb.AppendLine(WrapAndIndent(GetInlineText(heading.Inline), indent - 2));
                 break;
 
             case ParagraphBlock para:
                 var paraText = GetInlineText(para.Inline);
                 if (!string.IsNullOrWhiteSpace(paraText))
                 {
-                    sb.AppendLine(WrapAndIndent(paraText, currentIndent + 2));
+                    sb.AppendLine(WrapAndIndent(paraText, indent));
                 }
                 break;
 
             case FencedCodeBlock codeBlock:
                 sb.AppendLine();
-                var codeIndent = new string(' ', currentIndent + 2);
+                var codeIndent = new string(' ', indent);
                 foreach (var line in codeBlock.Lines.Lines)
                 {
                     var escapedLine = line.ToString().TrimEnd().Replace("\"", "\"\"");
@@ -180,23 +178,16 @@ static string ToPlainText(string markdown)
 
             case ListBlock list:
                 var listCounter = list.IsOrdered && int.TryParse(list.OrderedStart, out int start) ? start - 1 : 0;
-                foreach (var item in list)
+                foreach (var item in list.OfType<ListItemBlock>())
                 {
                     listCounter++;
-                    if (item is ListItemBlock listItem)
-                    {
-                        var bullet = list.IsOrdered ? $"{listCounter}." : "-";
-                        var itemText = new StringBuilder();
-                        foreach (var subBlock in listItem)
-                        {
-                            if (subBlock is ParagraphBlock p)
-                            {
-                                itemText.Append(GetInlineText(p.Inline).Trim() + " ");
-                            }
-                        }
-                        var fullText = bullet + " " + itemText.ToString().Trim();
-                        sb.AppendLine(WrapAndIndent(fullText, currentIndent + 2, currentIndent + 4));
-                    }
+                    var bullet = list.IsOrdered ? $"{listCounter}." : "-";
+                    var contentIndent = indent + bullet.Length + 1;
+                    var firstParagraph = item.FirstOrDefault() as ParagraphBlock;
+                    var firstLine = firstParagraph is null ? bullet : $"{bullet} {GetInlineText(firstParagraph.Inline).Trim()}";
+                    sb.AppendLine(WrapAndIndent(firstLine, indent, contentIndent));
+                    foreach (var child in item.Skip(firstParagraph is null ? 0 : 1))
+                        ProcessBlock(child, contentIndent);
                 }
                 break;
 
@@ -206,9 +197,12 @@ static string ToPlainText(string markdown)
         }
     }
 
-    foreach (var b in document)
+    var bodyIndent = 2;
+    foreach (var block in document)
     {
-        ProcessBlock(b);
+        if (block is HeadingBlock heading)
+            bodyIndent = (heading.Level - minLevel) * 2 + 2;
+        ProcessBlock(block, bodyIndent);
     }
 
     // Final cleanup of extra newlines
