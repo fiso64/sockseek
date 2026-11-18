@@ -13577,6 +13577,15 @@
                 "$ref": "#/components/schemas/ServerSearchViewSortOrder"
               }
             ]
+          },
+          "profileNames": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -23453,6 +23462,16 @@
           },
           "effectiveSearchSettings": {
             "$ref": "#/components/schemas/SearchSettingsPatchDto"
+          },
+          "baseSearchSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SearchSettingsPatchDto"
+              }
+            ]
           }
         }
       },

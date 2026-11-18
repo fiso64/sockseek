@@ -97,6 +97,19 @@ public sealed class JobSubmissions
         return new SubmissionOptionsJobSettingsResolver(profilesResolver, optionsStore);
     }
 
+    internal SearchSettingsPatchDto? ResolveSearchViewProfiles(IReadOnlyList<string> names)
+    {
+        var profiles = Volatile.Read(ref configuration).Profiles.ResolveNamedProfiles(names);
+        var operations = profiles.SelectMany(profile => profile.Download.Operations)
+            .Where(change => change.Path == "Search" || change.Path.StartsWith("Search.", StringComparison.Ordinal));
+        var search = DownloadSettingsPatchDtoMapper.FromCore(new SettingsPatch(operations.ToArray()))?.Search;
+        return search == null ? null : new(
+            NecessaryCond: search.NecessaryCond, PreferredCond: search.PreferredCond,
+            NecessaryFolderCond: search.NecessaryFolderCond, PreferredFolderCond: search.PreferredFolderCond,
+            StrictAlbumQuality: search.StrictAlbumQuality, MinGroupShares: search.MinGroupShares,
+            ClearMinGroupShares: search.ClearMinGroupShares, GroupLengthTol: search.GroupLengthTol);
+    }
+
     public IReadOnlyList<ProfileSummaryDto> GetProfiles()
         => Volatile.Read(ref configuration).Profiles.NamedProfiles
             .Select(profile => new ProfileSummaryDto(

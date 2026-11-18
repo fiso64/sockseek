@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { daemonApi } from '../../api/client';
   import HelpPopover from '../../components/HelpPopover.svelte';
   import { tick } from 'svelte';
   import { keyboardList } from '../../lib/keyboard';
@@ -24,13 +23,13 @@
   import SearchConditionPills from '../../components/SearchConditionPills.svelte';
   import SearchConfigPanel from '../../components/SearchConfigPanel.svelte';
   import { anchoredPopover } from '../../lib/anchored-menu';
-  import { readSearchConditions, searchConditionsPatch, searchExpectedLength, mergeSearchSettings } from './config-mapping';
+  import { readSearchConditions, rebaseSearchConditions, editedSearchSettings, searchExpectedLength } from './config-mapping';
   import { createEmptySearchConditions, type SearchConditions } from './config-state';
   import type { DownloadOptions } from '../jobs/download-options';
   import { buildSearchSelectionDownloadPatch, searchDownloadOptionDefaults, type SearchDownloadOptionDefaults } from './download-options';
   import type { UserLinkActions } from '../../app/navigation';
   import { audioAttributes as audio, type FolderItemFile } from '../presentation/items';
-  import { searchJobDraft, directoryTotals, isGroupSearchMode, searchModeFamily, searchModeLabel } from './model';
+  import { directoryTotals, isGroupSearchMode, searchModeFamily, searchModeLabel } from './model';
   import type { SearchRow, SearchViewState } from './controller';
 
   type OrdinaryRow = Extract<SearchRow, { kind: 'file' | 'directory' }>;
@@ -118,8 +117,10 @@
   let sort = $state<'relevance' | 'speed' | 'queue' | 'size' | 'count' | 'name'>('relevance');
   let sizeDirection = $state<'asc' | 'desc'>('desc');
   let conditions = $state<SearchConditions>(createEmptySearchConditions());
+  let viewProfileNames = $state<string[]>([]);
   let baseline = $state<Schema<'SearchViewDefinitionDto'> | null>(null);
   let baselineConditions = $state<SearchConditions | null>(null);
+  let inheritedConditions = $derived(baseline ? viewConditions(baseline, baseline.baseSearchSettings ?? baseline.effectiveSearchSettings) : null);
   let configurationJobId = $state<string | null>(null);
   let configurationLoading = $state(false);
   let configurationError = $state<Error | null>(null);
@@ -182,7 +183,7 @@
   }
 
   function currentFingerprint(): string {
-    return JSON.stringify([filterText, conditions, sort, sizeDirection]);
+    return JSON.stringify([projectionFingerprint(), sort, sizeDirection]);
   }
 
   function currentSortOrder(): Schema<'ServerSearchViewSortOrder'> {
@@ -196,8 +197,13 @@
     return 'Relevance';
   }
 
-  function projectionFingerprint(): string {
-    return JSON.stringify([filterText, conditions]);
+  function projectionFingerprint(text = filterText, values = conditions, profiles = viewProfileNames): string {
+    return JSON.stringify([text, values, profiles]);
+  }
+
+  function viewConditions(definition: Schema<'SearchViewDefinitionDto'>, settings = definition.effectiveSearchSettings): SearchConditions {
+    const length = definition.projection.songQuery?.length;
+    return readSearchConditions(settings, length == null ? undefined : Number(length));
   }
 
   async function requestRefinement(resetSelection = false): Promise<void> {
@@ -205,30 +211,45 @@
       if (resetSelection) window.location.reload();
       return;
     }
+    const version = ++refinementRequest;
     try {
       const fingerprint = currentFingerprint();
       const projection = projectionFingerprint();
-      const version = ++refinementRequest;
-      if (!resetSelection && projection === appliedProjectionFingerprint) {
+      const profilesChanged = JSON.stringify(viewProfileNames) !== JSON.stringify(baseline.projection.profileNames ?? []);
+      if (!resetSelection && !profilesChanged && !viewState.refining && projection === appliedProjectionFingerprint) {
         localRefinementError = null;
         lastRequestedFingerprint = fingerprint;
         await onsort(currentSortOrder());
         return;
       }
+      const submitted = profilesChanged ? $state.snapshot(conditions) : null;
       const request: Schema<'CreateSearchViewRequestDto'> = {
         ...baseline.projection,
+        profileNames: viewProfileNames.length ? [...viewProfileNames] : undefined,
         filterText,
         sortOrder: currentSortOrder(),
-        refinementSettings: mergeSearchSettings(baseline.projection.refinementSettings ?? undefined,
-          searchConditionsPatch(viewState.draft!.resultMode, baselineConditions, conditions)),
+        refinementSettings: editedSearchSettings(viewState.draft!.resultMode, baseline.projection.refinementSettings,
+          baselineConditions, conditions, inheritedConditions),
       };
       if (searchModeFamily(viewState.draft!.resultMode) === 'track' && request.songQuery)
         request.songQuery = { ...request.songQuery, length: searchExpectedLength(conditions.track.expectedLength) ?? null };
       localRefinementError = null;
       lastRequestedFingerprint = fingerprint;
-      if (await onrefine(request, resetSelection) && version === refinementRequest) appliedProjectionFingerprint = projection;
+      if (!await onrefine(request, resetSelection) || version !== refinementRequest) return;
+      appliedProjectionFingerprint = projection;
+      if (submitted) {
+        const definition = await onloaddefinition(viewState.summary!.viewId);
+        if (version !== refinementRequest) return;
+        const settled = currentFingerprint() === fingerprint;
+        const effective = viewConditions(definition);
+        conditions = rebaseSearchConditions(submitted, conditions, effective);
+        baseline = definition;
+        baselineConditions = effective;
+        appliedProjectionFingerprint = projectionFingerprint(request.filterText ?? '', effective, request.profileNames ?? []);
+        if (settled) lastRequestedFingerprint = currentFingerprint();
+      }
     } catch (error) {
-      localRefinementError = error instanceof Error ? error : new Error(String(error));
+      if (version === refinementRequest) localRefinementError = error instanceof Error ? error : new Error(String(error));
     }
   }
 
@@ -254,8 +275,8 @@
       if (request !== configurationRequest) return;
       const editedFilter = filterEdited ? filterText : null;
       const editedSort = sortEdited ? { sort, direction: sizeDirection } : null;
-      const read = readSearchConditions(definition.effectiveSearchSettings,
-        definition.projection.songQuery?.length == null ? undefined : Number(definition.projection.songQuery.length));
+      const read = viewConditions(definition);
+      viewProfileNames = definition.projection.profileNames ?? [];
       baseline = definition;
       baselineConditions = structuredClone(read);
       conditions = read;
@@ -787,13 +808,9 @@
     {/if}
     {#if conditionsOpen && viewState.draft}
       <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="popover-panel form search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsAnchor, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
-        <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="Search configuration" loadDefaults={async signal => {
-          const draft = viewState.draft!;
-          const response = await daemonApi.resolveEffectiveSettings({ job: searchJobDraft(draft) }, signal);
-          const search = response.settings.values.search;
-          if (!search) throw new Error('The daemon did not return resolved search settings.');
-          return readSearchConditions(search, draft.expectedLength);
-        }} initialTab={conditionsInitialTab} onclose={() => (conditionsOpen = false)} />
+        <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="Search configuration"
+          profiles={{ value: viewProfileNames, onchange: names => viewProfileNames = names }}
+          loadDefaults={() => inheritedConditions!} initialTab={conditionsInitialTab} onclose={() => (conditionsOpen = false)} />
       </section>
     {/if}
   </div>

@@ -23,6 +23,7 @@ import {
   albumQuery,
   networkQuery,
   searchModeFamily,
+  searchSubmissionOptions,
   searchViewKind,
   songQuery,
   type SearchDraft,
@@ -139,9 +140,7 @@ export class DaemonApiClient {
     draft = JSON.parse(JSON.stringify(draft)) as SearchDraft;
     const query = networkQuery(draft);
     if (!query) throw new Error('Enter a search query.');
-    const options = draft.searchSettings
-      ? { downloadSettings: { search: draft.searchSettings } }
-      : undefined;
+    const options = searchSubmissionOptions(draft);
 
     let job: JobSummaryDto;
     if (draft.resultMode === 'generic') {

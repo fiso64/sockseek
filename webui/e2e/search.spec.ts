@@ -994,6 +994,57 @@ test('keeps the search highlight steady while splitting and merging', async ({ p
   expect(await bar.evaluate(element => ({ border: getComputedStyle(element).borderColor, shadow: getComputedStyle(element).boxShadow }))).toEqual(highlight);
 });
 
+test('applies named profiles to a search and refines its results independently', async ({ page, daemon }) => {
+  await page.goto('/jobs');
+  await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
+  await page.getByRole('menuitemradio', { name: 'Track Search', exact: true }).click();
+  const query = page.locator('#global-search-simple');
+  await query.fill('Fixture');
+  await page.getByTestId('search-config-toggle').click();
+  const panel = page.locator('.search-config-popover').filter({ visible: true });
+  const min = panel.getByLabel('Min bitrate kbps');
+  const max = panel.getByLabel('Max bitrate kbps');
+  async function toggleProfile() {
+    const choice = panel.getByRole('checkbox', { name: 'track-quality', exact: true });
+    if (!await choice.isVisible()) await panel.getByTestId('profile-picker').click();
+    await choice.click();
+  }
+  const initialMin = await min.inputValue();
+  await toggleProfile();
+  await expect(min).toHaveValue('256');
+  await max.fill('640');
+  await toggleProfile();
+  await expect(min).toHaveValue(initialMin);
+  await expect(max).toHaveValue('640');
+  await toggleProfile();
+  await expect(min).toHaveValue('256');
+  await min.fill('128');
+  const submitted = page.waitForRequest(req => new URL(req.url()).pathname === '/api/jobs/search/tracks');
+  await query.press('Enter');
+  expect((await submitted).postDataJSON().options).toMatchObject({
+    profileNames: ['track-quality'], downloadSettings: { search: { necessaryCond: { minBitrate: 128, maxBitrate: 640 } } },
+  });
+  await daemon.command('wait-search-started');
+  expect(daemon.logs()).toContain('E2E_METRIC search-timeout-ms=2500');
+
+  await page.getByRole('button', { name: 'Filtering', exact: true }).click();
+  await expect(min).toHaveValue('128');
+  await max.fill('512');
+  await toggleProfile();
+  await expect(min).toHaveValue('256');
+  await expect(max).toHaveValue('512');
+  await toggleProfile();
+  await expect(min).toHaveValue('128');
+  await expect(max).toHaveValue('512');
+  await toggleProfile();
+  await expect(min).toHaveValue('256');
+  await panel.getByTestId('search-config-reset').click();
+  await expect(max).toHaveValue('768');
+  await toggleProfile();
+  await expect(min).toHaveValue('128');
+  await expect(max).toHaveValue('640');
+});
+
 test('keeps search configuration resolved when splitting and merging', async ({ page }) => {
   await page.goto('/jobs');
   await page.locator('#global-search-simple').fill('Casiopea');

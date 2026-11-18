@@ -29,7 +29,7 @@
   const initialChoice = untrack(() => draft.choice);
   let carriedSearchSettings = $derived(draft.choice === initialChoice ? initial?.searchSettings : undefined);
   let choiceMetadata = $derived(jobChoiceMetadata(draft.choice));
-  let profileNames = $state<string[]>([]);
+  let profileNames = $state<string[]>([...(initial?.profileNames ?? [])]);
   let appliedProfiles = $state<Schema<'AppliedProfileDto'>[]>([]);
   let profileSections = $state(profileSettingsSections({}));
   let importBaseline = $state<ImportOptions | null>(null);

@@ -48,12 +48,18 @@ export interface SearchDraft {
   query: string;
   artist: string;
   title: string;
+  profileNames?: string[];
   searchSettings?: Schema<'SearchSettingsPatchDto'>;
   expectedLength?: number;
   albumContext?: string;
   sourceUri?: string;
   artistMaybeWrong?: boolean;
   albumSearchHint?: string;
+}
+
+export function searchSubmissionOptions({ profileNames, searchSettings }: SearchDraft): Schema<'SubmissionOptionsDto'> | undefined {
+  if (!profileNames?.length && !searchSettings) return undefined;
+  return { profileNames, downloadSettings: searchSettings ? { search: searchSettings } : undefined };
 }
 
 export const emptySearchDraft: SearchDraft = {

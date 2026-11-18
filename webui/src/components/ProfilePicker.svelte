@@ -3,8 +3,8 @@
   import { daemonApi } from '../api/client';
   import type { Schema } from '../api/types';
   import Icon from './Icon.svelte';
-  let { value = [], applied = [], onchange, disabled = false }: {
-    value?: string[]; applied?: Schema<'AppliedProfileDto'>[]; disabled?: boolean;
+  let { value = [], applied = [], onchange, disabled = false, quiet = false }: {
+    value?: string[]; applied?: Schema<'AppliedProfileDto'>[]; disabled?: boolean; quiet?: boolean;
     onchange: (names: string[]) => void;
   } = $props();
   let catalog = $state<Schema<'ProfileSummaryDto'>[]>([]);
@@ -41,7 +41,7 @@
 
 {#if names.length || error}
   <div class="profile-picker">
-    <button type="button" class="button profile-trigger" {disabled} popovertarget={id}
+    <button type="button" class="button profile-trigger" class:quiet data-testid="profile-picker" {disabled} popovertarget={id}
       aria-expanded={open} onclick={positionPopout}>
       <Icon name="sliders" />Profiles
       {#if value.length || inherited.length}<i class="settings-disclosure-customized" aria-hidden="true"></i>{/if}

@@ -9,13 +9,31 @@ using System.Text;
 using Sockseek.Api;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
+using Sockseek.Core.Settings;
 
 namespace Sockseek.Server.Planning;
 
 public sealed record SearchViewDefinition(
     SearchDefinition Source,
     SearchViewProjectionDefinition Projection,
-    SearchSettingsPatchDto? RefinementSettings = null);
+    SearchSettingsPatchDto? RefinementSettings = null,
+    IReadOnlyList<string>? ProfileNames = null,
+    SearchSettingsPatchDto? ProfileSettings = null)
+{
+    public SearchSettings ResolveBaseSettings(SearchSettings? settings = null)
+    {
+        settings ??= Source.ProjectionSettings.ToSettings();
+        if (ProfileSettings != null) DownloadSettingsPatchDtoMapper.ApplyTo(settings, ProfileSettings);
+        return settings;
+    }
+
+    public SearchSettings ResolveSettings(SearchSettings? settings = null)
+    {
+        settings = ResolveBaseSettings(settings);
+        DownloadSettingsPatchDtoMapper.ApplyTo(settings, RefinementSettings);
+        return settings;
+    }
+}
 
 public sealed record SearchViewInfo(
     Guid Id,

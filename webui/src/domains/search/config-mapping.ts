@@ -168,3 +168,23 @@ export function mergeSearchSettings(base: Settings | undefined, edits: Settings)
   }
   return result;
 }
+
+// Remove an old override when the user puts that control back to its inherited
+// value. Leave fields outside this panel (or this search mode) alone.
+export function editedSearchSettings(mode: SearchResultMode, saved: Settings | null | undefined,
+  before: SearchConditions, after: SearchConditions, inherited?: SearchConditions | null): Settings {
+  const edits = searchConditionsPatch(mode, before, after);
+  const merged = mergeSearchSettings(saved ?? undefined, edits);
+  if (!saved || !inherited || !Object.keys(edits).length) return merged;
+  const overrides = searchConditionsPatch(mode, inherited, after);
+  for (const key of Object.keys(edits) as (keyof Settings)[]) {
+    if (key === 'necessaryCond' || key === 'preferredCond' || key === 'necessaryFolderCond' || key === 'preferredFolderCond') {
+      const group = merged[key] as Record<string, unknown>;
+      for (const field of Object.keys(edits[key]!)) {
+        if (!Object.hasOwn(overrides[key] ?? {}, field)) delete group[field];
+      }
+      if (!Object.keys(group).length) delete merged[key];
+    } else if (!Object.hasOwn(overrides, key)) delete merged[key];
+  }
+  return merged;
+}

@@ -12,7 +12,8 @@
   } from '../domains/search/config-schema';
   import type { SearchModeFamily, SearchResultMode } from '../domains/search/model';
   import { isGroupSearchMode, searchModeFamily } from '../domains/search/model';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, type ComponentProps } from 'svelte';
+  import ProfilePicker from './ProfilePicker.svelte';
   import HelpPopover from './HelpPopover.svelte';
   import Notice from './Notice.svelte';
   import SearchFormatControl from './SearchFormatControl.svelte';
@@ -24,6 +25,7 @@
     mode: SearchResultMode;
     conditions: SearchConditions;
     title?: string;
+    profiles?: ComponentProps<typeof ProfilePicker>;
     initialTab?: PanelTab;
     section?: PanelTab;
     embedded?: boolean;
@@ -39,6 +41,7 @@
     mode,
     conditions = $bindable(),
     title = 'Search configuration',
+    profiles,
     initialTab = 'conditions',
     section,
     embedded = false,
@@ -118,13 +121,6 @@
   </HelpPopover>
 {/snippet}
 
-{#snippet actions()}
-  <div class="search-config-actions">
-    <button class="button secondary" type="button" data-testid="search-config-clear" disabled={resetting} onclick={clearActiveTab}>Clear</button>
-    <button class="button secondary" type="button" data-testid="search-config-reset" disabled={resetting} onclick={resetActiveTab}>Reset</button>
-  </div>
-{/snippet}
-
 <!-- Keep placement stable while editing: only album-group filtering puts Grouping below Peers. -->
 {#snippet grouping()}
   <section class="panel subtle search-config-section">
@@ -143,7 +139,17 @@
       <button type="button" class:active={activeTab === 'conditions'} aria-current={activeTab === 'conditions' ? 'page' : undefined} onclick={() => (activeTab = 'conditions')}>Filtering</button>
       <button type="button" class:active={activeTab === 'ranking'} aria-current={activeTab === 'ranking' ? 'page' : undefined} onclick={() => (activeTab = 'ranking')}>Ranking</button>
     </nav>
-    {#if showActions}{@render actions()}{/if}
+    {#if showActions || profiles}
+      <div class="search-config-header-tools">
+        {#if profiles}<ProfilePicker {...profiles} quiet />{/if}
+        {#if showActions}
+          <div class="search-config-actions">
+            <button class="button secondary" type="button" data-testid="search-config-clear" disabled={resetting} onclick={clearActiveTab}>Clear</button>
+            <button class="button secondary" type="button" data-testid="search-config-reset" disabled={resetting} onclick={resetActiveTab}>Reset</button>
+          </div>
+        {/if}
+      </div>
+    {/if}
     {#if onclose}
       <button type="button" class="button quiet search-config-close" aria-label="Close search configuration" onclick={onclose}>×</button>
     {/if}

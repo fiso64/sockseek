@@ -2,10 +2,12 @@
   import { untrack } from 'svelte';
   import { daemonApi } from '../../api/client';
   import SearchConfigPanel from '../../components/SearchConfigPanel.svelte';
+  import ProfilePicker from '../../components/ProfilePicker.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
-  import { searchJobDraft, type SearchDraft } from './model';
+  import type { Schema } from '../../api/types';
+  import { searchJobDraft, searchSubmissionOptions, type SearchDraft } from './model';
   import { createEmptySearchConditions, type SearchConditions } from './config-state';
-  import { readSearchConditions, searchConditionsPatch, searchExpectedLength, mergeSearchSettings } from './config-mapping';
+  import { readSearchConditions, editedSearchSettings, searchExpectedLength } from './config-mapping';
 
   let { draft, active, conditions = $bindable(createEmptySearchConditions()), resolved = $bindable(false), customized = $bindable(false), onchange, onvalidation, onclose }: {
     draft: SearchDraft;
@@ -20,6 +22,11 @@
   let baseline = $state<SearchConditions | null>(null);
   let defaults = $state<SearchConditions | null>(null);
   let initial = $state<SearchDraft | null>(null);
+  let appliedProfiles = $state<Schema<'AppliedProfileDto'>[]>([]);
+  let profiles = $derived({
+    value: draft.profileNames, applied: appliedProfiles,
+    onchange: (profileNames: string[]) => onchange({ ...draft, profileNames }),
+  });
   let loading = $state(false);
   let displayedMode = $state<SearchDraft['resultMode'] | null>(null);
   let error = $state<string | null>(null);
@@ -28,7 +35,7 @@
   let validationKey: string | null = null;
   // Split and merged fields share a key; edits to the text or search mode still
   // resolve again because auto-profiles can depend on the search intent.
-  let queryKey = $derived(JSON.stringify([draft.resultMode, draft.mode === 'split'
+  let queryKey = $derived(JSON.stringify([draft.resultMode, draft.profileNames, draft.mode === 'split'
     ? (draft.artist && draft.title ? `${draft.artist} - ${draft.title}` : draft.artist || draft.title)
     : draft.query.replace(' — ', ' - ')]));
 
@@ -56,11 +63,11 @@
     loading = true;
     untrack(() => onvalidation('Search configuration is loading.', true));
     const timer = setTimeout(() => { void (async () => {
-      const request = { job: searchJobDraft(snapshot) };
+      const request = { job: searchJobDraft(snapshot), options: { profileNames: snapshot.profileNames } };
       const [response, defaultResponse] = await Promise.all([
         daemonApi.resolveEffectiveSettings({
           ...request,
-          options: snapshot.searchSettings ? { downloadSettings: { search: snapshot.searchSettings } } : undefined,
+          options: searchSubmissionOptions(snapshot),
         }, controller.signal),
         snapshot.searchSettings ? daemonApi.resolveEffectiveSettings(request, controller.signal).catch(() => null) : Promise.resolve(null),
       ]);
@@ -72,6 +79,7 @@
       conditions = readSearchConditions(search, snapshot.expectedLength);
       baseline = readSearchConditions(search, snapshot.expectedLength);
       initial = snapshot;
+      appliedProfiles = response.appliedProfiles;
       displayedMode = snapshot.resultMode;
       resolved = true;
       loadedKey = key;
@@ -84,7 +92,8 @@
   });
 
   $effect(() => {
-    if (baseline && defaults) customized = JSON.stringify(conditions) !== JSON.stringify(defaults);
+    if (draft.profileNames?.length) customized = true;
+    else if (baseline && defaults) customized = JSON.stringify(conditions) !== JSON.stringify(defaults);
     else if (baseline) customized = Boolean(draft.expectedLength || (draft.searchSettings && Object.keys(draft.searchSettings).length));
     else if (!draft.searchSettings && !draft.expectedLength) customized = false;
   });
@@ -97,11 +106,11 @@
     untrack(() => {
       try {
         const edited = JSON.parse(current) as SearchConditions;
-        const patch = searchConditionsPatch(source.resultMode, original, edited);
+        const searchSettings = editedSearchSettings(source.resultMode, source.searchSettings, original, edited, defaults);
         const expectedLength = searchExpectedLength(edited.track.expectedLength);
         error = null;
         onvalidation(null, false);
-        onchange({ ...draft, searchSettings: mergeSearchSettings(source.searchSettings, patch), expectedLength });
+        onchange({ ...draft, searchSettings, expectedLength });
       } catch (cause) {
         error = cause instanceof Error ? cause.message : 'Invalid search configuration.';
         onvalidation(error, false);
@@ -113,19 +122,24 @@
 {#if error}
   <div class="resource-state-notice unavailable" role="alert">
     <span>{error}</span>
-    {#if !baseline && !loading}<button class="button" type="button" onclick={() => retry++}>Retry</button>{/if}
+    {#if !baseline && !loading}
+      {#if draft.profileNames?.length}<ProfilePicker {...profiles} quiet />{/if}
+      <button class="button" type="button" onclick={() => retry++}>Retry</button>
+    {/if}
   </div>
 {/if}
 {#if loading || baseline}
   <div class="configuration-content">
     {#if displayedMode}
       <div class:waiting={loading} inert={loading}>
-        <SearchConfigPanel mode={displayedMode} bind:conditions {onclose} loadDefaults={async signal => {
-          const response = await daemonApi.resolveEffectiveSettings({ job: searchJobDraft(draft) }, signal);
-          const search = response.settings.values.search;
-          if (!search) throw new Error('The daemon did not return resolved search settings.');
-          return readSearchConditions(search, draft.expectedLength);
-        }} />
+        <SearchConfigPanel mode={displayedMode} bind:conditions {onclose}
+          {profiles}
+          loadDefaults={async signal => {
+            const response = await daemonApi.resolveEffectiveSettings({ job: searchJobDraft(draft), options: { profileNames: draft.profileNames } }, signal);
+            const search = response.settings.values.search;
+            if (!search) throw new Error('The daemon did not return resolved search settings.');
+            return readSearchConditions(search, draft.expectedLength);
+          }} />
       </div>
     {/if}
     {#if loading}

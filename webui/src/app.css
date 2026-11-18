@@ -868,8 +868,9 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 .config-stack input { margin-left: 0; }
 .single-config-field { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .search-config-footer { display: flex; justify-content: flex-end; padding-top: 12px; }
-.search-config-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: auto; }
-.search-config-actions button,
+.search-config-header-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin-inline-start: auto; }
+.search-config-actions { display: flex; gap: 6px; }
+.search-config-actions > button,
 .search-config-footer button {
   min-height: 32px; padding: 7px 11px;
   border-radius: 8px;
@@ -2893,7 +2894,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .settings-disclosure-customized { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--accent); }
 .new-job-options-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .new-job-job-settings .new-job-options-header .page-tabs { position: static; min-width: 0; margin-bottom: 0; }
-.new-job-options-header .search-config-actions, .search-config-header .search-config-actions { flex-wrap: nowrap; flex-shrink: 0; margin: 0 0 0 auto; }
+.new-job-options-header .search-config-actions { flex-shrink: 0; margin-inline-start: auto; }
 .search-config-header .search-config-close { margin-left: 0; }
 .new-job-options-panel { min-width: 0; }
 .new-job-options-panel .search-config-flow { padding-top: 0; }

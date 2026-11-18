@@ -653,6 +653,14 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                         new("Extraction.MaxTracks", 20),
                         new("Extraction.Offset", 2),
                     ]),
+                }, new SettingsProfile
+                {
+                    Name = "track-quality",
+                    Download = new SettingsPatch([
+                        new("Search.NecessaryCond.MinBitrate", 256),
+                        new("Search.NecessaryCond.MaxBitrate", 768),
+                        new("Search.SearchTimeout", 2500),
+                    ]),
                 }] },
                 OperatorDownloadSettings = new Sockseek.Api.DownloadSettingsPatchDto(
                     Output: new Sockseek.Api.OutputSettingsPatchDto(ParentDir: Path.Combine(temporary, "downloads"))),
@@ -1009,7 +1017,10 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     break;
                 case "next-search-batch": nextSearchBatch?.TrySetResult(); break;
                 case "finish-search": finishSearch?.TrySetResult(); break;
-                case "wait-search-started": await searchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)); break;
+                case "wait-search-started":
+                    await searchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    Console.WriteLine($"E2E_METRIC search-timeout-ms={peer.LastSearchOptions?.SearchTimeout}");
+                    break;
                 case "hold-download":
                     downloadGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     downloadStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);

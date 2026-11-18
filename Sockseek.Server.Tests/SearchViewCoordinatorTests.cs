@@ -1231,8 +1231,16 @@ public sealed class SearchViewCoordinatorTests
             }
             await app.StopAsync();
 
+            var options = Options(directory, ControllableSearchClientProxy.Create().Client);
+            options.Profiles = new ProfileCatalog { NamedProfiles = [new SettingsProfile {
+                Name = "lossless", Download = new SettingsPatch([
+                    new("Search.NecessaryCond.Formats", new[] { "flac" }),
+                    new("Search.MinGroupShares", 7),
+                    new("Search.SearchTimeout", 123),
+                ]),
+            }] };
             await using WebApplication restarted = global::Tests.TestServerHost.Build(
-                [], Options(directory, ControllableSearchClientProxy.Create().Client),
+                [], options,
                 "http://127.0.0.1:0");
             await restarted.StartAsync();
             SearchViewCoordinator historicalViews = restarted.Services
@@ -1252,12 +1260,18 @@ public sealed class SearchViewCoordinatorTests
                             NecessaryCond: new FileConditionsPatchDto(
                                 Formats: new CollectionPatchDto<string>(Replace: ["mp3"]))),
                         FilterText: "mp3",
-                        SortOrder: ServerSearchViewSortOrder.ItemSizeAscending),
+                        SortOrder: ServerSearchViewSortOrder.ItemSizeAscending, ProfileNames: ["lossless"]),
                     CancellationToken.None))!;
                 Assert.AreEqual(ServerSearchViewSortOrder.ItemSizeAscending,
                     historical.SortOrder);
+                // Reading or rebuilding an existing view uses the accepted profile settings.
+                restarted.Services.GetRequiredService<EngineSupervisor>().Submissions.ReloadProfiles(ProfileCatalog.Empty);
                 SearchViewDefinitionDto retainedDefinition = (historicalViews.GetDefinition(historical.ViewId, CancellationToken.None))!;
                 Assert.AreEqual("mp3", retainedDefinition.Projection.FilterText);
+                CollectionAssert.AreEqual(new[] { "lossless" }, retainedDefinition.Projection.ProfileNames!.ToArray());
+                CollectionAssert.AreEqual(new[] { "flac" }, retainedDefinition.BaseSearchSettings!.NecessaryCond!.Formats!.Replace!.ToArray());
+                Assert.AreEqual(7, retainedDefinition.EffectiveSearchSettings.MinGroupShares);
+                Assert.AreNotEqual(123, retainedDefinition.EffectiveSearchSettings.SearchTimeout);
                 CollectionAssert.AreEqual(
                     new[] { "mp3" },
                     retainedDefinition.EffectiveSearchSettings.NecessaryCond!.Formats!.Replace!.ToArray());

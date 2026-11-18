@@ -10862,6 +10862,7 @@ export interface components {
             refinementSettings?: null | components["schemas"]["SearchSettingsPatchDto"];
             filterText?: null | string;
             sortOrder?: null | components["schemas"]["ServerSearchViewSortOrder"];
+            profileNames?: null | string[];
         };
         CsvSettingsPatchDto: {
             artistCol?: null | string;
@@ -13113,6 +13114,7 @@ export interface components {
             viewId: string;
             projection: components["schemas"]["CreateSearchViewRequestDto"];
             effectiveSearchSettings: components["schemas"]["SearchSettingsPatchDto"];
+            baseSearchSettings?: null | components["schemas"]["SearchSettingsPatchDto"];
         };
         SearchViewDirectoryDto: {
             ref: components["schemas"]["PeerDirectoryRefDto"];

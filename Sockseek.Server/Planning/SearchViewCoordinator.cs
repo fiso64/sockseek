@@ -289,9 +289,11 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 StringComparer.Ordinal);
         }
 
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, request.RefinementSettings);
+        var viewDefinition = new SearchViewDefinition(definition, projection, request.RefinementSettings, request.ProfileNames,
+            request.ProfileNames is { Count: > 0 } names ? supervisor.Submissions.ResolveSearchViewProfiles(names) : null);
+        viewDefinition.ResolveSettings(settings);
 
-        SearchViewInfo stored = repository.Create(sourceJobId, new SearchViewDefinition(definition, projection, request.RefinementSettings), cancellationToken: cancellationToken);
+        SearchViewInfo stored = repository.Create(sourceJobId, viewDefinition, cancellationToken: cancellationToken);
         var runtime = new RuntimeView(
             stored, source, projection, settings, workflowPeerFailureCounts, clock.GetUtcNow(),
             new SearchViewKernel(projection, settings, workflowPeerFailureCounts,
@@ -320,14 +322,14 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         SearchViewInfo? view = Cache.Get(viewId, cancellationToken);
         if (view == null)
             return null;
-        (SearchDefinition source, SearchViewProjectionDefinition projection,
-            SearchSettingsPatchDto? refinement) = view.Definition;
-        SearchSettings settings = source.ProjectionSettings.ToSettings();
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, refinement);
-        return new SearchViewDefinitionDto(
-            viewId,
-            ToDto(projection) with { RefinementSettings = refinement },
-            EffectiveSettingsMapper.ToSearchSettings(settings));
+        var definition = view.Definition;
+        var settings = definition.ResolveBaseSettings();
+        var baseline = definition.ProfileNames is { Count: > 0 } || definition.RefinementSettings != null
+            ? EffectiveSettingsMapper.ToSearchSettings(settings) : null;
+        DownloadSettingsPatchDtoMapper.ApplyTo(settings, definition.RefinementSettings);
+        return new SearchViewDefinitionDto(viewId,
+            ToDto(definition.Projection) with { RefinementSettings = definition.RefinementSettings, ProfileNames = definition.ProfileNames },
+            EffectiveSettingsMapper.ToSearchSettings(settings), baseline);
     }
 
     public SearchViewFilePageDto? GetFiles(Guid viewId, long revision, string? cursor, int limit, ServerSearchViewSortOrder? sortOrder = null, CancellationToken cancellationToken = default)
@@ -616,9 +618,6 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             return false;
         Guid sourceJobId = view.SourceJobId;
         bool changed = false;
-        (SearchDefinition definition, SearchViewProjectionDefinition projection,
-            SearchSettingsPatchDto? refinementSettings) =
-            view.Definition;
         do
         {
             SearchDirectoryObservationTarget target = targets.Current;
@@ -641,9 +640,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                     snapshot,
                     observation.PeerObservation,
                     view.ConsumedSequence,
-                    definition,
-                    projection,
-                    refinementSettings);
+                    view.Definition);
                 SearchViewDirectoryPublishResult published = repository.PublishRetrievedDirectory(viewId, target.DirectoryRef, snapshot, projected, observation.PeerObservation, cancellationToken, existingObservationId: observation.Id);
                 if (published.View.Revision > view.Revision)
                 {
@@ -719,9 +716,6 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                         "The search-view directory has no retained child observation.");
                 }
 
-                (SearchDefinition definition, SearchViewProjectionDefinition projection,
-                    SearchSettingsPatchDto? refinementSettings) =
-                    sourceView.Definition;
                 SearchProjectionInput peerObservation = membership.Items[0].File.Input;
                 JobSummaryDto? job = await supervisor.StartSearchViewDirectoryRetrievalAsync(
                     sourceView.SourceJobId,
@@ -732,9 +726,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                             snapshot,
                             peerObservation,
                             sourceView.ConsumedSequence,
-                            definition,
-                            projection,
-                            refinementSettings);
+                            sourceView.Definition);
                         SearchViewDirectoryPublishResult published = repository.PublishRetrievedDirectory(viewId, request.Directory.Ref, snapshot, projected, peerObservation, publishToken);
                         NotifyPublished(published.View);
                         return published.NewFileCount;
@@ -1006,8 +998,8 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         SearchViewInfo? stored = repository.Peek(viewId, cancellationToken);
         if (stored == null || stored.ExpiresAtUtc <= clock.GetUtcNow()) return null;
         if (stored.IsComplete) return null;
-        (SearchDefinition definition, SearchViewProjectionDefinition projection,
-            SearchSettingsPatchDto? refinementSettings) = stored.Definition;
+        var definition = stored.Definition.Source;
+        var projection = stored.Definition.Projection;
         RuntimeSource? source = await CreateStoredSourceAsync(stored.SourceJobId, definition, projection, cancellationToken)
             .ConfigureAwait(false);
         if (source == null)
@@ -1015,8 +1007,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             CompleteUnrestorable(repository, stored, cancellationToken);
             return null;
         }
-        SearchSettings settings = definition.ProjectionSettings.ToSettings();
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, refinementSettings);
+        SearchSettings settings = stored.Definition.ResolveSettings();
         IReadOnlyDictionary<string, int> peerFailures = supervisor.GetSearchViewSource(stored.SourceJobId)?.PeerFailureCounts
             ?? new Dictionary<string, int>(StringComparer.Ordinal);
         var runtime = new RuntimeView(stored, source, projection, settings, peerFailures, clock.GetUtcNow());
@@ -1204,10 +1195,10 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         PeerDirectorySnapshot snapshot,
         SearchProjectionInput peerObservation,
         long sequenceBase,
-        SearchDefinition definition,
-        SearchViewProjectionDefinition projection,
-        SearchSettingsPatchDto? refinementSettings)
+        SearchViewDefinition view)
     {
+        var projection = view.Projection;
+        var definition = view.Source;
         AlbumQuery album = projection.AlbumQuery
             ?? definition.AlbumQuery?.ToQuery()
             ?? new AlbumQuery();
@@ -1218,8 +1209,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             URI = album.URI,
             ArtistMaybeWrong = album.ArtistMaybeWrong,
         };
-        SearchSettings settings = definition.ProjectionSettings.ToSettings();
-        DownloadSettingsPatchDtoMapper.ApplyTo(settings, refinementSettings);
+        SearchSettings settings = view.ResolveSettings();
         var sorter = new IncrementalResultSorter(
             query,
             settings,

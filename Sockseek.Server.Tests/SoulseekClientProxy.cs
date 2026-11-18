@@ -10,6 +10,7 @@ public class SoulseekClientProxy : DispatchProxy
     public ISoulseekClient Client { get; private set; } = null!;
     public SoulseekClientOptions Options { get; set; } = new(enableListener: false);
     public Func<Action<SearchResponse>, CancellationToken, Task>? SearchHandler { get; set; }
+    public SearchOptions? LastSearchOptions { get; private set; }
     public Func<object?[], Task<Transfer>>? DownloadHandler { get; set; }
     public Func<object?[], Task<Transfer>>? UploadHandler { get; set; }
     public Func<Task>? Connect { get; set; }
@@ -162,6 +163,7 @@ public class SoulseekClientProxy : DispatchProxy
 
     private async Task<Search> SearchAsync(object?[] args)
     {
+        LastSearchOptions = args.OfType<SearchOptions>().SingleOrDefault();
         var handler = args.OfType<Action<SearchResponse>>().Single();
         var cancellationToken = args.OfType<CancellationToken>().LastOrDefault();
         if (SearchHandler is not null) await SearchHandler(handler, cancellationToken);

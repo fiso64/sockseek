@@ -21,7 +21,9 @@ public sealed record CreateSearchViewRequestDto(
     bool IncludeFullResults = false,
     SearchSettingsPatchDto? RefinementSettings = null,
     string? FilterText = null,
-    ServerSearchViewSortOrder? SortOrder = null);
+    ServerSearchViewSortOrder? SortOrder = null,
+    // Layer view-relevant settings from these named profiles before explicit refinements.
+    IReadOnlyList<string>? ProfileNames = null);
 
 public sealed record SearchViewCountersDto(
     long PublicFileCount,
@@ -54,7 +56,9 @@ public sealed record SearchViewSummaryDto(
 public sealed record SearchViewDefinitionDto(
     Guid ViewId,
     CreateSearchViewRequestDto Projection,
-    SearchSettingsPatchDto EffectiveSearchSettings);
+    SearchSettingsPatchDto EffectiveSearchSettings,
+    // Settings before manual refinements, when different layers were requested.
+    SearchSettingsPatchDto? BaseSearchSettings = null);
 
 public sealed record SearchViewRevisionDto(
     Guid ViewId,
