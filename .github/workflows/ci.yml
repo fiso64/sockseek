@@ -127,7 +127,8 @@ jobs:
         dotnet build webui/e2e/daemon/Sockseek.WebUi.TestHost.csproj --no-restore --configuration Release --nologo -m:1 -p:OpenApiGenerateDocuments=false
     - name: Install headless Chromium
       working-directory: webui
-      run: npx playwright install --with-deps --only-shell chromium
+      # The Ubuntu runner supplies the shared libraries. Fetch Playwright's pinned browser directly.
+      run: npx playwright install --only-shell chromium
     - name: Browser journeys
       working-directory: webui
       # The SPA and fixture are already built; do not rebuild them here.
