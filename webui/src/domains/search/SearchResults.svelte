@@ -30,7 +30,7 @@
   import type { UserLinkActions } from '../../app/navigation';
   import { audioAttributes as audio, type FolderItemFile } from '../presentation/items';
   import { directoryTotals, isGroupSearchMode, searchModeFamily, searchModeLabel } from './model';
-  import type { SearchRow, SearchViewState } from './controller';
+  import type { SearchRow, SearchViewState, SearchRangeItem } from './controller';
 
   type OrdinaryRow = Extract<SearchRow, { kind: 'file' | 'directory' }>;
 
@@ -48,6 +48,7 @@
     searchAgainPending?: boolean;
     isselected: (ref: string, parentRef?: string) => boolean;
     selectedCount: number;
+    onbeginrange: (additive: boolean) => (items: SearchRangeItem[], selected: boolean) => void;
     ontoggle: (ref: string, selected: boolean, parentRef?: string) => void;
     onselectfolder: (directoryRef: string, relativePath: string, selected: boolean) => void;
     isfolderselected: (directoryRef: string, relativePath: string) => boolean;
@@ -86,6 +87,7 @@
     searchAgainPending = false,
     isselected,
     selectedCount,
+    onbeginrange,
     ontoggle,
     onselectfolder,
     isfolderselected,
@@ -333,10 +335,14 @@
       files.filter(file => file.visibility !== 'Locked' && isselected(file.ref, row.ref)).length).selected;
   }
 
-  function toggleKeyboardResult(ref: string): void {
-    if (selectionReadOnly || viewState.committing || refinementPending) return;
-    const row = viewState.rows.find(row => row.ref === ref);
-    if (row) ontoggle(ref, !rowFullySelected(row));
+  function searchRangeItem(row: HTMLElement): SearchRangeItem {
+    return { ref: row.dataset.keyboardItem!, folder: row.hasAttribute('data-selection-folder'),
+      parentRef: row.parentElement?.closest<HTMLElement>('[data-keyboard-item]')?.dataset.keyboardItem };
+  }
+
+  function beginRange(additive: boolean) {
+    const apply = onbeginrange(additive);
+    return (rows: HTMLElement[], selected: boolean) => apply(rows.map(searchRangeItem), selected);
   }
 
   function retrieveSelectedFolders(): void {
@@ -615,9 +621,9 @@
 {#snippet groupGroupCard(row: Extract<SearchRow, { kind: 'track-group' | 'album-group' }>)}
   {#if row.kind === 'track-group'}
     {@const representative = trackRepresentative(row.ref, row.value.representative)}
-    <section class:selected={isselected(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} tabindex="-1">
+    <section class:selected={isselected(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} data-range-disabled={representative.visibility === 'Locked' || undefined} tabindex="-1">
       <header class="group-result-header">
-        <button type="button" class="group-header-select-button" disabled={selectionReadOnly || representative.visibility === 'Locked'} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
+        <button type="button" class="group-header-select-button" data-range-toggle disabled={selectionReadOnly || representative.visibility === 'Locked'} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
         <div class="group-result-identity"><strong>{row.value.query.title ?? 'Untitled track'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
         <div class="group-result-source">{@render groupPeerSummary(representative.peer)}</div>
         {@render groupOptionControls(row.ref, row.value.optionCount)}
@@ -643,9 +649,9 @@
     {@const files = children ? children.items.map((child) => folderFile(child.file, child.relativePath)) : [folderFile(directory.bestChild)]}
     {@const totals = directoryTotals(directory)}
     {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
-    <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} tabindex="-1">
+    <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} data-range-disabled={directory.visibility === 'Locked' || undefined} tabindex="-1">
       <header class="group-result-header">
-        <button type="button" class="group-header-select-button" disabled={selectionReadOnly || directory.visibility === 'Locked'} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
+        <button type="button" class="group-header-select-button" data-range-toggle disabled={selectionReadOnly || directory.visibility === 'Locked'} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
         <div class="group-result-identity"><strong>{row.value.query.album ?? 'Untitled album'}</strong>{#if row.value.query.artist}<small>{row.value.query.artist}</small>{/if}</div>
         <div class="group-result-source">{@render groupPeerSummary(directory.peer)}</div>
         {@render groupOptionControls(row.ref, row.value.optionCount)}
@@ -662,7 +668,7 @@
           {#if viewState.staleChoices.has(row.ref)}<button class="button" type="button" onclick={() => onopenoptions(row.ref)}>Choose another</button>{/if}
         </div>
       {/if}
-      <FolderItemCard
+      <FolderItemCard keyboardChildren
         contentsState={!directory.ref.folderPath ? undefined : retrieval?.loading ? 'retrieving' : retrieval?.error ? 'failed' : directory.retrievalState === 'Complete' ? 'complete' : 'partial'}
         onloadfullcontents={() => onretrievedirectory(directory.ref.ref)}
         path={directory.ref.folderPath || 'Files without a folder'}
@@ -690,7 +696,8 @@
   scope: `${viewState.job?.jobId}:${viewState.summary?.viewId}:${viewState.sortOrder}`,
   revision: [viewState.rows, viewState.loadingMore],
   enabled: viewState.phase === 'ready' && !refinementPending,
-  toggle: toggleKeyboardResult, retrieve: retrieveSelectedFolders,
+  beginRange: selectionReadOnly || viewState.committing ? undefined : beginRange,
+  retrieve: retrieveSelectedFolders,
   loadPage: onloadmore,
 }}>
   <header class="search-results-heading">

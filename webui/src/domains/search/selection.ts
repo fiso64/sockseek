@@ -183,7 +183,7 @@ export class SearchSelection {
   private changed(): void {
     this.pending = null;
     this.observe(this.summary);
-    if (!this.summary || this.countedSelection !== selectionCountKey(this.summary.viewId, this.input()))
+    if (!this.countedSelection || !this.summary || this.countedSelection !== selectionCountKey(this.summary.viewId, this.input()))
       this.clearCounts();
   }
 
@@ -218,98 +218,71 @@ export class SearchSelection {
     return visibleGroups.some(ref => this.state.chosenOptions.has(ref)
       && this.isSelected(ref) && !this.choiceIsCurrent(ref));
   }
-  toggle(ref: string, selected: boolean, parentRef?: string, child?: Schema<'SearchViewDirectoryFileDto'>): boolean {
-    if (this.selectionReadOnly() || (selected && this.lockedRefs.has(ref))) return false;
+  toggle(items: string | readonly string[], selected: boolean, parentRef?: string, files?: readonly Schema<'SearchViewDirectoryFileDto'>[]): boolean {
+    if (this.selectionReadOnly()) return false;
+    const targets = new Set((typeof items === 'string' ? [items] : items).filter(ref => !selected || !this.lockedRefs.has(ref)));
+    if (!targets.size) return false;
     const refs = new Set(this.state.selectionRefs);
     const excludedFiles = new Map(this.state.excludedFiles);
     const excludedFileIdentities = new Map(this.state.excludedFileIdentities);
     const includedFiles = new Map(this.state.includedFiles);
-    if (parentRef && this.summary?.kind === 'GenericDirectories') {
-      if (child) this.fileRelativePaths.set(ref, child.relativePath);
-      const inherited = this.directoryPathInheritance(parentRef, this.fileRelativePaths.get(ref));
+    const generic = this.summary?.kind === 'GenericDirectories';
+    for (const ref of targets) {
       refs.delete(ref);
-      if (selected === inherited) {
-        includedFiles.delete(ref);
-        excludedFiles.delete(ref);
-        excludedFileIdentities.delete(ref);
-      } else if (selected) {
-        includedFiles.set(ref, parentRef);
-        excludedFiles.delete(ref);
-        excludedFileIdentities.delete(ref);
-      } else {
-        includedFiles.delete(ref);
-        excludedFiles.set(ref, parentRef);
-        if (child) excludedFileIdentities.set(ref, {
-          username: child.file.peer.username, filename: child.file.remoteFilename,
-        });
-      }
-      this.state = { ...this.state, selectionRefs: refs, excludedFiles, excludedFileIdentities, includedFiles };
-      this.changed();
-      return true;
-    }
-    if (parentRef && this.isSelected(parentRef)) {
-      if (selected) {
-        excludedFiles.delete(ref);
-        excludedFileIdentities.delete(ref);
-      } else {
-        excludedFiles.set(ref, parentRef);
-        const file = child?.file;
-        if (file) excludedFileIdentities.set(ref, {
-          username: file.peer.username, filename: file.remoteFilename,
-        });
-      }
-      refs.delete(ref);
+      excludedFiles.delete(ref);
+      excludedFileIdentities.delete(ref);
       includedFiles.delete(ref);
-    } else if (parentRef && this.state.selectedAll) {
-      if (selected) includedFiles.set(ref, parentRef);
-      else includedFiles.delete(ref);
-      refs.delete(ref);
-      excludedFiles.delete(ref);
-      excludedFileIdentities.delete(ref);
-    } else {
-      if (selected === this.state.selectedAll) refs.delete(ref);
-      else refs.add(ref);
-      excludedFiles.delete(ref);
-      excludedFileIdentities.delete(ref);
+      if (parentRef && (generic || this.state.selectedAll || this.isSelected(parentRef))) {
+        const inherited = generic ? this.directoryPathInheritance(parentRef, this.fileRelativePaths.get(ref)) : this.isSelected(parentRef);
+        if (selected && !inherited) includedFiles.set(ref, parentRef);
+        if (!selected && inherited) excludedFiles.set(ref, parentRef);
+      } else if (selected !== this.state.selectedAll) refs.add(ref);
+      if (parentRef && refs.has(ref) && !this.state.selectedAll) this.selectedFileParents.set(ref, parentRef);
+      else this.selectedFileParents.delete(ref);
+    }
+    if (!selected && files && excludedFiles.size) {
+      for (const { ref, file } of files) if (targets.has(ref) && excludedFiles.has(ref))
+        excludedFileIdentities.set(ref, { username: file.peer.username, filename: file.remoteFilename });
     }
     let directoryPathRules = this.state.directoryPathRules;
     let albumFileSelections = this.state.albumFileSelections;
     if (!parentRef) {
-      directoryPathRules = directoryPathRules.filter(rule => rule.directoryRef !== ref);
-      const updatedAlbumFileSelections = new Map(albumFileSelections);
-      updatedAlbumFileSelections.delete(ref);
-      albumFileSelections = updatedAlbumFileSelections;
-      for (const [fileRef, parent] of includedFiles) {
-        if (parent === ref) includedFiles.delete(fileRef);
-      }
+      directoryPathRules = directoryPathRules.filter(rule => !targets.has(rule.directoryRef));
+      const albums = new Map(albumFileSelections);
+      for (const ref of targets) albums.delete(ref);
+      albumFileSelections = albums;
+      for (const [fileRef, parent] of includedFiles) if (targets.has(parent)) includedFiles.delete(fileRef);
       for (const [fileRef, parent] of this.selectedFileParents) {
-        if (parent === ref) {
+        if (targets.has(parent)) {
           refs.delete(fileRef);
           this.selectedFileParents.delete(fileRef);
         }
       }
       for (const [fileRef, parent] of excludedFiles) {
-        if (parent === ref) {
+        if (targets.has(parent)) {
           excludedFiles.delete(fileRef);
           excludedFileIdentities.delete(fileRef);
         }
       }
-    } else if (refs.has(ref) && !this.state.selectedAll) {
-      this.selectedFileParents.set(ref, parentRef);
-    } else {
-      this.selectedFileParents.delete(ref);
     }
-    this.state = {
-      ...this.state,
-      selectionRefs: refs,
-      excludedFiles,
-      excludedFileIdentities,
-      includedFiles,
-      directoryPathRules,
-      albumFileSelections,
-    };
+    this.state = { ...this.state, selectionRefs: refs, excludedFiles, excludedFileIdentities, includedFiles, directoryPathRules, albumFileSelections };
     this.changed();
     return true;
+  }
+
+  /** Reapply a moving range over its original membership, keeping current group choices. */
+  rangeBaseline(additive: boolean): () => boolean {
+    const base = additive ? this.state : emptySelection();
+    const parents = additive ? new Map(this.selectedFileParents) : new Map<string, string>();
+    return () => {
+      if (this.selectionReadOnly()) return false;
+      this.state = { ...this.state, selectedAll: base.selectedAll, selectionRefs: base.selectionRefs,
+        excludedFiles: base.excludedFiles, excludedFileIdentities: base.excludedFileIdentities, includedFiles: base.includedFiles,
+        directoryPathRules: base.directoryPathRules, albumFileSelections: base.albumFileSelections };
+      this.selectedFileParents = new Map(parents);
+      this.changed();
+      return true;
+    };
   }
 
   selectAll(selected: boolean): boolean {
@@ -447,8 +420,10 @@ export class SearchSelection {
   }
 
   toggleAlbumFile(groupRef: string, representative: Schema<'SearchViewDirectoryDto'>,
-    fileRef: string, selected: boolean, completeFileRefs?: readonly string[]): boolean {
-    if (this.selectionReadOnly() || (selected && this.lockedRefs.has(fileRef))) return false;
+    files: string | readonly string[], selected: boolean, completeFileRefs?: readonly string[]): boolean {
+    if (this.selectionReadOnly()) return false;
+    const targets = (typeof files === 'string' ? [files] : files).filter(ref => !selected || !this.lockedRefs.has(ref));
+    if (!targets.length) return false;
     const option = this.choiceIsCurrent(groupRef) ? this.state.chosenOptions.get(groupRef) : null;
     const chosenOptions = option?.kind === 'album' ? this.state.chosenOptions
       : new Map(this.state.chosenOptions).set(groupRef, {
@@ -462,11 +437,10 @@ export class SearchSelection {
     const previous = this.state.albumFileSelections.get(groupRef);
     const mode = previous?.mode ?? (wasSelected ? 'AllExcept' : 'Only');
     const refs = new Set(previous?.refs ?? []);
-    if (mode === 'Only') {
-      if (selected) refs.add(fileRef);
-      else refs.delete(fileRef);
-    } else if (selected) refs.delete(fileRef);
-    else refs.add(fileRef);
+    for (const ref of targets) {
+      if (selected === (mode === 'Only')) refs.add(ref);
+      else refs.delete(ref);
+    }
     const allLoadedRefsMatch = completeFileRefs !== undefined && completeFileRefs.length > 0
       && completeFileRefs.every(ref => refs.has(ref));
     const selectionRefs = new Set(this.state.selectionRefs);

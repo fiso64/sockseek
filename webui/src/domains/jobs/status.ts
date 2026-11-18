@@ -20,7 +20,7 @@ export function jobStatusLabel(job: JobSummaryDto): string {
   if (job.lifecycleState === 'Terminal') {
     switch (job.terminalOutcome) {
       case 'Succeeded': return 'Complete';
-      case 'PartialSuccess': return 'Partially complete';
+      case 'PartialSuccess': return 'Partial';
       case 'Failed': return 'Failed';
       case 'Skipped': return 'Skipped';
       case 'Cancelled': return 'Cancelled';

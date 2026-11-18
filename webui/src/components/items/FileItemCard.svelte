@@ -48,6 +48,7 @@
   class:selected={selected && !locked}
   class:preferred
   data-keyboard-item={keyboardKey}
+  data-range-disabled={locked || undefined}
   tabindex="-1"
   class:selectable={selectable && !locked}
   class:transfer-card={Boolean(transfer)}

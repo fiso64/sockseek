@@ -26,6 +26,7 @@
     preferred?: boolean;
     selectable?: boolean;
     keyboardKey?: string;
+    keyboardChildren?: boolean;
     transfer?: TransferPresentation;
     selectedFileIds?: Set<string>;
     actions?: Snippet;
@@ -56,6 +57,7 @@
     preferred = false,
     selectable = false,
     keyboardKey,
+    keyboardChildren = Boolean(keyboardKey),
     transfer,
     selectedFileIds = new Set<string>(),
     actions,
@@ -183,6 +185,7 @@
   class:partial={partial && !locked}
   class:preferred
   data-keyboard-item={keyboardKey}
+  data-range-disabled={locked || undefined}
   tabindex="-1"
   class:selectable={selectable && !locked}
   class:tree-layout={fileLayout === 'tree'}
@@ -191,7 +194,7 @@
   <div class="folder-item-summary folder-result-summary" class:folder-transfer-summary={Boolean(transfer)}>
     <div class="folder-heading-primary">
       {#if selectable && !locked}
-        <label class="folder-summary-select-target clickable">
+        <label class="folder-summary-select-target clickable" data-range-toggle>
           <input
             type="checkbox"
             checked={selected}
@@ -245,6 +248,11 @@
         {@const rowPartial = row.node.selectedCount > 0 && (row.node.selectedCount < row.node.selectableFileCount || !rowSelected)}
         <svelte:element
           this={selectable && row.node.selectableFileCount > 0 ? 'label' : 'div'}
+          data-keyboard-item={keyboardChildren ? row.relativePath : undefined}
+          data-range-toggle={selectable && row.node.selectableFileCount > 0 || undefined}
+          data-selection-folder={keyboardChildren || undefined}
+          data-range-disabled={row.node.selectableFileCount === 0 || undefined}
+          tabindex={keyboardChildren ? -1 : undefined}
           class="folder-subfolder-row"
           class:clickable={selectable && row.node.selectableFileCount > 0}
           style={`--folder-tree-depth:${row.depth}`}
@@ -283,6 +291,10 @@
           class:has-file-action={Boolean(fileActions)}
           class:has-audio={Boolean(file.audio)}
           class:tree-row={fileLayout === 'tree'}
+          data-keyboard-item={keyboardChildren ? file.id : undefined}
+          data-range-toggle={selectable && !file.locked || undefined}
+          data-range-disabled={file.locked || undefined}
+          tabindex={keyboardChildren ? -1 : undefined}
           class="folder-file-row"
           style={`--folder-tree-depth:${row.depth}`}
         >

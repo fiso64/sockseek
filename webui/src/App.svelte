@@ -607,6 +607,7 @@
             return searchController.isSelected(ref, parentRef);
           }}
           selectedCount={selectedSearchCount}
+          onbeginrange={(additive) => searchController.beginRange(additive)}
           ontoggle={(ref, selected, parentRef) => searchController.toggle(ref, selected, parentRef)}
           onselectfolder={(directoryRef, relativePath, selected) => searchController.toggleDirectoryPath(directoryRef, relativePath, selected)}
           isfolderselected={(directoryRef, relativePath) => {

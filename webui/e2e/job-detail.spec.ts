@@ -505,13 +505,13 @@ test('isolates a directory file failure and retains both independent outcomes', 
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
   await expect(folder.locator('.folder-transfer-footer').getByLabel('50% complete', { exact: true })).toBeVisible();
   await daemon.command('release-download');
-  await expect(folder.locator('.transfer-state').first()).toHaveText('Partially complete');
+  await expect(folder.locator('.transfer-state').first()).toHaveText('Partial');
   await expect(folder.locator('.folder-transfer-footer')).toHaveClass(/partial/);
   await expect(folder.locator('.folder-file-row').filter({ hasText: 'Fails.txt' })).toContainText('Failed');
   await expect(folder.locator('.folder-file-row').filter({ hasText: 'Selected.txt' }).getByLabel('Complete', { exact: true })).toBeVisible();
   await page.reload();
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
-  await expect(folder.locator('.transfer-state').first()).toHaveText('Partially complete');
+  await expect(folder.locator('.transfer-state').first()).toHaveText('Partial');
   await expect(folder.locator('.folder-file-row').filter({ hasText: 'Fails.txt' })).toContainText('Failed');
   await expect(folder.locator('.folder-file-row').filter({ hasText: 'Selected.txt' }).getByLabel('Complete', { exact: true })).toBeVisible();
 });

@@ -27,6 +27,12 @@ export type SearchRow =
   | { kind: 'track-group'; ref: string; value: SearchViewTrackGroupPageDto['items'][number] }
   | { kind: 'album-group'; ref: string; value: SearchViewAlbumGroupPageDto['items'][number] };
 
+export interface SearchRangeItem {
+  ref: string;
+  parentRef?: string;
+  folder?: boolean;
+}
+
 export interface GroupOptionsPanel {
   groupRef: string;
   kind: 'track' | 'album';
@@ -538,10 +544,35 @@ export class SearchViewController {
   }
 
   toggle(ref: string, selected: boolean, parentRef?: string): void {
-    const child = parentRef ? this.state.directoryFiles.get(parentRef)?.items.find(item => item.ref === ref) : undefined;
-    if (!this.selection.toggle(ref, selected, parentRef, child)) return;
+    const files = parentRef ? this.state.directoryFiles.get(parentRef)?.items : undefined;
+    if (!this.selection.toggle(ref, selected, parentRef, files)) return;
     this.state = { ...this.state, receipt: null };
     this.emit();
+  }
+
+  beginRange(additive: boolean): (items: SearchRangeItem[], selected: boolean) => void {
+    const restore = this.selection.rangeBaseline(additive);
+    return (items, selected) => {
+      if (this.state.committing || this.state.refining || !restore()) return;
+      const roots = new Set(items.filter(item => !item.parentRef).map(item => item.ref));
+      this.selection.toggle([...roots], selected);
+      const children = new Map<string, string[]>();
+      for (const { ref, parentRef, folder } of items) {
+        if (!parentRef || roots.has(parentRef)) continue;
+        if (folder) this.selection.toggleDirectoryPath(parentRef, ref, selected);
+        else {
+          const files = children.get(parentRef);
+          if (files) files.push(ref);
+          else children.set(parentRef, [ref]);
+        }
+      }
+      for (const [parent, files] of children) {
+        if (this.state.summary?.kind === 'AlbumGroups') this.setAlbumGroupFiles(parent, files, selected);
+        else this.selection.toggle(files, selected, parent, this.state.directoryFiles.get(parent)?.items);
+      }
+      this.state = { ...this.state, receipt: null };
+      this.emit();
+    };
   }
 
   async openGroupOptions(ref: string): Promise<void> {
@@ -834,17 +865,21 @@ export class SearchViewController {
   }
 
   toggleAlbumGroupFile(groupRef: string, fileRef: string, selected: boolean): void {
+    if (!this.setAlbumGroupFiles(groupRef, [fileRef], selected)) return;
+    this.state = { ...this.state, choiceValidationError: null, receipt: null };
+    this.emit();
+    if (this.state.summary) this.validateVisibleChoices(this.state.summary);
+  }
+
+  private setAlbumGroupFiles(groupRef: string, fileRefs: string[], selected: boolean): boolean {
     const row = this.state.rows.find(row => row.kind === 'album-group' && row.ref === groupRef);
-    if (row?.kind !== 'album-group') return;
+    if (row?.kind !== 'album-group') return false;
     const choice = this.selection.choiceIsCurrent(groupRef) ? this.selection.value.chosenOptions.get(groupRef) : null;
     const directoryRef = choice?.kind === 'album' ? choice.ref : row.value.representative.ref.ref;
     const files = this.state.directoryFiles.get(directoryRef);
     const completeRefs = files && (!files.loading || files.refreshing) && !files.error && !files.nextCursor
       ? files.items.filter(file => file.file.visibility !== 'Locked').map(file => file.ref) : undefined;
-    if (!this.selection.toggleAlbumFile(groupRef, row.value.representative, fileRef, selected, completeRefs)) return;
-    this.state = { ...this.state, choiceValidationError: null, receipt: null };
-    this.emit();
-    if (this.state.summary) this.validateVisibleChoices(this.state.summary);
+    return this.selection.toggleAlbumFile(groupRef, row.value.representative, fileRefs, selected, completeRefs);
   }
 
   async commit(options?: Schema<'SubmissionOptionsDto'>): Promise<void> {

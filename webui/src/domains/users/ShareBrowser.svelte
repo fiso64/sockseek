@@ -243,21 +243,22 @@
     }
   }
 
-  function toggleSelection(key: string, checked: boolean): void {
-    if (checked && selectionSize(key) === 0) return;
-    const inherited = hasSelectedAncestor(key);
-    const next = new Set(selected);
-    const exclusions = new Set(excludedSelection);
-    next.delete(key);
-    exclusions.delete(key);
-    if (checked && !inherited) next.add(key);
-    if (!checked && inherited) exclusions.add(key);
-    if (key.startsWith('d:')) {
-      for (const rules of [next, exclusions]) {
-        for (const candidate of rules) {
-          if (candidate !== key && isDescendantOf(candidate, key.slice(2))) rules.delete(candidate);
-        }
-      }
+  function setSelection(keys: string[], checked: boolean, included = selected, excluded = excludedSelection): void {
+    const next = new Set(included), exclusions = new Set(excluded);
+    const valid = keys.filter(key => !checked || selectionSize(key) > 0);
+    const folders = new Set(valid.filter(key => key.startsWith('d:')));
+    const noExclusions = new Set<string>();
+    const covered = (key: string) => folders.size > 0 && inheritedSelection(key, folders, noExclusions, selectionParent);
+    for (const rules of [next, exclusions]) {
+      for (const key of rules) if (covered(key)) rules.delete(key);
+    }
+    for (const key of valid) {
+      if (covered(key)) continue;
+      const inherited = inheritedSelection(key, next, exclusions, selectionParent);
+      next.delete(key);
+      exclusions.delete(key);
+      if (checked && !inherited) next.add(key);
+      if (!checked && inherited) exclusions.add(key);
     }
     selected = next;
     excludedSelection = exclusions;
@@ -348,16 +349,16 @@
     return { update: (next) => { node.indeterminate = next; } };
   }
 
-  function isDescendantOf(key: string, ancestorId: string): boolean {
-    const visited = new Set<string>();
-    let directoryId = keyDirectoryId(key);
-    if (key.startsWith('d:') && key.slice(2) === ancestorId) return false;
-    while (directoryId && !visited.has(directoryId)) {
-      visited.add(directoryId);
-      if (directoryId === ancestorId) return true;
-      directoryId = parentDirectoryId(directoryId);
-    }
-    return false;
+  function beginRange(additive: boolean) {
+    const included = additive ? selected : new Set<string>();
+    const excluded = additive ? excludedSelection : new Set<string>();
+    const parents = selectedParents, counts = selectedDirectoryCounts, publicFiles = selectedFileIsPublic;
+    return (rows: HTMLElement[], checked: boolean) => {
+      selectedParents = parents;
+      selectedDirectoryCounts = counts;
+      selectedFileIsPublic = publicFiles;
+      setSelection(rows.map(row => row.dataset.keyboardItem!), checked, included, excluded);
+    };
   }
 
   async function downloadSelection(): Promise<void> {
@@ -401,7 +402,7 @@
   scope: `${browse.browseId}:${filterText.trim()}`,
   enabled: true,
   revision: [treeRows, filteredRows, filterLoading],
-  toggle: source.download ? key => toggleSelection(key, !isSelectionChecked(key)) : undefined,
+  beginRange: source.download && mutation.phase !== 'pending' ? beginRange : undefined,
   horizontal: (direction, key) => {
     if (!key?.startsWith('d:')) return;
     const id = key.slice(2);
@@ -470,9 +471,9 @@
                 {@const key = `${item.kind === 'directory' ? 'd' : 'f'}:${item.entryId}`}
                 {#if item.kind === 'directory'}
                   {@const count = Number(item.totalSubtreeFileCount ?? item.publicSubtreeFileCount ?? 0)}
-                  <div data-keyboard-item={key} tabindex="-1" class="share-tree-row folder" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
-                    {#if item.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" use:indeterminate={isFolderPartial(key)} aria-label={`Select ${item.displayPath}`} checked={isSelectionChecked(key)}  onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>{/if}
-                    <button type="button" class="share-tree-folder-button" aria-label={`${collapsedFiltered.has(String(item.entryId)) ? 'Expand' : 'Collapse'} ${item.name}`} aria-expanded={!collapsedFiltered.has(String(item.entryId))} onclick={() => toggleFilteredDirectory(String(item.entryId))}>
+                  <div data-keyboard-item={key} data-range-disabled={selectionSize(key) === 0 || undefined} tabindex="-1" class="share-tree-row folder" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
+                    {#if item.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" use:indeterminate={isFolderPartial(key)} aria-label={`Select ${item.displayPath}`} checked={isSelectionChecked(key)}  onchange={(event) => setSelection([key], (event.currentTarget as HTMLInputElement).checked)}/>{/if}
+                    <button type="button" class="share-tree-folder-button" data-range-target aria-label={`${collapsedFiltered.has(String(item.entryId)) ? 'Expand' : 'Collapse'} ${item.name}`} aria-expanded={!collapsedFiltered.has(String(item.entryId))} onclick={() => toggleFilteredDirectory(String(item.entryId))}>
                       <span class="share-tree-toggle" class:expanded={!collapsedFiltered.has(String(item.entryId))} aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></span>
                       <span class="share-tree-icon"><Icon name="folder"/></span>
                       <strong class="share-tree-name" title={item.displayPath}>{item.name}</strong>
@@ -482,8 +483,8 @@
                     </button>
                   </div>
                 {:else}
-                  <label data-keyboard-item={key} tabindex="-1" class="share-tree-row file" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
-                    {#if item.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" checked={isSelectionChecked(key)}  onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>{/if}
+                  <label data-keyboard-item={key} data-range-disabled={selectionSize(key) === 0 || undefined} tabindex="-1" class="share-tree-row file" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
+                    {#if item.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" checked={isSelectionChecked(key)}  onchange={(event) => setSelection([key], (event.currentTarget as HTMLInputElement).checked)}/>{/if}
                     <span class="share-tree-toggle-spacer"></span>
                     <span class="share-tree-icon"><Icon name={fileTypeIcon({ extension: item.extension, filename: item.name })}/></span>
                     <strong class="share-tree-name" title={item.displayPath}>{item.name}</strong>
@@ -505,12 +506,12 @@
                 {@const id = String(row.entry.directoryId)}
                 {@const key = `d:${id}`}
                 {@const count = Number(row.entry.totalRecursiveFileCount ?? row.entry.recursiveFileCount)}
-                <div data-keyboard-item={key} tabindex="-1" class="share-tree-row folder" style={`--share-depth:${row.depth}`}
+                <div data-keyboard-item={key} data-range-disabled={selectionSize(key) === 0 || undefined} tabindex="-1" class="share-tree-row folder" style={`--share-depth:${row.depth}`}
                   title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
                   {#if row.entry.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" use:indeterminate={isFolderPartial(key)}
                     checked={isSelectionChecked(key)} aria-label={`Select ${row.entry.displayPath}`}
-                    onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>{/if}
-                  <button type="button" class="share-tree-folder-button"
+                    onchange={(event) => setSelection([key], (event.currentTarget as HTMLInputElement).checked)}/>{/if}
+                  <button type="button" class="share-tree-folder-button" data-range-target
                     aria-label={`${expanded.has(id) ? 'Collapse' : 'Expand'} ${row.entry.name}`}
                     aria-expanded={expanded.has(id)} onclick={() => void toggleDirectory(row.entry)}>
                     <span class:expanded={expanded.has(id)} class="share-tree-toggle" aria-hidden="true">
@@ -539,10 +540,10 @@
                 </div>
               {:else}
                 {@const key = `f:${row.entry.fileId}`}
-                <label data-keyboard-item={key} tabindex="-1" class="share-tree-row file" style={`--share-depth:${row.depth}`}
+                <label data-keyboard-item={key} data-range-disabled={selectionSize(key) === 0 || undefined} tabindex="-1" class="share-tree-row file" style={`--share-depth:${row.depth}`}
                   title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
                   {#if row.entry.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" checked={isSelectionChecked(key)}
-                    onchange={(event) => toggleSelection(key, (event.currentTarget as HTMLInputElement).checked)}/>{/if}
+                    onchange={(event) => setSelection([key], (event.currentTarget as HTMLInputElement).checked)}/>{/if}
                   <span class="share-tree-toggle-spacer"></span>
                   <span class="share-tree-icon">
                     <Icon name={fileTypeIcon({ extension: row.entry.file.extension, filename: row.entry.file.name })}/>
