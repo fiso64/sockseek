@@ -31,7 +31,7 @@ public class DaemonSettings
     public string? WebPasswordHash { get; set; }
     [SettingOption("--web-session-lifetime", Parser = nameof(ParseSessionLifetime), DefaultProfileOnly = true)]
     public TimeSpan WebSessionLifetime { get; set; } = Defaults.Authentication.SessionLifetime;
-    [SettingOption("--trusted-proxies", DefaultProfileOnly = true)]
+    [SettingOption("--trusted-proxies", ListSyntax = OptionListSyntax.CommaSeparated, DefaultProfileOnly = true)]
     public string[] TrustedProxies { get; set; } = [.. Defaults.Authentication.TrustedProxies];
     [SettingOption("--no-auth", Negate = true, DefaultProfileOnly = true)]
     public bool AuthenticationEnabled { get; set; } = Defaults.Authentication.Enabled;

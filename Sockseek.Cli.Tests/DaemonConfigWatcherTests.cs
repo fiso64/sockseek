@@ -65,7 +65,7 @@ public sealed class DaemonConfigWatcherTests
         using (var image = SKImage.FromBitmap(bitmap))
         using (var png = image.Encode(SKEncodedImageFormat.Png, 100))
             await File.WriteAllBytesAsync(picture, png.ToArray());
-        string runtimeConfig = $"upload-slots = 3\nupload-speed-limit-kib = 64\nshare = {root}\nuser-picture = {picture}\n";
+        string runtimeConfig = $"upload-slots = 3\nupload-speed-limit-kib = 64\nshare =\n    - {root}\nuser-picture = {picture}\n";
         fixture.Write(runtimeConfig + "user-description = updated");
         Assert.IsTrue(await fixture.Watcher.ReloadAsync());
         Assert.IsFalse(fixture.Supervisor.GetStatus().Configuration!.RestartRequired);

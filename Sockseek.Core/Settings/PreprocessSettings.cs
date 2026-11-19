@@ -17,14 +17,12 @@ public class PreprocessSettings
     [SettingOption("--parse-title")]
     public string? ParseTitleTemplate { get; set; }
 
+    [SettingOption("--re", "--regex", ListSyntax = OptionListSyntax.SingleItem, Parser = nameof(ParseRegex))]
     public List<RegexRule>? Regex { get; set; }
 
-    [SettingOption("--re", "--regex")]
-    private static void ConfigureRegex(SettingWriter changes, string raw)
+    private static RegexRule ParseRegex(string raw, string flag)
     {
         string s = raw.Replace("\\;", "<<semicol>>");
-        bool append = s.TrimStart().StartsWith("+ ");
-        if (append) s = s.TrimStart()[2..];
 
         string applyTo = "TAL";
         if (s.Length > 2 && s[1] == ':' && s[0] is 'T' or 'A' or 'L')
@@ -50,9 +48,7 @@ public class PreprocessSettings
             Album  = applyTo.Contains('L') ? rep : "",
         };
 
-        var rule = new RegexRule(toReplace, replaceBy);
-        if (append) changes.Append(nameof(Regex), new List<RegexRule> { rule });
-        else changes.Set(nameof(Regex), new List<RegexRule> { rule });
+        return new RegexRule(toReplace, replaceBy);
     }
 }
 

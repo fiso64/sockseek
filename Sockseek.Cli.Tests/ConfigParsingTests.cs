@@ -639,6 +639,51 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void ConfigListBlocks_ReplaceAndAppendLiteralItemsAcrossProfiles()
+        {
+            var file = ConfigManager.ParseConfigText("lists.conf", """
+                allowed-users = old
+                allowed-users =
+                    - Lee,Jr
+                    # A comment between items
+                    - + Friends
+
+                [weekend]
+                allowed-users = +
+                    - DJ,,Jr
+                    - #guest=1
+                format =
+                    - .FLAC
+                    - MP3
+                on-complete =
+                    - -- echo first,second
+                    - -- echo done
+                """);
+
+            var defaults = ConfigManager.Bind(file, []).Download;
+            var weekend = ConfigManager.Bind(file, ["--allowed-users", "+ Last"], "weekend").Download;
+            CollectionAssert.AreEqual(new[] { "Lee,Jr", "+ Friends" }, defaults.Search.NecessaryCond.AllowedUsers);
+            CollectionAssert.AreEqual(new[] { "Lee,Jr", "+ Friends", "DJ,,Jr", "#guest=1", "Last" },
+                weekend.Search.NecessaryCond.AllowedUsers);
+            CollectionAssert.AreEqual(new[] { "flac", "mp3" }, weekend.Search.NecessaryCond.Formats);
+            CollectionAssert.AreEqual(new[] { "-- echo first,second", "-- echo done" }, weekend.Output.OnComplete);
+        }
+
+        [TestMethod]
+        [DataRow("allowed-users =\nfast-search = true", 1)]
+        [DataRow("allowed-users = +", 1)]
+        [DataRow("username =\n  - Alice", 1)]
+        [DataRow("allowed-users =\n  - Alice\n- Bob", 3)]
+        [DataRow("share =\n  - [Music]/music\n  - [open", 3)]
+        [DataRow("chat-room =\n  - Rock\n  -", 3)]
+        [DataRow("[named]\nshare = +\n  - /music", 2)]
+        public void InvalidConfigListBlocks_ReportTheSourceLine(string config, int line)
+        {
+            var error = Assert.Throws<Exception>(() => ConfigManager.ParseConfigText("lists.conf", config));
+            Assert.AreEqual(line, error.Data["ConfigLine"]);
+        }
+
+        [TestMethod]
         public void ConfigDirVariable_ConfigAndEnginePaths_ResolveAgainstConfigFileDirectory()
         {
             string tempDir = Path.Join(Path.GetTempPath(), "sockseek-configdir-" + Guid.NewGuid().ToString("N"));
@@ -692,6 +737,21 @@ namespace Tests.ConfigParsingTests
             var change = patch.Operations.Single(change => change.Path == "Output.OnComplete");
             Assert.AreEqual(SettingOperation.Append, change.Operation);
             CollectionAssert.AreEqual(new[] { "-- second" }, ((List<string>)change.Value!).ToArray());
+        }
+
+        [TestMethod]
+        public void RemoteUserFilters_ReplaceOrAppendExactNamesOverTheDaemonSettings()
+        {
+            var patch = ConfigManager.CreateCliDownloadSettingsPatch([
+                "--allowed-users", "Lee,,Jr, Alice", "--pref-banned-users", "+ Bob,,Jr",
+            ]);
+            var settings = new DownloadSettings();
+            settings.Search.NecessaryCond.AllowedUsers = ["Old"];
+            settings.Search.PreferredCond.BannedUsers = ["Existing"];
+            DownloadSettingsPatchDtoMapper.ApplyTo(settings, DownloadSettingsPatchDtoMapper.FromCore(patch));
+
+            CollectionAssert.AreEqual(new[] { "Lee,Jr", "Alice" }, settings.Search.NecessaryCond.AllowedUsers);
+            CollectionAssert.AreEqual(new[] { "Existing", "Bob,,Jr" }, settings.Search.PreferredCond.BannedUsers);
         }
 
         // ── Inline = form ─────────────────────────────────────────────────────

@@ -9,12 +9,15 @@ namespace Sockseek.Core.Settings;
 /// </summary>
 public sealed class SharingSettings
 {
+    [SettingOption("--share", ListSyntax = OptionListSyntax.SingleItem, DefaultProfileOnly = true, Parser = nameof(ParseRoot))]
     [SettingReloadable]
     public List<ShareRootSettings> Roots { get; set; } = [];
 
+    [SettingOption("--share-exclude", ListSyntax = OptionListSyntax.SingleItem, DefaultProfileOnly = true)]
     [SettingReloadable]
     public List<string> ExcludedDirectories { get; set; } = [];
 
+    [SettingOption("--share-filter", ListSyntax = OptionListSyntax.SingleItem, DefaultProfileOnly = true)]
     [SettingReloadable]
     public List<string> Filters { get; set; } = [];
 
@@ -27,17 +30,8 @@ public sealed class SharingSettings
 
     [SettingOption("--share-rescan-interval", Parser = nameof(ParseRescanInterval), DefaultProfileOnly = true)]
     public TimeSpan? RescanInterval { get; set; }
-    [SettingOption("--share", DefaultProfileOnly = true)]
-    private static void ConfigureRoot(SettingWriter changes, string value)
-        => changes.ListItem(nameof(Roots), value, ShareRootParser.Parse);
 
-    [SettingOption("--share-exclude", DefaultProfileOnly = true)]
-    private static void ConfigureExclude(SettingWriter changes, string value)
-        => changes.ListItem(nameof(ExcludedDirectories), value, item => item);
-
-    [SettingOption("--share-filter", DefaultProfileOnly = true)]
-    private static void ConfigureFilter(SettingWriter changes, string value)
-        => changes.ListItem(nameof(Filters), value, item => item);
+    private static ShareRootSettings ParseRoot(string value, string flag) => ShareRootParser.Parse(value);
 
     public string CatalogFingerprint()
     {

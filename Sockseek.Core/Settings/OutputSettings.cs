@@ -71,20 +71,9 @@ public class OutputSettings
         return action;
     }
 
-    /// --on-complete replaces the commands, or appends with the "+ " prefix.
+    [SettingOption("--oc", "--on-complete", ListSyntax = OptionListSyntax.SingleItem)]
     [SettingValidation(typeof(OnCompleteExecutor), nameof(OnCompleteExecutor.ValidateCommands))]
     public List<string>? OnComplete { get; set; }
-
-    [SettingOption("--oc", "--on-complete")]
-    private static void ConfigureOnComplete(SettingWriter changes, string value)
-    {
-        var trimmed = value.TrimStart();
-        bool append = trimmed.StartsWith("+ ", StringComparison.Ordinal);
-        var command = append ? trimmed[2..] : value.Trim();
-        OnCompleteExecutor.ValidateCommand(command);
-        if (append) changes.Append(nameof(OnComplete), new List<string> { command });
-        else changes.Set(nameof(OnComplete), new List<string> { command });
-    }
 
     [SettingOption("--aa", "--album-art", Parser = nameof(ParseAlbumArt))]
     public AlbumArtOption AlbumArtOption { get; set; } = AlbumArtOption.Default;

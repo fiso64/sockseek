@@ -34,33 +34,34 @@ public sealed class SharingConfigParsingTests
     public void ShareAndIndependentRestrictionLists_UseReplaceAndExplicitAppend()
     {
         string parent = Path.Combine(Path.GetTempPath(), "sockseek-config-sharing");
-        string first = Path.Combine(parent, "first");
+        string first = Path.Combine(parent, "first, collection");
         string second = Path.Combine(parent, "second");
 
         var settings = Bind(
             "--share", first,
             "--share", $"+ [Second Alias]{second}",
-            "--share-filter", "one",
+            "--share-filter", "[0-9]{1,3}",
             "--share-filter", "+ two",
-            "--upload-blocked-user", "Alice",
-            "--upload-blocked-user", "+ Bob",
-            "--upload-blocked-ip", "192.0.2.1",
+            "--upload-blocked-user", "old",
+            "--upload-blocked-user", "Alice, Lee,,Jr",
+            "--upload-blocked-user", "+ Bob,,Jr",
+            "--upload-blocked-ip", "192.0.2.1, 192.0.2.2",
             "--upload-blocked-ip", "+ 2001:db8::1",
-            "--private-message-blocked-user", "Carol",
+            "--private-message-blocked-user", "Carol,,Jr",
             "--private-message-blocked-user", "+ Dave");
 
         Assert.AreEqual(2, settings.Sharing.Roots.Count);
-        Assert.AreEqual("first", settings.Sharing.Roots[0].EffectiveAlias);
+        Assert.AreEqual("first, collection", settings.Sharing.Roots[0].EffectiveAlias);
         Assert.AreEqual("Second Alias", settings.Sharing.Roots[1].EffectiveAlias);
-        CollectionAssert.AreEqual(new[] { "one", "two" }, settings.Sharing.Filters);
+        CollectionAssert.AreEqual(new[] { "[0-9]{1,3}", "two" }, settings.Sharing.Filters);
         CollectionAssert.AreEqual(
-            new[] { "Alice", "Bob" },
+            new[] { "Alice", "Lee,Jr", "Bob,,Jr" },
             settings.PeerRestrictions.UploadAccess.BlockedUsernames);
         CollectionAssert.AreEqual(
-            new[] { "192.0.2.1", "2001:db8::1" },
+            new[] { "192.0.2.1", "192.0.2.2", "2001:db8::1" },
             settings.PeerRestrictions.UploadAccess.BlockedIpAddresses);
         CollectionAssert.AreEqual(
-            new[] { "Carol", "Dave" },
+            new[] { "Carol,Jr", "Dave" },
             settings.PeerRestrictions.PrivateMessages.BlockedUsernames);
     }
 
@@ -100,6 +101,7 @@ public sealed class SharingConfigParsingTests
     [DataRow("--upload-speed-limit-kib", "0")]
     [DataRow("--share-rescan-interval", "30s")]
     [DataRow("--upload-blocked-ip", "192.0.2.0/24")]
+    [DataRow("--upload-blocked-ip", "+ 192.0.2.1,192.0.2.2")]
     public void InvalidSharingValues_FailBinding(string option, string value)
     {
         Assert.ThrowsExactly<ArgumentException>(() => Bind($"{option}={value}"));

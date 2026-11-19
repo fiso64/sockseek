@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
@@ -10,6 +11,8 @@ public sealed class SettingIgnoreAttribute : Attribute;
 /// The daemon's runtime owner supports applying this setting without restart.
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
 public sealed class SettingReloadableAttribute : Attribute;
+
+public enum OptionListSyntax { None, SingleItem, CommaSeparated, PlainCommaSeparated }
 
 public enum OptionValueKind { Auto, None, Boolean, Required }
 
@@ -26,6 +29,7 @@ public sealed class SettingOptionAttribute(params string[] names) : Attribute
     public bool AllowMultiple { get; init; } = true;
     public bool DefaultProfileOnly { get; init; }
     public OptionValueKind ValueKind { get; init; }
+    public OptionListSyntax ListSyntax { get; init; }
 }
 
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
@@ -61,6 +65,7 @@ public sealed class SettingOption
             : (Nullable.GetUnderlyingType(valueType) ?? valueType) == typeof(bool) ? OptionValueKind.Boolean : OptionValueKind.Required;
     }
 
+    public bool IsList => declaration.ListSyntax != OptionListSyntax.None;
     public bool DefaultProfileOnly => declaration.DefaultProfileOnly;
     public Type RootType { get; }
     public IReadOnlyList<string> Names => declaration.Names;
@@ -68,23 +73,62 @@ public sealed class SettingOption
 
     public void Bind(SettingsPatchBuilder changes, string text, string flag)
     {
+        if (IsList)
+        {
+            string trimmed = text.TrimStart();
+            bool append = trimmed.StartsWith("+ ", StringComparison.Ordinal);
+            IEnumerable<string> items = append ? [trimmed[2..]] : declaration.ListSyntax switch
+            {
+                OptionListSyntax.CommaSeparated => SettingParser.CommaSeparatedItems(text),
+                OptionListSyntax.PlainCommaSeparated => text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
+                _ => [text],
+            };
+            BindList(changes, items, flag, append);
+            return;
+        }
+
         text = declaration.FixedValue ?? text;
         var value = declaration.Clear ? null : parser == null ? SettingParser.Parse(text, valueType, flag)
             : Invoke(parser, [text, flag]);
         if (declaration.Negate)
             value = value is bool boolean ? !boolean : -(int)value!;
 
-        if (member != null)
+        if (member != null) BindMember(changes, value, flag, SettingOperation.Set);
+        else Invoke(method!, [new SettingWriter(changes, prefix, flag), value]);
+    }
+
+    /// Bind literal items as one edit, including when the profile is applied repeatedly.
+    public void BindList(SettingsPatchBuilder changes, IEnumerable<string> items, string flag, bool append)
+    {
+        if (!IsList) throw new ArgumentException($"Input error: Option '{flag}' does not accept a list.");
+
+        // Array-backed settings are string arrays; typed lists have an item parser.
+        object? ParseItem(string text)
         {
-            member.Validate(value, flag);
-            if (!declaration.AllowMultiple && changes.Contains(member.Path))
-                throw new Exception($"Input error: Option '{flag}' can only be supplied once");
-            changes.Set(member.Path, value);
+            if (parser != null) return Invoke(parser, [text, flag]);
+            string item = text.Trim();
+            if (item.Length == 0)
+                throw new ArgumentException($"Input error: Option '{flag}' requires a non-empty value.");
+            return item;
         }
+
+        IList values;
+        if (valueType == typeof(string[]))
+            values = items.Select(item => (string)ParseItem(item)!).ToArray();
         else
         {
-            Invoke(method!, [new SettingWriter(changes, prefix, flag), value]);
+            values = (IList)Activator.CreateInstance(valueType)!;
+            foreach (string item in items) values.Add(ParseItem(item));
         }
+        BindMember(changes, values, flag, append ? SettingOperation.Append : SettingOperation.Set);
+    }
+
+    private void BindMember(SettingsPatchBuilder changes, object? value, string flag, SettingOperation operation)
+    {
+        member!.Validate(value, flag);
+        if (!declaration.AllowMultiple && changes.Contains(member.Path))
+            throw new Exception($"Input error: Option '{flag}' can only be supplied once");
+        changes.Add(new(member.Path, value, operation));
     }
 
     internal static object? Invoke(MethodInfo method, object?[] arguments)
@@ -106,17 +150,6 @@ public sealed class SettingWriter(SettingsPatchBuilder changes, string prefix, s
     public void Append(string member, object value, bool distinct = false)
         => changes.Add(new(prefix + member, value, distinct ? SettingOperation.AppendDistinct : SettingOperation.Append));
 
-    public void ListItem<T>(string member, string value, Func<string, T> parse)
-    {
-        string trimmed = value.TrimStart();
-        bool append = trimmed.StartsWith("+ ", StringComparison.Ordinal);
-        string item = append ? trimmed[2..].Trim() : value.Trim();
-        if (item.Length == 0)
-            throw new ArgumentException($"Input error: Option '{Flag}' requires a non-empty value.");
-        var values = new List<T> { parse(item) };
-        if (append) Append(member, values); else Set(member, values);
-    }
-
     public void Merge(string member, object supplied)
     {
         foreach (var field in SettingsSchema.DataMembers(supplied.GetType()))
@@ -134,13 +167,33 @@ public static class SettingParser
     {
         type = Nullable.GetUnderlyingType(type) ?? type;
         if (type == typeof(string)) return text;
-        if (type == typeof(string[])) return text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         if (type == typeof(bool) && bool.TryParse(text, out var boolean)) return boolean;
         if (type == typeof(int) && int.TryParse(text.Replace("_", ""), out var integer)) return integer;
         if (type == typeof(double) && double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var number)) return number;
         if (type.IsEnum && Enum.TryParse(type, text, ignoreCase: true, out var value)) return value;
         string expected = type == typeof(bool) ? "boolean" : type == typeof(int) ? "integer" : type == typeof(double) ? "numeric" : type.Name;
         throw new Exception($"Input error: Option '{flag}' requires a {expected} parameter, got '{text}'");
+    }
+
+    // A single comma separates entries. A pair within an entry spells one literal comma.
+    internal static List<string> CommaSeparatedItems(string text)
+    {
+        var items = new List<string>();
+        int start = 0;
+        for (int i = 0; i <= text.Length; i++)
+        {
+            if (i < text.Length && text[i] != ',') continue;
+            if (i + 1 < text.Length && text[i + 1] == ',')
+            {
+                i++;
+                continue;
+            }
+
+            string item = text[start..i].Trim();
+            if (item.Length > 0) items.Add(item.Replace(",,", ","));
+            start = i + 1;
+        }
+        return items;
     }
 
     public static int Integer(string text, string flag) => (int)Parse(text, typeof(int), flag)!;

@@ -11,7 +11,10 @@ const clearBound = {
   minBitDepth: 'clearMinBitDepth', maxBitDepth: 'clearMaxBitDepth',
 } as const;
 const numberText = (value: number | string | null | undefined) => value == null ? '' : String(value);
-const csv = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
+// A single comma separates names and a doubled comma belongs to the name.
+const parseUsernames = (text: string) => (text.match(/(?:[^,]|,,)+/g) ?? [])
+  .map(name => name.trim().replaceAll(',,', ',')).filter(Boolean);
+const formatUsernames = (names: string[]) => names.map(name => name.replaceAll(',', ',,')).join(', ');
 
 /** Read an effective (fully resolved) snapshot, not a sparse request patch. */
 export function readSearchConditions(settings: Settings, expectedLength?: number): SearchConditions {
@@ -19,8 +22,8 @@ export function readSearchConditions(settings: Settings, expectedLength?: number
   function readCommon(source: FileConditions, target: SearchConditions['ranking']['common']) {
     for (const key of bounds) target[key] = numberText(source[key]);
     target.formats = (source.formats?.replace ?? []).map((format) => format.toUpperCase());
-    target.allowedUsers = (source.allowedUsers?.replace ?? []).join(', ');
-    target.bannedUsers = (source.bannedUsers?.replace ?? []).join(', ');
+    target.allowedUsers = formatUsernames(source.allowedUsers?.replace ?? []);
+    target.bannedUsers = formatUsernames(source.bannedUsers?.replace ?? []);
     target.strictArtist = source.strictArtist ?? false;
     target.excludeLocked = source.excludeLocked ?? false;
   }
@@ -90,8 +93,8 @@ export function searchConditionsPatchForFamily(
       }
     }
     for (const key of ['formats', 'allowedUsers', 'bannedUsers'] as const) {
-      const first = key === 'formats' ? a.common[key] : csv(a.common[key]);
-      const second = key === 'formats' ? b.common[key] : csv(b.common[key]);
+      const first = key === 'formats' ? a.common[key] : parseUsernames(a.common[key]);
+      const second = key === 'formats' ? b.common[key] : parseUsernames(b.common[key]);
       if (JSON.stringify(first) !== JSON.stringify(second)) patch[key] = { replace: key === 'formats' ? second.map((format) => format.toLowerCase()) : [...second] };
     }
     if (a.common.excludeLocked !== b.common.excludeLocked) patch.excludeLocked = b.common.excludeLocked;

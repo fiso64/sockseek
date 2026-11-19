@@ -11,7 +11,7 @@ public class SearchSettings
 
     // ── Conditions ────────────────────────────────────────────────────────────
 
-    [SettingOption("--af", "--format", Member = "Formats", Parser = nameof(ParseFormats))]
+    [SettingOption("--af", "--format", Member = "Formats", ListSyntax = OptionListSyntax.PlainCommaSeparated, Parser = nameof(ParseFormat))]
     [SettingOption("--lt", "--tolerance", "--length-tol", "--length-tolerance", Member = "LengthTolerance")]
     [SettingOption("--mbr", "--min-bitrate", Member = "MinBitrate")]
     [SettingOption("--Mbr", "--max-bitrate", Member = "MaxBitrate")]
@@ -23,15 +23,15 @@ public class SearchSettings
     [SettingOption("--sar", "--strict-artist", Member = "StrictArtist")]
     [SettingOption("--sal", "--strict-album", Member = "StrictAlbum")]
     [SettingOption("--anl", "--accept-no-length", Member = "AcceptNoLength")]
-    [SettingOption("--bu", "--banned-users", Member = "BannedUsers")]
-    [SettingOption("--au", "--allowed-users", Member = "AllowedUsers")]
+    [SettingOption("--bu", "--banned-users", Member = "BannedUsers", ListSyntax = OptionListSyntax.CommaSeparated)]
+    [SettingOption("--au", "--allowed-users", Member = "AllowedUsers", ListSyntax = OptionListSyntax.CommaSeparated)]
     [SettingOption("--exclude-locked", Member = "ExcludeLocked")]
     public FileConditions NecessaryCond { get; set; } = new()
     {
         Formats = [.. SearchDefaults.Formats],
     };
 
-    [SettingOption("--paf", "--pf", "--pref-format", Member = "Formats", Parser = nameof(ParseFormats))]
+    [SettingOption("--paf", "--pf", "--pref-format", Member = "Formats", ListSyntax = OptionListSyntax.PlainCommaSeparated, Parser = nameof(ParseFormat))]
     [SettingOption("--plt", "--pref-tolerance", "--pref-length-tol", "--pref-length-tolerance", Member = "LengthTolerance")]
     [SettingOption("--pmbr", "--pref-min-bitrate", Member = "MinBitrate")]
     [SettingOption("--pMbr", "--pref-max-bitrate", Member = "MaxBitrate")]
@@ -47,8 +47,8 @@ public class SearchSettings
     [SettingOption("--psar", "--pref-strict-artist", Member = "StrictArtist")]
     [SettingOption("--psal", "--pref-strict-album", Member = "StrictAlbum")]
     [SettingOption("--panl", "--pref-accept-no-length", Member = "AcceptNoLength")]
-    [SettingOption("--pbu", "--pref-banned-users", Member = "BannedUsers")]
-    [SettingOption("--pau", "--pref-allowed-users", Member = "AllowedUsers")]
+    [SettingOption("--pbu", "--pref-banned-users", Member = "BannedUsers", ListSyntax = OptionListSyntax.CommaSeparated)]
+    [SettingOption("--pau", "--pref-allowed-users", Member = "AllowedUsers", ListSyntax = OptionListSyntax.CommaSeparated)]
     [SettingOption("--pref-exclude-locked", Member = "ExcludeLocked")]
     public FileConditions PreferredCond { get; set; } = new()
     {
@@ -74,9 +74,8 @@ public class SearchSettings
     public FolderConditions NecessaryFolderCond { get; set; } = new();
     public FolderConditions PreferredFolderCond { get; set; } = new();
 
-    private static string[] ParseFormats(string value, string flag)
-        => value.ToLowerInvariant().Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .Select(format => format.TrimStart('.')).ToArray();
+    private static string ParseFormat(string value, string flag)
+        => value.Trim().TrimStart('.').ToLowerInvariant();
 
     [SettingOption("--atc", "--album-track-count")]
     private static void ConfigureAlbumTrackCount(SettingWriter changes, string value)

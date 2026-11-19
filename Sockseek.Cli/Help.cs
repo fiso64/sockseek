@@ -17,22 +17,14 @@ public static partial class Help
     };
 
     // Command references are also included in the main options listing.
-    private static readonly Dictionary<string, string> Topics = new(Guides)
-    {
-        ["daemon"] = daemonHelp + "\n" + daemonOptionsHelp,
-        ["database"] = databaseHelp,
-        ["auth"] = authHelp,
-        ["remote"] = remoteHelp,
-        ["user"] = userHelp,
-        ["chat"] = chatHelp,
-        ["share"] = shareHelp,
-    };
+    private static readonly Dictionary<string, string> Topics = CommandTopics();
 
     public static void PrintHelp(string? option = null)
     {
         string text = helpText;
         option = option switch
         {
+            "user" when !Topics.ContainsKey("user") => "remote",
             "room" or "notification" or "notifications" => "chat",
             "transfer" or "transfers" => "share",
             _ => option,

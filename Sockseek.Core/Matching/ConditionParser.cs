@@ -1,4 +1,5 @@
 using Sockseek.Core.Models;
+using Sockseek.Core.Settings;
 using System.Globalization;
 
 namespace Sockseek.Core.Services;
@@ -67,11 +68,11 @@ public static class ConditionParser
                     break;
                 case "banned":
                 case "bannedusers":
-                    cond.BannedUsers = value.Split(',', tr);
+                    cond.BannedUsers = [.. SettingParser.CommaSeparatedItems(value)];
                     break;
                 case "allowed":
                 case "allowedusers":
-                    cond.AllowedUsers = value.Split(',', tr);
+                    cond.AllowedUsers = [.. SettingParser.CommaSeparatedItems(value)];
                     break;
                 case "excludelocked":
                     cond.ExcludeLocked = bool.Parse(value);

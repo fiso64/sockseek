@@ -18,11 +18,11 @@ describe('resolved search configuration edits', () => {
   });
 
   it('normalizes format vocabulary without changing exact peer spelling', () => {
-    const before = readSearchConditions({});
+    const before = readSearchConditions({ necessaryCond: { allowedUsers: { replace: ['Lee,Jr', ',DJ'] } } });
     const after = structuredClone(before);
     after.common.formats = ['TXT'];
-    after.common.allowedUsers = 'PeerA, peera';
-    expect(searchConditionsPatch('generic', before, after)).toEqual({ necessaryCond: { formats: { replace: ['txt'] }, allowedUsers: { replace: ['PeerA', 'peera'] } } });
+    after.common.allowedUsers += ', PeerA, peera';
+    expect(searchConditionsPatch('generic', before, after)).toEqual({ necessaryCond: { formats: { replace: ['txt'] }, allowedUsers: { replace: ['Lee,Jr', ',DJ', 'PeerA', 'peera'] } } });
   });
 
   it('clears inherited numeric bounds explicitly instead of turning them into inheritance', () => {

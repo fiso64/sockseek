@@ -9,13 +9,12 @@ public sealed class ChatConfigParsingTests
     [TestMethod]
     public void ChatRoomsUseReplaceAndExplicitAppendSyntax()
     {
-        var file = new ConfigFile("none", new Dictionary<string, ProfileEntry>());
+        var file = ConfigManager.ParseConfigText("chat.conf", "chat-room = indie, rock,, pop");
 
-        var bound = ConfigManager.BindAll(file,
-            ["--chat-room", "indie", "--chat-room", "+ electronic"]);
+        var bound = ConfigManager.BindAll(file, ["--chat-room", "+ electronic, dance"]);
 
         CollectionAssert.AreEqual(
-            new[] { "indie", "electronic" },
+            new[] { "indie", "rock, pop", "electronic, dance" },
             bound.Engine.Chat.AutoJoinRooms);
     }
 

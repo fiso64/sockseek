@@ -15,27 +15,18 @@ public sealed class PeerRestrictionSettings
 
 public sealed class UploadAccessSettings
 {
+    [SettingOption("--upload-blocked-user", ListSyntax = OptionListSyntax.CommaSeparated, DefaultProfileOnly = true)]
     [SettingReloadable]
     public List<string> BlockedUsernames { get; set; } = [];
 
+    [SettingOption("--upload-blocked-ip", ListSyntax = OptionListSyntax.CommaSeparated, DefaultProfileOnly = true)]
     [SettingReloadable]
     public List<string> BlockedIpAddresses { get; set; } = [];
-    [SettingOption("--upload-blocked-user", DefaultProfileOnly = true)]
-    private static void ConfigureUser(SettingWriter changes, string value)
-        => changes.ListItem(nameof(BlockedUsernames), value, item => item);
-
-    [SettingOption("--upload-blocked-ip", DefaultProfileOnly = true)]
-    private static void ConfigureIp(SettingWriter changes, string value)
-        => changes.ListItem(nameof(BlockedIpAddresses), value, item => item);
-
 }
 
 public sealed class PrivateMessageAccessSettings
 {
+    [SettingOption("--private-message-blocked-user", ListSyntax = OptionListSyntax.CommaSeparated, DefaultProfileOnly = true)]
     [SettingReloadable]
     public List<string> BlockedUsernames { get; set; } = [];
-    [SettingOption("--private-message-blocked-user", DefaultProfileOnly = true)]
-    private static void ConfigureUser(SettingWriter changes, string value)
-        => changes.ListItem(nameof(BlockedUsernames), value, item => item);
-
 }
