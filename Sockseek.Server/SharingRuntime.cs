@@ -79,10 +79,9 @@ public sealed class SharingRuntime : IAsyncDisposable
             catalogs,
             Uploads,
             Restrictions,
-            settings.Uploads,
+            settings,
             () => manager.Client,
             soulseek.LocalProfile,
-            uploadServingEnabled: settings.ListenPort is not null,
             logger: this.logger);
         ClientManager = manager;
         inboundRegistration = soulseek.InboundRequests.Attach(Adapter);
@@ -516,11 +515,9 @@ public sealed class SharingRuntime : IAsyncDisposable
 
         bool uploadsChanged = !SettingsSchema.ValuesEqual(uploadSettings, candidate.Uploads);
         bool slotsChanged = uploadSettings.Slots != candidate.Uploads.Slots;
+        Adapter.UpdateSettings(candidate);
         if (uploadsChanged)
-        {
             Volatile.Write(ref uploadSettings, candidate.Uploads);
-            Adapter.UpdateUploadSettings(candidate.Uploads);
-        }
 
         bool sharesChanged = false;
         if (!SettingsSchema.ValuesEqual(shareConfiguration.Settings, candidate.Sharing))

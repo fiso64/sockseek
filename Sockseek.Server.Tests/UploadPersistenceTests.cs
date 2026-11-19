@@ -587,11 +587,12 @@ public sealed class UploadPersistenceTests
                     ? file
                     : null);
 
-        public ValueTask<IReadOnlyList<ShareCatalogFile>> SearchAsync(
+        public ValueTask<IReadOnlyList<Soulseek.File>> SearchAsync(
             string query,
             int limit,
+            IReadOnlyList<string> exclusions,
             CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<IReadOnlyList<ShareCatalogFile>>([]);
+            => ValueTask.FromResult<IReadOnlyList<Soulseek.File>>([]);
 
         public ValueTask<ShareCatalogBrowseDirectory?> GetDirectoryAsync(
             RemotePathKey remotePath,

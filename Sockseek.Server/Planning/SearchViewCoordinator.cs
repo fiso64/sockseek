@@ -77,7 +77,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
 
     private static readonly TimeSpan IdleKernelRetention = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(1);
-    private static readonly TimeSpan PublicationInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan PublicationInterval = TimeSpan.FromMilliseconds(500);
     private static readonly ActivitySource ProjectionActivities = new("Sockseek.Server.SearchViews");
     private const int InitialProjectionBatchSize = 200;
     // Keep first results prompt and bound each turn of projection work. Sparse
@@ -169,7 +169,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             {
                 SearchViewInfo next = await changed.Reader.ReadAsync(cancellationToken).ConfigureAwait(false);
                 // First usable results are immediate. Subsequent notifications
-                // coalesce to the existing UI refresh cadence, independently of
+                // coalesce over the publication interval, independently of
                 // how many batches the worker can process during that interval.
                 // Completion bypasses this cadence, including for CLI printing.
                 TimeSpan remaining = PublicationInterval - clock.GetElapsedTime(lastSent);
@@ -254,7 +254,9 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         CancellationToken cancellationToken)
     {
         SearchViewCache repository = Cache;
-        ValidateRefinementSettings(request.RefinementSettings);
+        if (request.RefinementSettings is { } refinement && refinement != refinement.ForResultRefinement())
+            throw new ArgumentException("Search View refinements may only change result conditions, ranking, and grouping.",
+                nameof(request.RefinementSettings));
         // Expiry is enforced by reads; physical pruning belongs to startup and
         // scheduled retention, never to an interactive View creation/refinement.
         RuntimeSource? source;
@@ -1065,31 +1067,6 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 metadata,
                 definition,
                 projection);
-    }
-
-    private static void ValidateRefinementSettings(SearchSettingsPatchDto? settings)
-    {
-        if (settings == null)
-            return;
-        if (settings.SearchTimeout != null
-            || settings.ResponseLimit != null
-            || settings.DownrankOn != null
-            || settings.IgnoreOn != null
-            || settings.FastSearch != null
-            || settings.FastSearchDelay != null
-            || settings.FastSearchMinUpSpeed != null
-            || settings.DesperateSearch != null
-            || settings.NoRemoveSpecialChars != null
-            || settings.RemoveSingleCharSearchTerms != null
-            || settings.NoBrowseFolder != null
-            || settings.Relax != null
-            || settings.ArtistMaybeWrong != null
-            || settings.GroupResults != null)
-        {
-            throw new ArgumentException(
-                "Search View refinements may only change result conditions, ranking, and grouping.",
-                nameof(settings));
-        }
     }
 
     private async Task<SearchViewKernel> RebuildKernelAsync(

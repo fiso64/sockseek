@@ -367,8 +367,8 @@ public sealed class UploadCoordinator : IAsyncDisposable
     public UploadQueueRuntimeSnapshot GetQueueSnapshot()
         => scheduler.GetRuntimeSnapshot();
 
-    public bool CouldStartImmediately(string username)
-        => scheduler.CouldStartImmediately(username);
+    public (int TotalSlots, int QueuedFiles, bool HasFreeSlot) GetPeerCapacity(string username)
+        => scheduler.GetPeerCapacity(username);
 
     public UploadQueueEstimate GetQueueEstimate(string username, string remotePath)
     {
@@ -732,6 +732,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
         {
             if (IsTerminal(item.State))
                 return;
+            bool reachedEnd = item.BytesTransferred < item.Request.SizeBytes && bytes >= item.Request.SizeBytes;
             item.BytesTransferred = Math.Clamp(bytes, 0, item.Request.SizeBytes);
             item.BytesPerSecond = double.IsFinite(speed) ? Math.Max(0, speed) : 0;
             item.LastProgressAtUtc = DateTimeOffset.UtcNow;
@@ -744,7 +745,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
             long now = Environment.TickCount64;
             publish = item.LastProgressPublished == long.MinValue
                 || now - item.LastProgressPublished >= 250
-                || item.BytesTransferred == item.Request.SizeBytes;
+                || reachedEnd;
             if (publish) item.LastProgressPublished = now;
         }
         // Track every chunk; publish at human-visible cadence. Terminalization

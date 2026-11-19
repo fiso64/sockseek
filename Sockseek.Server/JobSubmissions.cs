@@ -103,11 +103,7 @@ public sealed class JobSubmissions
         var operations = profiles.SelectMany(profile => profile.Download.Operations)
             .Where(change => change.Path == "Search" || change.Path.StartsWith("Search.", StringComparison.Ordinal));
         var search = DownloadSettingsPatchDtoMapper.FromCore(new SettingsPatch(operations.ToArray()))?.Search;
-        return search == null ? null : new(
-            NecessaryCond: search.NecessaryCond, PreferredCond: search.PreferredCond,
-            NecessaryFolderCond: search.NecessaryFolderCond, PreferredFolderCond: search.PreferredFolderCond,
-            StrictAlbumQuality: search.StrictAlbumQuality, MinGroupShares: search.MinGroupShares,
-            ClearMinGroupShares: search.ClearMinGroupShares, GroupLengthTol: search.GroupLengthTol);
+        return search?.ForResultRefinement();
     }
 
     public IReadOnlyList<ProfileSummaryDto> GetProfiles()

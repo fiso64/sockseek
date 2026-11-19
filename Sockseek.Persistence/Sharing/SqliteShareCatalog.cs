@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
@@ -17,7 +18,7 @@ public sealed class RemotePathCollisionException(string message, Exception inner
 /// semantics; CompleteAsync validates and makes the result durable before the
 /// catalog manager can publish it. An interrupted build is discarded.
 /// </summary>
-public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
+public sealed partial class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
 {
     private const int BatchSize = 1_000;
 
@@ -33,7 +34,28 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
     {
         DatabasePath = databasePath;
         this.connection = connection;
+        connection.CreateFunction<string, bool, string>("share_search_terms", IndexTerms, isDeterministic: true);
     }
+
+    // Both FTS columns are searched together. Only the ASCII
+    // column can prove that an ASCII exclusion literally occurs in a path:
+    // unicode61 also matches "cafe" against "café".
+    private static string IndexTerms(string path, bool ascii)
+    {
+        if (Ascii.IsValid(path)) return ascii ? path : "";
+        var terms = new StringBuilder();
+        foreach (var match in IndexTermRegex().EnumerateMatches(path))
+        {
+            var term = path.AsSpan(match.Index, match.Length);
+            if (Ascii.IsValid(term) == ascii) terms.Append(term).Append(' ');
+        }
+        return terms.ToString();
+    }
+
+    // Split only at ASCII separators known to unicode61. It can tokenize the
+    // remaining Unicode fragments itself, exactly as it does for queries.
+    [GeneratedRegex(@"[a-zA-Z0-9\u0080-\uFFFF]+")]
+    private static partial Regex IndexTermRegex();
 
     public string DatabasePath { get; }
 
@@ -140,7 +162,7 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
                 -- tokens and aligned row IDs, so matching never reads a second
                 -- content table merely to find the authoritative file row.
                 CREATE VIRTUAL TABLE file_search USING fts5(
-                    search_text,
+                    ascii_terms, unicode_terms,
                     content='',
                     tokenize='unicode61 remove_diacritics 2'
                 );
@@ -271,8 +293,8 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
             await using var command = connection.CreateCommand();
             command.Transaction = indexing;
             command.CommandText = """
-                INSERT INTO file_search(rowid, search_text)
-                SELECT file.file_id, file.search_text
+                INSERT INTO file_search(rowid, ascii_terms, unicode_terms)
+                SELECT file.file_id, share_search_terms(file.search_text, 1), share_search_terms(file.search_text, 0)
                 FROM files file
                 WHERE NOT EXISTS (SELECT 1 FROM file_search existing WHERE existing.rowid = file.file_id);
                 """;
@@ -436,21 +458,27 @@ public sealed class SqliteShareCatalogBuilder : IShareCatalogGenerationWriter
 
 public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
 {
-    // Protocol responses remain capped at 500. The larger internal bound is
-    // only for deterministic over-fetch when exclusions remove top-ranked
-    // candidates.
-    private const int MaximumSearchLimit = 2_000;
     private readonly string connectionString;
+    private readonly Stack<SqliteCommand> idleSearchCommands = [];
     private bool disposed;
 
-    private SqliteShareCatalogReader(string databasePath, ShareCatalogMetadata metadata)
+    private SqliteShareCatalogReader(string databasePath, string connectionString, ShareCatalogMetadata metadata)
     {
         DatabasePath = databasePath;
         Metadata = metadata;
-        connectionString = new SqliteConnectionStringBuilder
+        this.connectionString = connectionString;
+    }
+
+    private static string ReadConnectionString(string path, bool immutable)
+    {
+        // Only sealed generations are immutable. Staging reads still participate
+        // in SQLite locking. Keep native network-share paths on Windows.
+        var uri = new Uri(path);
+        return new SqliteConnectionStringBuilder
         {
-            DataSource = databasePath,
+            DataSource = immutable && !uri.IsUnc ? uri.AbsoluteUri + "?immutable=1" : path,
             Mode = SqliteOpenMode.ReadOnly,
+            DefaultTimeout = 5,
             Pooling = true,
         }.ToString();
     }
@@ -463,12 +491,8 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         CancellationToken cancellationToken = default)
     {
         string fullPath = Path.GetFullPath(databasePath);
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = fullPath,
-            Mode = SqliteOpenMode.ReadOnly,
-            Pooling = true,
-        }.ToString());
+        string connectionString = ReadConnectionString(fullPath, immutable: true);
+        var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 
         try
@@ -509,7 +533,7 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
             if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 throw new InvalidDataException("Share catalog has multiple metadata rows.");
 
-            return new SqliteShareCatalogReader(fullPath, metadata);
+            return new SqliteShareCatalogReader(fullPath, connectionString, metadata);
         }
         finally
         {
@@ -527,12 +551,8 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         CancellationToken cancellationToken = default)
     {
         string fullPath = Path.GetFullPath(databasePath);
-        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = fullPath,
-            Mode = SqliteOpenMode.ReadOnly,
-            Pooling = true,
-        }.ToString());
+        string connectionString = ReadConnectionString(fullPath, immutable: false);
+        var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -555,7 +575,7 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
                 throw new InvalidDataException(
                     "Staging catalog counts do not match the completed scan.");
             }
-            return new SqliteShareCatalogReader(fullPath, provisionalMetadata);
+            return new SqliteShareCatalogReader(fullPath, connectionString, provisionalMetadata);
         }
         finally
         {
@@ -585,7 +605,7 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             return null;
 
-        ShareCatalogFile file = ReadFile(reader, 0);
+        ShareCatalogFile file = ReadFile(reader, 0, remotePath);
         var root = new ShareCatalogRoot(
             file.RootId,
             reader.GetString(12),
@@ -594,43 +614,103 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         return new ShareCatalogResolvedFile(root, file);
     }
 
-    public async ValueTask<IReadOnlyList<ShareCatalogFile>> SearchAsync(
+    public async ValueTask<IReadOnlyList<Soulseek.File>> SearchAsync(
         string query,
         int limit,
-        CancellationToken cancellationToken = default)
-        => await SearchAsync(query, [], limit, cancellationToken).ConfigureAwait(false);
-
-    public async ValueTask<IReadOnlyList<ShareCatalogFile>> SearchAsync(
-        string query,
-        IReadOnlyCollection<string> exclusions,
-        int limit,
+        IReadOnlyList<string> exclusions,
         CancellationToken cancellationToken = default)
     {
-        if (limit is < 1 or > MaximumSearchLimit)
-            throw new ArgumentOutOfRangeException(nameof(limit));
-        string match = BuildFtsMatch(query, exclusions);
-        if (match.Length == 0)
-            return [];
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        string match = string.Join(" AND ", SearchTermRegex().Matches(query)
+            .Select(term => $"\"{term.Value}\""));
+        if (match.Length == 0) return [];
+        var excludedTokens = exclusions.Where(term => term.Length > 0 && term.All(char.IsAsciiLetterOrDigit))
+            .Select(term => $"\"{term}\"");
+        string negative = string.Join(" OR ", excludedTokens);
+        if (negative.Length > 0) match += $" NOT ascii_terms : ({negative})";
 
-        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            $"""
-             SELECT {FileColumns("f")}
-             FROM file_search s
-             INNER JOIN files f ON f.file_id = s.rowid
-             WHERE file_search MATCH $match
-             ORDER BY bm25(file_search), f.remote_path
-             LIMIT $limit;
-             """;
-        command.Parameters.AddWithValue("$match", match);
-        command.Parameters.AddWithValue("$limit", limit);
+        cancellationToken.ThrowIfCancellationRequested();
+        SqliteCommand? command;
+        lock (idleSearchCommands)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            idleSearchCommands.TryPop(out command);
+        }
+        command ??= await OpenSearchCommandAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return ReadMatches(command, match, limit, exclusions, cancellationToken);
+        }
+        finally
+        {
+            lock (idleSearchCommands)
+            {
+                if (disposed) CloseSearchCommand(command);
+                else idleSearchCommands.Push(command);
+            }
+        }
+    }
 
-        var files = new List<ShareCatalogFile>(limit);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            files.Add(ReadFile(reader, 0));
-        return files;
+    private async ValueTask<SqliteCommand> OpenSearchCommandAsync(CancellationToken cancellationToken)
+    {
+        var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var command = connection.CreateCommand();
+            // Map up to 256 MiB of this read-only index on demand. Concurrent
+            // searches can read the same OS pages instead of copying each into SQLite.
+            command.CommandText = "PRAGMA mmap_size=268435456;";
+            command.ExecuteNonQuery();
+            command.CommandText = """
+                SELECT f.remote_path, f.protocol_code, f.size_bytes, f.extension, f.attributes_json
+                FROM file_search s JOIN files f ON f.file_id = s.rowid
+                WHERE file_search MATCH $match
+                ORDER BY s.rowid;
+                """;
+            command.Parameters.Add("$match", SqliteType.Text);
+            return command;
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
+    }
+
+    private static IReadOnlyList<Soulseek.File> ReadMatches(SqliteCommand command, string match, int limit,
+        IReadOnlyList<string> exclusions, CancellationToken cancellationToken)
+    {
+        command.Parameters["$match"].Value = match;
+        var files = new List<Soulseek.File>();
+        using var interrupt = cancellationToken.UnsafeRegister(static handle =>
+            SQLitePCL.raw.sqlite3_interrupt((SQLitePCL.sqlite3)handle!), command.Connection!.Handle);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var reader = command.ExecuteReader();
+            while (files.Count < limit && reader.Read())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                string path = reader.GetString(0);
+                if (IsExcluded(path, exclusions)) continue;
+                string attributes = reader.GetString(4);
+                files.Add(new Soulseek.File(reader.GetInt32(1), path, reader.GetInt64(2), reader.GetString(3),
+                    attributes == "[]" ? null : JsonSerializer.Deserialize<ShareFileAttribute[]>(attributes)?
+                        .Select(a => new Soulseek.FileAttribute((Soulseek.FileAttributeType)a.Type, a.Value))));
+            }
+            return files;
+        }
+        catch (SqliteException e) when (e.SqliteErrorCode == SQLitePCL.raw.SQLITE_INTERRUPT && cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException("Share search cancelled.", e, cancellationToken);
+        }
+    }
+
+    private static bool IsExcluded(string path, IReadOnlyList<string> exclusions)
+    {
+        for (int i = 0; i < exclusions.Count; i++)
+            if (path.Contains(exclusions[i], StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     public async ValueTask<ShareCatalogBrowseDirectory?> GetDirectoryAsync(
@@ -756,11 +836,14 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
 
     public ValueTask DisposeAsync()
     {
-        if (disposed)
-            return ValueTask.CompletedTask;
-        disposed = true;
+        lock (idleSearchCommands)
+        {
+            if (disposed) return ValueTask.CompletedTask;
+            disposed = true;
+            while (idleSearchCommands.TryPop(out var command)) CloseSearchCommand(command);
+        }
 
-        // Connections are deliberately short-lived and pooled. Once a generation
+        // All other readers use short-lived pooled connections. Once a generation
         // is retired, clear only its pool so Windows releases the immutable file
         // before the manager removes it.
         using var connection = new SqliteConnection(connectionString);
@@ -768,16 +851,28 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         return ValueTask.CompletedTask;
     }
 
+    private static void CloseSearchCommand(SqliteCommand command)
+    {
+        var connection = command.Connection!;
+        command.Dispose();
+        connection.Dispose();
+    }
+
     private async ValueTask<SqliteConnection> OpenConnectionAsync(
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         var connection = new SqliteConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA query_only=ON; PRAGMA busy_timeout=5000;";
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return connection;
+        try
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
     }
 
     private static ShareCatalogDirectory ReadDirectory(SqliteDataReader reader, int offset)
@@ -788,7 +883,7 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
             reader.GetString(offset + 3),
             RemotePathKey.Create(reader.GetString(offset + 3)));
 
-    private static ShareCatalogFile ReadFile(SqliteDataReader reader, int offset)
+    private static ShareCatalogFile ReadFile(SqliteDataReader reader, int offset, RemotePathKey? comparisonPath = null)
     {
         string remotePath = reader.GetString(offset + 4);
         IReadOnlyList<ShareFileAttribute> attributes =
@@ -801,7 +896,7 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
             reader.GetInt64(offset + 2),
             reader.GetString(offset + 3),
             remotePath,
-            RemotePathKey.Create(remotePath),
+            comparisonPath ?? RemotePathKey.Create(remotePath),
             reader.GetString(offset + 5),
             reader.GetInt64(offset + 6),
             ParseDate(reader.GetString(offset + 7)),
@@ -818,46 +913,6 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
             {alias}.protocol_code, {alias}.extension, {alias}.comparison_path,
             {alias}.attributes_json
             """;
-
-    private static string BuildFtsMatch(
-        string query,
-        IReadOnlyCollection<string>? exclusions = null)
-    {
-        string[] positive = SearchTermRegex()
-            .Matches(query ?? "")
-            .Select(match => QuoteFtsTerm(match.Value))
-            .ToArray();
-        if (positive.Length == 0)
-            return "";
-
-        // A NOT prefilter must never remove a row that Soulseek's final
-        // substring rule would keep. Restrict it to a single complete FTS
-        // token; compound/punctuation-rich exclusions remain bounded
-        // post-filters in the adapter.
-        string[] negative = (exclusions ?? [])
-            .Select(value => value?.Trim() ?? "")
-            .Select(value => (
-                Value: value,
-                Terms: SearchTermRegex().Matches(value)
-                    .Select(match => match.Value)
-                    .ToArray()))
-            .Where(value => value.Terms.Length == 1
-                            && string.Equals(
-                                value.Value,
-                                value.Terms[0],
-                                StringComparison.OrdinalIgnoreCase))
-            .Select(value => value.Terms[0])
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(QuoteFtsTerm)
-            .ToArray();
-        string match = string.Join(" AND ", positive);
-        return negative.Length == 0
-            ? match
-            : $"{match} NOT {string.Join(" NOT ", negative)}";
-    }
-
-    private static string QuoteFtsTerm(string value)
-        => $"\"{value.Replace("\"", "\"\"")}\"";
 
     private static DateTimeOffset ParseDate(string value)
         => DateTimeOffset.Parse(

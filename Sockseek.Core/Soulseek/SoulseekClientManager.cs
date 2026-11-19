@@ -512,6 +512,12 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         LocalUserProfile? localProfile = null,
         int? maximumUploadSpeedOverride = null)
     {
+        // Soulseek.NET 10.0.2 races direct and indirect peer connections. If the direct
+        // connection wins while the indirect request is being written to the server,
+        // cancellation can disconnect the whole session. Sockseek and slskd both
+        // observed "Write error: A task was canceled." in Connection.WriteInternalAsync
+        // under peer load. Recheck search replies and queued uploads on library upgrades.
+        // TODO: Monitor upstream or maybe contribute?
         var serverConnectionOptions = new ConnectionOptions(
             connectTimeout: settings.ConnectTimeout,
             configureSocket: (socket) =>

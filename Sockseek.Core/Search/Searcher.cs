@@ -133,13 +133,8 @@ public partial class Searcher : IDisposable
         {
             // Interactive SearchJob views can relax conditions later. Preserve
             // all observations here; sorting/filtering belongs to requested projections.
-            SearchOptions getOpts(int timeout, FileConditions nec, FileConditions prf)
-                => new(
-                    minimumResponseFileCount: 0,
-                    minimumPeerUploadSpeed: 0,
-                    searchTimeout: timeout,
-                    responseLimit: search.ResponseLimit,
-                    removeSingleCharacterSearchTerms: search.RemoveSingleCharSearchTerms,
+            SearchOptions getOpts(SearchAttempt attempt)
+                => CreateSearchOptions(search, attempt.Timeout, requireDownloadablePeer: false,
                     responseFilter: _ => true,
                     fileFilter: _ => true);
 
@@ -229,8 +224,8 @@ public partial class Searcher : IDisposable
             }
         }
 
-        SearchOptions getOpts(int timeout, FileConditions nec, FileConditions prf)
-            => TrackSearchOptions(timeout, search, nec, song.Query, readOnly);
+        SearchOptions getOpts(SearchAttempt attempt)
+            => TrackSearchOptions(search, attempt.Timeout, attempt.Conditions, song.Query, readOnly);
 
         song.UpdateActivity(JobActivityPhase.WaitingForSearchConcurrency);
         await concurrencySemaphore.WaitAsync(ct);
@@ -302,8 +297,8 @@ public partial class Searcher : IDisposable
         session.ChangePublished += downloadEvents.RaiseSearchChange;
         using var progress = new DiscoveryProgress(this, job, session);
 
-        SearchOptions getOpts(int timeout, FileConditions nec, FileConditions prf)
-            => TrackSearchOptions(timeout, search, nec, job.Query, readOnly);
+        SearchOptions getOpts(SearchAttempt attempt)
+            => TrackSearchOptions(search, attempt.Timeout, attempt.Conditions, job.Query, readOnly);
 
         job.UpdateActivity(JobActivityPhase.WaitingForSearchConcurrency);
         await concurrencySemaphore.WaitAsync(ct);
@@ -370,15 +365,21 @@ public partial class Searcher : IDisposable
     // Print-only discovery can show locked-only peers and unknown upload speeds;
     // these observations must neither enable automatic nor provisional downloads.
     private static SearchOptions TrackSearchOptions(
-        int timeout, SearchSettings search, FileConditions necessary, SongQuery query, bool readOnly)
+        SearchSettings search, int timeout, FileConditions necessary, SongQuery query, bool readOnly)
+        => CreateSearchOptions(search, timeout, requireDownloadablePeer: !readOnly,
+            responseFilter: response => (readOnly || response.UploadSpeed > 0) && necessary.UserSatisfies(response),
+            fileFilter: file => ConditionSatisfactionPolicy.SearchFileSatisfies(necessary, null, file, query));
+
+    private static SearchOptions CreateSearchOptions(SearchSettings search, int timeout, bool requireDownloadablePeer,
+        Func<SearchResponse, bool> responseFilter, Func<SlFile, bool> fileFilter)
         => new(
-            minimumResponseFileCount: readOnly ? 0 : 1,
-            minimumPeerUploadSpeed: readOnly ? 0 : 1,
+            minimumResponseFileCount: requireDownloadablePeer ? 1 : 0,
+            minimumPeerUploadSpeed: requireDownloadablePeer ? 1 : 0,
             searchTimeout: timeout,
             responseLimit: search.ResponseLimit,
             removeSingleCharacterSearchTerms: search.RemoveSingleCharSearchTerms,
-            responseFilter: response => (readOnly || response.UploadSpeed > 0) && necessary.UserSatisfies(response),
-            fileFilter: file => ConditionSatisfactionPolicy.SearchFileSatisfies(necessary, null, file, query));
+            responseFilter: responseFilter,
+            fileFilter: fileFilter);
 
 
 
@@ -721,7 +722,7 @@ public partial class Searcher : IDisposable
     // ── internal search plumbing ──────────────────────────────────────────────
 
     private async Task RunSearches(SongQuery query, SearchSession session,
-        Func<int, FileConditions, FileConditions, SearchOptions> getSearchOptions,
+        Func<SearchAttempt, SearchOptions> getSearchOptions,
         Action<SearchResponse> responseHandler, SearchSettings search,
         CancellationToken? ct = null, Action? onSearch = null, Job? ownerJob = null)
     {
@@ -733,7 +734,7 @@ public partial class Searcher : IDisposable
             if (i > 0 && session.ResultCount != 0) break;
             await Task.WhenAll(batches[i].Select(attempt => DoSearch(
                 attempt.Query,
-                getSearchOptions(attempt.Timeout, attempt.Conditions, search.PreferredCond),
+                getSearchOptions(attempt),
                 responseHandler, ct, onSearch, ownerJob)));
         }
     }

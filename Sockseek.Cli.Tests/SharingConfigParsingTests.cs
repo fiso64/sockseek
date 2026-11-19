@@ -83,9 +83,11 @@ public sealed class SharingConfigParsingTests
         var settings = Bind(
             "--share-scan-on-start", "false",
             "--share-rescan-interval", "30m",
+            "--share-search-result-limit", "750",
             "--upload-slots", "4",
             "--upload-speed-limit-kib", "512");
 
+        Assert.AreEqual(750, settings.Sharing.SearchResultLimit);
         Assert.IsFalse(settings.Sharing.ScanOnStart);
         Assert.AreEqual(TimeSpan.FromMinutes(30), settings.Sharing.RescanInterval);
         Assert.AreEqual(4, settings.Uploads.Slots);
@@ -93,6 +95,7 @@ public sealed class SharingConfigParsingTests
     }
 
     [TestMethod]
+    [DataRow("--share-search-result-limit", "-1")]
     [DataRow("--upload-slots", "0")]
     [DataRow("--upload-speed-limit-kib", "0")]
     [DataRow("--share-rescan-interval", "30s")]
@@ -106,7 +109,6 @@ public sealed class SharingConfigParsingTests
     [DataRow("--share-scan-workers")]
     [DataRow("--share-search-concurrency")]
     [DataRow("--share-search-queue-capacity")]
-    [DataRow("--share-search-result-limit")]
     [DataRow("--upload-max-queued-files-per-user")]
     [DataRow("--upload-max-queued-mib-per-user")]
     public void InternalTuningOptions_AreNotPublicConfiguration(string option)

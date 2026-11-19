@@ -73,7 +73,15 @@ public sealed record SearchSettingsPatchDto(
     int? FallbackLevel = null,
     int? MaxFallbackAttempts = null,
     int? MaxStaleTime = null,
-    bool? ClearMinGroupShares = null);
+    bool? ClearMinGroupShares = null)
+{
+    /// <summary>Settings that can be reapplied to results already collected.</summary>
+    public SearchSettingsPatchDto ForResultRefinement() => new(
+        NecessaryCond: NecessaryCond, PreferredCond: PreferredCond,
+        NecessaryFolderCond: NecessaryFolderCond, PreferredFolderCond: PreferredFolderCond,
+        StrictAlbumQuality: StrictAlbumQuality, MinGroupShares: MinGroupShares,
+        ClearMinGroupShares: ClearMinGroupShares, GroupLengthTol: GroupLengthTol);
+}
 
 public sealed record FileConditionsPatchDto(
     int? LengthTolerance = null,

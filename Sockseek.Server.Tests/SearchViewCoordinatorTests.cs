@@ -184,7 +184,7 @@ public sealed class SearchViewCoordinatorTests
                 var beforeTick = (views.Cache.Get(view.ViewId))!;
                 Assert.AreEqual(initialRevision, beforeTick.Revision);
                 Assert.AreEqual(1L, beforeTick.Counters.PublicFileCount);
-                await clock.AdvanceAndFireAsync(TimeSpan.FromSeconds(1));
+                await clock.AdvanceAndFireAsync(TimeSpan.FromMilliseconds(500));
                 await counterPublication.Task.WaitAsync(observationCancellation.Token);
                 Assert.IsTrue(await observation.MoveNextAsync());
                 Assert.AreEqual(3L, observation.Current.Counters.PublicFileCount);
@@ -391,7 +391,7 @@ public sealed class SearchViewCoordinatorTests
                 {
                     receive(Response("next-peer", [File(@"Music\Track-next.flac")]));
                     await CreateAndObserveAsync(views, source.JobId, definition);
-                    await clock.AdvanceAndFireAsync(TimeSpan.FromSeconds(1));
+                    await clock.AdvanceAndFireAsync(TimeSpan.FromMilliseconds(500));
                     await nextBatch.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 }
                 finally { views.ViewPublished -= NextPublished; }
@@ -1169,12 +1169,14 @@ public sealed class SearchViewCoordinatorTests
             Action<SearchResponse> receive = await searchStarted.Task.WaitAsync(
                 TimeSpan.FromSeconds(5));
             SearchViewCoordinator views = app.Services.GetRequiredService<SearchViewCoordinator>();
-            await Assert.ThrowsExactlyAsync<ArgumentException>(() => views.CreateAsync(
-                job.JobId,
-                new CreateSearchViewRequestDto(
-                    ServerSearchViewProjectionKind.Files,
-                    RefinementSettings: new SearchSettingsPatchDto(SearchTimeout: 1)),
-                CancellationToken.None));
+            foreach (var patch in new[] {
+                new SearchSettingsPatchDto(SearchTimeout: 1),
+                new SearchSettingsPatchDto(ResponseLimit: 1),
+                new SearchSettingsPatchDto(MaxFallbackAttempts: 0),
+            })
+                await Assert.ThrowsExactlyAsync<ArgumentException>(() => views.CreateAsync(
+                    job.JobId, new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.Files, RefinementSettings: patch),
+                    CancellationToken.None));
             await Assert.ThrowsExactlyAsync<ArgumentException>(() => views.CreateAsync(
                 job.JobId,
                 new CreateSearchViewRequestDto(
@@ -1237,6 +1239,7 @@ public sealed class SearchViewCoordinatorTests
                     new("Search.NecessaryCond.Formats", new[] { "flac" }),
                     new("Search.MinGroupShares", 7),
                     new("Search.SearchTimeout", 123),
+                    new("Search.MaxFallbackAttempts", 0),
                 ]),
             }] };
             await using WebApplication restarted = global::Tests.TestServerHost.Build(
@@ -1272,6 +1275,7 @@ public sealed class SearchViewCoordinatorTests
                 CollectionAssert.AreEqual(new[] { "flac" }, retainedDefinition.BaseSearchSettings!.NecessaryCond!.Formats!.Replace!.ToArray());
                 Assert.AreEqual(7, retainedDefinition.EffectiveSearchSettings.MinGroupShares);
                 Assert.AreNotEqual(123, retainedDefinition.EffectiveSearchSettings.SearchTimeout);
+                Assert.AreNotEqual(0, retainedDefinition.EffectiveSearchSettings.MaxFallbackAttempts);
                 CollectionAssert.AreEqual(
                     new[] { "mp3" },
                     retainedDefinition.EffectiveSearchSettings.NecessaryCond!.Formats!.Replace!.ToArray());

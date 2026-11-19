@@ -4,7 +4,7 @@ namespace Sockseek.Core.Sharing;
 
 public static class ShareCatalogVersions
 {
-    public const int Schema = 5;
+    public const int Schema = 6;
     public const int BrowseWire = 1;
 }
 
@@ -107,24 +107,12 @@ public interface IShareCatalogReader : IAsyncDisposable
         RemotePathKey remotePath,
         CancellationToken cancellationToken = default);
 
-    ValueTask<IReadOnlyList<ShareCatalogFile>> SearchAsync(
+    /// <summary>Returns up to limit wire files after excluding ordinal case-insensitive path substrings.</summary>
+    ValueTask<IReadOnlyList<Soulseek.File>> SearchAsync(
         string query,
         int limit,
+        IReadOnlyList<string> exclusions,
         CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Performs the same bounded search while allowing implementations with an
-    /// indexed full-text store to apply request exclusions as a prefilter.
-    /// Implementations without that facility may use the default bounded
-    /// positive search; callers must still apply the exclusions to returned
-    /// remote paths.
-    /// </summary>
-    ValueTask<IReadOnlyList<ShareCatalogFile>> SearchAsync(
-        string query,
-        IReadOnlyCollection<string> exclusions,
-        int limit,
-        CancellationToken cancellationToken = default)
-        => SearchAsync(query, limit, cancellationToken);
 
     ValueTask<ShareCatalogBrowseDirectory?> GetDirectoryAsync(
         RemotePathKey remotePath,

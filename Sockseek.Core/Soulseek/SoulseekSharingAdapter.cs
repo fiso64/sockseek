@@ -58,8 +58,6 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
     public const int MaximumExcludedPhraseCount = 256;
     public const int MaximumExcludedPhraseUtf8Bytes = 1_024;
     public const int MaximumExcludedPhraseSetUtf8Bytes = 64 * 1_024;
-    public const int MaximumSearchCandidates = 2_000;
-    public const int SearchResponseFileLimit = 500;
     public const int IncomingSearchConcurrency = 10;
     public const int IncomingSearchQueueCapacity = 500;
     public const int InboundUploadConcurrency = 10;
@@ -74,7 +72,7 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
     private readonly RepeatedWarningGate warningGate = new();
     private readonly UploadCoordinator uploads;
     private readonly PeerRestrictionPolicy restrictions;
-    private UploadSettings uploadSettings;
+    private EngineSettings settings;
     private readonly Func<ISoulseekClient?> clientProvider;
     private LocalUserProfile profile;
     private readonly bool uploadServingEnabled;
@@ -93,23 +91,22 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
         IShareCatalogProvider catalogs,
         UploadCoordinator uploads,
         PeerRestrictionPolicy restrictions,
-        UploadSettings uploadSettings,
+        EngineSettings settings,
         Func<ISoulseekClient?> clientProvider,
         LocalUserProfile? localProfile = null,
-        bool uploadServingEnabled = true,
         ILogger? logger = null)
     {
         this.logger = logger ?? NullLogger.Instance;
         this.catalogs = catalogs ?? throw new ArgumentNullException(nameof(catalogs));
         this.uploads = uploads ?? throw new ArgumentNullException(nameof(uploads));
         this.restrictions = restrictions ?? throw new ArgumentNullException(nameof(restrictions));
-        this.uploadSettings = uploadSettings ?? throw new ArgumentNullException(nameof(uploadSettings));
+        this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
         this.clientProvider = clientProvider ?? throw new ArgumentNullException(nameof(clientProvider));
         profile = localProfile ?? new LocalUserProfile("", null);
-        this.uploadServingEnabled = uploadServingEnabled;
+        uploadServingEnabled = settings.ListenPort is not null;
     }
 
-    public void UpdateUploadSettings(UploadSettings settings) => Volatile.Write(ref uploadSettings, settings);
+    public void UpdateSettings(EngineSettings settings) => Volatile.Write(ref this.settings, settings);
 
     public void UpdateLocalProfile(LocalUserProfile localProfile) => Volatile.Write(ref profile, localProfile);
 
@@ -154,7 +151,9 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
         int token,
         SearchQuery query)
     {
-        if (disposed
+        int limit = Volatile.Read(ref settings).Sharing.SearchResultLimit;
+        if (limit == 0
+            || disposed
             || !uploadServingEnabled
             || !IsValidUsername(username)
             || !IsValidSearch(query)
@@ -174,31 +173,21 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
         using var timeout = new CancellationTokenSource(RequestTimeout);
         try
         {
-            await searchConcurrency.WaitAsync(timeout.Token).ConfigureAwait(false);
+            // SQLite search is synchronous. Leave the protocol reader free to
+            // dispatch other messages even when a permit is immediately available.
+            await searchConcurrency.WaitAsync(timeout.Token).ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
             entered = true;
 
             if (!catalogs.TryAcquire(out IShareCatalogLease? lease) || lease is null)
                 return null;
             await using (lease.ConfigureAwait(false))
             {
-                const int responseLimit = SearchResponseFileLimit;
-                int candidateLimit = Math.Min(
-                    MaximumSearchCandidates,
-                    checked(responseLimit * 4));
-                IReadOnlyList<ShareCatalogFile> rows = await lease.Reader.SearchAsync(
-                    query.Query,
-                    query.Exclusions,
-                    candidateLimit,
-                    timeout.Token).ConfigureAwait(false);
-                string[] exclusions = query.Exclusions
-                    .Concat(Volatile.Read(ref excludedPhrases))
-                    .ToArray();
-                var files = rows
-                    .Where(file => !ContainsExcluded(file.RemotePath, exclusions))
-                    .Take(responseLimit)
-                    .Select(ToSearchFile)
-                    .ToArray();
-                if (files.Length == 0)
+                string[] serverExclusions = Volatile.Read(ref excludedPhrases);
+                IReadOnlyList<string> exclusions = query.Exclusions.Count == 0
+                    ? serverExclusions : [.. query.Exclusions, .. serverExclusions];
+                var files = await lease.Reader.SearchAsync(query.Query, limit,
+                    exclusions, timeout.Token).ConfigureAwait(false);
+                if (files.Count == 0)
                     return null;
 
                 if (restrictions.Snapshot.HasUploadBlockedIpAddresses)
@@ -213,11 +202,11 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
                         return null;
                 }
 
-                UploadQueueRuntimeSnapshot capacity = uploads.GetQueueSnapshot();
+                var capacity = uploads.GetPeerCapacity(username);
                 return new SearchResponse(
                     clientProvider()?.Username ?? "",
                     token,
-                    uploadServingEnabled && uploads.CouldStartImmediately(username),
+                    uploadServingEnabled && capacity.HasFreeSlot,
                     EffectiveUploadSpeedBytesPerSecond,
                     capacity.QueuedFiles,
                     files);
@@ -285,11 +274,14 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
     {
         if (disposed
             || !IsValidUsername(username)
-            || restrictions.IsUploadAccessBlocked(username, endpoint)
-            || !IsValidRemotePath(remotePath))
+            || restrictions.IsUploadAccessBlocked(username, endpoint))
         {
             return [];
         }
+
+        RemotePathKey key;
+        try { key = RemotePathKey.Create(remotePath); }
+        catch (ArgumentException) { return []; }
 
         using var timeout = new CancellationTokenSource(RequestTimeout);
         try
@@ -299,7 +291,6 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
             if (gate is null)
                 return [];
 
-            var key = RemotePathKey.Create(remotePath);
             if (!catalogs.TryAcquire(out IShareCatalogLease? lease) || lease is null)
                 return [];
             await using (lease.ConfigureAwait(false))
@@ -340,12 +331,12 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
             return Task.FromResult(new UserInfo(currentProfile.Description, 0, 0, false, currentProfile.Picture?.Bytes));
         lease.Dispose();
 
-        UploadQueueRuntimeSnapshot capacity = uploads.GetQueueSnapshot();
+        var capacity = uploads.GetPeerCapacity(username);
         return Task.FromResult(new UserInfo(
             currentProfile.Description,
             uploadServingEnabled ? capacity.TotalSlots : 0,
             capacity.QueuedFiles,
-            uploadServingEnabled && uploads.CouldStartImmediately(username),
+            uploadServingEnabled && capacity.HasFreeSlot,
             currentProfile.Picture?.Bytes));
     }
 
@@ -358,7 +349,6 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
             throw new DownloadEnqueueException("Pending shutdown.");
         if (!uploadServingEnabled
             || !IsValidUsername(username)
-            || !IsValidRemotePath(remotePath)
             || restrictions.IsUploadAccessBlocked(username, endpoint))
         {
             throw new DownloadEnqueueException("File not shared.");
@@ -375,10 +365,8 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
                 throw new DownloadEnqueueException("Temporarily unavailable; try again later.");
             }
 
-            string exactUsername = PeerUsername.Validate(username);
-
             UploadCoordinatorAdmission result = await uploads.AdmitAsync(
-                exactUsername,
+                username,
                 endpoint,
                 remotePath,
                 timeout.Token).ConfigureAwait(false);
@@ -405,7 +393,9 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
         IPEndPoint endpoint,
         string remotePath)
     {
-        if (disposed
+        int limit = Volatile.Read(ref settings).Sharing.SearchResultLimit;
+        if (limit == 0
+            || disposed
             || !uploadServingEnabled
             || !IsValidUsername(username)
             || restrictions.IsUploadAccessBlocked(username, endpoint))
@@ -430,7 +420,7 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
     }
 
     private int EffectiveUploadSpeedBytesPerSecond
-        => Volatile.Read(ref uploadSettings).SpeedLimitKiBPerSecond is { } kib
+        => Volatile.Read(ref settings).Uploads.SpeedLimitKiBPerSecond is { } kib
             ? Math.Min(uploads.MeasuredUploadSpeed, checked(kib * 1_024))
             : uploads.MeasuredUploadSpeed;
 
@@ -462,33 +452,6 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
             return false;
         }
     }
-
-    private static bool IsValidRemotePath(string remotePath)
-    {
-        try
-        {
-            return RemotePathKey.Create(remotePath).Bytes.Length > 0;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-    }
-
-    private static bool ContainsExcluded(string remotePath, IEnumerable<string> exclusions)
-        => exclusions.Any(exclusion =>
-            remotePath.Contains(exclusion, StringComparison.OrdinalIgnoreCase));
-
-    private static SlFile ToSearchFile(ShareCatalogFile file)
-        => new(
-            file.ProtocolCode,
-            file.RemotePath,
-            file.SizeBytes,
-            file.Extension,
-            file.Attributes.Select(
-                attribute => new FileAttribute(
-                    (FileAttributeType)attribute.Type,
-                    attribute.Value)));
 
     private static SlFile ToBrowseFile(ShareCatalogFile file)
         => new(

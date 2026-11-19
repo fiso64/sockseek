@@ -515,11 +515,12 @@ public sealed class UploadCoordinatorTests
             => ValueTask.FromResult(
                 files.TryGetValue(remotePath, out var file) ? file : null);
 
-        public ValueTask<IReadOnlyList<ShareCatalogFile>> SearchAsync(
+        public ValueTask<IReadOnlyList<Soulseek.File>> SearchAsync(
             string query,
             int limit,
+            IReadOnlyList<string> exclusions,
             CancellationToken cancellationToken = default)
-            => ValueTask.FromResult<IReadOnlyList<ShareCatalogFile>>([]);
+            => ValueTask.FromResult<IReadOnlyList<Soulseek.File>>([]);
 
         public ValueTask<ShareCatalogBrowseDirectory?> GetDirectoryAsync(
             RemotePathKey remotePath,
@@ -575,9 +576,10 @@ public sealed class UploadCoordinatorTests
                 return null;
             }
 
-            public ValueTask<IReadOnlyList<ShareCatalogFile>> SearchAsync(
+            public ValueTask<IReadOnlyList<Soulseek.File>> SearchAsync(
                 string query,
                 int limit,
+                IReadOnlyList<string> exclusions,
                 CancellationToken cancellationToken = default)
                 => throw new NotSupportedException();
 

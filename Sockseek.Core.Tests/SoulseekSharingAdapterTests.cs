@@ -22,7 +22,7 @@ public sealed class SoulseekSharingAdapterTests
         var reader = new FakeCatalogReader([File(@"Public\track.flac")]) { SearchFailure = new IOException("catalog read failed") };
         await using var uploads = CreateUploads(reader);
         using var adapter = new SoulseekSharingAdapter(new FakeProvider(reader), uploads,
-            new PeerRestrictionPolicy(new PeerRestrictionSettings()), new UploadSettings { Slots = 1 },
+            new PeerRestrictionPolicy(new PeerRestrictionSettings()), new EngineSettings(),
             () => null, logger: logs.CreateLogger("sharing-test"));
         Assert.IsNull(await adapter.ResolveSearchAsync("alice", 1, new SearchQuery("track")));
         Assert.IsNull(await adapter.ResolveSearchAsync("alice", 2, new SearchQuery("track")));
@@ -133,7 +133,7 @@ public sealed class SoulseekSharingAdapterTests
     }
 
     [TestMethod]
-    public async Task SearchUsesBoundedOverfetchAndAppliesBothExclusionSources()
+    public async Task SearchRequestsOneResponseWithBothExclusionSources()
     {
         var reader = new FakeCatalogReader(
         [
@@ -153,9 +153,9 @@ public sealed class SoulseekSharingAdapterTests
             new SearchQuery(["track"], ["blocked"]));
 
         Assert.IsNotNull(response);
-        Assert.AreEqual(SoulseekSharingAdapter.MaximumSearchCandidates, reader.LastLimit);
+        Assert.AreEqual(500, reader.LastLimit);
         CollectionAssert.AreEquivalent(
-            new[] { "blocked" },
+            new[] { "blocked", "forbidden" },
             reader.LastExclusions.ToArray());
         CollectionAssert.AreEqual(
             new[]
@@ -165,6 +165,15 @@ public sealed class SoulseekSharingAdapterTests
                 @"Public\allowed three track.flac",
             },
             response.Files.Select(file => file.Filename).ToArray());
+
+        adapter.UpdateSettings(new EngineSettings { Sharing = new() { SearchResultLimit = 2 } });
+        response = await adapter.ResolveSearchAsync("alice", 2, new SearchQuery(["track"], ["blocked"]));
+        CollectionAssert.AreEqual(new[] { @"Public\allowed one track.flac", @"Public\allowed two track.flac" },
+            response!.Files.Select(file => file.Filename).ToArray());
+
+        adapter.UpdateSettings(new EngineSettings { Sharing = new() { SearchResultLimit = 0 } });
+        Assert.IsNull(await adapter.ResolveSearchAsync("alice", 3, new SearchQuery("track")));
+        Assert.AreEqual(2, reader.SearchCount);
     }
 
     [TestMethod]
@@ -175,7 +184,7 @@ public sealed class SoulseekSharingAdapterTests
         using var adapter = CreateAdapter(
             reader,
             uploads,
-            uploadServingEnabled: false);
+            new EngineSettings { ListenPort = null });
         Assert.IsTrue(adapter.TryUpdateExcludedSearchPhrases([]));
         var endpoint = new IPEndPoint(IPAddress.Loopback, 1234);
 
@@ -211,7 +220,7 @@ public sealed class SoulseekSharingAdapterTests
             {
                 UploadAccess = new UploadAccessSettings { BlockedUsernames = ["blocked"] },
             }),
-            new UploadSettings { Slots = 1 },
+            new EngineSettings(),
             () => null,
             new LocalUserProfile("hello", new UserPicture(picture, "image/jpeg", 1, 1, "test")));
         var endpoint = new IPEndPoint(IPAddress.Loopback, 1234);
@@ -250,14 +259,13 @@ public sealed class SoulseekSharingAdapterTests
     private static SoulseekSharingAdapter CreateAdapter(
         FakeCatalogReader reader,
         UploadCoordinator uploads,
-        bool uploadServingEnabled = true)
+        EngineSettings? settings = null)
         => new(
             new FakeProvider(reader),
             uploads,
             new PeerRestrictionPolicy(new PeerRestrictionSettings()),
-            new UploadSettings { Slots = 1 },
-            () => null,
-            uploadServingEnabled: uploadServingEnabled);
+            settings ?? new EngineSettings(),
+            () => null);
 
     private static UploadCoordinator CreateUploads(FakeCatalogReader reader)
         => new(
@@ -335,24 +343,17 @@ public sealed class SoulseekSharingAdapterTests
                 ? ValueTask.FromException<ShareCatalogResolvedFile?>(failure)
                 : ValueTask.FromResult<ShareCatalogResolvedFile?>(null);
 
-        public ValueTask<IReadOnlyList<ShareCatalogFile>> SearchAsync(
-            string query,
-            int limit,
-            CancellationToken cancellationToken = default)
-            => SearchAsync(query, [], limit, cancellationToken);
-
-        public ValueTask<IReadOnlyList<ShareCatalogFile>> SearchAsync(
-            string query,
-            IReadOnlyCollection<string> exclusions,
-            int limit,
-            CancellationToken cancellationToken = default)
+        public ValueTask<IReadOnlyList<Soulseek.File>> SearchAsync(
+            string query, int limit, IReadOnlyList<string> exclusions, CancellationToken cancellationToken = default)
         {
             SearchCount++;
-            if (SearchFailure is { } failure) return ValueTask.FromException<IReadOnlyList<ShareCatalogFile>>(failure);
+            if (SearchFailure is { } failure) return ValueTask.FromException<IReadOnlyList<Soulseek.File>>(failure);
             LastLimit = limit;
             LastExclusions = exclusions.ToArray();
-            return ValueTask.FromResult<IReadOnlyList<ShareCatalogFile>>(
-                files.Take(limit).ToArray());
+            return ValueTask.FromResult<IReadOnlyList<Soulseek.File>>(files
+                .Where(file => !exclusions.Any(ex => file.RemotePath.Contains(ex, StringComparison.OrdinalIgnoreCase)))
+                .Take(limit).Select(file => new Soulseek.File(file.ProtocolCode, file.RemotePath,
+                    file.SizeBytes, file.Extension)).ToArray());
         }
 
         public ValueTask<ShareCatalogBrowseDirectory?> GetDirectoryAsync(

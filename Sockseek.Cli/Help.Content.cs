@@ -122,7 +122,7 @@ public static partial class Help
                                     is unavailable.
 
     --search-timeout <ms>           Stop a search attempt after this long without an accepted
-                                    response (default: 15000 for manual searches, 5000 for automatic jobs)
+                                    response (default: 5000 for CLI jobs, 15000 for webui searches)
     --max-stale-time <ms>           Max download time without progress in ms (default: 30000)
     --response-limit <num>          Max accepted peer responses per search attempt (default: 250)
     --searches-per-time <num>       Max searches per time interval. Higher values may cause
@@ -282,6 +282,7 @@ public static partial class Help
     --share-exclude <path>          Replace excluded share subtrees. Prefix with '+ ' to append.
     --share-filter <regex>          Replace case-insensitive share filters. Prefix with '+ ' to
                                     append. Matches on the remote relative path.
+    --share-search-result-limit <n> Max files sent per peer search reply (default: 500, 0 disables replies)
     --share-scan-on-start <bool>    Scan configured shares when the daemon starts (default: true)
     --share-rescan-interval <time>  Periodic rescan interval (for example 30m, 12h, or off;
                                     default: off)

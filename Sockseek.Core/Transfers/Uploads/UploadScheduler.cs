@@ -241,21 +241,16 @@ public sealed class UploadScheduler
         }
     }
 
-    public bool CouldStartImmediately(string username)
+    public (int TotalSlots, int QueuedFiles, bool HasFreeSlot) GetPeerCapacity(string username)
     {
         username = PeerUsername.Validate(username);
         lock (sync)
         {
-            if (active.Count >= slots)
-                return false;
-            if (users.TryGetValue(username, out var user)
-                && (user.ActiveTransferId is not null || user.Waiting.Count > 0))
-            {
-                return false;
-            }
-
-            // A newly admitted user is appended after all currently ready users.
-            return readyUsers.Count < slots - active.Count;
+            // A new user follows anyone already waiting; one user cannot start two uploads.
+            bool free = readyUsers.Count < slots - active.Count
+                && (!users.TryGetValue(username, out var user)
+                    || (user.ActiveTransferId is null && user.Waiting.Count == 0));
+            return (slots, queuedFiles, free);
         }
     }
 

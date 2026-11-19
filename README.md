@@ -1251,6 +1251,7 @@ sockseek auth keys revoke <id>  Revoke a key; offline commands require the daemo
 --share-exclude <path>          Replace excluded share subtrees. Prefix with '+ ' to append.
 --share-filter <regex>          Replace case-insensitive share filters. Prefix with '+ ' to
                                 append. Matches on the remote relative path.
+--share-search-result-limit <n> Max files sent per peer search reply (default: 500, 0 disables replies)
 --share-scan-on-start <bool>    Scan configured shares when the daemon starts (default: true)
 --share-rescan-interval <time>  Periodic rescan interval (for example 30m, 12h, or off;
                                 default: off)

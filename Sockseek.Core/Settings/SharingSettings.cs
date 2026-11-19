@@ -16,6 +16,10 @@ public sealed class SharingSettings
     [SettingReloadable]
     public List<string> Filters { get; set; } = [];
 
+    [SettingOption("--share-search-result-limit", DefaultProfileOnly = true)]
+    [SettingReloadable]
+    public int SearchResultLimit { get; set; } = 500;
+
     [SettingOption("--share-scan-on-start", DefaultProfileOnly = true)]
     public bool ScanOnStart { get; set; } = true;
 

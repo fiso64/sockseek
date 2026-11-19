@@ -214,6 +214,9 @@ public static class SharingSettingsValidator
         SharingSettings sharing,
         UploadSettings uploads)
     {
+        if (sharing.SearchResultLimit < 0)
+            throw new ArgumentException("Input error: share-search-result-limit must be zero or greater.");
+
         if (sharing.RescanInterval is { } interval)
         {
             if (interval < TimeSpan.FromMinutes(1)

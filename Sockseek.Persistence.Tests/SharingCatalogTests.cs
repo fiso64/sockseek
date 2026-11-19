@@ -18,7 +18,7 @@ public sealed class SharingCatalogTests
 
         var resolved = await reader.ResolveFileAsync(
             RemotePathKey.Create("music/artist/cafe\u0301 track.FLAC"));
-        var search = await reader.SearchAsync("café track", 10);
+        var search = await reader.SearchAsync("café track", 10, []);
         var directory = await reader.GetDirectoryAsync(
             RemotePathKey.Create(@"MUSIC\ARTIST"));
         var browse = new List<ShareCatalogBrowseDirectory>();
@@ -30,7 +30,9 @@ public sealed class SharingCatalogTests
         Assert.AreEqual(fixture.RootPath, resolved.Root.LocalPath);
         Assert.AreEqual(fixture.File.RemotePath, resolved.File.RemotePath);
         Assert.AreEqual(1, search.Count);
-        Assert.AreEqual(fixture.File.FileId, search[0].FileId);
+        Assert.AreEqual(fixture.File.RemotePath, search[0].Filename);
+        Assert.AreEqual(fixture.File.SizeBytes, search[0].Size);
+        Assert.AreEqual(320, search[0].BitRate);
         Assert.AreEqual(1, directory!.Files.Count);
         Assert.AreEqual(3, browse.Count);
         Assert.IsTrue(browse.Any(x => x.Directory.RemotePath == @"Music\Empty"));
@@ -60,35 +62,34 @@ public sealed class SharingCatalogTests
         await using var fixture = await CatalogFixture.CreateAsync();
         await using var reader = await SqliteShareCatalogReader.OpenAsync(fixture.DatabasePath);
 
-        var results = await reader.SearchAsync("\" OR * NOT", 10);
+        var results = await reader.SearchAsync("\" OR * NOT", 10, []);
 
         Assert.AreEqual(0, results.Count);
     }
 
     [TestMethod]
-    public async Task Catalog_SearchUsesOnlyLosslessSingleTokenExclusionPrefilters()
+    public async Task Catalog_SearchReturnsFirstEligibleFilesInCatalogOrder()
     {
         await using var fixture = await CatalogFixture.CreateAsync(addSecondFile: true);
         await using var reader = await SqliteShareCatalogReader.OpenAsync(fixture.DatabasePath);
 
         var singleToken = await reader.SearchAsync(
             "Music Artist",
-            ["Second"],
-            10);
+            10,
+            ["Second"]);
         var compoundSubstring = await reader.SearchAsync(
             "Music Artist",
-            ["Café Track"],
-            10);
-        var ranked = await reader.SearchAsync("Music Artist", 10);
+            10,
+            ["Café Track"]);
+        var first = await reader.SearchAsync("Music Artist", 1, []);
 
         Assert.AreEqual(1, singleToken.Count);
-        Assert.AreEqual(fixture.File.FileId, singleToken[0].FileId);
-        // Compound exclusions are kept for the adapter's exact substring
-        // post-filter so the FTS tokenizer cannot create false negatives.
-        Assert.AreEqual(2, compoundSubstring.Count);
-        CollectionAssert.AreEqual(new[] { fixture.File.FileId, 2L },
-            ranked.Select(file => file.FileId).ToArray(),
-            "Equal ranks use exact path spelling, independently of file IDs.");
+        Assert.AreEqual(fixture.File.RemotePath, singleToken[0].Filename);
+        Assert.AreEqual(1, compoundSubstring.Count);
+        Assert.AreNotEqual(fixture.File.RemotePath, compoundSubstring[0].Filename);
+        var accent = await reader.SearchAsync("Music Artist", 10, ["Cafe"]);
+        Assert.IsTrue(accent.Any(file => file.Filename == fixture.File.RemotePath));
+        Assert.AreEqual(compoundSubstring[0].Filename, first.Single().Filename);
     }
 
     [TestMethod]
@@ -130,7 +131,7 @@ public sealed class SharingCatalogTests
             "settings", 1, 1, 1234, ShareBrowseStatus.Ready, ShareCatalogVersions.BrowseWire, 100, new string('A', 64));
         await builder.PrepareForReadAsync();
         await using (var staging = await SqliteShareCatalogReader.OpenStagingAsync(databasePath, metadata))
-            Assert.AreEqual(9L, (await staging.SearchAsync("Valid", 500)).Single().FileId);
+            Assert.AreEqual(valid.RemotePath, (await staging.SearchAsync("Valid", 500, [])).Single().Filename);
         // A caller can resume scanning after a staging read. Later files need
         // not have larger IDs, and repeated read preparation must not duplicate
         // search entries or reintroduce the rejected path above.
@@ -143,9 +144,9 @@ public sealed class SharingCatalogTests
         var restored = (await reader.ResolveFileAsync(valid.ComparisonPath))!.File;
         Assert.AreEqual(valid.RemotePath, restored.RemotePath);
         CollectionAssert.AreEqual(valid.Attributes.ToArray(), restored.Attributes.ToArray());
-        Assert.AreEqual(1, (await reader.SearchAsync("Valid", 500)).Count);
-        Assert.AreEqual(2L, (await reader.SearchAsync("Later", 500)).Single().FileId);
-        Assert.AreEqual(2, (await reader.SearchAsync("Music", 500)).Count);
+        Assert.AreEqual(1, (await reader.SearchAsync("Valid", 500, [])).Count);
+        Assert.AreEqual(later.RemotePath, (await reader.SearchAsync("Later", 500, [])).Single().Filename);
+        Assert.AreEqual(2, (await reader.SearchAsync("Music", 500, [])).Count);
     }
 
     [TestMethod]
@@ -179,20 +180,22 @@ public sealed class SharingCatalogTests
         TimeSpan indexing = watch.Elapsed;
         await using var reader = await SqliteShareCatalogReader.OpenAsync(path);
         watch.Restart();
-        var broad = await reader.SearchAsync("Music", 500);
+        var broad = await reader.SearchAsync("Music", 500, []);
         TimeSpan broadRead = watch.Elapsed;
         Assert.AreEqual(500, broad.Count);
         watch.Restart();
-        var warmed = await reader.SearchAsync("Music", 500);
+        var warmed = await reader.SearchAsync("Music", 500, []);
         TimeSpan warmedRead = watch.Elapsed;
-        CollectionAssert.AreEqual(broad.Select(file => file.FileId).ToArray(),
-            warmed.Select(file => file.FileId).ToArray());
+        CollectionAssert.AreEqual(broad.Select(file => file.Filename).ToArray(),
+            warmed.Select(file => file.Filename).ToArray());
         Assert.IsTrue(warmedRead.TotalMilliseconds < 100,
             $"A warmed 500-file page from 100k broad matches took {warmedRead.TotalMilliseconds:F1} ms.");
-        var exact = (await reader.SearchAsync("Album099 Track00983", 500)).Single();
-        Assert.AreEqual(100_000L, exact.FileId);
+        var beyondExcludedPrefix = await reader.SearchAsync("Music", 1, ["Album00"]);
+        Assert.AreEqual(@"Music\Album010\Track00000.flac", beyondExcludedPrefix.Single().Filename);
+        var exact = (await reader.SearchAsync("Album099 Track00983", 500, [])).Single();
+        Assert.AreEqual(@"Music\Album099\Track00983.flac", exact.Filename);
         var lookup = await reader.ResolveFileAsync(RemotePathKey.Create(@"Music\Album099\Track00983.flac"));
-        Assert.AreEqual(exact.FileId, lookup!.File.FileId);
+        Assert.AreEqual(exact.Filename, lookup!.File.RemotePath);
         Assert.AreEqual(1234L, lookup.File.SizeBytes);
         Assert.AreEqual(1000, (await reader.GetDirectoryAsync(RemotePathKey.Create(@"Music\Album099")))!.Files.Count);
         Console.WriteLine($"Local catalogue100k: indexing={indexing.TotalMilliseconds:F1} ms; "
@@ -243,7 +246,7 @@ public sealed class SharingCatalogTests
         public static async ValueTask<CatalogFixture> CreateAsync(bool addSecondFile = false)
         {
             var directory = new TemporaryDirectory();
-            string databasePath = Path.Combine(directory.Path, "catalog.sqlite3");
+            string databasePath = Path.Combine(directory.Path, "share %23 catalog.sqlite3");
             string rootPath = Path.Combine(directory.Path, "local-root");
             var root = CreateRoot(rootPath);
             var rootDirectory = CreateDirectory(1, root, "");

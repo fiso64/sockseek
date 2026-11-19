@@ -9,6 +9,22 @@ namespace Tests.Server;
 public sealed class DownloadSettingsPatchDtoMapperTests
 {
     [TestMethod]
+    public void EffectiveSearchSettingsExposeEverySearchScalarByName()
+    {
+        var settings = new SearchSettings();
+        var dto = EffectiveSettingsMapper.ToSearchSettings(settings);
+        foreach (var scalar in SettingsSchema.For(typeof(SearchSettings)).Leaves.Where(member => !member.Path.Contains('.')))
+        {
+            var property = typeof(SearchSettingsPatchDto).GetProperty(scalar.Path);
+            Assert.IsNotNull(property, $"Search patch is missing {scalar.Path}.");
+            var expected = scalar.Path == nameof(SearchSettings.MinGroupShares)
+                ? settings.EffectiveMinGroupShares : scalar.Get(settings);
+            Assert.IsNotNull(expected, $"Supply a value for {scalar.Path} to check its effective settings mapping.");
+            Assert.AreEqual(expected, property.GetValue(dto), scalar.Path);
+        }
+    }
+
+    [TestMethod]
     public void NumericConditionClearRemovesInheritedBoundsWithoutChangingOtherFields()
     {
         var settings = new DownloadSettings();
