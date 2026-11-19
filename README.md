@@ -154,6 +154,8 @@ Sockseek searches the Soulseek P2P network. Sources like Spotify and YouTube are
 - [More Examples](#other-examples)
 - [Tips](#tips)
 - [Options reference](#options-reference)
+  - [One-shot downloads](#one-shot-downloads)
+  - [Daemon and remote CLI](#daemon-and-remote-cli)
 - [Docker](docs/docker.md)
 
 <!-- sockseek-help:start(input) -->
@@ -973,6 +975,8 @@ If you plan to use a large music library, you might want to add `--mock-files-no
 
 ## Options reference
 
+### Downloads
+
 Most common flags:
 
 ```text
@@ -1047,7 +1051,6 @@ Most common flags:
 --no-listen                     Disable the incoming connection listener
 --connect-timeout <ms>          Timeout used when logging in to Soulseek (default: 20000ms)
 --user-description <desc>       Soulseek profile description
---user-picture <path>           Daemon profile picture
 
 --on-complete <command>         Run a command when a download completes. See `--help
                                 on-complete`
@@ -1254,6 +1257,73 @@ Most common flags:
                                 more results
 ```
 
+#### Printing & Debug Options
+
+```
+-v, --verbose                   Print debug logs
+-vv, --trace                    Print trace-level debug info
+--debug                         Alias for --verbose
+--log-file <path>               Write debug logs to a file
+--no-progress                   Disable progress bars/percentages, only simple printing
+--progress-json                 Print progress events as JSON lines
+--print <option>                Print jobs or search results instead of downloading:
+                                'jobs': Print input jobs after extraction/preprocessing
+                                'jobs-full': Print extended information about input jobs
+                                'results': Print search results satisfying file conditions
+                                'results-full': Print search results including full paths.
+                                'json': Print first result in json format
+                                'json-all': Print json of all results in sorted order
+                                'link': Print first result slsk:// link
+                                'index': Print Sockseek index as formatted json
+                                'index-failed': Print failed downloads from Sockseek index
+--print-jobs                    Alias for --print jobs
+--print-jobs-full               Alias for --print jobs-full
+--print-results                 Alias for --print results
+--print-results-full            Alias for --print results-full
+--print-link                    Alias for --print link
+--print-json                    Alias for --print json
+--print-json-full               Alias for --print json-all
+
+--mock-files-dir <path>         Directory containing files to simulate download results
+--mock-files-no-read-tags       Only read filenames when simulating (much faster)
+--mock-files-slow               Simulate slow mock-file downloads and folder browses
+--mock-files-fail-downloads <n> Simulate n failed mock-file downloads
+```
+
+### Daemon and remote CLI
+
+```text
+sockseek daemon --help          Start and configure the daemon
+sockseek database --help        Maintain an offline database
+sockseek auth --help            Manage credentials and API keys
+sockseek chat --help            Read and send private messages
+sockseek room --help            Join rooms and manage room messages and members
+sockseek notifications --help   List notifications
+sockseek notification --help    Mark notifications as read
+sockseek share --help           Inspect and scan shared files
+sockseek transfers --help       List transfers and manage them in bulk
+sockseek transfer --help        Cancel or remove an individual transfer
+```
+
+<!-- sockseek-help-topic:start(remote) -->
+#### Remote CLI Options
+
+```text
+--remote <url>                  Connect to the daemon at this URL (required unless configured)
+--remote-api-key-file <path>    Read the API key from a file (preferred)
+--remote-api-key <key>          Supply the API key inline
+
+--json                          Print chat, room, notification, share and transfer results as JSON
+--limit <n>                     Maximum entries for chat, room, notification and transfer lists
+
+--detach                        Submit a download, print its workflow ID and exit
+--monitor                       Monitor all active workflows until interrupted
+                                Supply an input to submit it and monitor all daemon work
+```
+<!-- sockseek-help-topic:end -->
+
+<!-- sockseek-help:end -->
+
 <!-- sockseek-help-topic:start(daemon-options) -->
 #### Daemon Options
 
@@ -1263,6 +1333,7 @@ sockseek daemon                 Start the HTTP/SignalR daemon
 --server-port <port>            Port for the daemon HTTP API (default: 5030)
 --data-dir <path>               Directory for daemon data, including sockseek.db
 --no-config-watch               Disable automatic daemon config-file reload
+--user-picture <path>           Daemon profile picture
 ```
 
 ##### WebUI and Access
@@ -1329,7 +1400,7 @@ sockseek daemon                 Start the HTTP/SignalR daemon
 <!-- sockseek-help-topic:end -->
 
 <!-- sockseek-help-topic:start(database) -->
-#### Offline Database Commands
+#### Offline database maintenance
 
 ```text
 sockseek database migrate      Update the offline database to the current schema
@@ -1342,32 +1413,16 @@ sockseek database restore      Verify and restore an offline backup
 <!-- sockseek-help-topic:end -->
 
 <!-- sockseek-help-topic:start(auth) -->
-#### Authentication Commands
+#### Authentication
 
 ```text
 sockseek auth hash-password       Generate a WebUI password hash locally
   --web-password-file <path>      Read the password from a file (default: prompt or stdin)
 
-sockseek auth keys list           List API keys
+sockseek auth keys list           List API keys locally or on a running daemon
 sockseek auth keys create <name>  Create a named key and print its secret once
 sockseek auth keys revoke <id>    Revoke an API key
   --data-dir <path>               Key database directory for offline use (stop the daemon first)
-  --remote <url>                  Manage keys on a running daemon
-  --remote-api-key-file <path>    Read the key for the remote connection from a file
-  --remote-api-key <key>          Supply the connection key inline
-```
-<!-- sockseek-help-topic:end -->
-
-<!-- sockseek-help-topic:start(remote) -->
-#### Remote CLI Options
-
-```text
---remote <url>                  Connect to a running daemon
---remote-api-key-file <path>    Read the API key from a file (preferred)
---remote-api-key <key>          Supply the API key inline
---detach                        Submit a download, print its workflow ID and exit
---monitor                       Monitor all active workflows until interrupted
-                                Supply an input to submit it and monitor all daemon work
 ```
 <!-- sockseek-help-topic:end -->
 
@@ -1399,14 +1454,11 @@ sockseek user shares-download <browse-id>
 
 sockseek user shares-cancel <browse-id>
                                   Cancel an active browse for all waiting clients
-
---remote <url>                    Daemon URL; required unless configured
---json                            Emit JSON instead of pictures or interactive browsing
 ``` -->
 <!-- sockseek-help-topic:end -->
 
 <!-- sockseek-help-topic:start(chat) -->
-#### Chat, Rooms and Notifications CLI
+#### Private messages
 
 ```text
 sockseek chat status                Show chat status
@@ -1418,7 +1470,13 @@ sockseek chat send <username> <message>
 sockseek chat read <username> [--through <message-id>]
                                     Mark a conversation as read
 sockseek chat delete <username>     Permanently delete a conversation and its messages
+```
+<!-- sockseek-help-topic:end -->
 
+<!-- sockseek-help-topic:start(room) -->
+#### Chat rooms
+
+```text
 sockseek room available|joined      List available or joined rooms
 sockseek room join <name> [--no-remember]
                                     Join a room
@@ -1428,29 +1486,42 @@ sockseek room messages|members <name>
 sockseek room send <name> <message> Send a room message
 sockseek room member add <name> <username>
                                     Add a private room member
-
-sockseek notifications [--unread]   List notifications
-sockseek notification read <id|all> Mark one or all notifications as read
-
---limit <n>                         Maximum entries for list commands
---remote <url>                      Daemon URL (required unless configured)
---json                              Emit JSON
 ```
 <!-- sockseek-help-topic:end -->
+
+#### Notifications
+
+<!-- sockseek-help-topic:start(notifications) -->
+```text
+sockseek notifications [--unread]   List notifications
+```
+<!-- sockseek-help-topic:end -->
+
+<!-- sockseek-help-topic:start(notification) -->
+```text
+sockseek notification read <id|all> Mark one or all notifications as read
+```
+<!-- sockseek-help-topic:end -->
+
 <!-- sockseek-help-topic:start(share) -->
-#### Shares and Transfers CLI
+#### Shares
 
 ```text
 sockseek share status               Show the state of the share catalog
 sockseek share scan [--cancel]      Start or cancel a scan
+```
+<!-- sockseek-help-topic:end -->
 
+#### Transfers
+
+<!-- sockseek-help-topic:start(transfers) -->
+```text
 sockseek transfers                  List transfers
   --direction upload|download       Filter by transfer direction
   --state <state>                   Filter by transfer state
   --outcome <outcome>               Filter by terminal outcome
   --username <name>                 Filter by peer
   --include-removed                 Include transfers removed from history
-  --limit <n>                       Maximum entries per page
   --cursor <cursor>                 Continue from an earlier page
 
 sockseek transfers cancel --direction upload|download
@@ -1460,46 +1531,17 @@ sockseek transfers remove           Remove matching transfers from history
   --outcome <outcome>               Filter by terminal outcome
   --username <name>                 Filter either bulk action by peer
   --group-ref <ref>                 Limit either bulk action to a group (requires --username and --direction)
-
-sockseek transfer cancel|remove <id>
-                                    Cancel one transfer or remove it from history
---remote <url>                      Daemon URL (required unless configured)
---json                              Emit JSON
 ```
 <!-- sockseek-help-topic:end -->
-#### Printing & Debug Options
 
+<!-- sockseek-help-topic:start(transfer) -->
+```text
+sockseek transfer cancel|remove <id>
+                                    Cancel one transfer or remove it from history
 ```
--v, --verbose                   Print debug logs
--vv, --trace                    Print trace-level debug info
---debug                         Alias for --verbose
---log-file <path>               Write debug logs to a file
---no-progress                   Disable progress bars/percentages, only simple printing
---progress-json                 Print progress events as JSON lines
---print <option>                Print jobs or search results instead of downloading:
-                                'jobs': Print input jobs after extraction/preprocessing
-                                'jobs-full': Print extended information about input jobs
-                                'results': Print search results satisfying file conditions
-                                'results-full': Print search results including full paths.
-                                'json': Print first result in json format
-                                'json-all': Print json of all results in sorted order
-                                'link': Print first result slsk:// link
-                                'index': Print Sockseek index as formatted json
-                                'index-failed': Print failed downloads from Sockseek index
---print-jobs                    Alias for --print jobs
---print-jobs-full               Alias for --print jobs-full
---print-results                 Alias for --print results
---print-results-full            Alias for --print results-full
---print-link                    Alias for --print link
---print-json                    Alias for --print json
---print-json-full               Alias for --print json-all
+<!-- sockseek-help-topic:end -->
 
---mock-files-dir <path>         Directory containing files to simulate download results
---mock-files-no-read-tags       Only read filenames when simulating (much faster)
---mock-files-slow               Simulate slow mock-file downloads and folder browses
---mock-files-fail-downloads <n> Simulate n failed mock-file downloads
-```
-
+<!-- sockseek-help:start(cli-notes) -->
 ### CLI Notes
 
 - Flags can be explicitly disabled by setting them to false, e.g. `--interactive false`.

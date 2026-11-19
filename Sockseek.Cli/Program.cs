@@ -34,12 +34,17 @@ internal static partial class Program
 
         try
         {
+            if (Help.PrintAndExitIfNeeded(args))
+                return (int)CliExitCode.Success;
             CliExitCode? configuredCommand = await ConfiguredCommandDispatcher.TryRunAsync(args, output)
                 .ConfigureAwait(false);
             if (configuredCommand is not null)
                 return (int)configuredCommand.Value;
-            if (Help.PrintAndExitIfNeeded(args))
+            if (args.Contains("--version"))
+            {
+                Help.PrintVersion();
                 return (int)CliExitCode.Success;
+            }
             return (int)await MainCore(args, output);
         }
         catch (Exception ex)

@@ -218,7 +218,8 @@ namespace Sockseek.Cli;
 
 public static partial class Help
 {
-    const string usageText = @""Usage: Sockseek <input> [OPTIONS]"";
+    const string usageText = @""Usage: sockseek <input> [OPTIONS]
+       sockseek <command> [OPTIONS]"";
 
     const string helpText = usageText + @""
 __HELP_TEXT_MAIN__"";
@@ -243,7 +244,7 @@ __HELP_TEXT_MAIN__"";
 
     const string daemonHelp = @""__HELP_TEXT_DAEMON__"";
 
-    private static Dictionary<string, string> CommandTopics() => new(Guides)
+    private static Dictionary<string, string> CommandTopics() => new(StringComparer.OrdinalIgnoreCase)
     {
 __COMMAND_TOPICS__
     };
@@ -251,7 +252,7 @@ __COMMAND_TOPICS__
 ";
 
     var content = template
-        .Replace("__HELP_TEXT_MAIN__", topics["main"])
+        .Replace("__HELP_TEXT_MAIN__", topics["main"] + "\n" + topics["cli-notes"])
         .Replace("__HELP_TEXT_INPUT__", topics["input"])
         .Replace("__HELP_TEXT_DOWNLOAD_MODES__", topics["download-modes"])
         .Replace("__HELP_TEXT_FILE_CONDITIONS__", topics["file-conditions"])

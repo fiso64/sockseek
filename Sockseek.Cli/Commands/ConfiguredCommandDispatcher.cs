@@ -35,11 +35,6 @@ internal static class ConfiguredCommandDispatcher
         {
             if (command == "auth")
             {
-                if (HasHelp(args))
-                {
-                    Help.PrintHelp(command);
-                    return Program.CliExitCode.Success;
-                }
                 return await AuthenticationCommands.RunAsync(ConfiguredCommandInvocation.Create(args,
                     ConfiguredCommandOptions.Remote | ConfiguredCommandOptions.DataDirectory
                     | ConfiguredCommandOptions.Authentication), cancellationToken).ConfigureAwait(false);
@@ -53,8 +48,6 @@ internal static class ConfiguredCommandDispatcher
 
             if (command == "database")
             {
-                if (HasHelp(args))
-                    return null;
                 ConfiguredCommandInvocation invocation = ConfiguredCommandInvocation.Create(
                     args, ConfiguredCommandOptions.DataDirectory);
                 using ILoggerFactory loggerFactory = output is null
@@ -85,12 +78,6 @@ internal static class ConfiguredCommandDispatcher
         Func<SockseekApiClient, ConfiguredCommandInvocation, CancellationToken, Task<Program.CliExitCode>> run,
         CancellationToken cancellationToken)
     {
-        if (HasHelp(args))
-        {
-            Help.PrintHelp(args[0].ToLowerInvariant());
-            return Program.CliExitCode.Success;
-        }
-
         var invocation = ConfiguredCommandInvocation.Create(args, ConfiguredCommandOptions.Remote);
         if (!invocation.Remote.IsEnabled)
             return Usage("This command requires a configured remote URL (remote = <url> or --remote <url>).");
@@ -137,9 +124,6 @@ internal static class ConfiguredCommandDispatcher
             ? message : $"Input error: {message}");
         return Program.CliExitCode.UsageError;
     }
-
-    private static bool HasHelp(IReadOnlyList<string> args)
-        => args.Any(argument => argument is "-h" or "--help");
 }
 
 internal sealed record ConfiguredCommandInvocation(
