@@ -2,42 +2,49 @@ namespace Sockseek.Cli;
 
 public static partial class Help
 {
+    private static readonly Dictionary<string, string> Guides = new()
+    {
+        ["input"] = inputHelp,
+        ["download-modes"] = downloadModesHelp,
+        ["file-conditions"] = fileConditionsHelp,
+        ["name-format"] = nameFormatHelp,
+        ["variables"] = variablesHelp,
+        ["on-complete"] = onCompleteHelp,
+        ["config"] = configHelp,
+        ["shortcuts"] = shortcutsHelp,
+        ["notes"] = notesAndTipsHelp,
+        ["daemon"] = daemonHelp,
+    };
+
+    // Command references are also included in the main options listing.
+    private static readonly Dictionary<string, string> Topics = new(Guides)
+    {
+        ["daemon"] = daemonHelp + "\n" + daemonOptionsHelp,
+        ["database"] = databaseHelp,
+        ["auth"] = authHelp,
+        ["remote"] = remoteHelp,
+        ["user"] = userHelp,
+        ["chat"] = chatHelp,
+        ["share"] = shareHelp,
+    };
+
     public static void PrintHelp(string? option = null)
     {
         string text = helpText;
-
-        var dict = new Dictionary<string, string>()
-        {
-            { "input", inputHelp },
-            { "download-modes", downloadModesHelp },
-            { "file-conditions", fileConditionsHelp },
-            { "name-format", nameFormatHelp },
-            { "variables", variablesHelp },
-            { "on-complete", onCompleteHelp },
-            { "config", configHelp },
-            { "shortcuts", shortcutsHelp },
-            { "notes", notesAndTipsHelp },
-            { "daemon", daemonHelp },
-            { "user", userHelp },
-            { "chat", chatHelp },
-            { "share", shareHelp },
-            { "database", databaseHelp },
-        };
-
         option = option switch
         {
             "room" or "notification" or "notifications" => "chat",
             "transfer" or "transfers" => "share",
             _ => option,
         };
-        if (option != null && dict.TryGetValue(option, out string? value))
+        if (option != null && Topics.TryGetValue(option, out string? value))
             text = value;
         else if (option == "all")
-            text = $"{helpText}\n{string.Join('\n', dict.Values)}";
+            text = $"{helpText}\n{string.Join('\n', Guides.Values)}";
         else if (option == "help")
-            text = $"Choose from:\n\n  {string.Join("\n  ", dict.Keys)}";
+            text = $"Choose from:\n\n  {string.Join("\n  ", Topics.Keys)}";
         else if (option != null)
-            text = $"Unrecognized help option '{option}'. Choose from:\n\n  {string.Join("\n  ", dict.Keys)}";
+            text = $"Unrecognized help option '{option}'. Choose from:\n\n  {string.Join("\n  ", Topics.Keys)}";
 
         Console.WriteLine(text.TrimStart('\r', '\n'));
     }

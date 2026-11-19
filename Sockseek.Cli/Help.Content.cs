@@ -184,6 +184,7 @@ public static partial class Help
     --strict-artist                 Require artist in path. When the input artist contains
                                     multiple artists split by ;, requires one only.
     --strict-album                  Require album in folder path
+    --exclude-locked                Exclude locked files from search results (default: false)
     --banned-users <list>           Comma-separated list of users to ignore
     --allowed-users <list>          Comma-separated list of users to allow
     --cond <conditions>             Semicolon-delimited required conditions
@@ -200,6 +201,7 @@ public static partial class Help
     --pref-strict-title             Prefer filenames containing the track title
     --pref-strict-artist            Prefer file paths containing artist name
     --pref-strict-album             Prefer folder paths containing album name
+    --pref-exclude-locked           Prefer unlocked results (default: true)
     --pref-banned-users <list>      Comma-separated list of users to downrank
     --pref-allowed-users <list>     Comma-separated list of users to prefer
     --pref <conditions>             Semicolon-delimited preferred conditions
@@ -253,63 +255,97 @@ public static partial class Help
     --relax-filtering               Slightly relax file filtering in group mode to include
                                     more results
 
-  Daemon / Remote Options
+  Daemon Options
 
-    sockseek daemon                 Start the HTTP/SignalR daemon instead of running a download
+    sockseek daemon                 Start the HTTP/SignalR daemon
     --server-ip <ip>                IP/interface for the daemon HTTP API (default: 127.0.0.1)
     --server-port <port>            Port for the daemon HTTP API (default: 5030)
-    --web-username <name>          WebUI login name (default: admin)
-    --web-password-file <path>      WebUI password file; required unless a hash or --no-auth is set
-    --web-password-hash <hash>      Alternative to the password file; use auth hash-password
-    --web-session-lifetime <time>   Fixed session duration (default: 7.00:00:00)
-    --web-theme <theme>            WebUI theme: dark (default), light, auto, 2009-dark, 2009-light
-    --web-default-search-mode <mode>  generic, track, album (default), song-groups, album-groups
-    --trusted-proxies <ips>         Forwarding proxy addresses (default: 127.0.0.1,::1)
-    --allow-http-auth              Permit plaintext HTTP credentials/cookies (default: false)
-    --no-auth                      Grant anonymous full access (default: false)
-    --remote <url>                  Use an existing daemon instead of running locally
-    --remote-api-key-file <path>    Remote client key file; separate from the WebUI password
-    --remote-api-key <key>          Alternative inline API key (prefer a private file)
-    sockseek auth hash-password    Generate a WebUI password hash locally
-    sockseek auth keys list        List API keys; add --remote for a running daemon
-    sockseek auth keys create <name>  Create a named key and print its secret once
-    sockseek auth keys revoke <id>  Revoke a key; offline commands require the daemon stopped
-    --monitor                       Monitor all active daemon workflows. Input is optional;
-                                    an input submitted with this option appears alongside
-                                    all other daemon work until the monitor is interrupted
-    --share <[alias]path|path>      Replace configured public share roots. Prefix a later value
-                                    with '+ ' to append instead.
-    --share-exclude <path>          Replace excluded share subtrees. Prefix with '+ ' to append.
-    --share-filter <regex>          Replace case-insensitive share filters. Prefix with '+ ' to
-                                    append. Matches on the remote relative path.
-    --share-search-result-limit <n> Max files sent per peer search reply (default: 500, 0 disables replies)
-    --share-scan-on-start <bool>    Scan configured shares when the daemon starts (default: true)
-    --share-rescan-interval <time>  Periodic rescan interval (for example 30m, 12h, or off;
-                                    default: off)
-    --upload-slots <num>            Maximum concurrent uploads (default: 10)
-    --upload-speed-limit-kib <n>    Aggregate upload limit in KiB/s (default: unlimited)
-    --upload-blocked-user <name>    Replace usernames denied access to your shares. Prefix with '+ ' to append.
-    --upload-blocked-ip <address>   Replace IPs denied access to your shares. Prefix with '+ ' to append.
-    --private-message-blocked-user <name>
-                                    Replace usernames whose incoming DMs are discarded. Prefix with '+ ' to append.
-    --chat-room <name>              Replace rooms joined by the daemon. Prefix with '+ ' to append.
     --data-dir <path>               Directory for daemon data, including sockseek.db
     --no-config-watch               Disable automatic daemon config-file reload
-    --no-retention                  Disable scheduled history retention
-    --successful-job-retention-days <days|forever>
-                                    Successful job retention (default: forever)
-    --unsuccessful-job-retention-days <days|forever>
-                                    Failed, cancelled, and interrupted job retention (default: forever)
-    --transfer-retention-days <days|forever>
-                                    Transfer history, attempts and byte accounting retention (default: forever)
-    --search-result-retention-days <days|forever>
-                                    Raw search-result retention (default: 30)
-    --private-message-retention-days <days|forever>
-                                    Private-message retention (default: forever)
-    --room-message-retention-days <days|forever>
-                                    Room-message retention (default: 30)
-    --exclude-locked                Exclude locked files from search results (default: false)
-    --pref-exclude-locked           Prefer unlocked results (default: true)
+
+    WebUI and Access
+
+      --web-username <name>           WebUI login name (default: admin)
+      --web-password-file <path>      WebUI password file (required unless a hash or --no-auth is set)
+      --web-password-hash <hash>      WebUI password hash generated by sockseek auth hash-password
+      --web-session-lifetime <time>   Fixed session duration (default: 7.00:00:00)
+      --trusted-proxies <ips>         Forwarding proxy addresses (default: 127.0.0.1,::1)
+      --allow-http-auth               Permit plaintext HTTP credentials/cookies (default: false)
+      --no-auth                       Grant anonymous full access (default: false)
+
+      --web-theme <theme>             WebUI theme: dark (default), light, auto, 2009-dark, 2009-light
+      --web-default-search-mode <mode>
+                                      generic, track, album (default), song-groups, album-groups
+
+    Sharing, Uploads and Chat
+
+      --share <path|[alias]path>      Share a local directory, optionally under an alias.
+                                      Prefix with '+ ' to append.
+      --share-exclude <path>          Exclude a local directory and its contents from shares.
+                                      Prefix with '+ ' to append.
+      --share-filter <regex>          Exclude files and directories whose remote relative paths
+                                      match the pattern (case-insensitive). Prefix with '+ ' to append.
+      --upload-blocked-user <name>    Block this user's access to your shares. Prefix with '+ ' to append.
+      --upload-blocked-ip <address>   Block access to your shares from this IP address.
+                                      Prefix with '+ ' to append.
+      --private-message-blocked-user <name>
+                                      Discard private messages from this user. Prefix with '+ ' to append.
+      --chat-room <name>              Join this Soulseek room when the daemon connects.
+                                      Prefix with '+ ' to append.
+
+      --share-search-result-limit <n> Max files sent per peer search reply (default: 500, 0 disables replies)
+      --share-scan-on-start <bool>    Scan configured shares when the daemon starts (default: true)
+      --share-rescan-interval <time>  Periodic rescan interval (for example 30m, 12h, or off;
+                                      default: off)
+      --upload-slots <num>            Maximum concurrent uploads (default: 10)
+      --upload-speed-limit-kib <n>    Aggregate upload limit in KiB/s (default: unlimited)
+
+    History Retention
+
+      --no-retention                  Disable scheduled history retention
+      --successful-job-retention-days <days|forever>
+                                      Successful job retention (default: forever)
+      --unsuccessful-job-retention-days <days|forever>
+                                      Failed, cancelled, and interrupted job retention (default: forever)
+      --transfer-retention-days <days|forever>
+                                      Transfer history, attempts and byte accounting retention (default: forever)
+      --search-result-retention-days <days|forever>
+                                      Raw search-result retention (default: 30)
+      --private-message-retention-days <days|forever>
+                                      Private-message retention (default: forever)
+      --room-message-retention-days <days|forever>
+                                      Room-message retention (default: 30)
+
+  Offline Database Commands
+
+    sockseek database migrate      Update the offline database to the current schema
+    sockseek database integrity    Check an offline database for corruption
+    sockseek database backup       Create and verify an offline backup
+    sockseek database restore      Verify and restore an offline backup
+    --data-dir <path>               Override the configured/default data directory
+    --backup <path>                 Backup destination for `backup`, source for `restore`
+
+  Authentication Commands
+
+    sockseek auth hash-password       Generate a WebUI password hash locally
+      --web-password-file <path>      Read the password from a file (default: prompt or stdin)
+
+    sockseek auth keys list           List API keys
+    sockseek auth keys create <name>  Create a named key and print its secret once
+    sockseek auth keys revoke <id>    Revoke an API key
+      --data-dir <path>               Key database directory for offline use (stop the daemon first)
+      --remote <url>                  Manage keys on a running daemon
+      --remote-api-key-file <path>    Read the key for the remote connection from a file
+      --remote-api-key <key>          Supply the connection key inline
+
+  Remote Client Options
+
+    --remote <url>                  Connect to a running daemon
+    --remote-api-key-file <path>    Read the API key from a file (preferred)
+    --remote-api-key <key>          Supply the API key inline
+    --detach                        Submit a download, print its workflow ID and exit
+    --monitor                       Monitor all active workflows until interrupted
+                                    Supply an input to submit it and monitor all daemon work
 
   Remote User Commands
 
@@ -396,15 +432,6 @@ public static partial class Help
                                         Cancel one transfer or remove it from history
     --remote <url>                      Daemon URL (required unless configured)
     --json                              Emit JSON
-
-  Sockseek Database
-
-    sockseek database migrate      Update the offline database to the current schema
-    sockseek database integrity    Check an offline database for corruption
-    sockseek database backup       Create and verify an offline backup
-    sockseek database restore      Verify and restore an offline backup
-    --data-dir <path>               Override the configured/default data directory
-    --backup <path>                 Backup destination for `backup`, source for `restore`
 
   Printing & Debug Options
 
@@ -1036,6 +1063,92 @@ Daemon / remote mode
   days by default and are invalidated by logout or daemon restart.
   For application integration, see the API guide.";
 
+    const string daemonOptionsHelp = @"
+Daemon Options
+
+  sockseek daemon                 Start the HTTP/SignalR daemon
+  --server-ip <ip>                IP/interface for the daemon HTTP API (default: 127.0.0.1)
+  --server-port <port>            Port for the daemon HTTP API (default: 5030)
+  --data-dir <path>               Directory for daemon data, including sockseek.db
+  --no-config-watch               Disable automatic daemon config-file reload
+
+  WebUI and Access
+
+    --web-username <name>           WebUI login name (default: admin)
+    --web-password-file <path>      WebUI password file (required unless a hash or --no-auth is set)
+    --web-password-hash <hash>      WebUI password hash generated by sockseek auth hash-password
+    --web-session-lifetime <time>   Fixed session duration (default: 7.00:00:00)
+    --trusted-proxies <ips>         Forwarding proxy addresses (default: 127.0.0.1,::1)
+    --allow-http-auth               Permit plaintext HTTP credentials/cookies (default: false)
+    --no-auth                       Grant anonymous full access (default: false)
+
+    --web-theme <theme>             WebUI theme: dark (default), light, auto, 2009-dark, 2009-light
+    --web-default-search-mode <mode>
+                                    generic, track, album (default), song-groups, album-groups
+
+  Sharing, Uploads and Chat
+
+    --share <path|[alias]path>      Share a local directory, optionally under an alias.
+                                    Prefix with '+ ' to append.
+    --share-exclude <path>          Exclude a local directory and its contents from shares.
+                                    Prefix with '+ ' to append.
+    --share-filter <regex>          Exclude files and directories whose remote relative paths
+                                    match the pattern (case-insensitive). Prefix with '+ ' to append.
+    --upload-blocked-user <name>    Block this user's access to your shares. Prefix with '+ ' to append.
+    --upload-blocked-ip <address>   Block access to your shares from this IP address.
+                                    Prefix with '+ ' to append.
+    --private-message-blocked-user <name>
+                                    Discard private messages from this user. Prefix with '+ ' to append.
+    --chat-room <name>              Join this Soulseek room when the daemon connects.
+                                    Prefix with '+ ' to append.
+
+    --share-search-result-limit <n> Max files sent per peer search reply (default: 500, 0 disables replies)
+    --share-scan-on-start <bool>    Scan configured shares when the daemon starts (default: true)
+    --share-rescan-interval <time>  Periodic rescan interval (for example 30m, 12h, or off;
+                                    default: off)
+    --upload-slots <num>            Maximum concurrent uploads (default: 10)
+    --upload-speed-limit-kib <n>    Aggregate upload limit in KiB/s (default: unlimited)
+
+  History Retention
+
+    --no-retention                  Disable scheduled history retention
+    --successful-job-retention-days <days|forever>
+                                    Successful job retention (default: forever)
+    --unsuccessful-job-retention-days <days|forever>
+                                    Failed, cancelled, and interrupted job retention (default: forever)
+    --transfer-retention-days <days|forever>
+                                    Transfer history, attempts and byte accounting retention (default: forever)
+    --search-result-retention-days <days|forever>
+                                    Raw search-result retention (default: 30)
+    --private-message-retention-days <days|forever>
+                                    Private-message retention (default: forever)
+    --room-message-retention-days <days|forever>
+                                    Room-message retention (default: 30)";
+
+    const string remoteHelp = @"
+Remote Client Options
+
+  --remote <url>                  Connect to a running daemon
+  --remote-api-key-file <path>    Read the API key from a file (preferred)
+  --remote-api-key <key>          Supply the API key inline
+  --detach                        Submit a download, print its workflow ID and exit
+  --monitor                       Monitor all active workflows until interrupted
+                                  Supply an input to submit it and monitor all daemon work";
+
+    const string authHelp = @"
+Authentication Commands
+
+  sockseek auth hash-password       Generate a WebUI password hash locally
+    --web-password-file <path>      Read the password from a file (default: prompt or stdin)
+
+  sockseek auth keys list           List API keys
+  sockseek auth keys create <name>  Create a named key and print its secret once
+  sockseek auth keys revoke <id>    Revoke an API key
+    --data-dir <path>               Key database directory for offline use (stop the daemon first)
+    --remote <url>                  Manage keys on a running daemon
+    --remote-api-key-file <path>    Read the key for the remote connection from a file
+    --remote-api-key <key>          Supply the connection key inline";
+
     const string userHelp = @"
 Remote User Commands
 
@@ -1126,7 +1239,7 @@ Shares and Transfers
   --json                              Emit JSON";
 
     const string databaseHelp = @"
-Sockseek Database
+Offline Database Commands
 
   sockseek database migrate      Update the offline database to the current schema
   sockseek database integrity    Check an offline database for corruption

@@ -8,7 +8,9 @@ namespace Tests.Cli;
 public sealed class HelpReferenceTests
 {
     [TestMethod]
-    public void DaemonCommandHelp_SelectsDaemonTopic()
+    [DataRow("daemon", "--server-port")]
+    [DataRow("auth", "sockseek auth keys create")]
+    public async Task CommandHelp_SelectsItsTopic(string command, string usage)
     {
         var originalOutput = Console.Out;
         using var output = new StringWriter();
@@ -16,9 +18,12 @@ public sealed class HelpReferenceTests
         {
             Console.SetOut(output);
 
-            Assert.IsTrue(Help.PrintAndExitIfNeeded(["daemon", "--help"]));
-
-            StringAssert.Contains(output.ToString(), "--remote-api-key-file");
+            Assert.AreEqual(0, await Sockseek.Cli.Program.Main([command, "--help"]));
+            string commandHelp = output.ToString();
+            StringAssert.Contains(commandHelp, usage);
+            output.GetStringBuilder().Clear();
+            Assert.AreEqual(0, await Sockseek.Cli.Program.Main(["--help", command]));
+            Assert.AreEqual(commandHelp, output.ToString());
         }
         finally
         {

@@ -10,12 +10,9 @@ internal static class AuthenticationCommands
     public static async Task<Program.CliExitCode> RunAsync(ConfiguredCommandInvocation invocation, CancellationToken ct)
     {
         var args = invocation.CommandArguments.Skip(1).ToArray();
-        if (args.Length == 0 || args.Any(x => x is "--help" or "-h"))
+        if (args.Length == 0)
         {
-            Console.WriteLine("sockseek auth hash-password [--web-password-file <path>]\n"
-                + "sockseek auth keys <list|create <name>|revoke <id>> [--data-dir <path>]\n"
-                + "Add --remote <url> --remote-api-key-file <path> to manage a running daemon.\n"
-                + "Offline key management requires the daemon to be stopped.");
+            Help.PrintHelp("auth");
             return Program.CliExitCode.Success;
         }
         if (args is ["hash-password"])

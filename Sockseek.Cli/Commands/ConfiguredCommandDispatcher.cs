@@ -34,9 +34,16 @@ internal static class ConfiguredCommandDispatcher
         try
         {
             if (command == "auth")
+            {
+                if (HasHelp(args))
+                {
+                    Help.PrintHelp(command);
+                    return Program.CliExitCode.Success;
+                }
                 return await AuthenticationCommands.RunAsync(ConfiguredCommandInvocation.Create(args,
                     ConfiguredCommandOptions.Remote | ConfiguredCommandOptions.DataDirectory
                     | ConfiguredCommandOptions.Authentication), cancellationToken).ConfigureAwait(false);
+            }
             if (command is "chat" or "room" or "notifications" or "notification")
                 return await RunRemoteCommandAsync(args, ChatCommands.RunAsync, cancellationToken).ConfigureAwait(false);
             if (command is "share" or "transfers" or "transfer")

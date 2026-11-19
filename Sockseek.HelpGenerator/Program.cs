@@ -253,6 +253,12 @@ __HELP_TEXT_MAIN__"";
 
     const string daemonHelp = @""__HELP_TEXT_DAEMON__"";
 
+    const string daemonOptionsHelp = @""__HELP_TEXT_DAEMON_OPTIONS__"";
+
+    const string remoteHelp = @""__HELP_TEXT_REMOTE__"";
+
+    const string authHelp = @""__HELP_TEXT_AUTH__"";
+
     const string userHelp = @""__HELP_TEXT_USER__"";
 
     const string chatHelp = @""__HELP_TEXT_CHAT__"";
@@ -275,6 +281,9 @@ __HELP_TEXT_MAIN__"";
         .Replace("__HELP_TEXT_SHORTCUTS__", topics["shortcuts"])
         .Replace("__HELP_TEXT_NOTES_AND_TIPS__", topics["notes-and-tips"])
         .Replace("__HELP_TEXT_DAEMON__", topics["daemon"])
+        .Replace("__HELP_TEXT_DAEMON_OPTIONS__", topics["daemon-options"])
+        .Replace("__HELP_TEXT_REMOTE__", topics["remote"])
+        .Replace("__HELP_TEXT_AUTH__", topics["auth"])
         .Replace("__HELP_TEXT_USER__", topics["user"])
         .Replace("__HELP_TEXT_CHAT__", topics["chat"])
         .Replace("__HELP_TEXT_SHARE__", topics["share"])
