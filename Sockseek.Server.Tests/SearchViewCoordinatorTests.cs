@@ -1789,10 +1789,9 @@ public sealed class SearchViewCoordinatorTests
     }
 
     [TestMethod]
-    [DataRow(true, false)]
-    [DataRow(false, false)]
-    [DataRow(true, true)]
-    public async Task RestartRequiresANewViewAndRebuildsFromRetainedRawResults(bool captureCompletion, bool upgradeFailureThresholds)
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task RestartRequiresANewViewAndRebuildsFromRetainedRawResults(bool captureCompletion)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -1847,28 +1846,6 @@ public sealed class SearchViewCoordinatorTests
                     supervisor.StateStore.SetJobPersistence(null);
                 }
                 await first.StopAsync();
-            }
-
-            if (upgradeFailureThresholds)
-            {
-                await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
-                    new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
-                    { Pooling = false, DataSource = Path.Combine(directory, "sockseek.db") }.ToString());
-                await connection.OpenAsync();
-                await using var command = connection.CreateCommand();
-                // Reproduce a search saved by the score-based implementation,
-                // before the failure-count migration existed.
-                command.CommandText = """
-                    UPDATE jobs SET payload_json=json_set(payload_json,
-                        '$.Definition.ProjectionSettings.DownrankOn', -1,
-                        '$.Definition.ProjectionSettings.IgnoreOn', -2) WHERE id=$job;
-                    UPDATE submission_specifications SET specification_json=json_set(specification_json,
-                        '$.search.projectionSettings.downrankOn', -1,
-                        '$.search.projectionSettings.ignoreOn', -2);
-                    DELETE FROM __EFMigrationsHistory WHERE MigrationId='20261113220000_PositivePeerFailureThresholds';
-                    """;
-                command.Parameters.AddWithValue("$job", sourceJobId);
-                await command.ExecuteNonQueryAsync();
             }
 
             var secondClient = ControllableSearchClientProxy.Create();

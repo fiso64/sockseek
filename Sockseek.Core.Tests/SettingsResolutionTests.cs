@@ -93,7 +93,7 @@ public class SettingsResolutionTests
 
         job.Session.AddResponse(flac);
         var incremental = job.GetAlbumFolders(settings.Search);
-        var oneShot = SearchResultProjector.AlbumFolders(job.Snapshot(), query, settings.ResolveSearchSettings());
+        var oneShot = SearchResultProjector.AlbumFolders(job.RawSnapshot(), query, settings.ResolveSearchSettings());
         Assert.HasCount(2, incremental.Items);
         CollectionAssert.AreEquivalent(oneShot.Select(f => f.Username).ToArray(), incremental.Items.Select(f => f.Username).ToArray());
         var group = job.GetAlbumGroups(settings.Search);

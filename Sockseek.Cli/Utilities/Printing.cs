@@ -166,12 +166,6 @@ public static class Printing
         PrintComplete(successes, fails, skipped);
     }
 
-    internal static (int Successes, int Fails) CountUserFacingCompletions(JobList queue)
-    {
-        var (successes, fails, _) = CountUserFacingCompletionsDetailed(queue);
-        return (successes, fails);
-    }
-
     internal static (int Successes, int Fails, int Skipped) CountUserFacingCompletionsDetailed(JobList queue)
     {
         int successes = 0, fails = 0;
@@ -231,9 +225,6 @@ public static class Printing
         else if (IsManualSkipCompletion(job)) skipped++;
         else if (job.IsUnsuccessfulTerminal) fails++;
     }
-
-    public static void PrintComplete(int successes, int fails)
-        => PrintComplete(successes, fails, skipped: 0);
 
     public static void PrintComplete(int successes, int fails, int skipped)
     {
@@ -415,21 +406,6 @@ public static class Printing
         return 3 + folder.Files.Count;
     }
 
-    public static string FormatList<T>(ICollection<T> items, Func<T, string> format, string indent = "  ", int maxCount = 10)
-    {
-        var result = new System.Text.StringBuilder();
-        int count = 1;
-        foreach (var item in items)
-        {
-            if (count > 1) result.Append('\n');
-            if (count > maxCount) { result.Append($"... and {items.Count - count} more"); break; }
-            result.Append(indent);
-            result.Append(format(item));
-            count++;
-        }
-        return result.ToString();
-    }
-
     private static string PathRelativeToFolder(string filename, string folderPath)
     {
         if (folderPath.Length == 0)
@@ -491,12 +467,6 @@ public static class Printing
             "m4a"  => ConsoleColor.Cyan,
             _      => ConsoleColor.Gray,
         };
-    }
-
-    public static void RefreshOrPrint(int current, string item, bool print = false)
-    {
-        if (print)
-            WriteLine(item);
     }
 
     public static void WriteLine(string value = "", ConsoleColor color = ConsoleColor.Gray, bool force = false)

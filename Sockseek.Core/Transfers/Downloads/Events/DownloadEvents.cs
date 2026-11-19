@@ -203,18 +203,8 @@ public class DownloadEvents
         PeerFileTarget c,
         string outputPath,
         long xfer,
-        long total)
-        => RaiseDownloadProgressWithSpeed(
-            transferId, song, c, outputPath, xfer, total, null);
-
-    internal void RaiseDownloadProgressWithSpeed(
-        Guid transferId,
-        FileDownloadJob song,
-        PeerFileTarget c,
-        string outputPath,
-        long xfer,
         long total,
-        double? bytesPerSecond)
+        double? bytesPerSecond = null)
         => PublishNonTerminalTransfer(transferId, facts => new DownloadProgressedChange(
             NextSequence(),
             UtcNow(),
@@ -230,19 +220,8 @@ public class DownloadEvents
         string outputPath,
         TransferStates s,
         long bytesTransferred,
-        long totalBytes)
-        => RaiseDownloadStateChangedWithSpeed(
-            transferId, song, c, outputPath, s, bytesTransferred, totalBytes, null);
-
-    internal void RaiseDownloadStateChangedWithSpeed(
-        Guid transferId,
-        FileDownloadJob song,
-        PeerFileTarget c,
-        string outputPath,
-        TransferStates s,
-        long bytesTransferred,
         long totalBytes,
-        double? bytesPerSecond)
+        double? bytesPerSecond = null)
         => PublishNonTerminalTransfer(transferId, facts => new DownloadStateChangedChange(
             NextSequence(),
             UtcNow(),

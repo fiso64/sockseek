@@ -191,7 +191,7 @@ namespace Tests.ExtractorTests2
         {
             var extractor = new SoulseekExtractor();
             var config = TestHelpers.CreateDefaultSettings().Download;
-            config.Extraction.IsAlbum = true;
+            config.Extraction.RequestedMode = ExtractionMode.Album;
             var result = await extractor.GetTracks("slsk://someuser/Music/Song.mp3", config.Extraction);
 
             Assert.IsInstanceOfType(result, typeof(AlbumJob));

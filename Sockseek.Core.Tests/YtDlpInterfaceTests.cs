@@ -19,7 +19,8 @@ public class YtDlpInterfaceTests
         var settings = new DownloadSettings();
         settings.YtDlp.UseYtdlp = true;
         var organizer = new FileManager(song, settings.Output, settings.Extraction,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance);
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance,
+            OutputScope.Empty);
         var provider = new YtDlpSongDownloadFallback(new PhaseClient(song));
         var started = false;
         var result = await provider.TryDownloadAsync(song, settings, organizer, ExtractorContext.None.Log,

@@ -55,13 +55,6 @@ public sealed class SqliteMaintenanceService(
         return new DatabaseBackupResult(fullBackupPath, new FileInfo(fullBackupPath).Length, integrity);
     }
 
-    public async Task<WalCheckpointResult> CheckpointAsync(CancellationToken cancellationToken = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await context.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        return await CheckpointAsync(context, cancellationToken).ConfigureAwait(false);
-    }
-
     internal static async Task<WalCheckpointResult> CheckpointAsync(
         SockseekDbContext context, CancellationToken cancellationToken)
     {

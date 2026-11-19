@@ -96,17 +96,6 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
                              SqliteOpenMode.ReadWriteCreate,
                              cancellationToken).ConfigureAwait(false))
             {
-                // This registry owns disposable artifacts, not accepted jobs or
-                // history. Expire an obsolete format once at startup so every
-                // reader can use the current schema without compatibility probes.
-                await using (var version = connection.CreateCommand())
-                {
-                    version.CommandText = "PRAGMA user_version;";
-                    if (Convert.ToInt32(await version.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
-                            CultureInfo.InvariantCulture) != ArtifactFormatVersion)
-                        await ExecuteAsync(connection, "DROP TABLE IF EXISTS browse_resources;", cancellationToken)
-                            .ConfigureAwait(false);
-                }
                 await ExecuteAsync(
                     connection,
                     """
@@ -143,9 +132,6 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
                         ON browse_resources(expires_at_utc);
                     """,
                     cancellationToken).ConfigureAwait(false);
-
-                await ExecuteAsync(connection, $"PRAGMA user_version={ArtifactFormatVersion};", cancellationToken)
-                    .ConfigureAwait(false);
 
                 DateTimeOffset now = timeProvider.GetUtcNow();
                 await using var interrupted = connection.CreateCommand();

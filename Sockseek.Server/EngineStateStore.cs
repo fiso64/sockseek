@@ -167,9 +167,6 @@ public sealed class EngineStateStore
             return activeTransfers.Values.Select(transfer => transfer.ToDto()).ToArray();
     }
 
-    public IReadOnlyList<TransferStateDto> GetTransferSnapshot(IReadOnlySet<Guid> transferIds)
-        => GetTransferFactsSnapshot(transferIds).Select(transfer => transfer.ToDto()).ToArray();
-
     internal IReadOnlyList<TransferReadSnapshot> GetTransferFactsSnapshot(IReadOnlySet<Guid> transferIds)
     {
         lock (gate)

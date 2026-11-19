@@ -39,7 +39,6 @@ internal sealed class JobState
     internal JobReadState? PublishedJob(Guid id) => records.GetValueOrDefault(id)?.Published;
     internal Guid[] DurableWorkflowJobIds(Guid id) => jobs.Values.Where(job => job.WorkflowId == id
         && job.Retention != Sockseek.Core.Planning.JobRetention.Memory).Select(job => job.Id).ToArray();
-    internal Guid[] WorkflowJobIds(Guid id) => CurrentJobs.Where(row => row.WorkflowId == id).Select(row => row.Id).ToArray();
 
     // Keep records and workflow group indexes in sync only through UpdateJobRecord.
     private readonly Dictionary<Guid, JobSnapshot> jobs = [];

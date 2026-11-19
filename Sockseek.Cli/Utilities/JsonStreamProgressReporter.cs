@@ -176,27 +176,6 @@ public class JsonStreamProgressReporter
         });
     }
 
-    private void ReportTrackList(IEnumerable<SongJob> songs)
-    {
-        var list = songs.ToList();
-        var data = new
-        {
-            total = list.Count,
-            tracks = list.Select((s, i) => new
-            {
-                index  = i,
-                artist = s.Query.Artist,
-                title  = s.Query.Title,
-                album  = s.Query.Album,
-                length = s.Query.Length,
-                lifecycleState  = s.LifecycleState.ToString(),
-                activityPhase   = s.ActivityPhase.ToString(),
-                terminalOutcome = s.TerminalOutcome.ToString(),
-            }).ToList(),
-        };
-        WriteEvent("track_list", data);
-    }
-
     private void ReportTrackList(IEnumerable<JobSnapshot> songs)
     {
         var list = songs
@@ -234,19 +213,6 @@ public class JsonStreamProgressReporter
         });
     }
 
-    private void ReportDownloadStart(SongJob song, FileCandidate candidate)
-    {
-        WriteEvent("download_start", new
-        {
-            artist    = song.Query.Artist,
-            title     = song.Query.Title,
-            username  = candidate.Username,
-            filename  = candidate.Filename,
-            size      = candidate.Size,
-            extension = GetExtension(candidate.Filename),
-        });
-    }
-
     private void ReportDownloadStart(DownloadStartedChange change)
     {
         var song = (SongJobSnapshotPayload)change.Job.Payload;
@@ -258,23 +224,6 @@ public class JsonStreamProgressReporter
             filename = change.Target.Identity.Filename,
             size = change.Target.Size,
             extension = GetExtension(change.Target.Identity.Filename),
-        });
-    }
-
-    private void ReportDownloadProgress(SongJob song, long bytesTransferred, long totalBytes)
-    {
-        var now = DateTime.UtcNow;
-        if (now - _lastDownloadProgressReport < _downloadProgressThrottle)
-            return;
-        _lastDownloadProgressReport = now;
-
-        WriteEvent("download_progress", new
-        {
-            artist           = song.Query.Artist,
-            title            = song.Query.Title,
-            bytesTransferred,
-            totalBytes,
-            percent = totalBytes > 0 ? Math.Round((double)bytesTransferred / totalBytes * 100, 1) : 0,
         });
     }
 
@@ -333,23 +282,9 @@ public class JsonStreamProgressReporter
         });
     }
 
-    private void ReportListProgress(JobList list, int downloaded, int failed, int total)
-    {
-        WriteEvent("list_progress", new { name = list.ItemName, downloaded, failed, total });
-    }
-
     private void ReportListProgress(ListProgressChange progress)
     {
         WriteEvent("list_progress", new { name = progress.List.ItemName, downloaded = progress.Done, failed = progress.Failed, total = progress.Total });
-    }
-
-    private void ReportExtractionFailed(ExtractJob job, string reason)
-    {
-        WriteEvent("extraction_failed", new
-        {
-            input  = job.Input,
-            reason,
-        });
     }
 
     private void ReportExtractionFailed(ExtractJobSnapshotPayload job, string reason)

@@ -29,7 +29,6 @@ public sealed class PersistenceCoordinator(
     private readonly PersistenceHandoffTracker handoffs = new(
         (loggerFactory ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance)
             .CreateLogger<PersistenceHandoffTracker>());
-    private readonly object gate = new();
     private PersistenceRuntimeHost? host;
     private string? databasePath;
 
@@ -41,7 +40,6 @@ public sealed class PersistenceCoordinator(
     public PersistenceHealth? Health => host?.Health;
     public PersistenceHealthSnapshot? HealthSnapshot => host?.HealthSnapshot;
     public IPersistenceMutationSink? MutationSink => host?.MutationSink;
-    public PersistenceQueueSnapshot Queue => host?.Queue ?? new(0, 0, 0, 0, 0);
     public IJobHistoryReader? JobHistory => host?.JobHistory;
     public ISubmissionStore? Submissions => host?.Submissions;
     public ISearchHistoryReader? SearchHistory => host?.SearchHistory;

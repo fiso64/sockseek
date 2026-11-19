@@ -1075,15 +1075,6 @@ public sealed class ChatPersistenceStore(
         return sequence.LastMessageSequence;
     }
 
-    private static async Task<long> NextNotificationSequenceAsync(
-        SockseekDbContext context,
-        CancellationToken cancellationToken)
-    {
-        ChatSequenceEntity sequence = await GetSequenceAsync(context, cancellationToken).ConfigureAwait(false);
-        sequence.LastNotificationSequence = checked(sequence.LastNotificationSequence + 1);
-        return sequence.LastNotificationSequence;
-    }
-
     private static async Task<ChatSequenceEntity> GetSequenceAsync(
         SockseekDbContext context,
         CancellationToken cancellationToken)

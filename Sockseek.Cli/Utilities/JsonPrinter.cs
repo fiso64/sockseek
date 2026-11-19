@@ -2,7 +2,6 @@ using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
-using Soulseek;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -14,15 +13,6 @@ public class UserInfoJson
     public string Username          { get; set; } = null!;
     public float  UploadSpeed       { get; set; }
     public bool   HasFreeUploadSlot { get; set; }
-
-    public UserInfoJson() { }
-
-    public UserInfoJson(SearchResponse response)
-    {
-        Username          = response.Username;
-        UploadSpeed       = response.UploadSpeed / (1024f * 1024f);
-        HasFreeUploadSlot = response.HasFreeUploadSlot;
-    }
 
     public UserInfoJson(FileCandidate candidate)
     {
@@ -47,18 +37,6 @@ public class FileInfoJson
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public SearchResultVisibility Visibility { get; set; }
-
-    public FileInfoJson() { }
-
-    public FileInfoJson(Soulseek.File file)
-    {
-        Length     = file.Length;
-        Filename   = file.Filename;
-        Size       = file.Size;
-        Bitrate    = file.BitRate;
-        SampleRate = file.SampleRate;
-        BitDepth   = file.BitDepth;
-    }
 
     public FileInfoJson(FileCandidate candidate)
     {
@@ -98,9 +76,7 @@ public class TrackJson
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? Length { get; set; }
 
-    // Preserved for JSON backward-compat: 0 = Normal (song), 1 = Album.
-    [JsonConverter(typeof(JsonStringEnumConverter))]
-    public TrackTypeOld Type { get; set; } = TrackTypeOld.Normal;
+    public string Type { get; } = "Normal";
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -121,23 +97,6 @@ public class TrackJson
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Path { get; set; }
 
-    public TrackJson() { }
-
-    public TrackJson(SongJob song)
-    {
-        Title         = string.IsNullOrEmpty(song.Query.Title)  ? null : song.Query.Title;
-        Artist        = string.IsNullOrEmpty(song.Query.Artist) ? null : song.Query.Artist;
-        Album         = string.IsNullOrEmpty(song.Query.Album)  ? null : song.Query.Album;
-        Path          = string.IsNullOrEmpty(song.DownloadPath) ? null : song.DownloadPath?.Replace('\\', '/');
-        Length        = song.Query.Length == -1 ? null : (int?)song.Query.Length;
-        Type          = TrackTypeOld.Normal;
-        FailureReason = song.FailureReason == Sockseek.Core.JobFailureReason.None ? null : song.FailureReason;
-        LifecycleState = song.LifecycleState;
-        ActivityPhase = song.ActivityPhase;
-        TerminalOutcome = song.TerminalOutcome;
-        SkipReason = song.SkipReason;
-    }
-
     public TrackJson(IndexEntry entry)
     {
         Title         = string.IsNullOrEmpty(entry.Title)        ? null : entry.Title;
@@ -145,7 +104,7 @@ public class TrackJson
         Album         = string.IsNullOrEmpty(entry.Album)        ? null : entry.Album;
         Path          = string.IsNullOrEmpty(entry.DownloadPath) ? null : entry.DownloadPath.Replace('\\', '/');
         Length        = entry.Length == -1 ? null : (int?)entry.Length;
-        Type          = entry.IsAlbum ? TrackTypeOld.Album : TrackTypeOld.Normal;
+        Type          = entry.IsAlbum ? "Album" : "Normal";
         FailureReason = entry.FailureReason == Sockseek.Core.JobFailureReason.None ? null : entry.FailureReason;
         (LifecycleState, ActivityPhase, TerminalOutcome, SkipReason) = SplitIndexState(entry.State, entry.FailureReason);
     }
@@ -191,27 +150,6 @@ public static class JsonPrinter
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
     private static readonly JsonSerializerOptions _indentedOptions = new(_options) { WriteIndented = true };
-
-    public static void PrintTrackResultJson(SongQuery query, IEnumerable<(SearchResponse, Soulseek.File)> results, bool printAll = false)
-    {
-        if (results == null || !results.Any())
-        {
-            Printing.WriteLine("[]");
-            return;
-        }
-
-        var trackResults = results.Select(x => new TrackResultJson
-        {
-            User = new UserInfoJson(x.Item1),
-            File = new FileInfoJson(x.Item2)
-        });
-
-        if (!printAll)
-            trackResults = trackResults.Take(1);
-
-        var json = JsonSerializer.Serialize(trackResults, _options);
-        Printing.WriteLine(json);
-    }
 
     public static void PrintTrackResultJson(SongQuery query, IEnumerable<FileCandidate> results, bool printAll = false)
     {

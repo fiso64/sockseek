@@ -81,7 +81,6 @@ public class DownloadSettings
     public bool DoNotDownload  => PrintOption != PrintOption.None;
     public bool PrintJobs      => (PrintOption & PrintOption.Jobs)    != 0;
     public bool PrintResults   => (PrintOption & (PrintOption.Results | PrintOption.Json | PrintOption.Link)) != 0;
-    public bool PrintFull      => (PrintOption & PrintOption.Full)    != 0;
     public bool NonVerbosePrint => (PrintOption & (PrintOption.Json | PrintOption.Link | PrintOption.Index)) != 0;
 
     public bool NeedLogin      => !PrintJobs && (PrintOption & PrintOption.Index) == 0;

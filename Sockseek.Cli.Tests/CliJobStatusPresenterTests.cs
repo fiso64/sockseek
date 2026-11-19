@@ -77,7 +77,7 @@ public class CliJobStatusPresenterTests
             ServerJobLifecycleState.Terminal,
             ServerJobActivityPhase.None,
             ServerJobTerminalOutcome.Failed,
-            failureReason: ServerProtocol.FailureReasons.ChildJobsFailed);
+            failureReason: ServerJobFailureReason.ChildJobsFailed);
 
         Assert.AreEqual("failed [Child jobs failed]", status.Label);
         Assert.IsTrue(status.IsFailed);

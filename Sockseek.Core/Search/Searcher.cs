@@ -353,8 +353,7 @@ public partial class Searcher : IDisposable
     // discovery still admits public candidates only, using the same projectors.
     private static IEnumerable<SearchProjectionInput> ProjectionInputs(SearchSession session, bool includeLocked)
         => session.RawSnapshot()
-            .Where(row => includeLocked || row.Visibility == SearchResultVisibility.Public)
-            .Select(row => row.ProjectionInput);
+            .Where(row => includeLocked || row.Visibility == SearchResultVisibility.Public);
 
     // Automatic track execution retains admitted candidates. Filter with this network
     // attempt's conditions before admission: rejected hits must neither start a
@@ -657,45 +656,6 @@ public partial class Searcher : IDisposable
             Album = album.Trim(),
             ArtistMaybeWrong = artistMaybeWrong,
         };
-    }
-
-    public static IEnumerable<(SongQuery query, IEnumerable<FileCandidate> candidates)> EquivalentFiles(
-        SongQuery query,
-        IEnumerable<(SlResponse, SlFile)> fileResponses,
-        SearchSettings search,
-        int minShares = -1)
-    {
-        if (minShares == -1) minShares = search.EffectiveMinGroupShares;
-
-        SongQuery infer((SearchResponse r, Soulseek.File f) x)
-        {
-            var q = InferSongQuery(x.f.Filename, query);
-            return new SongQuery(q) { Length = x.f.Length ?? -1 };
-        }
-
-        return Group();
-
-        IEnumerable<(SongQuery query, IEnumerable<FileCandidate> candidates)> Group()
-        {
-            var groups = new SongQueryGroups<(SongQuery Query, List<(SlResponse Response, SlFile File)> Files)>(
-                search.GroupLengthTol, static (key, _) => (key, []));
-            foreach (var input in fileResponses) groups.GetOrAdd(infer(input)).Files.Add(input);
-
-            foreach (var group in groups.Values
-                .Select(group => (Group: group, Shares: group.Files.Select(file => file.Response.Username).Distinct().Count()))
-                .Where(group => group.Shares >= minShares)
-                .OrderByDescending(group => group.Shares))
-            {
-                var inferQ = group.Group.Query;
-                // fill in length from results if unknown
-                if (inferQ.Length == -1)
-                {
-                    int len = group.Group.Files.FirstOrDefault(file => file.File.Length != null).File?.Length ?? -1;
-                    inferQ = new SongQuery(inferQ) { Length = len };
-                }
-                yield return (inferQ, group.Group.Files.Select(file => SoulseekSearchAdapter.ToFileCandidate(file.Response, file.File)));
-            }
-        }
     }
 
     public static bool AlbumsAreSimilar(AlbumFolder f1, AlbumFolder f2, int[]? f1SortedLengths = null, int tolerance = 3)

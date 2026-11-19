@@ -67,7 +67,7 @@ internal sealed class JobConfiguration : IEntityTypeConfiguration<JobEntity>
         builder.Property(x => x.ItemName).HasColumnName("item_name").HasMaxLength(2048);
         builder.Property(x => x.QueryText).HasColumnName("query_text").HasMaxLength(4096);
         builder.Property(x => x.SourceDetail).HasColumnName("source_detail").HasMaxLength(128);
-        builder.Property(x => x.PrintOption).HasColumnName("print_option");
+        builder.Property(x => x.PrintOption).HasColumnName("print_option").HasDefaultValue(0);
         builder.Property(x => x.AppliedProfilesJson).HasColumnName("applied_profiles_json").HasDefaultValue("[]").IsRequired();
         builder.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
         builder.Property(x => x.StartedAtUtc).HasColumnName("started_at_utc");
@@ -231,7 +231,7 @@ internal sealed class TransferConfiguration : IEntityTypeConfiguration<TransferE
         builder.Property(x => x.FileLength).HasColumnName("file_length");
         builder.Property(x => x.FileAttributesJson).HasColumnName("file_attributes_json");
         builder.Property(x => x.GroupRef).HasColumnName("group_ref");
-        builder.Property(x => x.GroupKind).HasColumnName("group_kind");
+        builder.Property(x => x.GroupKind).HasColumnName("group_kind").HasDefaultValue("Directory");
         builder.Property(x => x.GroupDisplayPath).HasColumnName("group_display_path").HasMaxLength(4096);
         builder.Property(x => x.GroupRelativePath).HasColumnName("group_relative_path");
         builder.Property(x => x.RemovedAtUtc).HasColumnName("removed_at_utc");

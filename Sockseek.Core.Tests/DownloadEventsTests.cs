@@ -249,12 +249,12 @@ namespace Tests.Eventing
             events.DownloadAttemptFailed += change => failed = change;
             events.TransferCompleted += change => completed = change;
 
-            Invoke(events, "RaiseDownloadStarted", transferId, song, candidate.Target, outputPath);
-            Invoke(events, "RaiseDownloadProgressWithSpeed", transferId, song, candidate.Target, outputPath, 4096L, 10_000L, 1_234d);
-            Invoke(events, "RaiseDownloadStateChanged", transferId, song, candidate.Target, outputPath, TransferStates.InProgress, 4096L, 10_000L);
-            Invoke(events, "RaiseDownloadAttemptFailed", transferId, song, candidate.Target, outputPath, attemptOutputPath, 1, 3, new InvalidOperationException("boom"));
-            Invoke(events, "RaiseTransferCompleted", transferId, song, candidate.Target, outputPath, 10_000L, 2);
-            Invoke(events, "RaiseDownloadProgress", transferId, song, candidate.Target, outputPath, 9_000L, 10_000L);
+            events.RaiseDownloadStarted(transferId, song, candidate.Target, outputPath);
+            events.RaiseDownloadProgress(transferId, song, candidate.Target, outputPath, 4096L, 10_000L, 1_234d);
+            events.RaiseDownloadStateChanged(transferId, song, candidate.Target, outputPath, TransferStates.InProgress, 4096L, 10_000L);
+            events.RaiseDownloadAttemptFailed(transferId, song, candidate.Target, outputPath, attemptOutputPath, 1, 3, new InvalidOperationException("boom"));
+            events.RaiseTransferCompleted(transferId, song, candidate.Target, outputPath, 10_000L, 2);
+            events.RaiseDownloadProgress(transferId, song, candidate.Target, outputPath, 9_000L, 10_000L);
 
             Assert.IsNotNull(started);
             Assert.IsNotNull(progressed);
@@ -366,11 +366,11 @@ namespace Tests.Eventing
             song.DownloadPath = "C:/downloads/final-name.mp3";
             song.FileSize = 700;
             song.BytesTransferred = 32;
-            Invoke(events, "RaiseDownloadStarted", transferId, song, candidate.Target, "C:/downloads/Track.mp3");
-            Invoke(events, "RaiseDownloadProgress", transferId, song, candidate.Target, "C:/downloads/Track.mp3", 100L, 10_000L);
+            events.RaiseDownloadStarted(transferId, song, candidate.Target, "C:/downloads/Track.mp3");
+            events.RaiseDownloadProgress(transferId, song, candidate.Target, "C:/downloads/Track.mp3", 100L, 10_000L);
             song.BytesTransferred = 64;
-            Invoke(events, "RaiseDownloadStateChanged", transferId, song, candidate.Target, "C:/downloads/Track.mp3", TransferStates.InProgress, 100L, 10_000L);
-            Invoke(events, "RaiseDownloadAttemptFailed", transferId, song, candidate.Target, "C:/downloads/Track.mp3", "C:/downloads/Track.mp3.incomplete", 1, 3, new IOException("failed"));
+            events.RaiseDownloadStateChanged(transferId, song, candidate.Target, "C:/downloads/Track.mp3", TransferStates.InProgress, 100L, 10_000L);
+            events.RaiseDownloadAttemptFailed(transferId, song, candidate.Target, "C:/downloads/Track.mp3", "C:/downloads/Track.mp3.incomplete", 1, 3, new IOException("failed"));
 
             CollectionAssert.AreEqual(new long[] { 1, 1, 1, 1, 1 }, observedRevisions);
             Assert.IsNotNull(captured);
@@ -1506,11 +1506,6 @@ namespace Tests.Eventing
             settings.Skip.SkipExisting = false;
             return settings;
         }
-
-        private static void Invoke(DownloadEvents events, string methodName, params object[] args)
-            => typeof(DownloadEvents)
-                .GetMethod(methodName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-                .Invoke(events, args);
 
         private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
         {

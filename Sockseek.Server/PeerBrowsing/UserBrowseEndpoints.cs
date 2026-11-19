@@ -395,7 +395,7 @@ internal static class UserBrowseEndpoints
             if (resource is null)
                 return Expired();
             if (resource.State != PeerBrowseState.Complete)
-                throw new PeerBrowseNotReadyException(resource);
+                throw new PeerBrowseNotReadyException();
 
             PeerBrowseSearchCursor? after = cursor is null
                 ? null
@@ -546,18 +546,6 @@ internal static class UserBrowseEndpoints
             excludedDirectoryIds).ConfigureAwait(false);
         return (resource, resolution);
     }
-
-    private static UserShareResolutionSummaryDto ToSummary(
-        PeerBrowseDownloadResolution resolution,
-        string outputParent)
-        => new(
-            resolution.CanonicalDirectoryRoots,
-            resolution.StandaloneFiles,
-            resolution.TotalPublicFiles,
-            resolution.TotalPublicBytes,
-            resolution.RedundantSelectionsRemoved,
-            resolution.LockedBranchesSkipped,
-            outputParent);
 
     private static void ValidateShareOptions(SubmissionOptionsDto? options)
     {

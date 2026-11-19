@@ -2107,13 +2107,6 @@ public sealed class SearchViewCacheTests
         private readonly SockseekDbContextFactory factory;
         private TestPersistenceWriter? writer;
         public PersistenceInbox Writes => (writer ??= new TestPersistenceWriter(factory)).Inbox;
-        public PersistenceHealthSnapshot Health => writer!.Health.Snapshot(Writes);
-        public async Task RestartWriterAsync()
-        {
-            if (writer != null) await writer.DisposeAsync();
-            writer = null;
-        }
-
         public string Path { get; }
         public string DatabasePath { get; }
 

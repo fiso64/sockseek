@@ -30,7 +30,6 @@ namespace Sockseek.Core.Jobs;
 
     public readonly record struct JobStateTransition(JobStateSnapshot Before, JobStateSnapshot After)
     {
-        public bool Changed => Before != After;
         public bool ActivityChanged =>
             Before.ActivityPhase != After.ActivityPhase
             || Before.ActivityUntilUtc != After.ActivityUntilUtc;
@@ -171,8 +170,6 @@ namespace Sockseek.Core.Jobs;
         }
         public bool IsSkippedAlreadyExists => StateSnapshot is
             { TerminalOutcome: JobTerminalOutcome.Skipped, SkipReason: JobSkipReason.AlreadyExists };
-        public bool IsSkippedNotFoundLastTime => StateSnapshot is
-            { TerminalOutcome: JobTerminalOutcome.Skipped, SkipReason: JobSkipReason.NotFoundLastTime };
 
         private static bool Successful(JobStateSnapshot current) => current.TerminalOutcome == JobTerminalOutcome.Succeeded
             || current is { TerminalOutcome: JobTerminalOutcome.Skipped, SkipReason: JobSkipReason.AlreadyExists };
@@ -223,7 +220,6 @@ namespace Sockseek.Core.Jobs;
 
         public DownloadBehaviorPolicy DownloadBehaviorPolicy { get; set; } = new();
         public DownloadBehavior DownloadBehavior => DownloadBehaviorPolicy.For(this);
-        public bool ShouldDownloadAutomatically => DownloadBehavior == DownloadBehavior.Automatic;
 
         // Source provenance (position in the input file / playlist)
         public int ItemNumber { get; set; } = 1;

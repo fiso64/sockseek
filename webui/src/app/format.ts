@@ -65,9 +65,3 @@ export function formatSpeed(value: number | string | null | undefined): string |
   const digits = speed >= 100 || unit === 0 ? 0 : speed >= 10 ? 1 : 2;
   return `${speed.toFixed(digits)} ${units[unit]}/s`;
 }
-
-export function formatDuration(value: number | string | null | undefined): string {
-  if (value === null || value === undefined) return '—';
-  const seconds = Number(value);
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-}

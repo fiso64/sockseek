@@ -1,4 +1,4 @@
-import type { ApiErrorDto, Schema } from './types';
+import type { ApiErrorDto } from './types';
 import { browserSession } from './session.svelte';
 
 export class DaemonApiError extends Error {
@@ -64,15 +64,12 @@ export class DaemonHttpClient {
   }
 
   async getCursorPage<T>(path: string, signal?: AbortSignal): Promise<{
-    items: T; nextCursor: string | null; readPosition?: Schema<'StateStreamPositionDto'>;
+    items: T; nextCursor: string | null;
   }> {
     const response = await this.send(path, { method: 'GET', signal });
-    const epoch = response.headers.get('x-sockseek-read-epoch');
-    const sequence = response.headers.get('x-sockseek-read-sequence');
     return {
       items: await this.read<T>(response),
       nextCursor: response.headers.get('x-next-cursor'),
-      readPosition: epoch && sequence ? { epoch, sequence } : undefined,
     };
   }
 

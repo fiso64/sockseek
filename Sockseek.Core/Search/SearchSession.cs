@@ -1,8 +1,5 @@
-using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using Sockseek.Core.Events;
 using Sockseek.Core.Models;
-using Sockseek.Core.Snapshots;
 using Soulseek;
 
 namespace Sockseek.Core.Services;
@@ -11,9 +8,9 @@ public sealed class SearchSession
 {
     private readonly object admissionGate = new();
     private readonly object publicationGate = new();
-    private readonly Queue<(List<SearchRawResult>? Results, CoreChange? Change)> publications = [];
+    private readonly Queue<CoreChange?> publications = [];
     private bool publishing;
-    private readonly List<SearchRawResult> rawResults = [];
+    private readonly List<SearchProjectionInput> rawResults = [];
     private readonly HashSet<(PeerPathKey Path, SearchResultVisibility Visibility)> resultKeys = [];
     private readonly HashSet<string> observedPeers = new(StringComparer.Ordinal);
     private TimeProvider timeProvider;
@@ -32,12 +29,9 @@ public sealed class SearchSession
     public int ObservedPeerCount { get { lock (admissionGate) return observedPeers.Count; } }
     public bool IsComplete => Volatile.Read(ref _isComplete) != 0;
 
-    public event Action<SearchRawResult>? RawResultReceived;
-    public event Action<SearchRawResult>? RawResultAdded;
     public event Action<SearchResultsAddedChange>? ResultsAdded;
     public event Action<SearchCompletedChange>? SearchCompleted;
     public event Action<CoreChange>? ChangePublished;
-    public event Action? Completed;
     internal event Action<string, Exception>? ObserverFailed;
     internal event Action<SearchSession>? ResponseAdded;
 
@@ -64,30 +58,8 @@ public sealed class SearchSession
         }
     }
 
-    internal IReadOnlyCollection<(SearchResponse Response, Soulseek.File File)> Snapshot()
-    {
-        lock (admissionGate)
-            return rawResults
-                .Where(result => result.Visibility == SearchResultVisibility.Public)
-                .Select(result => (result.Response, result.File))
-                .ToList();
-    }
-
-    public IReadOnlyList<SearchRawResult> RawSnapshot(long afterSequence = 0)
-        => RawSnapshot(afterSequence, int.MaxValue);
-
-    public IReadOnlyList<SearchRawResult> RawSnapshot(long afterSequence, int limit)
-    {
-        if (limit < 1)
-            throw new ArgumentOutOfRangeException(nameof(limit));
-        lock (admissionGate)
-        {
-            // Admission appends a contiguous, one-based sequence across both
-            // public and locked files. A tail read need not scan the old prefix.
-            int start = (int)Math.Clamp(afterSequence, 0, rawResults.Count);
-            return rawResults.GetRange(start, Math.Min(limit, rawResults.Count - start));
-        }
-    }
+    public IReadOnlyList<SearchProjectionInput> RawSnapshot(long afterSequence = 0, int limit = int.MaxValue)
+        => ReadProjectionPage(afterSequence, limit).Items;
 
     // Metadata and this bounded prefix are captured under the same admission
     // lock, so an arriving completion cannot finish a page that missed its rows.
@@ -98,66 +70,7 @@ public sealed class SearchSession
         {
             int start = (int)Math.Clamp(afterSequence, 0, rawResults.Count);
             int count = Math.Min(limit, rawResults.Count - start);
-            var inputs = new SearchProjectionInput[count];
-            for (int i = 0; i < count; i++) inputs[i] = rawResults[start + i].ProjectionInput;
-            return (inputs, _revision, _isComplete != 0 && start + count == rawResults.Count);
-        }
-    }
-
-    public async IAsyncEnumerable<SearchRawResult> ReadRawResultsAsync(
-        long afterSequence = 0,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        var channel = Channel.CreateUnbounded<SearchRawResult>(new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = false,
-        });
-
-        void OnRawResultAdded(SearchRawResult result)
-        {
-            if (result.Sequence > afterSequence)
-                channel.Writer.TryWrite(result);
-        }
-
-        void OnCompleted()
-            => channel.Writer.TryComplete();
-
-        RawResultAdded += OnRawResultAdded;
-        Completed += OnCompleted;
-
-        try
-        {
-            long lastYielded = afterSequence;
-            foreach (var result in RawSnapshot(afterSequence))
-            {
-                if (result.Sequence <= lastYielded)
-                    continue;
-
-                lastYielded = result.Sequence;
-                yield return result;
-            }
-
-            if (IsComplete)
-                channel.Writer.TryComplete();
-
-            while (await channel.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
-            {
-                while (channel.Reader.TryRead(out var result))
-                {
-                    if (result.Sequence <= lastYielded)
-                        continue;
-
-                    lastYielded = result.Sequence;
-                    yield return result;
-                }
-            }
-        }
-        finally
-        {
-            RawResultAdded -= OnRawResultAdded;
-            Completed -= OnCompleted;
-            channel.Writer.TryComplete();
+            return (rawResults.GetRange(start, count), _revision, _isComplete != 0 && start + count == rawResults.Count);
         }
     }
 
@@ -167,7 +80,7 @@ public sealed class SearchSession
         // independently of the short lock protecting readable session state.
         lock (publicationGate)
         {
-            var added = new List<SearchRawResult>();
+            var added = new List<SearchProjectionInput>();
             int revision;
             lock (admissionGate)
             {
@@ -191,7 +104,7 @@ public sealed class SearchSession
                         if (!resultKeys.Add((new PeerPathKey(response.Username, file.Filename), visibility)))
                             continue;
                         revision = ++_revision;
-                        var rawResult = new SearchRawResult(++_sequence, revision, response,
+                        var rawResult = SearchProjectionInput.FromLive(++_sequence, revision, response,
                             file, observedAtUtc, visibility);
                         rawResults.Add(rawResult);
                         added.Add(rawResult);
@@ -207,9 +120,9 @@ public sealed class SearchSession
             SearchResultsAddedChange? change = added.Count > 0
                 ? new SearchResultsAddedChange(
                     CoreChangeSequencer.Next(), timeProvider.GetUtcNow(), JobId, revision,
-                    SnapshotCollections.Freeze(added.Select(result => result.ProjectionInput)))
+                    added.AsReadOnly())
                 : null;
-            publications.Enqueue((added, change));
+            publications.Enqueue(change);
             PublishPending();
         }
     }
@@ -228,7 +141,7 @@ public sealed class SearchSession
                     CoreChangeSequencer.Next(), timeProvider.GetUtcNow(), JobId, ++_revision,
                     QueryText, _resultCount, _lockedFileCount, observedPeers.Count);
             }
-            publications.Enqueue((null, change));
+            publications.Enqueue(change);
             PublishPending();
         }
     }
@@ -245,21 +158,12 @@ public sealed class SearchSession
         publishing = true;
         try
         {
-            while (publications.TryDequeue(out var publication))
+            while (publications.TryDequeue(out var change))
             {
-                if (publication.Results is { } results)
-                {
-                    foreach (SearchRawResult result in results)
-                    {
-                        InvokeObservers(RawResultReceived, result, nameof(RawResultReceived));
-                        InvokeObservers(RawResultAdded, result, nameof(RawResultAdded));
-                    }
-                }
-                if (publication.Change is { } change) Publish(change);
-                if (publication.Results is not null)
+                if (change != null) Publish(change);
+                // Even a duplicate-only response updates discovery progress.
+                if (change is not SearchCompletedChange)
                     InvokeObservers(ResponseAdded, this, nameof(ResponseAdded));
-                else
-                    InvokeObservers(Completed, nameof(Completed));
             }
         }
         finally { publishing = false; }
@@ -290,24 +194,6 @@ public sealed class SearchSession
             try
             {
                 observer(value);
-            }
-            catch (Exception ex)
-            {
-                LogObserverFailure(eventName, ex);
-            }
-        }
-    }
-
-    private void InvokeObservers(Action? observers, string eventName)
-    {
-        if (observers == null)
-            return;
-
-        foreach (Action observer in Delegate.EnumerateInvocationList(observers))
-        {
-            try
-            {
-                observer();
             }
             catch (Exception ex)
             {

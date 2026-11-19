@@ -47,13 +47,10 @@ public sealed record JobStateChangedChange(
 {
     public string CoalescingKey => $"job:{Job.Id}:state";
     public long Revision => Job.Revision;
-    public Guid Id => Job.Id;
     public JobLifecycleState LifecycleState => Job.LifecycleState;
     public JobActivityPhase ActivityPhase => Job.ActivityPhase;
-    public DateTimeOffset? ActivityUntilUtc => Job.ActivityUntilUtc;
     public JobTerminalOutcome TerminalOutcome => Job.TerminalOutcome;
     public JobSkipReason SkipReason => Job.SkipReason;
-    public JobCancellationSource CancellationSource => Job.CancellationSource;
     public JobFailureReason FailureReason => Job.FailureReason;
     public string? FailureMessage => Job.FailureMessage;
     public string? FailureDetail => Job.FailureDetail;
@@ -150,7 +147,6 @@ public sealed record DownloadStartedChange(
 {
     public Guid TransferId => Transfer.Id;
     public PeerFileTarget Target => Transfer.Target!;
-    public FileCandidateSnapshot? Candidate => Transfer.Candidate;
 }
 
 public sealed record DownloadProgressedChange(
@@ -197,7 +193,6 @@ public sealed record DownloadAttemptFailedChange(
 {
     public Guid TransferId => Transfer.Id;
     public PeerFileTarget Target => Transfer.Target!;
-    public FileCandidateSnapshot? Candidate => Transfer.Candidate;
 }
 
 public sealed record FallbackTransferStartedChange(

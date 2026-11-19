@@ -30,9 +30,6 @@ public sealed class ProfileCatalog
 
     public static ProfileCatalog Empty { get; } = new();
 
-    public IReadOnlyList<string> ProfileNames =>
-        NamedProfiles.Select(p => p.Name).OrderBy(x => x).ToList();
-
     public IReadOnlyList<SettingsProfile> ResolveNamedProfiles(IEnumerable<string>? names)
     {
         if (names == null)
@@ -164,21 +161,6 @@ public sealed class ProfileJobSettingsResolver : IJobSettingsResolver, IDetailed
         => composer.ComposeDetailed(inherited, job, inheritance, request);
 }
 
-public static class SettingsPatchApplier
-{
-    public static void Apply(SettingsProfile profile, EngineSettings engine, DownloadSettings download)
-    {
-        profile.Engine.ApplyTo(engine);
-        profile.Download.ApplyTo(download);
-    }
-
-    public static void ApplyDownload(SettingsProfile profile, DownloadSettings download) =>
-        profile.Download.ApplyTo(download);
-
-    public static void ApplyEngine(SettingsProfile profile, EngineSettings engine) =>
-        profile.Engine.ApplyTo(engine);
-}
-
 public static class SettingsNormalizer
 {
     public static void Normalize(DownloadSettings dl)
@@ -210,9 +192,6 @@ public static class SettingsNormalizer
         if (dl.Output.IncompleteAlbumAction.Path != null)
             dl.Output.IncompleteAlbumAction.Path = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.IncompleteAlbumAction.Path, pathContext));
     }
-
-    public static void NormalizeEnginePaths(EngineSettings engine)
-        => NormalizeEnginePaths(engine, PathVariableContext.Empty);
 
     public static void NormalizeEnginePaths(EngineSettings engine, PathVariableContext pathContext)
     {

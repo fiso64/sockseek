@@ -131,11 +131,6 @@ public sealed class SoulseekBrowseArtifactBuilderTests
             CancellationToken cancellationToken = default)
             => ValueTask.FromResult<ShareCatalogBrowseDirectory?>(null);
 
-        public IAsyncEnumerable<ShareCatalogBrowseDirectory> EnumerateBrowseAsync(
-            CancellationToken cancellationToken = default)
-            => throw new AssertFailedException(
-                "The artifact builder must use the row-streaming browse contract.");
-
         public async IAsyncEnumerable<ShareCatalogBrowseRow> EnumerateBrowseRowsAsync(
             [System.Runtime.CompilerServices.EnumeratorCancellation]
             CancellationToken cancellationToken = default)

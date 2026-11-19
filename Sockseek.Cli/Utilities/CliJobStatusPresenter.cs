@@ -28,15 +28,6 @@ internal static class CliJobStatusPresenter
     public static CliJobStatus ForSummary(JobSummaryDto summary, string? transferState = null)
         => ForSplit(summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, transferState);
 
-    public static CliJobStatus ForSongPayload(SongJobPayloadDto song, string? transferStateOverride = null)
-    {
-        var lifecycle = song.LifecycleState ?? ServerJobLifecycleState.Pending;
-        var activity = song.ActivityPhase ?? ServerJobActivityPhase.None;
-        var outcome = song.TerminalOutcome ?? ServerJobTerminalOutcome.None;
-        var skipReason = song.SkipReason ?? ServerJobSkipReason.None;
-        return ForSplit(lifecycle, activity, outcome, skipReason, song.FailureReason, transferStateOverride ?? song.TransferState);
-    }
-
     public static CliJobStatus ForSplit(
         ServerJobLifecycleState lifecycle,
         ServerJobActivityPhase activity,

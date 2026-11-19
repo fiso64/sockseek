@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures';
 import type { Page, Request } from '@playwright/test';
-import { readFile, readdir, stat } from 'node:fs/promises';
-import { basename, dirname, join, sep } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { basename, dirname, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import type { Schema } from '../src/api/types';
@@ -1463,12 +1463,10 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   const cachedSummary = await (await page.request.get(`/api/search-views/${cached.viewId}`)).json() as Schema<'SearchViewSummaryDto'>;
   await daemon.command(`prune-search-results:${sourceId}`);
   // An active read snapshot stays usable when only its raw source is pruned.
-  const retainedStarted = performance.now();
   const retainedResponse = await page.request.get(
     `/api/search-views/${cached.viewId}/directories?revision=${cachedSummary.revision}&limit=100`);
   expect(retainedResponse.ok(), await retainedResponse.text()).toBe(true);
   const retained = await retainedResponse.json() as Schema<'SearchViewDirectoryPageDto'>;
-  const retainedPageMs = Math.round(performance.now() - retainedStarted);
   expect(retained.items).toHaveLength(1);
   expect(retained.revision.retentionState).toBe('Complete');
   await expect(file).toBeVisible();
@@ -1476,7 +1474,7 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   const prunedCreation = page.waitForResponse(response => response.request().method() === 'POST'
     && new URL(response.url()).pathname === `/api/jobs/${sourceId}/search-views`);
   await page.reload();
-  const pruned = await prunedCreation;
+  await prunedCreation;
   await expect(page.locator('.search-results-empty')).toContainText('Search results were pruned');
   await expect(page.locator('.search-results-empty')).toContainText('Search again');
   await expect(page.locator('.search-results-empty')).not.toContainText('without a match');

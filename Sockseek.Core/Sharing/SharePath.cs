@@ -23,8 +23,6 @@ public sealed class RemotePathKey : IEquatable<RemotePathKey>
         hashCode = hash.ToHashCode();
     }
 
-    public ReadOnlyMemory<byte> Bytes => bytes;
-
     public static RemotePathKey Create(string remotePath)
     {
         ArgumentNullException.ThrowIfNull(remotePath);
@@ -55,19 +53,6 @@ public sealed class RemotePathKey : IEquatable<RemotePathKey>
     {
         ValidateAlias(alias);
         return Create(alias);
-    }
-
-    public static string NormalizeDisplayPath(string remotePath)
-    {
-        ArgumentNullException.ThrowIfNull(remotePath);
-        if (remotePath.Length == 0 || remotePath[0] is '\\' or '/')
-            throw Invalid("Remote path must be non-empty and relative.");
-
-        var segments = remotePath.Replace('/', '\\').Split('\\', StringSplitOptions.None);
-        if (segments.Any(static segment => segment.Length == 0))
-            throw Invalid("Remote path cannot contain empty segments.");
-
-        return string.Join('\\', segments.Select(NormalizeSegment));
     }
 
     public static string NormalizeAlias(string alias)

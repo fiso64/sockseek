@@ -118,29 +118,8 @@ public interface IShareCatalogReader : IAsyncDisposable
         RemotePathKey remotePath,
         CancellationToken cancellationToken = default);
 
-    IAsyncEnumerable<ShareCatalogBrowseDirectory> EnumerateBrowseAsync(
+    IAsyncEnumerable<ShareCatalogBrowseRow> EnumerateBrowseRowsAsync(
         CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Streams directory headers and files without retaining every file in a
-    /// large directory. The default adapter preserves compatibility for small
-    /// in-memory implementations; disk readers should override it.
-    /// </summary>
-    async IAsyncEnumerable<ShareCatalogBrowseRow> EnumerateBrowseRowsAsync(
-        [System.Runtime.CompilerServices.EnumeratorCancellation]
-        CancellationToken cancellationToken = default)
-    {
-        await foreach (ShareCatalogBrowseDirectory directory
-                       in EnumerateBrowseAsync(cancellationToken)
-                           .ConfigureAwait(false))
-        {
-            yield return new ShareCatalogBrowseDirectoryRow(
-                directory.Directory,
-                directory.Files.Count);
-            foreach (ShareCatalogFile file in directory.Files)
-                yield return new ShareCatalogBrowseFileRow(file);
-        }
-    }
 }
 
 public sealed record ShareBrowseStream(long Length, Stream Stream);
@@ -198,11 +177,7 @@ public sealed record ShareBrowseArtifact(
 
 public sealed class BrowseArtifactOversizeException(long length, long maximumLength)
     : IOException(
-        $"Browse artifact length {length} exceeds the serving limit {maximumLength}.")
-{
-    public long Length { get; } = length;
-    public long MaximumLength { get; } = maximumLength;
-}
+        $"Browse artifact length {length} exceeds the serving limit {maximumLength}.");
 
 public interface ISoulseekBrowseArtifactBuilder
 {

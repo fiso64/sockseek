@@ -459,7 +459,7 @@ namespace Tests.ConfigTests
             var result = Resolve(file, root, new CliSettings { InteractiveMode = true }, args);
 
             Assert.AreEqual(InputType.YouTube, result.Extraction.InputType);
-            Assert.IsTrue(result.Extraction.IsAlbum);
+            Assert.AreEqual(ExtractionMode.Album, result.Extraction.RequestedMode);
             Assert.IsTrue(result.Search.GroupResults);
         }
     }
@@ -634,7 +634,7 @@ namespace Tests.ConfigTests
         {
             dl = new DownloadSettings();
             dl.Extraction.InputType = InputType.YouTube;
-            dl.Extraction.IsAlbum = true;
+            dl.Extraction.RequestedMode = ExtractionMode.Album;
             dl.Search.GroupResults = false;
             cli = new CliSettings { InteractiveMode = true };
         }

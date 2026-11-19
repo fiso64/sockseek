@@ -51,8 +51,6 @@ public sealed class IncrementalAlbumFolderProjector
             enforceMinimumTrackCount);
     }
 
-    public int Count => seen.Count;
-
     internal int AddRange(IEnumerable<(SearchResponse Response, SlFile File)> results)
         => AddRange(results.Select((result, index) => SearchProjectionInput.FromLive(
             index + 1L, index + 1, result.Response, result.File, DateTimeOffset.UnixEpoch)));

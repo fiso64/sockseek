@@ -1,5 +1,4 @@
 import { test, expect, deferInitialDaemonSnapshot } from './fixtures';
-import { performance } from 'node:perf_hooks';
 import type { Schema } from '../src/api/types';
 
 test('separates search and download tabs with narrow rows, retained jobs and browser navigation', async ({ page, daemon }) => {
@@ -168,13 +167,11 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   await daemon.command('release-download');
   await expect(page.locator('[data-testid="job-row"] .search-status-badge')).toHaveText(Array(101).fill('Complete'));
   listing = true;
-  const listingStarted = performance.now();
   await page.getByRole('button', { name: 'Jobs', exact: true }).click();
   await expect(page.locator('.search-history-query')).toHaveText(
     Array.from({ length: 100 }, (_, index) => `Paging parent ${101 - index}`));
   await expect(page.locator('.search-history-row .search-status-badge.complete')).toHaveCount(100);
   await expect(page.getByRole('img', { name: 'Text import' })).toHaveCount(99);
-  const initialListingMs = Math.round(performance.now() - listingStarted);
   expect(lookups).toEqual([99]);
   expect(detailReads).toEqual([]);
   const earlier = page.getByRole('button', { name: 'Load more', exact: true });

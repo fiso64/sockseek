@@ -23,7 +23,6 @@ public sealed class PlannedJobNode
     public PlannedJobState State { get; }
     public Guid PlanningJobId { get; }
     public JobSnapshotKind Kind => command.Kind;
-    public string? ItemName => command.ItemName;
     public string? Input => command.Input;
     public string? QueryText => command.QueryText;
     public InputType? SourceInputType => command.SourceInputType;

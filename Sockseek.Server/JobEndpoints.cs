@@ -164,7 +164,7 @@ internal static class JobEndpoints
         })
             .WithTags("Job Submission")
             .WithSummary("Replays only one planned search job from its retained execution settings.")
-            .WithDescription("Sibling jobs are not restarted. Older submissions without retained child identities cannot be replayed through this operation.")
+            .WithDescription("Replays the selected search while leaving sibling jobs in their current state.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status404NotFound)

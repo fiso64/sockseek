@@ -1,4 +1,4 @@
-import type { JobSummaryDto, Schema } from '../../api/types';
+import type { JobSummaryDto } from '../../api/types';
 
 export interface JobSummaryRead {
   summary: JobSummaryDto | null;

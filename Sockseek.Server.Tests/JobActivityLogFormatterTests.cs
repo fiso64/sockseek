@@ -190,7 +190,7 @@ public class JobActivityLogFormatterTests
             "item",
             "Artist - Title",
             outcome == ServerJobTerminalOutcome.Failed
-                ? ServerProtocol.FailureReasons.AllDownloadsFailed
+                ? ServerJobFailureReason.AllDownloadsFailed
                 : null,
             outcome == ServerJobTerminalOutcome.Failed ? "boom" : null,
             parentJobId,

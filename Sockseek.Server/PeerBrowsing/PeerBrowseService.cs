@@ -578,7 +578,7 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         if (resource is null)
             throw new KeyNotFoundException($"Peer browse '{browseId}' has expired.");
         if (resource.State != PeerBrowseState.Complete)
-            throw new PeerBrowseNotReadyException(resource);
+            throw new PeerBrowseNotReadyException();
         return resource;
     }
 
@@ -647,12 +647,8 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
         return exception.InnerException is { } inner && Contains<TException>(inner);
     }
 
-    internal static string PeerHash(string username)
-        => LogIdentity.PeerHash(username);
-
     private static PeerBrowseAcquisitionException Failure(PeerBrowseResource resource)
         => new(
-            resource.Failure?.Code ?? "browse-failed",
             resource.Failure?.Message ?? "The peer browse did not complete.");
 
     public async ValueTask DisposeAsync()
@@ -812,17 +808,10 @@ public sealed class PeerBrowseService : IPeerDirectorySource, IAsyncDisposable
 public sealed class PeerBrowseUnavailableException(string message, Exception? innerException = null)
     : InvalidOperationException(message, innerException);
 
-public sealed class PeerBrowseAcquisitionException(string code, string message)
-    : IOException(message)
-{
-    public string Code { get; } = code;
-}
+public sealed class PeerBrowseAcquisitionException(string message) : IOException(message);
 
-public sealed class PeerBrowseNotReadyException(PeerBrowseResource resource)
-    : InvalidOperationException("The peer browse is not complete.")
-{
-    public PeerBrowseResource Resource { get; } = resource;
-}
+public sealed class PeerBrowseNotReadyException()
+    : InvalidOperationException("The peer browse is not complete.");
 
 internal static partial class PeerBrowseLogMessages
 {

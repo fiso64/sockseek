@@ -17,11 +17,7 @@ public static partial class Utils
         ".aif", ".aiff",
     };
 
-    [Obsolete("Use KnownAudioExtensions. Requested default formats are available from SearchDefaults.Formats.")]
-    public static readonly string[] musicExtensions = [.. KnownAudioExtensions];
     public static readonly string[] imageExtensions = new string[] { ".jpg", ".png", ".jpeg", ".gif", ".webp" };
-    public static readonly string[] videoExtensions = new string[] { ".mp4", ".mkv", ".avi", ".mov", ".webm", ".mpeg" };
-
 
     public static bool IsMusicExtension(string extension)
     {
@@ -33,24 +29,9 @@ public static partial class Utils
         return KnownAudioExtensions.Contains(Path.GetExtension(fileName));
     }
 
-    public static bool IsImageExtension(string extension)
-    {
-        return imageExtensions.Contains(extension.ToLower());
-    }
-
     public static bool IsImageFile(string fileName)
     {
         return imageExtensions.Contains(Path.GetExtension(fileName).ToLower());
-    }
-
-    public static bool IsVideoExtension(string extension)
-    {
-        return videoExtensions.Contains(extension.ToLower());
-    }
-
-    public static bool IsVideoFile(string fileName)
-    {
-        return videoExtensions.Contains(Path.GetExtension(fileName).ToLower());
     }
 
     public static bool IsInternetUrl(this string str)
@@ -58,18 +39,6 @@ public static partial class Utils
         str = str.TrimStart();
         return str.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
             || str.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
-    }
-
-    public static void WriteAllLines(string path, IEnumerable<string> lines, char separator)
-    {
-        using (var writer = new StreamWriter(path))
-        {
-            foreach (var line in lines)
-            {
-                writer.Write(line);
-                writer.Write(separator);
-            }
-        }
     }
 
     public async static Task WriteAllLinesAsync(string path, IEnumerable<string> lines, char separator)
@@ -176,43 +145,6 @@ public static partial class Utils
     {
         var parts = suffix.TrimStart('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
         return parts.Length == 0 ? prefix : Path.Join([prefix, .. parts]);
-    }
-
-    public static List<string> FromCsv(string csvLine)
-    {
-        var items = new List<string>();
-        var currentItem = new StringBuilder();
-        bool inQuotes = false;
-
-        for (int i = 0; i < csvLine.Length; i++)
-        {
-            char c = csvLine[i];
-
-            if (c == '"' && (i == 0 || csvLine[i - 1] != '\\'))
-            {
-                if (inQuotes && i + 1 < csvLine.Length && csvLine[i + 1] == '"')
-                {
-                    currentItem.Append('"');
-                    i++;
-                }
-                else
-                {
-                    inQuotes = !inQuotes;
-                }
-            }
-            else if (c == ',' && !inQuotes)
-            {
-                items.Add(currentItem.ToString());
-                currentItem.Clear();
-            }
-            else
-            {
-                currentItem.Append(c);
-            }
-        }
-        items.Add(currentItem.ToString());
-
-        return items;
     }
 
     public static decimal Normalize(this double value)
@@ -719,64 +651,6 @@ public static partial class Utils
         return false;
     }
 
-    public static bool ContainsInBracketsOptimized(this string str, string searchTerm, bool ignoreCase = false)
-    {
-        if (str.Length == 0 && searchTerm.Length > 0)
-            return false;
-
-        var comp = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        int depth = 0;
-        int searchTermLen = searchTerm.Length;
-
-        for (int i = 0; i < str.Length; i++)
-        {
-            char c = str[i];
-
-            if (c == '[' || c == '(')
-            {
-                depth++;
-            }
-            else if (c == ']' || c == ')')
-            {
-                depth--;
-            }
-
-            if (depth > 0 && i + searchTermLen <= str.Length)
-            {
-                if (str.Substring(i, searchTermLen).Equals(searchTerm, comp))
-                    return true;
-            }
-        }
-
-        return false;
-    }
-
-    public static Dictionary<K, V> ToSafeDictionary<T, K, V>(this IEnumerable<T> source, Func<T, K> keySelector, Func<T, V> valSelector) where K : notnull
-    {
-        var d = new Dictionary<K, V>();
-        foreach (var element in source)
-        {
-            if (!d.ContainsKey(keySelector(element)))
-                d.Add(keySelector(element), valSelector(element));
-        }
-        return d;
-    }
-
-    public static int IndexOf<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate)
-    {
-        var index = 0;
-        foreach (var item in source)
-        {
-            if (predicate.Invoke(item))
-            {
-                return index;
-            }
-            index++;
-        }
-
-        return -1;
-    }
-
     public static string GreatestCommonPath(IEnumerable<string> paths)
     {
         using var enumerator = paths.GetEnumerator();
@@ -899,26 +773,6 @@ public static partial class Utils
         }
 
         return (null, inputTitle);
-    }
-
-    public static bool SequenceEqualUpToPermutation<T>(this IEnumerable<T> list1, IEnumerable<T> list2) where T : notnull
-    {
-        var cnt = new Dictionary<T, int>();
-        foreach (T s in list1)
-        {
-            if (cnt.TryGetValue(s, out int count))
-                cnt[s] = count + 1;
-            else
-                cnt[s] = 1;
-        }
-        foreach (T s in list2)
-        {
-            if (cnt.TryGetValue(s, out int count))
-                cnt[s] = count - 1;
-            else
-                return false;
-        }
-        return cnt.Values.All(c => c == 0);
     }
 
     public static bool RemoveDiacriticsIfExist(this string s, out string res)

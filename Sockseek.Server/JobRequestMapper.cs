@@ -637,7 +637,7 @@ public static class JobRequestMapper
         {
             return candidate
                 ?? searchJob.RawSnapshot()
-                    .Select(result => result.ProjectionInput.ToFileCandidate())
+                    .Select(result => result.ToFileCandidate())
                     .FirstOrDefault(item => Matches(item, candidateRef));
         }
 
@@ -665,10 +665,6 @@ public static class JobRequestMapper
         => left.Equals(right, StringComparison.OrdinalIgnoreCase)
             || left.StartsWith(right.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)
             || right.StartsWith(left.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsInFolderPath(string filename, string folderPath)
-        => filename.StartsWith(folderPath.TrimEnd('\\') + "\\", StringComparison.Ordinal)
-            || filename.Equals(folderPath.TrimEnd('\\'), StringComparison.Ordinal);
 
     public static AlbumFolder ApplyFolderDownloadSelection(AlbumFolder folder, AlbumFolderDownloadSelectionDto? selection)
     {

@@ -146,21 +146,6 @@ internal static class JobPrintFormatter
         }
     }
 
-    public static void PrintHeader(int count)
-    {
-        lock (Printing.ConsoleLock)
-        {
-            if (count > 0)
-                PrintHeaderCore(count);
-        }
-    }
-
-    public static void PrintJob(Job job, PrintOption option, bool separate)
-    {
-        lock (Printing.ConsoleLock)
-            PrintJobCore(job, option.HasFlag(PrintOption.Full), separate);
-    }
-
     private static void PrintHeaderCore(int count)
         => Printing.WriteLine($"{count} {Pluralize("job", count)}:");
 
@@ -360,7 +345,7 @@ internal static class ResultPrintFormatter
             search,
             peerFailureSnapshot);
         kernel.Apply(
-            searchJob.RawSnapshot().Select(result => result.ProjectionInput),
+            searchJob.RawSnapshot(),
             searchJob.Revision,
             searchJob.IsComplete);
         var candidates = kernel.Snapshot().Files

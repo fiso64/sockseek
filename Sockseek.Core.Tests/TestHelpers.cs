@@ -61,12 +61,6 @@ namespace Tests
                 return tcs.Task.WaitAsync(TimeSpan.FromMilliseconds(timeoutMs));
             }
 
-            public void ReleaseOne()
-            {
-                if (releases.TryDequeue(out var release))
-                    release.TrySetResult();
-            }
-
             public void ReleaseAll()
             {
                 while (releases.TryDequeue(out var release))
@@ -171,15 +165,6 @@ namespace Tests
             int length = -1)
         {
             return new SongQuery { Artist = artist, Title = title, Album = album, Length = length };
-        }
-
-        public static SongJob CreateSongJob(
-            string artist = "",
-            string title = "",
-            string album = "",
-            int length = -1)
-        {
-            return new SongJob(new SongQuery { Artist = artist, Title = title, Album = album, Length = length });
         }
 
         public static AlbumFile CreateAlbumFile(

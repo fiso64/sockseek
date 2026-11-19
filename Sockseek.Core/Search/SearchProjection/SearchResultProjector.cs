@@ -75,13 +75,6 @@ public static partial class SearchResultProjector
     }
 
     internal static bool TrackGroupProjectionIncludes(
-        SearchResponse response,
-        Soulseek.File file,
-        SongQuery query,
-        SearchSettings search)
-        => ConditionSatisfactionPolicy.SearchFileSatisfies(search.NecessaryCond, response, file, query);
-
-    internal static bool TrackGroupProjectionIncludes(
         SearchProjectionInput input,
         SongQuery query,
         SearchSettings search)

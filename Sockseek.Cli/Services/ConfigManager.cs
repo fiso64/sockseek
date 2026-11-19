@@ -42,8 +42,6 @@ public static partial class ConfigManager
         return DefaultConfigPaths().FirstOrDefault(File.Exists) ?? "";
     }
 
-    public static string? ExtractProfileName(IReadOnlyList<string> args) => ParseInvocation(args).ProfileName;
-
     /// Creates fresh settings, applies the config file's [default] profile,
     /// any named profile, and finally cliArgs — in that order.
     /// Returns the top-level settings objects.

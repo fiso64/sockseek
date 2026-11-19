@@ -248,7 +248,7 @@ namespace Tests.EndToEnd
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist";
-                dl.Extraction.IsAlbum = true;
+                dl.Extraction.RequestedMode = ExtractionMode.Album;
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
@@ -303,7 +303,7 @@ namespace Tests.EndToEnd
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist";
-                dl.Extraction.IsAlbum = true;
+                dl.Extraction.RequestedMode = ExtractionMode.Album;
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
@@ -356,7 +356,7 @@ namespace Tests.EndToEnd
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist";
-                dl.Extraction.IsAlbum = true;
+                dl.Extraction.RequestedMode = ExtractionMode.Album;
                 dl.Output.ParentDir = outputDir;
                 dl.Output.WriteIndex = true;
                 dl.Output.IndexFilePath = Path.Combine(outputDir, "_index.csv");
@@ -416,7 +416,7 @@ namespace Tests.EndToEnd
 
                 var groupSettings = new DownloadSettings();
                 groupSettings.Extraction.Input = "artist=Artist";
-                groupSettings.Extraction.IsAlbum = true;
+                groupSettings.Extraction.RequestedMode = ExtractionMode.Album;
                 groupSettings.Output.ParentDir = outputDir;
                 groupSettings.Output.WriteIndex = true;
                 groupSettings.Output.IndexFilePath = indexPath;

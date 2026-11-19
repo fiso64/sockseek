@@ -199,7 +199,6 @@ public sealed class SearchViewKernel
     private bool isComplete;
 
     public long ConsumedSequence { get { lock (gate) return consumedSequence; } }
-    public bool IsComplete { get { lock (gate) return isComplete; } }
 
     public SearchViewKernel(
         FileSearchProjection projection,

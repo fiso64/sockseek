@@ -5,14 +5,13 @@
   interface Props {
     value: DownloadOptions;
     capabilities: DownloadOptionCapabilities;
-    context?: 'automatic' | 'selection';
     compact?: boolean;
     separators?: boolean;
     mixedFields?: ReadonlySet<keyof DownloadOptions>;
     onfieldchange?: (field: keyof DownloadOptions) => void;
   }
 
-  let { value = $bindable(), capabilities, context = 'automatic', compact = false, separators = true, mixedFields = new Set(), onfieldchange }: Props = $props();
+  let { value = $bindable(), capabilities, compact = false, separators = true, mixedFields = new Set(), onfieldchange }: Props = $props();
 </script>
 
 <div class:compact class:seamless={!separators} class="download-options-panel">

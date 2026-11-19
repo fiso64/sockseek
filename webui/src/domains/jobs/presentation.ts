@@ -91,18 +91,3 @@ export async function resolvePresentedJob(
     known.set(current.summary.jobId!, current.summary);
   }
 }
-
-export function extractSourceLabel(inputType: string | null | undefined): string {
-  switch (inputType?.toLowerCase()) {
-    case 'spotify': return 'Spotify';
-    case 'youtube': return 'YouTube';
-    case 'bandcamp': return 'Bandcamp';
-    case 'soundcloud': return 'SoundCloud';
-    case 'musicbrainz': return 'MusicBrainz';
-    case 'soulseek-link': return 'Soulseek link';
-    case 'csv': return 'CSV';
-    case 'list': return 'List';
-    case 'string': return 'Text';
-    default: return 'Unknown source';
-  }
-}

@@ -189,16 +189,6 @@ namespace Sockseek.Core.Models;
                 && AllowedUsers.SequenceEqual(other.AllowedUsers);
         }
 
-        public void UnsetClientSpecificFields()
-        {
-            MinBitrate = null;
-            MaxBitrate = null;
-            MinSampleRate = null;
-            MaxSampleRate = null;
-            MinBitDepth = null;
-            MaxBitDepth = null;
-        }
-
         public bool HasActiveAudioPropertyConditions()
             => MinBitrate != null
                 || MaxBitrate != null
@@ -209,10 +199,6 @@ namespace Sockseek.Core.Models;
 
         public bool HasActiveAlbumTrackConditions()
             => HasActiveFormatCondition() || HasActiveAudioPropertyConditions();
-
-        [Obsolete("Use HasActiveAudioPropertyConditions or HasActiveAlbumTrackConditions to state the intended policy.")]
-        public bool HasActiveAudioQualityConditions()
-            => HasActiveAudioPropertyConditions();
 
         public FileConditions WithoutAudioPropertyConditions()
         {
@@ -232,10 +218,6 @@ namespace Sockseek.Core.Models;
             result.Formats = [];
             return result;
         }
-
-        [Obsolete("Use WithoutAudioPropertyConditions or WithoutAlbumTrackConditions to state the intended policy.")]
-        public FileConditions WithoutAudioQualityConditions()
-            => WithoutAudioPropertyConditions();
 
         public bool HasActiveFormatCondition()
         {
@@ -535,9 +517,6 @@ namespace Sockseek.Core.Models;
             return ext.Length > 0 && Formats.Any(f => f == ext);
         }
 
-        public bool LengthToleranceSatisfies(Soulseek.File file, int wantedLength) => LengthToleranceSatisfies(file.Length, wantedLength);
-        public bool LengthToleranceSatisfies(TagLib.File file, int wantedLength) => LengthToleranceSatisfies((int)file.Properties.Duration.TotalSeconds, wantedLength);
-        public bool LengthToleranceSatisfies(SimpleFile file, int wantedLength) => LengthToleranceSatisfies(file.Length, wantedLength);
         public bool LengthToleranceSatisfies(int? length, int wantedLength)
         {
             if (LengthTolerance == null || LengthTolerance < 0 || wantedLength < 0)
@@ -547,25 +526,16 @@ namespace Sockseek.Core.Models;
             return Math.Abs((int)length - wantedLength) <= LengthTolerance;
         }
 
-        public bool BitrateSatisfies(Soulseek.File file) => BitrateSatisfies(file.BitRate);
-        public bool BitrateSatisfies(TagLib.File file) => BitrateSatisfies(file.Properties.AudioBitrate);
-        public bool BitrateSatisfies(SimpleFile file) => BitrateSatisfies(file.Bitrate);
         public bool BitrateSatisfies(int? bitrate)
         {
             return BoundCheck(bitrate, MinBitrate, MaxBitrate);
         }
 
-        public bool SampleRateSatisfies(Soulseek.File file) => SampleRateSatisfies(file.SampleRate);
-        public bool SampleRateSatisfies(TagLib.File file) => SampleRateSatisfies(file.Properties.AudioSampleRate);
-        public bool SampleRateSatisfies(SimpleFile file) => SampleRateSatisfies(file.Samplerate);
         public bool SampleRateSatisfies(int? sampleRate)
         {
             return BoundCheck(sampleRate, MinSampleRate, MaxSampleRate);
         }
 
-        public bool BitDepthSatisfies(Soulseek.File file) => BitDepthSatisfies(file.BitDepth);
-        public bool BitDepthSatisfies(TagLib.File file) => BitDepthSatisfies(file.Properties.BitsPerSample);
-        public bool BitDepthSatisfies(SimpleFile file) => BitDepthSatisfies(file.Bitdepth);
         public bool BitDepthSatisfies(int? bitdepth)
         {
             return BoundCheck(bitdepth, MinBitDepth, MaxBitDepth);
@@ -605,35 +575,6 @@ namespace Sockseek.Core.Models;
 
         public bool UsernameSatisfies(string? username)
             => BannedUsernameSatisfies(username) && AllowedUsernameSatisfies(username);
-
-        public string GetNotSatisfiedName(Soulseek.File file, SongQuery? query, SearchResponse? response)
-        {
-            string title  = query?.Title  ?? "";
-            string artist = query?.Artist ?? "";
-            string album  = query?.Album  ?? "";
-            int length    = query?.Length ?? -1;
-            if (!BannedUsersSatisfies(response))
-                return "BannedUsers fails";
-            if (!AllowedUsersSatisfies(response))
-                return "AllowedUsers fails";
-            if (!StrictTitleSatisfies(file.Filename, title))
-                return "StrictTitle fails";
-            if (!StrictArtistSatisfies(file.Filename, artist))
-                return "StrictArtist fails";
-            if (!LengthToleranceSatisfies(file, length))
-                return "LengthTolerance fails";
-            if (!FormatSatisfies(file.Filename))
-                return "Format fails";
-            if (!StrictAlbumSatisfies(file.Filename, album))
-                return "StrictAlbum fails";
-            if (!BitrateSatisfies(file))
-                return "Bitrate fails";
-            if (!SampleRateSatisfies(file))
-                return "SampleRate fails";
-            if (!BitDepthSatisfies(file))
-                return "BitDepth fails";
-            return "Satisfied";
-        }
 
         public override int GetHashCode()
         {

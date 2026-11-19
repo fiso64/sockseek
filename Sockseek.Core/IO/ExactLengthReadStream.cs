@@ -30,8 +30,6 @@ public sealed class ExactLengthReadStream : Stream
         Length = length;
     }
 
-    public long Remaining => remaining;
-
     public override bool CanRead => !disposed && inner.CanRead;
     public override bool CanSeek => false;
     public override bool CanWrite => false;

@@ -82,12 +82,6 @@ internal readonly struct AlbumFolderProjectionPlan
             necessaryConditionEvaluator: projectionFilter.Satisfies);
     }
 
-    internal bool Includes((SearchResponse Response, SlFile File) result)
-        => projectionFilter.Satisfies(result);
-
-    public bool Includes(SearchProjectionInput result)
-        => projectionFilter.Satisfies(result);
-
     public EvaluatedAlbumProjectionInput? Evaluate(
         SearchProjectionInput input,
         int originalIndex)
@@ -116,23 +110,6 @@ internal readonly struct AlbumFolderProjectionPlan
         }
         return evaluated;
     }
-
-    internal List<(SearchResponse Response, SlFile File)> FilterToList(
-        IEnumerable<(SearchResponse Response, SlFile File)> results)
-    {
-        var filtered = new List<(SearchResponse Response, SlFile File)>();
-
-        foreach (var result in results)
-        {
-            if (Includes(result))
-                filtered.Add(result);
-        }
-
-        return filtered;
-    }
-
-    public List<SearchProjectionInput> FilterToList(IEnumerable<SearchProjectionInput> results)
-        => results.Where(Includes).ToList();
 
     public List<AlbumFolder> ProjectEvaluatedResults(
         IEnumerable<EvaluatedAlbumProjectionInput> evaluatedResults)

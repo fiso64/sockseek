@@ -128,12 +128,4 @@ public static class ConditionParser
         return cond;
     }
 
-    /// Convenience: parse only folder-level conditions from a condition string.
-    /// File-level conditions in the string are parsed and discarded.
-    public static FolderConditionPatch ParseFolderConditions(string input)
-    {
-        var folderOut = new FolderConditionPatch();
-        ParseFileConditions(input, folderOut);
-        return folderOut;
-    }
 }

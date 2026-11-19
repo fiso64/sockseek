@@ -643,7 +643,7 @@ namespace Tests.Cancellation
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist, album=Album";
-                dl.Extraction.IsAlbum = true;
+                dl.Extraction.RequestedMode = ExtractionMode.Album;
                 dl.Search.NoBrowseFolder = true; // Avoid extra folder retrieval overhead
                 dl.Output.ParentDir = outputDir;
 
@@ -1465,7 +1465,7 @@ namespace Tests.Cancellation
                 };
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "Artist Album";
-                dl.Extraction.IsAlbum = true;
+                dl.Extraction.RequestedMode = ExtractionMode.Album;
                 dl.Search.NoBrowseFolder = true;
                 dl.Output.ParentDir = outputDir;
                 dl.Output.NameFormat = "{foldername}/{filename}";

@@ -71,16 +71,8 @@ public class SearchJob : Job
         SearchObservationSession = Session;
     }
 
-    internal IReadOnlyCollection<(Soulseek.SearchResponse Response, Soulseek.File File)> Snapshot()
-        => Session.Snapshot();
-
-    public IReadOnlyList<SearchRawResult> RawSnapshot(long afterSequence = 0)
+    public IReadOnlyList<SearchProjectionInput> RawSnapshot(long afterSequence = 0)
         => Session.RawSnapshot(afterSequence);
-
-    public IAsyncEnumerable<SearchRawResult> ReadRawResultsAsync(
-        long afterSequence = 0,
-        CancellationToken ct = default)
-        => Session.ReadRawResultsAsync(afterSequence, ct);
 
     public SearchProjectionSnapshot<FileCandidate> GetSortedTrackCandidates(
         SearchSettings search,
@@ -90,13 +82,6 @@ public class SearchJob : Job
             ?? new FileSearchProjection(new SongQuery { Title = QueryText });
         return GetSortedTrackCandidates(projection, search, peerFailureCounts);
     }
-
-    public SearchProjectionSnapshot<FileCandidate> GetSortedTrackCandidates(
-        SongQuery query,
-        bool includeFullResults,
-        SearchSettings search,
-        ConcurrentDictionary<string, int> peerFailureCounts)
-        => GetSortedTrackCandidates(new FileSearchProjection(query, includeFullResults), search, peerFailureCounts);
 
     public SearchProjectionSnapshot<FileCandidate> GetSortedTrackCandidates(
         FileSearchProjection projection,
@@ -123,9 +108,6 @@ public class SearchJob : Job
 
         return GetAlbumFolders(DefaultFolderProjection, search);
     }
-
-    public SearchProjectionSnapshot<AlbumFolder> GetAlbumFolders(AlbumQuery query, SearchSettings search)
-        => GetAlbumFolders(new FolderSearchProjection(query), search);
 
     public SearchProjectionSnapshot<AlbumFolder> GetAlbumFolders(
         FolderSearchProjection projection, SearchSettings search, bool includeLocked = false,
@@ -162,12 +144,6 @@ public class SearchJob : Job
     }
 
     public SearchProjectionSnapshot<SongJob> GetTrackGroups(
-        SongQuery query,
-        SearchSettings search,
-        ConcurrentDictionary<string, int> peerFailureCounts)
-        => GetTrackGroups(new TrackGroupProjection(query), search, peerFailureCounts);
-
-    public SearchProjectionSnapshot<SongJob> GetTrackGroups(
         TrackGroupProjection projection,
         SearchSettings search,
         ConcurrentDictionary<string, int> peerFailureCounts,
@@ -191,9 +167,6 @@ public class SearchJob : Job
 
         return GetAlbumGroups(DefaultAlbumGroupProjection, search);
     }
-
-    public SearchProjectionSnapshot<AlbumJob> GetAlbumGroups(AlbumQuery query, SearchSettings search)
-        => GetAlbumGroups(new AlbumGroupProjection(query), search);
 
     public SearchProjectionSnapshot<AlbumJob> GetAlbumGroups(
         AlbumGroupProjection projection, SearchSettings search, bool includeLocked = false,
@@ -245,10 +218,9 @@ public class SearchJob : Job
     // Read-only views include locked observations; execution projections keep
     // their public-only default so observation never grants download eligibility.
     private static List<SearchProjectionInput> RawInputs(
-        IReadOnlyList<SearchRawResult> rawResults, bool includeLocked = false)
+        IReadOnlyList<SearchProjectionInput> rawResults, bool includeLocked = false)
         => rawResults
             .Where(result => includeLocked || result.Visibility == SearchResultVisibility.Public)
-            .Select(result => result.ProjectionInput)
             .ToList();
 
     private ProjectionCacheKey ProjectionKey(

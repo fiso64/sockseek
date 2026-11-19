@@ -3,7 +3,6 @@
   import { DaemonHttpClient } from '../../api/http';
   import type { Schema } from '../../api/types';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
-  import HelpPopover from '../../components/HelpPopover.svelte';
   import Modal from '../../components/Modal.svelte';
 
   const http = new DaemonHttpClient();

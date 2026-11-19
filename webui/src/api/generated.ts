@@ -6505,7 +6505,7 @@ export interface paths {
         put?: never;
         /**
          * Replays only one planned search job from its retained execution settings.
-         * @description Sibling jobs are not restarted. Older submissions without retained child identities cannot be replayed through this operation.
+         * @description Replays the selected search while leaving sibling jobs in their current state.
          */
         post: {
             parameters: {

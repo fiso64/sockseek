@@ -63,14 +63,11 @@ public static class ApiEnumMapper
     public static PrintOption ToCore(this ServerPrintOption value)
         => (PrintOption)ValidatePrintOption((int)value, nameof(value));
 
-    public static ServerDownloadBehavior ToServer(this DownloadBehavior value) => Map<ServerDownloadBehavior>(value);
     public static DownloadBehavior ToCore(this ServerDownloadBehavior value) => Map<DownloadBehavior>(value);
 
     public static ServerIncompleteAlbumActionKind ToServer(this IncompleteAlbumActionKind value) => Map<ServerIncompleteAlbumActionKind>(value);
-    public static IncompleteAlbumActionKind ToCore(this ServerIncompleteAlbumActionKind value) => Map<IncompleteAlbumActionKind>(value);
 
     public static ServerSkipMode ToServer(this SkipMode value) => Map<ServerSkipMode>(value);
-    public static SkipMode ToCore(this ServerSkipMode value) => Map<SkipMode>(value);
 
     public static ServerInputType ToServer(this InputType value) => Map<ServerInputType>(value);
     public static InputType ToCore(this ServerInputType value) => Map<InputType>(value);
@@ -79,12 +76,10 @@ public static class ApiEnumMapper
     public static ExtractionMode ToCore(this ServerExtractionMode value) => Map<ExtractionMode>(value);
 
     public static ServerAlbumArtOption ToServer(this AlbumArtOption value) => Map<ServerAlbumArtOption>(value);
-    public static AlbumArtOption ToCore(this ServerAlbumArtOption value) => Map<AlbumArtOption>(value);
 
     public static ServerSearchSettingsBaselineKind ToServer(this SearchSettingsBaselineKind value) => Map<ServerSearchSettingsBaselineKind>(value);
 
     public static ServerSearchDefaultProjectionKind ToServer(this SearchDefaultProjectionKind value) => Map<ServerSearchDefaultProjectionKind>(value);
-    public static SearchDefaultProjectionKind ToCore(this ServerSearchDefaultProjectionKind value) => Map<SearchDefaultProjectionKind>(value);
 
     public static ServerSearchViewProjectionKind ToServer(this SearchViewProjectionKind value) => Map<ServerSearchViewProjectionKind>(value);
     public static SearchViewProjectionKind ToCore(this ServerSearchViewProjectionKind value) => Map<SearchViewProjectionKind>(value);
@@ -102,14 +97,12 @@ public static class ApiEnumMapper
     public static SearchPreferenceCondition ToCore(this ServerSearchPreferenceCondition value) => Map<SearchPreferenceCondition>(value);
 
     public static ServerChatTargetKind ToServer(this ChatTargetKind value) => Map<ServerChatTargetKind>(value);
-    public static ChatTargetKind ToCore(this ServerChatTargetKind value) => Map<ChatTargetKind>(value);
 
     public static ServerChatMessageDirection ToServer(this ChatMessageDirection value) => Map<ServerChatMessageDirection>(value);
 
     public static ServerChatMessageState ToServer(this ChatMessageState value) => Map<ServerChatMessageState>(value);
 
     public static ServerChatRoomKind ToServer(this ChatRoomKind value) => Map<ServerChatRoomKind>(value);
-    public static ChatRoomKind ToCore(this ServerChatRoomKind value) => Map<ChatRoomKind>(value);
 
     public static ServerChatRoomJoinPhase ToServer(this ChatRoomJoinPhase value) => Map<ServerChatRoomJoinPhase>(value);
 

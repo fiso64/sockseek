@@ -755,44 +755,6 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         return new ShareCatalogBrowseDirectory(directory, files);
     }
 
-    public async IAsyncEnumerable<ShareCatalogBrowseDirectory> EnumerateBrowseAsync(
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            $"""
-             SELECT d.directory_id, d.root_id, d.relative_path, d.remote_path,
-                    d.comparison_path,
-                    {FileColumns("f")}
-             FROM directories d
-             LEFT JOIN files f ON f.directory_id = d.directory_id
-             ORDER BY d.remote_path, f.remote_path;
-             """;
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        ShareCatalogDirectory? current = null;
-        List<ShareCatalogFile>? files = null;
-
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            long directoryId = reader.GetInt64(0);
-            if (current?.DirectoryId != directoryId)
-            {
-                if (current is not null)
-                    yield return new ShareCatalogBrowseDirectory(current, files!);
-                current = ReadDirectory(reader, 0);
-                files = [];
-            }
-
-            if (!reader.IsDBNull(5))
-                files!.Add(ReadFile(reader, 5));
-        }
-
-        if (current is not null)
-            yield return new ShareCatalogBrowseDirectory(current, files!);
-    }
-
     public async IAsyncEnumerable<ShareCatalogBrowseRow> EnumerateBrowseRowsAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {

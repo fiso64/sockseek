@@ -423,7 +423,7 @@ public sealed class EnginePersistenceTests
             WorkflowId = extract.WorkflowId,
         };
 
-        Invoke(events, "RaiseJobResultCreated", extract, result);
+        events.RaiseJobResultCreated(extract, result);
 
         var mutations = sink.Mutations.OfType<JobPersistenceMutation>().ToArray();
         Assert.AreEqual(2, mutations.Length);
@@ -707,13 +707,13 @@ public sealed class EnginePersistenceTests
         Guid transferId = Guid.NewGuid();
         Guid attemptId = Guid.NewGuid();
 
-        Invoke(events, "RaiseDownloadStarted", transferId, song, candidate.Target, "C:/downloads/Track.mp3");
-        Invoke(events, "RaiseTransferAttemptStarted", transferId, attemptId, 1, song, candidate.Target, "C:/downloads/Track.mp3", "C:/downloads/Track.mp3.incomplete");
+        events.RaiseDownloadStarted(transferId, song, candidate.Target, "C:/downloads/Track.mp3");
+        events.RaiseTransferAttemptStarted(transferId, attemptId, 1, song, candidate.Target, "C:/downloads/Track.mp3", "C:/downloads/Track.mp3.incomplete");
         song.BytesTransferred = 40;
-        Invoke(events, "RaiseDownloadProgress", transferId, song, candidate.Target, "C:/downloads/Track.mp3", 40L, 100L);
+        events.RaiseDownloadProgress(transferId, song, candidate.Target, "C:/downloads/Track.mp3", 40L, 100L);
         song.BytesTransferred = 100;
-        Invoke(events, "RaiseTransferAttemptCompleted", transferId, attemptId, 1, song, candidate.Target, "C:/downloads/Track.mp3");
-        Invoke(events, "RaiseTransferCompleted", transferId, song, candidate.Target, "C:/downloads/Track.mp3", 100L, 1);
+        events.RaiseTransferAttemptCompleted(transferId, attemptId, 1, song, candidate.Target, "C:/downloads/Track.mp3");
+        events.RaiseTransferCompleted(transferId, song, candidate.Target, "C:/downloads/Track.mp3", 100L, 1);
 
         var terminal = sink.Mutations.OfType<TransferTerminalPersistenceMutation>().Single();
         Assert.AreEqual(transferId, terminal.Transfer.TransferId);
@@ -737,8 +737,8 @@ public sealed class EnginePersistenceTests
         Assert.AreEqual(0, sink.Mutations.OfType<TransferAttemptPersistenceMutation>().Count(mutation => mutation.State == "Completed"));
 
         Guid cancelledTransferId = Guid.NewGuid();
-        Invoke(events, "RaiseDownloadStarted", cancelledTransferId, song, candidate.Target, "C:/downloads/Cancelled.mp3");
-        Invoke(events, "RaiseTransferCancelled", cancelledTransferId, song, candidate.Target,
+        events.RaiseDownloadStarted(cancelledTransferId, song, candidate.Target, "C:/downloads/Cancelled.mp3");
+        events.RaiseTransferCancelled(cancelledTransferId, song, candidate.Target,
             "C:/downloads/Cancelled.mp3", 40L, 100L, 1, TransferCancellationReason.Requested);
         var cancelled = sink.Mutations.OfType<TransferTerminalPersistenceMutation>()
             .Single(mutation => mutation.Transfer.TransferId == cancelledTransferId).Transfer;
@@ -767,10 +767,10 @@ public sealed class EnginePersistenceTests
 
         Guid firstTransferId = Guid.NewGuid();
         Guid secondTransferId = Guid.NewGuid();
-        Invoke(events, "RaiseDownloadStarted", firstTransferId, first, firstTarget, "C:/downloads/First.bin");
-        Invoke(events, "RaiseDownloadStarted", secondTransferId, second, secondTarget, "C:/downloads/Second.bin");
-        Invoke(events, "RaiseTransferCompleted", firstTransferId, first, firstTarget, "C:/downloads/First.bin", 10L, 1);
-        Invoke(events, "RaiseTransferCompleted", secondTransferId, second, secondTarget, "C:/downloads/Second.bin", 20L, 1);
+        events.RaiseDownloadStarted(firstTransferId, first, firstTarget, "C:/downloads/First.bin");
+        events.RaiseDownloadStarted(secondTransferId, second, secondTarget, "C:/downloads/Second.bin");
+        events.RaiseTransferCompleted(firstTransferId, first, firstTarget, "C:/downloads/First.bin", 10L, 1);
+        events.RaiseTransferCompleted(secondTransferId, second, secondTarget, "C:/downloads/Second.bin", 20L, 1);
 
         var started = sink.Mutations.OfType<TransferPersistenceMutation>()
             .Where(mutation => mutation.State == "Started").ToArray();
@@ -782,7 +782,7 @@ public sealed class EnginePersistenceTests
             mutation.GroupRef == directory.Id.ToString("D") && mutation.GroupDisplayPath == "Root"
             && mutation.GroupRelativePath == (mutation.TransferId == firstTransferId ? "First.bin" : "Second.bin")));
 
-        Invoke(events, "RaiseWorkflowRetired", directory.WorkflowId, 3);
+        events.RaiseWorkflowRetired(directory.WorkflowId, 3);
         Assert.AreEqual((0, 0, 0, 0, 0, 0), events.RetainedStateCounts);
     }
 
@@ -802,8 +802,8 @@ public sealed class EnginePersistenceTests
         tracker.Register(file, directory);
 
         Guid transferId = Guid.NewGuid();
-        Invoke(events, "RaiseDownloadStarted", transferId, file, target, "C:/downloads/Root/Selected.bin");
-        Invoke(events, "RaiseTransferCompleted", transferId, file, target, "C:/downloads/Root/Selected.bin", 12L, 1);
+        events.RaiseDownloadStarted(transferId, file, target, "C:/downloads/Root/Selected.bin");
+        events.RaiseTransferCompleted(transferId, file, target, "C:/downloads/Root/Selected.bin", 12L, 1);
 
         var started = sink.Mutations.OfType<TransferPersistenceMutation>()
             .Single(mutation => mutation.State == "Started");
@@ -840,15 +840,15 @@ public sealed class EnginePersistenceTests
             file);
         Guid transferId = Guid.NewGuid();
 
-        Invoke(events, "RaiseDownloadStarted", transferId, song, candidate.Target, "C:/downloads/Track.mp3");
+        events.RaiseDownloadStarted(transferId, song, candidate.Target, "C:/downloads/Track.mp3");
         client.ApplySnapshot(state.GetWorkflowSnapshot(song.WorkflowId));
         state.StateBatchPublished += batch => { if (batch.Scope == StateStreamScopeDto.Workflow(song.WorkflowId)) client.Apply(batch.ToDto()); };
         if (fail)
-            Invoke(events, "RaiseTransferFailed", transferId, song, candidate.Target, "C:/downloads/Track.mp3",
+            events.RaiseTransferFailed(transferId, song, candidate.Target, "C:/downloads/Track.mp3",
                 50L, 100L, 1, Sockseek.Core.Events.TransferFailureReason.PeerFailure,
                 new IOException("Peer connection closed."));
         else
-            Invoke(events, "RaiseTransferCompleted", transferId, song, candidate.Target, "C:/downloads/Track.mp3", 100L, 1);
+            events.RaiseTransferCompleted(transferId, song, candidate.Target, "C:/downloads/Track.mp3", 100L, 1);
         var terminal = sink.Mutations.OfType<TransferTerminalPersistenceMutation>().Single();
 
         var live = state.GetLiveTransfer(transferId)!;
@@ -899,12 +899,12 @@ public sealed class EnginePersistenceTests
         var response = new SearchResponse("user", 1, true, 1_000, 0, [file]);
         var candidate = SoulseekSearchAdapter.ToFileCandidate(response, file);
         Guid transferId = Guid.NewGuid();
-        Invoke(events, "RaiseDownloadStarted", transferId, song, candidate.Target, "C:/downloads/Track.mp3");
+        events.RaiseDownloadStarted(transferId, song, candidate.Target, "C:/downloads/Track.mp3");
 
         for (int i = 1; i <= 10_000; i++)
         {
             song.BytesTransferred = i;
-            Invoke(events, "RaiseDownloadProgress", transferId, song, candidate.Target, "C:/downloads/Track.mp3", (long)i, 10_000L);
+            events.RaiseDownloadProgress(transferId, song, candidate.Target, "C:/downloads/Track.mp3", (long)i, 10_000L);
         }
 
         Assert.AreEqual(10_000L, song.BytesTransferred);
@@ -931,11 +931,11 @@ public sealed class EnginePersistenceTests
         var target = new PeerFileTarget(new PeerFileIdentity("peer", @"Music\Track.flac"), 100, ".flac");
         Guid transferId = Guid.NewGuid();
         events.RaiseJobRegistered(song, null, null);
-        Invoke(events, "RaiseDownloadStarted", transferId, song, target, "/downloads/Track.flac");
-        Invoke(events, "RaiseTransferCompleted", transferId, song, target, "/downloads/Track.flac", 100L, 1);
+        events.RaiseDownloadStarted(transferId, song, target, "/downloads/Track.flac");
+        events.RaiseTransferCompleted(transferId, song, target, "/downloads/Track.flac", 100L, 1);
         song.SetDone();
         events.RaiseJobStateChanged(song);
-        Invoke(events, "RaiseWorkflowRetired", song.WorkflowId, 1);
+        events.RaiseWorkflowRetired(song.WorkflowId, 1);
         var committed = Drain();
         Assert.IsNotNull(state.GetJobDetail(song.Id));
         Assert.IsNotNull(state.GetLiveTransfer(transferId));
@@ -963,8 +963,8 @@ public sealed class EnginePersistenceTests
                 Assert.IsNotNull(state.GetJobSummary(song.Id));
                 var other = new SongJob(new SongQuery { Title = "Other" });
                 Guid otherTransfer = Guid.NewGuid();
-                Invoke(events, "RaiseDownloadStarted", otherTransfer, other, target, "/downloads/Other.flac");
-                Invoke(events, "RaiseDownloadProgress", otherTransfer, other, target, "/downloads/Other.flac", 10L, 100L);
+                events.RaiseDownloadStarted(otherTransfer, other, target, "/downloads/Other.flac");
+                events.RaiseDownloadProgress(otherTransfer, other, target, "/downloads/Other.flac", 10L, 100L);
                 handoffs.Committed(committed);
                 Assert.IsNull(state.GetJobDetail(song.Id));
                 Assert.IsNull(state.GetLiveTransfer(transferId));
@@ -1038,7 +1038,7 @@ public sealed class EnginePersistenceTests
         Assert.AreEqual(acceptedWrites, sink.Mutations.Count,
             "Rejected older headers cannot mutate relationships or enter persistence.");
         Assert.AreEqual(ServerJobLifecycleState.Terminal, store.GetJobSummary(job.Id)!.LifecycleState);
-        Invoke(events, "RaiseWorkflowRetired", job.WorkflowId, 1);
+        events.RaiseWorkflowRetired(job.WorkflowId, 1);
 
         Assert.IsTrue(readableDuringRetirement,
             "The read owner must not discard facts when Core releases its execution objects.");
@@ -1075,7 +1075,7 @@ public sealed class EnginePersistenceTests
         events.WorkflowRetired += _ => retired = true;
 
         events.RaiseJobRegistered(job, null, null);
-        Invoke(events, "RaiseWorkflowRetired", job.WorkflowId, 1);
+        events.RaiseWorkflowRetired(job.WorkflowId, 1);
 
         Assert.IsTrue(retired);
         Assert.IsTrue(sink.RejectedCount > 0);
@@ -1093,11 +1093,6 @@ public sealed class EnginePersistenceTests
         state.AttachEvents(events);
         return writer;
     }
-
-    private static void Invoke(DownloadEvents events, string methodName, params object?[] args)
-        => typeof(DownloadEvents)
-            .GetMethod(methodName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .Invoke(events, args);
 
     private static PersistedJob ToPersistedJob(JobPersistenceMutation mutation)
         => new(

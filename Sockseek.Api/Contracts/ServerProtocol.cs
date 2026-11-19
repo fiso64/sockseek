@@ -196,16 +196,16 @@ public enum ServerJobFailureReason
 public enum ServerFolderRetrievalOutcome
 {
     /// <summary>Folder retrieval has not finished yet.</summary>
-    [JsonStringEnumMemberName(ServerProtocol.FolderRetrievalOutcomes.None)]
+    [JsonStringEnumMemberName("none")]
     None,
     /// <summary>Folder retrieval completed successfully.</summary>
-    [JsonStringEnumMemberName(ServerProtocol.FolderRetrievalOutcomes.Completed)]
+    [JsonStringEnumMemberName("completed")]
     Completed,
     /// <summary>Folder retrieval was cancelled.</summary>
-    [JsonStringEnumMemberName(ServerProtocol.FolderRetrievalOutcomes.Cancelled)]
+    [JsonStringEnumMemberName("cancelled")]
     Cancelled,
     /// <summary>Folder retrieval failed for a non-cancellation reason.</summary>
-    [JsonStringEnumMemberName(ServerProtocol.FolderRetrievalOutcomes.Failed)]
+    [JsonStringEnumMemberName("failed")]
     Failed,
 }
 
@@ -292,36 +292,6 @@ public static class ServerProtocol
     }
 
     /// <summary>
-    /// Compatibility aliases for <see cref="ServerJobFailureReason"/> values.
-    /// Prefer <see cref="ServerJobFailureReason"/> directly in new .NET code.
-    /// </summary>
-    public static class FailureReasons
-    {
-        public const ServerJobFailureReason None = ServerJobFailureReason.None;
-        public const ServerJobFailureReason InvalidSearchString = ServerJobFailureReason.InvalidSearchString;
-        public const ServerJobFailureReason OutOfDownloadRetries = ServerJobFailureReason.OutOfDownloadRetries;
-        public const ServerJobFailureReason AllDownloadsFailed = ServerJobFailureReason.AllDownloadsFailed;
-        public const ServerJobFailureReason Other = ServerJobFailureReason.Other;
-        public const ServerJobFailureReason ExtractionFailed = ServerJobFailureReason.ExtractionFailed;
-        public const ServerJobFailureReason Cancelled = ServerJobFailureReason.Cancelled;
-        public const ServerJobFailureReason ChildJobsFailed = ServerJobFailureReason.ChildJobsFailed;
-        public const ServerJobFailureReason NoSearchResults = ServerJobFailureReason.NoSearchResults;
-        public const ServerJobFailureReason NoMatchingResults = ServerJobFailureReason.NoMatchingResults;
-    }
-
-    /// <summary>
-    /// Compatibility aliases for <see cref="ServerFolderRetrievalOutcome"/> values.
-    /// Prefer <see cref="ServerFolderRetrievalOutcome"/> directly in new .NET code.
-    /// </summary>
-    public static class FolderRetrievalOutcomes
-    {
-        public const string None = "none";
-        public const string Completed = "completed";
-        public const string Cancelled = "cancelled";
-        public const string Failed = "failed";
-    }
-
-    /// <summary>
     /// Action identifiers used by <see cref="ResourceActionDto"/>.
     /// </summary>
     public static class ResourceActionKinds
@@ -333,13 +303,12 @@ public static class ServerProtocol
 
 public static class ServerProtocolEnumExtensions
 {
-    /// <summary>Accept the public job-kind spelling in query parameters as well as older CLR enum names.</summary>
+    /// <summary>Accept the public job-kind spelling in query parameters.</summary>
     public static bool TryParseJobKind(string value, out ServerJobKind kind)
     {
         foreach (var candidate in Enum.GetValues<ServerJobKind>())
         {
-            if (string.Equals(value, candidate.ToWireString(), StringComparison.Ordinal)
-                || string.Equals(value, candidate.ToString(), StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(value, candidate.ToWireString(), StringComparison.Ordinal))
             {
                 kind = candidate;
                 return true;
@@ -365,8 +334,7 @@ public static class ServerProtocolEnumExtensions
     {
         foreach (var candidate in Enum.GetValues<ServerJobRole>())
         {
-            if (string.Equals(value, candidate.ToWireString(), StringComparison.Ordinal)
-                || string.Equals(value, candidate.ToString(), StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(value, candidate.ToWireString(), StringComparison.Ordinal))
             {
                 role = candidate;
                 return true;

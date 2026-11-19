@@ -86,11 +86,6 @@ namespace Tests.ClientTests
             throw new NotImplementedException();
         }
 
-        public Task<UserData> AddUserAsync(string username, CancellationToken? cancellationToken = null)
-        {
-            throw new NotImplementedException();
-        }
-
         public Task ChangePasswordAsync(string password, CancellationToken? cancellationToken = null)
         {
             throw new NotImplementedException();

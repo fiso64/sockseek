@@ -145,20 +145,7 @@ public sealed class JobPreviewStore(
                 -- rescanning the entire preview once per distinct settings row.
                 CREATE INDEX IF NOT EXISTS ix_job_preview_nodes_settings
                     ON job_preview_nodes(preview_id, effective_settings_ref);
-                DROP TABLE IF EXISTS job_preview_selection_entries;
-                DROP TABLE IF EXISTS job_preview_selections;
                 """, cancellationToken).ConfigureAwait(false);
-            if (!await HasColumnAsync(
-                    connection,
-                    "job_previews",
-                    "request_json",
-                    cancellationToken).ConfigureAwait(false))
-            {
-                await ExecuteAsync(
-                    connection,
-                    "ALTER TABLE job_previews ADD COLUMN request_json TEXT NOT NULL DEFAULT '{}';",
-                    cancellationToken).ConfigureAwait(false);
-            }
             PersistenceFilePrivacy.RestrictFile(path);
         }
         catch
@@ -197,29 +184,6 @@ public sealed class JobPreviewStore(
             await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
         return new(id, now, expires, "Planning", 1, 0, 0, 0, 0, null);
-    }
-
-    public async Task<IReadOnlyList<StoredJobPreviewWork>> GetPlanningWorkAsync(
-        CancellationToken cancellationToken = default)
-    {
-        EnsureInitialized();
-        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, request_json FROM job_previews
-            WHERE state = 'Planning' AND expires_at_utc > $now
-            ORDER BY created_at_utc, id;
-            """;
-        Add(command, "$now", clock.GetUtcNow());
-        var work = new List<StoredJobPreviewWork>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            work.Add(new(
-                Guid.Parse(reader.GetString(0)),
-                reader.GetString(1)));
-        }
-        return work;
     }
 
     public async Task<StoredJobPreviewWork?> GetPlanningWorkAsync(
@@ -915,15 +879,6 @@ public sealed class JobPreviewStore(
         SqliteConnection connection,
         SqliteTransaction transaction,
         string sql,
-        (string Name, object? Value) first,
-        (string Name, object? Value) second,
-        CancellationToken cancellationToken)
-        => await ScalarLongAsync(connection, transaction, sql, [first, second], cancellationToken).ConfigureAwait(false);
-
-    private static async Task<long> ScalarLongAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        string sql,
         IReadOnlyList<(string Name, object? Value)> parameters,
         CancellationToken cancellationToken)
     {
@@ -946,23 +901,6 @@ public sealed class JobPreviewStore(
         await using var command = connection.CreateCommand();
         command.CommandText = sql;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task<bool> HasColumnAsync(
-        SqliteConnection connection,
-        string table,
-        string column,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"PRAGMA table_info({table});";
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            if (string.Equals(reader.GetString(1), column, StringComparison.Ordinal))
-                return true;
-        }
-        return false;
     }
 
     private static void Add(SqliteCommand command, string name, object? value)

@@ -21,7 +21,8 @@ namespace Tests.FileManagerTests
                 job,
                 config.Output,
                 config.Extraction,
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance);
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance,
+                OutputScope.Empty);
         }
 
         [TestMethod]
@@ -58,7 +59,8 @@ namespace Tests.FileManagerTests
                 job,
                 config.Output,
                 config.Extraction,
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance);
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance,
+                OutputScope.Empty);
 
             manager.SetremoteBaseDir("Music\\Artist\\Album");
 

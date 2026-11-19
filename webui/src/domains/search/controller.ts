@@ -12,7 +12,7 @@ import type {
 import { sameWireInteger, wireInteger } from '../../api/types';
 import type { SearchDraft } from './model';
 import { DaemonApiError } from '../../api/http';
-import { SearchSelection, hasPublishedProjection, selectionCountKey,
+import { SearchSelection, selectionCountKey,
   type GroupOption, type SearchSelectionState } from './selection';
 
 export type SearchPage =

@@ -72,18 +72,6 @@ function observeUnfilteredChildReads(page: Page): string[] {
   return parents;
 }
 
-function observeJobCompletion(page: Page, job: Schema<'JobSummaryDto'>): Promise<void> {
-  return new Promise(resolve => page.on('websocket', socket => socket.on('framereceived', ({ payload }) => {
-    for (const frame of payload.toString().split('\u001e').filter(Boolean)) {
-      const message = JSON.parse(frame) as { target?: string; arguments?: Schema<'StateUpdateBatchDto'>[] };
-      if (message.target?.toLowerCase() !== 'stateupdatebatch') continue;
-      const state = message.arguments?.[0]?.state;
-      if (state?.removedJobIds.includes(job.jobId!) || state?.jobs.some(delta => delta.jobId === job.jobId
-        && (delta.lifecycle ?? delta.added?.lifecycle)?.terminalOutcome === 'Succeeded')) resolve();
-    }
-  })));
-}
-
 test('removes a terminal user root from detail, preserving rejected actions and deleting accepted work', async ({ page }) => {
   const response = await page.request.post('/api/jobs/lists', { data: {
     name: 'Deletion detail fixture', jobs: [{ kind: 'remote-file', target: {
@@ -471,8 +459,7 @@ test('shows the accepted remote-directory files and keeps them after completion'
   await expect(manifestAlert).toHaveCount(0);
   await expect(folder).toContainText('Nested/Nested.jpg');
   await expect(folder.locator('.transfer-state').first()).toHaveText('Complete');
-  // A retained legacy job with no manifest has no recoverable file plan.
-  // Preserve its root outcome and say what is missing, without a child fallback.
+  // A failed manifest read must leave the independently known root outcome visible.
   manifestRead = 'missing';
   await page.reload();
   await expect(folder).toContainText('The accepted file plan is not available for this job.');

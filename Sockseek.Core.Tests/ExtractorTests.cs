@@ -121,7 +121,7 @@ namespace Tests.Extractors
         [TestMethod]
         public async Task GetTracks_WithSongMode_ExtractsCorrectTrackInfo()
         {
-            config.Extraction.IsAlbum = false;
+            config.Extraction.RequestedMode = ExtractionMode.Song;
 
             for (int i = 0; i < testStrings.Count; i++)
             {
@@ -140,7 +140,7 @@ namespace Tests.Extractors
         [TestMethod]
         public async Task GetTracks_WithAlbumMode_ExtractsCorrectAlbumInfo()
         {
-            config.Extraction.IsAlbum = true;
+            config.Extraction.RequestedMode = ExtractionMode.Album;
 
             for (int i = 0; i < testStrings.Count; i++)
             {

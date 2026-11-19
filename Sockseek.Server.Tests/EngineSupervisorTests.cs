@@ -557,7 +557,7 @@ public class EngineSupervisorTests
                     return GetChildSongPayloads(supervisor, downloadSummary.JobId)
                         .Any(file => file.JobId == cancellableFile.JobId
                             && file.TerminalOutcome == ServerJobTerminalOutcome.Cancelled
-                            && file.FailureReason == ServerProtocol.FailureReasons.Cancelled) == true;
+                            && file.FailureReason == ServerJobFailureReason.Cancelled) == true;
                 },
                 "Timed out waiting for album file cancellation.");
 
@@ -581,7 +581,7 @@ public class EngineSupervisorTests
                 "Cancelled album payload should not expose stale active file states.");
             Assert.IsTrue(
                 files.Any(file => file.TerminalOutcome == ServerJobTerminalOutcome.Cancelled
-                    && file.FailureReason == ServerProtocol.FailureReasons.Cancelled),
+                    && file.FailureReason == ServerJobFailureReason.Cancelled),
                 "Cancelled album payload should mark unfinished files as cancelled.");
 
             cts.Cancel();

@@ -129,7 +129,7 @@ public sealed class ExactPeerFileTransferRunner
                     totalBytes = negotiatedSize;
                     owner.FileSize = negotiatedSize;
                 }
-                events.RaiseDownloadStateChangedWithSpeed(
+                events.RaiseDownloadStateChanged(
                     transferId,
                     owner,
                     target,
@@ -151,7 +151,7 @@ public sealed class ExactPeerFileTransferRunner
                     && progress.Transfer.BytesTransferred != totalBytes)
                     return;
                 lastProgressPublished = now;
-                events.RaiseDownloadProgressWithSpeed(
+                events.RaiseDownloadProgress(
                     transferId,
                     owner,
                     target,

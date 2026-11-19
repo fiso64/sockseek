@@ -880,7 +880,7 @@
         <p class="download-option-note" role="alert">{downloadOptionsError.message}</p>
         <button type="button" onclick={() => void loadDownloadOptions()}>Retry</button>
       {:else if downloadDefaults && downloadValues}
-        <DownloadOptionsPanel bind:value={downloadValues} capabilities={downloadDefaults.capabilities} context="selection" mixedFields={visibleMixedFields} onfieldchange={markDownloadField} compact />
+        <DownloadOptionsPanel bind:value={downloadValues} capabilities={downloadDefaults.capabilities} mixedFields={visibleMixedFields} onfieldchange={markDownloadField} compact />
       {/if}
     </section>
   {/if}

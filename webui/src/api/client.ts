@@ -40,7 +40,6 @@ export interface SubmittedSearch {
 export interface CursorPage<T> {
   items: T[];
   nextCursor?: string | null;
-  readPosition?: Schema<'StateStreamPositionDto'> | null;
 }
 
 export const defaultPageSize = 500;
@@ -69,13 +68,6 @@ export class DaemonApiClient {
 
   getJobListSnapshot(scope: Schema<'JobListScopeDto'>, signal?: AbortSignal): Promise<Schema<'JobListUpdateDto'>> {
     return this.http.post('/jobs/snapshot', scope, signal);
-  }
-
-  getJobs(cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<CursorPage<JobSummaryDto>> {
-    return this.http.getCursorPage<JobSummaryDto[]>(
-      `/jobs${queryString({ includeAll: false, newestFirst: true, excludeExtractResults: true, cursor, limit })}`,
-      signal,
-    );
   }
 
   getJob(jobId: string, signal?: AbortSignal): Promise<Schema<'JobDetailDto'>> {
@@ -263,13 +255,6 @@ export class DaemonApiClient {
     return this.http.post('/transfers/timeline', scope, signal);
   }
 
-  lookupTransfers(direction: 'download' | 'upload', transferIds: string[], signal?: AbortSignal): Promise<TransferTimelinePageDto> {
-    const request: Schema<'TransferLookupRequestDto'> = {
-      transferIds, direction: direction === 'download' ? 'Download' : 'Upload',
-    };
-    return this.http.post('/transfers/lookup', request, signal);
-  }
-
   getTransferGroupMembers(
     direction: 'download' | 'upload',
     username: string | null,
@@ -304,10 +289,6 @@ export class DaemonApiClient {
 
   getUserProfile(username: string, refresh = false, signal?: AbortSignal): Promise<UserProfileDto> {
     return this.http.get(`/users/${encodeURIComponent(username)}/profile${queryString({ refresh })}`, signal);
-  }
-
-  getUserPresence(username: string, signal?: AbortSignal): Promise<Schema<'UserPresenceDto'>> {
-    return this.http.get(`/users/${encodeURIComponent(username)}/presence`, signal);
   }
 
   startUserBrowse(username: string, refresh = false, signal?: AbortSignal): Promise<UserBrowseDto> {
@@ -422,14 +403,6 @@ export class DaemonApiClient {
 
   deleteConversationHistory(conversationId: string, signal?: AbortSignal): Promise<void> {
     return this.http.delete(`/chat/conversations/${encodeURIComponent(conversationId)}/history`, signal);
-  }
-
-  deleteRoomHistory(roomId: string, signal?: AbortSignal): Promise<void> {
-    return this.http.delete(`/chat/rooms/${encodeURIComponent(roomId)}/history`, signal);
-  }
-
-  getSearchView(viewId: string, signal?: AbortSignal): Promise<SearchViewSummaryDto> {
-    return this.http.get(`/search-views/${encodeURIComponent(viewId)}`, signal);
   }
 
   getSearchViewUpdate(viewId: string, afterRevision: number | string, signal?: AbortSignal,

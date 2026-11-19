@@ -78,18 +78,17 @@ internal static class RealSearchCapture
         var results = session.RawSnapshot()
             .Select(result => new CapturedResult(
                 new CapturedUser(
-                    result.Response.Username,
-                    result.Response.UploadSpeed,
-                    result.Response.HasFreeUploadSlot,
-                    result.Response.QueueLength,
-                    result.Response.LockedFileCount),
+                    result.Username,
+                    result.UploadSpeed.GetValueOrDefault(),
+                    result.HasFreeUploadSlot.GetValueOrDefault(),
+                    result.QueueLength.GetValueOrDefault()),
                 new CapturedFile(
-                    result.File.Filename,
-                    result.File.Size,
-                    result.File.Length,
-                    result.File.BitRate,
-                    result.File.SampleRate,
-                    result.File.BitDepth)))
+                    result.Filename,
+                    result.Size,
+                    result.Length,
+                    result.BitRate,
+                    result.SampleRate,
+                    result.BitDepth)))
             .ToList();
 
         return new CapturePayload(
@@ -149,30 +148,29 @@ internal static class RealSearchCapture
             slug = slug.Replace("--", "-", StringComparison.Ordinal);
         return slug.Trim('-');
     }
-
-    private record CapturePayload(
-        string Name,
-        DateTimeOffset CapturedAt,
-        SongQuery Query,
-        int SearchTimeout,
-        int ResultCount,
-        int LockedFilesCount,
-        List<CapturedResult> Results);
-
-    private record CapturedResult(CapturedUser User, CapturedFile File);
-
-    private record CapturedUser(
-        string Username,
-        int UploadSpeed,
-        bool HasFreeUploadSlot,
-        int QueueLength,
-        int LockedFileCount);
-
-    private record CapturedFile(
-        string Filename,
-        long Size,
-        int? Length,
-        int? Bitrate,
-        int? SampleRate,
-        int? BitDepth);
 }
+
+internal sealed record CapturePayload(
+    string Name,
+    DateTimeOffset CapturedAt,
+    SongQuery Query,
+    int SearchTimeout,
+    int ResultCount,
+    int LockedFilesCount,
+    List<CapturedResult> Results);
+
+internal sealed record CapturedResult(CapturedUser User, CapturedFile File);
+
+internal sealed record CapturedUser(
+    string Username,
+    int UploadSpeed,
+    bool HasFreeUploadSlot,
+    int QueueLength);
+
+internal sealed record CapturedFile(
+    string Filename,
+    long Size,
+    int? Length,
+    int? Bitrate,
+    int? SampleRate,
+    int? BitDepth);

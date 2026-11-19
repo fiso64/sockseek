@@ -375,7 +375,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         var current = supervisor.GetRuntimeJob<Sockseek.Core.Jobs.Job>(jobId)?.SearchObservationSession;
         var session = persistence.GetRetiringSearchSource(jobId)?.Session ?? current;
         var liveResults = session?.RawSnapshot(afterSequence, limit == int.MaxValue ? limit : limit + 1)
-            .Select(result => ServerSnapshotMapper.ToSearchRawResultDto(result.ProjectionInput)).ToList();
+            .Select(ServerSnapshotMapper.ToSearchRawResultDto).ToList();
         if (liveResults != null)
         {
             var items = liveResults.ToList();

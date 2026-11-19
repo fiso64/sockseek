@@ -18,10 +18,6 @@ export function resolveFileExtension(extensionHint: string | null | undefined, f
   return normalizeExtension(extensionHint) || extension(filename ?? '');
 }
 
-export function isAudioFilePath(pathOrFilename: string): boolean {
-  return audioFileExtensions.has(extension(pathOrFilename));
-}
-
 export function fileTypeIcon(options: {
   extension?: string | null;
   filename?: string | null;

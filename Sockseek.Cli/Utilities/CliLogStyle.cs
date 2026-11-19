@@ -109,9 +109,6 @@ internal static class CliLogStyle
         return levelMarkup + $"[grey]{Markup.Escape(categoryPrefix)}[/]";
     }
 
-    public static string FormatProcessLogMarkup(TerminalProcessLogLine line)
-        => $"{ProcessLogPrefixMarkup(line)}{Markup.Escape(line.Message)}";
-
     public static string FormatTerminalLogMarkup(TerminalLogLine line)
     {
         int pathLineIdx = line.Message.IndexOf("\n    ", StringComparison.Ordinal);

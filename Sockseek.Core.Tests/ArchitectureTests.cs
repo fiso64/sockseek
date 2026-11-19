@@ -44,7 +44,7 @@ public class ArchitectureTests
             .GetTypes()
             .Where(type => type.IsPublic
                 && type.Namespace is "Sockseek.Core.Events" or "Sockseek.Core.Snapshots")
-            .Append(typeof(SearchRawResult))
+            .Append(typeof(SearchProjectionInput))
             .ToList();
 
         foreach (var contractType in contractTypes)

@@ -206,26 +206,6 @@ namespace Sockseek.Core.Extractors;
             minAlbumTrackCount = _minCount; maxAlbumTrackCount = _maxCount;
         }
 
-        // Legacy shim kept for ListExtractor which calls this with track-shaped results.
-        public static SongQuery ParseTrackArg(string input, bool isAlbum)
-        {
-            ParseArgs(input, isAlbum,
-                out string artist, out string title, out string album, out string uri, out int length,
-                out bool artistMaybeWrong,
-                out int _min, out int _max);
-
-            string effectiveTitle = isAlbum ? (album.Length > 0 ? album : title) : title;
-            return new SongQuery
-            {
-                Artist          = artist,
-                Title           = effectiveTitle,
-                Album           = album,
-                URI             = uri,
-                Length          = length,
-                ArtistMaybeWrong = artistMaybeWrong,
-            };
-        }
-
         private static bool HasExplicitNonEmptyTitleKey(string input)
         {
             var keys = new string[] { "title", "artist", "length", "album", "artist-maybe-wrong", "album-track-count" };

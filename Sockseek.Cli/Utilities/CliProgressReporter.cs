@@ -590,13 +590,6 @@ public class CliProgressReporter
         lastPlainRateLimit = resetsAtUtc;
     }
 
-    internal static bool ShouldShowStandaloneSummaryInLiveTable(
-        JobSummaryDto summary,
-        CliJobStatus status)
-        => !status.IsQueued
-            && !status.IsTerminal
-            && !IsInfrastructureJobKind(summary.Kind);
-
     internal static bool ShouldShowContainerSummaryInLiveTable(
         JobSummaryDto summary,
         CliJobStatus status)

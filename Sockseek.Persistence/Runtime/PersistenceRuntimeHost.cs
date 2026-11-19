@@ -94,8 +94,6 @@ public sealed class PersistenceRuntimeHost
     public Authentication.ApiKeyStore? ApiKeys { get; private set; }
     public long? DatabaseSizeBytes => FileSize(sqliteOptions.DatabasePath);
     public long? WalSizeBytes => FileSize(sqliteOptions.DatabasePath + "-wal");
-    public PersistenceQueueSnapshot Queue => SnapshotQueue();
-
     public async Task<PersistenceRuntimeStartup> StartAsync(CancellationToken cancellationToken = default)
     {
         if (IsStarted)

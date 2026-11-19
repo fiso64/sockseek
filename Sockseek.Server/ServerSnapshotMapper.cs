@@ -217,11 +217,6 @@ public static class ServerSnapshotMapper
             ?? directory.Manifest?.Plan.Entries.FirstOrDefault()?.Target.Identity.Username
             ?? directory.ResolvedPlanSource?.Entries.FirstOrDefault()?.Target.Identity.Username;
 
-    public static SongJobPayloadDto ToSongJobPayloadDto(JobSnapshot job, string? transferState = null)
-        => job.Payload is SongJobSnapshotPayload song
-            ? ToSongJobPayloadDto(job, song, transferState)
-            : throw new ArgumentException($"Job {job.Id} is not a song snapshot.", nameof(job));
-
     internal static JobListPayloadDto ToJobListPayloadDto(
         JobListSnapshotPayload list,
         JobOutcomeSummary? liveOutcomes = null)
@@ -530,18 +525,6 @@ public static class ServerSnapshotMapper
 
     public static bool IsRunningOrPending(JobSnapshotHeader job)
         => job.LifecycleState is JobLifecycleState.Pending or JobLifecycleState.Running;
-
-    public static bool IsActiveJob(JobSnapshot job)
-        => job.LifecycleState != JobLifecycleState.Terminal;
-
-    public static bool IsTerminalJob(JobSnapshot job)
-        => job.LifecycleState == JobLifecycleState.Terminal;
-
-    public static bool IsSuccessfulJob(JobSnapshot job)
-        => JobOutcomeSummary.IsSuccessful(job.TerminalOutcome, job.SkipReason);
-
-    public static bool IsFailedOrSkippedJob(JobSnapshot job)
-        => JobOutcomeSummary.IsFailedOrSkipped(job.TerminalOutcome, job.SkipReason);
 
     internal static IReadOnlyList<ResourceActionDto> BuildJobActions(Guid jobId, bool canCancel)
         => canCancel

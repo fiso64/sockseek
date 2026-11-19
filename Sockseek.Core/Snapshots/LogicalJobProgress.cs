@@ -14,17 +14,6 @@ public static class LogicalJobProgress
         JobTerminalOutcome Terminal,
         JobSkipReason Skip);
 
-    public static JobOutcomeSummary SummarizeRuntime(IEnumerable<Job> members)
-    {
-        var summary = new JobOutcomeSummary();
-        foreach (Job member in members)
-        {
-            Outcome outcome = FromRuntime(member);
-            summary = summary.Include(outcome.Lifecycle, outcome.Terminal, outcome.Skip);
-        }
-        return summary;
-    }
-
     public static Outcome FromRuntime(Job member)
     {
         HashSet<Guid>? visited = null;

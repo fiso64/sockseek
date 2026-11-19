@@ -348,18 +348,6 @@ public sealed class UserBrowseApiTests
         Assert.IsTrue(await condition(), "The expected persisted job state did not become available.");
     }
 
-    private static string? TryReadAllText(string path)
-    {
-        try
-        {
-            return File.ReadAllText(path);
-        }
-        catch (IOException)
-        {
-            return null;
-        }
-    }
-
     private static int GetFreeTcpPort()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);

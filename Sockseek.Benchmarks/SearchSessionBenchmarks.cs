@@ -36,6 +36,6 @@ public class SearchSessionBenchmarks
         var session = new SearchSession();
         foreach (var response in responses)
             session.AddResponse(response);
-        return session.Snapshot().Count;
+        return session.RawSnapshot().Count;
     }
 }

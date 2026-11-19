@@ -708,15 +708,6 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         return filename[(folderPath.Length + 1)..];
     }
 
-    internal static string RelativeDirectoryPrefix(string rootPath, string childPath)
-    {
-        if (!childPath.StartsWith(rootPath, StringComparison.Ordinal)
-            || childPath.Length <= rootPath.Length
-            || childPath[rootPath.Length] is not ('\\' or '/'))
-            throw new InvalidDataException("A merged projected directory is outside its root.");
-        return childPath[(rootPath.Length + 1)..] + childPath[rootPath.Length];
-    }
-
     internal static SearchViewFilePosition Position(
         SearchViewFile row,
         SearchProjectionSortKey key,

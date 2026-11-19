@@ -624,23 +624,4 @@ internal sealed class DiscoveryCoordinator
     }
 
 
-    static string DescribeExtractedResult(Job result, int songCount)
-    {
-        var resultKind = result switch
-        {
-            JobList list => $"{list.Jobs.Count} jobs",
-            SongJob => "1 song",
-            AlbumJob => "album",
-            AlbumGroupsJob => "album groups",
-            SearchJob => "search",
-            RetrieveFolderJob => "folder retrieval",
-            ExtractJob => "extract job",
-            _ => result.GetType().Name,
-        };
-
-        return songCount > 0
-            ? $"{resultKind}, {songCount} songs"
-            : resultKind;
-    }
-
 }

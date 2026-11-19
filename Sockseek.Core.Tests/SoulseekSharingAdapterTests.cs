@@ -361,7 +361,7 @@ public sealed class SoulseekSharingAdapterTests
             CancellationToken cancellationToken = default)
             => ValueTask.FromResult<ShareCatalogBrowseDirectory?>(null);
 
-        public async IAsyncEnumerable<ShareCatalogBrowseDirectory> EnumerateBrowseAsync(
+        public async IAsyncEnumerable<ShareCatalogBrowseRow> EnumerateBrowseRowsAsync(
             [System.Runtime.CompilerServices.EnumeratorCancellation]
             CancellationToken cancellationToken = default)
         {

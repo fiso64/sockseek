@@ -24,7 +24,6 @@ public sealed class BoundedStateBatchDispatcher : IAsyncDisposable
     private readonly CancellationTokenSource lifetime = new();
     private readonly object creationGate = new();
     private long droppedBatches;
-    private long failedSends;
     private int disposed;
 
     public BoundedStateBatchDispatcher(
@@ -52,8 +51,6 @@ public sealed class BoundedStateBatchDispatcher : IAsyncDisposable
     }
 
     public long DroppedBatches => Interlocked.Read(ref droppedBatches);
-    public long FailedSends => Interlocked.Read(ref failedSends);
-    public int ActiveScopeCount => senders.Count;
     public int QueuedBatchCount => senders.Values.Sum(sender => sender.Depth);
 
     public bool TryPublish(StateUpdate batch)
@@ -108,14 +105,12 @@ public sealed class BoundedStateBatchDispatcher : IAsyncDisposable
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
-            Interlocked.Increment(ref failedSends);
             if (!lifetime.IsCancellationRequested
                 && warningGate.TryAcquire(out long suppressedCount))
                 ServerLogMessages.LiveStateSendTimedOut(logger, suppressedCount);
         }
         catch (Exception ex)
         {
-            Interlocked.Increment(ref failedSends);
             if (warningGate.TryAcquire(out long suppressedCount))
                 ServerLogMessages.LiveStateSendFailed(logger, ex, suppressedCount);
         }

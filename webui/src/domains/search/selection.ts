@@ -38,7 +38,7 @@ export interface SelectionRebase {
   readonly validation: CountRequest | null;
 }
 
-export function hasPublishedProjection(summary: SearchViewSummaryDto | null): summary is SearchViewSummaryDto {
+function hasPublishedProjection(summary: SearchViewSummaryDto | null): summary is SearchViewSummaryDto {
   return summary !== null && !sameWireInteger(summary.revision, 0);
 }
 

@@ -470,7 +470,7 @@ public class CliEndToEndTests
             };
             var rootSettings = new DownloadSettings();
             rootSettings.Extraction.Input = "Shared Album";
-            rootSettings.Extraction.IsAlbum = true;
+            rootSettings.Extraction.RequestedMode = ExtractionMode.Album;
             rootSettings.Search.NoBrowseFolder = true;
             rootSettings.Output.ParentDir = outputDir;
             rootSettings.Output.NameFormat = "{foldername}/{filename}";
@@ -566,7 +566,7 @@ public class CliEndToEndTests
             };
             var rootSettings = new DownloadSettings();
             rootSettings.Extraction.Input = "Shared Album";
-            rootSettings.Extraction.IsAlbum = true;
+            rootSettings.Extraction.RequestedMode = ExtractionMode.Album;
             rootSettings.Search.NoBrowseFolder = true;
             rootSettings.Output.ParentDir = outputDir;
             rootSettings.Output.NameFormat = "{foldername}/{filename}";

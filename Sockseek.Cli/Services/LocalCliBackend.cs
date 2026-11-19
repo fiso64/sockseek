@@ -761,8 +761,7 @@ internal sealed class LocalCliBackend
             lock (gate)
             {
                 kernel.Apply(
-                    job.RawSnapshot(kernel.ConsumedSequence)
-                        .Select(result => result.ProjectionInput),
+                    job.RawSnapshot(kernel.ConsumedSequence),
                     job.Revision,
                     job.IsComplete);
                 return kernel.Snapshot();

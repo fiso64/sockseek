@@ -99,10 +99,6 @@ public sealed class ChatRooms : IDisposable
             cache.Truncated);
     }
 
-    public async Task<ChatPage<RoomSubscriptionRecord>> GetRoomsAsync(
-        string? cursor, int limit, CancellationToken cancellationToken)
-        => await store.GetRoomsAsync(Account, cursor, limit, cancellationToken).ConfigureAwait(false);
-
     public async Task<ChatRoomPageDto> GetRoomSummariesAsync(
         string? stateFilter,
         string? cursor,
@@ -708,7 +704,7 @@ public sealed class ChatRooms : IDisposable
     {
         if (!roomSessions.TryGetValue(key, out RoomSession? session))
         {
-            session = new RoomSession(key, displayName);
+            session = new RoomSession(displayName);
             roomSessions.Add(key, session);
         }
         return session;
@@ -915,9 +911,8 @@ public sealed class ChatRooms : IDisposable
             ImmutableDictionary<string, RoomMemberDto> members) => members.Remove(Key);
     }
 
-    private sealed class RoomSession(string key, string displayName)
+    private sealed class RoomSession(string displayName)
     {
-        public string Key { get; } = key;
         public string DisplayName { get; set; } = displayName;
         public ChatRoomKind Kind { get; set; }
         public ChatRoomJoinPhase Phase { get; set; } = ChatRoomJoinPhase.Disconnected;

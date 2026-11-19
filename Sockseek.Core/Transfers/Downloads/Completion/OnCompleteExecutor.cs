@@ -45,23 +45,20 @@ public static class OnCompleteExecutor
         public bool UseLocking { get; set; }
     }
 
-    private struct ProcessResult
+    internal struct ProcessResult
     {
         public int ExitCode { get; set; }
         public string? Stdout { get; set; }
         public string? Stderr { get; set; }
-        public int StdoutCharsRead { get; set; }
-        public int StderrCharsRead { get; set; }
         public bool StdoutTruncated { get; set; }
-        public bool StderrTruncated { get; set; }
     }
 
-    private readonly record struct CapturedProcessOutput(string? Text, int CharsRead, bool Truncated);
+    private readonly record struct CapturedProcessOutput(string? Text, bool Truncated);
 
     private readonly record struct OnCompleteContext(FileManagerContext Variables, string? TagSourcePath);
-    private readonly record struct CommandProcessingResult(JobOutcome Outcome, bool NeedsIndexUpdate);
+    internal readonly record struct CommandProcessingResult(JobOutcome Outcome, bool NeedsIndexUpdate);
     private readonly record struct UpdateIndexStateResult(JobOutcome? Outcome, bool AllowsPathUpdate);
-    private readonly record struct Reporter(
+    internal readonly record struct Reporter(
         Job Job,
         DownloadEvents? Events,
         ILogger Logger)
@@ -204,9 +201,9 @@ public static class OnCompleteExecutor
                 return currentOutcome;
             }
 
-            var processedResult = ProcessCommandResultCore(
+            var processedResult = ProcessCommandResult(
                 currentResult.Value,
-                config,
+                config.UseOutputToUpdateIndex,
                 song,
                 job,
                 currentOutcome,
@@ -634,10 +631,7 @@ public static class OnCompleteExecutor
                 ExitCode = process.ExitCode,
                 Stdout = CleanCapturedOutput(stdout.Text),
                 Stderr = CleanCapturedOutput(stderr.Text),
-                StdoutCharsRead = stdout.CharsRead,
-                StderrCharsRead = stderr.CharsRead,
                 StdoutTruncated = stdout.Truncated,
-                StderrTruncated = stderr.Truncated,
             };
         }
         catch (Exception ex)
@@ -651,7 +645,7 @@ public static class OnCompleteExecutor
     {
         var builder = new StringBuilder(Math.Min(MaxCapturedCommandOutputChars, 4096));
         var buffer = new char[4096];
-        var charsRead = 0;
+        bool truncated = false;
 
         while (true)
         {
@@ -659,38 +653,23 @@ public static class OnCompleteExecutor
             if (read == 0)
                 break;
 
-            charsRead += read;
             var remaining = MaxCapturedCommandOutputChars - builder.Length;
+            truncated |= read > remaining;
             if (remaining > 0)
                 builder.Append(buffer, 0, Math.Min(read, remaining));
         }
 
         return new CapturedProcessOutput(
             builder.Length > 0 ? builder.ToString() : null,
-            charsRead,
-            charsRead > MaxCapturedCommandOutputChars);
+            truncated);
     }
 
     private static string? CleanCapturedOutput(string? output)
         => string.IsNullOrWhiteSpace(output) ? null : output.Trim().Trim('"');
 
-    private static CommandProcessingResult ProcessCommandResult(
+    internal static CommandProcessingResult ProcessCommandResult(
         ProcessResult result,
-        CommandConfig config,
-        SongJob? song,
-        Job job,
-        JobOutcome currentOutcome)
-        => ProcessCommandResultCore(
-            result,
-            config,
-            song,
-            job,
-            currentOutcome,
-            new Reporter(OnCompleteLogJob(job, song), null, NullLogger.Instance));
-
-    private static CommandProcessingResult ProcessCommandResultCore(
-        ProcessResult result,
-        CommandConfig config,
+        bool useOutputToUpdateIndex,
         SongJob? song,
         Job job,
         JobOutcome currentOutcome,
@@ -699,7 +678,7 @@ public static class OnCompleteExecutor
         bool needsUpdate = false;
         var nextOutcome = currentOutcome;
 
-        if (config.UseOutputToUpdateIndex && !string.IsNullOrWhiteSpace(result.Stdout))
+        if (useOutputToUpdateIndex && !string.IsNullOrWhiteSpace(result.Stdout))
         {
             if (result.StdoutTruncated)
             {

@@ -165,14 +165,10 @@ namespace Tests.OnCompleteExecutorTests
         [TestMethod]
         public void ProcessCommandResult_NonZeroExit_DoesNotUpdateOutcome()
         {
-            var result = CreateProcessResult(
-                exitCode: 1,
-                stdout: new string('o', 900),
-                stderr: "'win-notify-send.wrong.cmd' is not recognized\r\n" + new string('e', 900));
-            var config = CreateCommandConfig();
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 1, Stdout = new string('o', 900), Stderr = "'win-notify-send.wrong.cmd' is not recognized\r\n" + new string('e', 900) };
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-            var processed = InvokeProcessCommandResult(result, config, null, job);
+            var processed = Process(result, null, job, updateIndex: false);
 
             Assert.IsFalse(processed.NeedsIndexUpdate);
             Assert.AreEqual(JobTerminalOutcome.Succeeded, processed.Outcome.TerminalOutcome);
@@ -181,20 +177,14 @@ namespace Tests.OnCompleteExecutorTests
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithTruncatedStdout_DoesNotMutateSongPath()
         {
-            var result = CreateProcessResult(
-                exitCode: 0,
-                stdout: "ignored;C:/partial/path",
-                stderr: null,
-                stdoutTruncated: true,
-                stdoutCharsRead: 70000);
-            var config = CreateCommandConfig(useOutputToUpdateIndex: true);
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "ignored;C:/partial/path", StdoutTruncated = true };
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
                 DownloadPath = "C:/old/path.flac",
             };
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-            var processed = InvokeProcessCommandResult(result, config, song, job);
+            var processed = Process(result, song, job);
 
             Assert.IsFalse(processed.NeedsIndexUpdate);
             Assert.AreEqual("C:/old/path.flac", song.DownloadPath);
@@ -203,11 +193,7 @@ namespace Tests.OnCompleteExecutorTests
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithSuccessStateAndPath_ReturnsOutcomeWithoutMutatingSong()
         {
-            var result = CreateProcessResult(
-                exitCode: 0,
-                stdout: "success;C:/new/path.mp3",
-                stderr: null);
-            var config = CreateCommandConfig(useOutputToUpdateIndex: true);
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "success;C:/new/path.mp3" };
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
                 DownloadPath = "C:/old/path.flac",
@@ -215,7 +201,7 @@ namespace Tests.OnCompleteExecutorTests
             song.Fail(JobFailureReason.AllDownloadsFailed);
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-            var processed = InvokeProcessCommandResult(result, config, song, job, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: song.DownloadPath));
+            var processed = Process(result, song, job, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: song.DownloadPath));
 
             Assert.IsTrue(processed.NeedsIndexUpdate);
             Assert.AreEqual(JobTerminalOutcome.Failed, song.TerminalOutcome);
@@ -234,11 +220,7 @@ namespace Tests.OnCompleteExecutorTests
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithFailedState_ReturnsFailureOutcomeThatClearsPath()
         {
-            var result = CreateProcessResult(
-                exitCode: 0,
-                stdout: "failed",
-                stderr: null);
-            var config = CreateCommandConfig(useOutputToUpdateIndex: true);
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "failed" };
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
                 DownloadPath = "C:/old/path.flac",
@@ -246,7 +228,7 @@ namespace Tests.OnCompleteExecutorTests
             song.SetDone(song.DownloadPath);
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-            var processed = InvokeProcessCommandResult(result, config, song, job, JobOutcome.Done(song.DownloadPath));
+            var processed = Process(result, song, job, JobOutcome.Done(song.DownloadPath));
 
             Assert.IsTrue(processed.NeedsIndexUpdate);
             Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome);
@@ -266,11 +248,7 @@ namespace Tests.OnCompleteExecutorTests
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithFailedStateAndPath_IgnoresPathAndClearsStoredPath()
         {
-            var result = CreateProcessResult(
-                exitCode: 0,
-                stdout: "failed;C:/new/path.mp3",
-                stderr: null);
-            var config = CreateCommandConfig(useOutputToUpdateIndex: true);
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "failed;C:/new/path.mp3" };
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
                 DownloadPath = "C:/old/path.flac",
@@ -278,7 +256,7 @@ namespace Tests.OnCompleteExecutorTests
             song.SetDone(song.DownloadPath);
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-            var processed = InvokeProcessCommandResult(result, config, song, job, JobOutcome.Done(song.DownloadPath));
+            var processed = Process(result, song, job, JobOutcome.Done(song.DownloadPath));
 
             Assert.IsTrue(processed.NeedsIndexUpdate);
             Assert.AreEqual(JobTerminalOutcome.Failed, processed.Outcome.TerminalOutcome);
@@ -296,11 +274,7 @@ namespace Tests.OnCompleteExecutorTests
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithIgnoredState_ReturnsPathOnlyOutcome()
         {
-            var result = CreateProcessResult(
-                exitCode: 0,
-                stdout: "ignored;C:/new/path.mp3",
-                stderr: null);
-            var config = CreateCommandConfig(useOutputToUpdateIndex: true);
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "ignored;C:/new/path.mp3" };
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
                 DownloadPath = "C:/old/path.flac",
@@ -308,7 +282,7 @@ namespace Tests.OnCompleteExecutorTests
             song.Fail(JobFailureReason.AllDownloadsFailed);
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-            var processed = InvokeProcessCommandResult(result, config, song, job, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: song.DownloadPath));
+            var processed = Process(result, song, job, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: song.DownloadPath));
 
             Assert.IsTrue(processed.NeedsIndexUpdate);
             Assert.AreEqual(JobTerminalOutcome.Failed, song.TerminalOutcome);
@@ -328,11 +302,7 @@ namespace Tests.OnCompleteExecutorTests
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithUnsupportedState_DoesNotApplyStateOrPath()
         {
-            var result = CreateProcessResult(
-                exitCode: 0,
-                stdout: "already-exists;C:/new/path.mp3",
-                stderr: null);
-            var config = CreateCommandConfig(useOutputToUpdateIndex: true);
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "already-exists;C:/new/path.mp3" };
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
                 DownloadPath = "C:/old/path.flac",
@@ -341,7 +311,7 @@ namespace Tests.OnCompleteExecutorTests
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
             var failed = JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: song.DownloadPath);
 
-            var processed = InvokeProcessCommandResult(result, config, song, job, failed);
+            var processed = Process(result, song, job, failed);
 
             Assert.IsFalse(processed.NeedsIndexUpdate);
             Assert.AreEqual(JobTerminalOutcome.Failed, processed.Outcome.TerminalOutcome);
@@ -351,49 +321,12 @@ namespace Tests.OnCompleteExecutorTests
             Assert.AreEqual("C:/old/path.flac", song.DownloadPath);
         }
 
-        private static object CreateProcessResult(
-            int exitCode,
-            string? stdout,
-            string? stderr,
-            int stdoutCharsRead = 0,
-            bool stdoutTruncated = false,
-            int stderrCharsRead = 0,
-            bool stderrTruncated = false)
-        {
-            var type = typeof(OnCompleteExecutor).GetNestedType("ProcessResult", BindingFlags.NonPublic)!;
-            var result = Activator.CreateInstance(type)!;
-            type.GetProperty("ExitCode")!.SetValue(result, exitCode);
-            type.GetProperty("Stdout")!.SetValue(result, stdout);
-            type.GetProperty("Stderr")!.SetValue(result, stderr);
-            type.GetProperty("StdoutCharsRead")!.SetValue(result, stdoutCharsRead);
-            type.GetProperty("StdoutTruncated")!.SetValue(result, stdoutTruncated);
-            type.GetProperty("StderrCharsRead")!.SetValue(result, stderrCharsRead);
-            type.GetProperty("StderrTruncated")!.SetValue(result, stderrTruncated);
-            return result;
-        }
-
-        private static object CreateCommandConfig(bool useOutputToUpdateIndex = false)
-        {
-            var type = typeof(OnCompleteExecutor).GetNestedType("CommandConfig", BindingFlags.NonPublic)!;
-            var config = Activator.CreateInstance(type)!;
-            type.GetProperty("UseOutputToUpdateIndex")!.SetValue(config, useOutputToUpdateIndex);
-            return config;
-        }
-
-        private static (bool NeedsIndexUpdate, JobOutcome Outcome) InvokeProcessCommandResult(
-            object result,
-            object config,
-            SongJob? song,
-            Job job,
-            JobOutcome? currentOutcome = null)
-        {
-            var method = typeof(OnCompleteExecutor).GetMethod("ProcessCommandResult", BindingFlags.NonPublic | BindingFlags.Static)!;
-            var processed = method.Invoke(null, new object?[] { result, config, song, job, currentOutcome ?? JobOutcome.Done(song?.DownloadPath) })!;
-            var type = processed.GetType();
-            return (
-                (bool)type.GetProperty("NeedsIndexUpdate")!.GetValue(processed)!,
-                (JobOutcome)type.GetProperty("Outcome")!.GetValue(processed)!);
-        }
+        private static OnCompleteExecutor.CommandProcessingResult Process(
+            OnCompleteExecutor.ProcessResult result, SongJob? song, Job job, JobOutcome? outcome = null,
+            bool updateIndex = true)
+            => OnCompleteExecutor.ProcessCommandResult(result, updateIndex, song, job,
+                outcome ?? JobOutcome.Done(song?.DownloadPath),
+                new(song ?? job, null, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance));
     }
 
     [TestClass]
@@ -583,7 +516,7 @@ namespace Tests.OnCompleteExecutorTests
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var settings = new DownloadSettings();
                 settings.Extraction.Input = "TestArtist TestAlbum";
-                settings.Extraction.IsAlbum = true;
+                settings.Extraction.RequestedMode = ExtractionMode.Album;
                 settings.Output.ParentDir = outputDir;
                 settings.Output.OnComplete =
                 [

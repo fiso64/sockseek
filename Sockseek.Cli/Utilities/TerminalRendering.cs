@@ -634,9 +634,6 @@ internal sealed class TerminalLiveRenderer : IDisposable
     internal static int CellCount(string text)
         => new Segment(text).CellCount();
 
-    internal static IReadOnlyList<string> WrapContentForWidth(string content, int availableWidth)
-        => WrapContentByCellWidth(content, availableWidth).ToList();
-
     private static IEnumerable<string> TextElements(string text)
     {
         var enumerator = StringInfo.GetTextElementEnumerator(text);
@@ -925,25 +922,6 @@ internal sealed class TerminalLiveRenderer : IDisposable
         var failedPart = counts.Failed > 0 ? $"[red]{counts.Failed}[/]" : $"{counts.Failed}";
         return $"[cyan]{counts.Active}[/] active · {counts.Queued} queued · [green]{counts.Completed}[/] completed · {failedPart} failed";
     }
-
-    private static bool IsQueuedState(string state)
-        => string.Equals(state, "pending", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(state, "queued", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsSuccessfulTerminalState(string state)
-        => string.Equals(state, "done", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(state, "succeeded", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(state, "alreadyexists", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(state, "already exists", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(state, "skipped", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(state, "not found", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(state, "notfoundlasttime", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsFailedTerminalState(string state)
-        => string.Equals(state, "failed", StringComparison.OrdinalIgnoreCase)
-            || state.StartsWith("failed [", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(state, "partial", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(state, "cancelled", StringComparison.OrdinalIgnoreCase);
 
     private static int MaxLiveRows()
     {
@@ -1395,8 +1373,5 @@ internal sealed class TerminalLiveRenderer : IDisposable
         if (bytesPerSecond >= 1_000)     return $"{bytesPerSecond / 1_000.0:F1} KB/s";
         return $"{bytesPerSecond} B/s";
     }
-
-    internal static string FormatLogText(TerminalLogLine line)
-        => CliLogStyle.FormatTerminalLogText(line);
 
 }

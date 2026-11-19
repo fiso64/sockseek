@@ -226,7 +226,7 @@ public class DaemonClientStoreTests
             Lifecycle = Job(jobId, workflowId, 3, ServerJobLifecycleState.Terminal).Lifecycle with
             {
                 TerminalOutcome = ServerJobTerminalOutcome.Failed,
-                FailureReason = ServerProtocol.FailureReasons.Other,
+                FailureReason = ServerJobFailureReason.Other,
                 FailureMessage = "old failure",
                 FailureDetail = "old detail",
             },

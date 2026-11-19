@@ -158,8 +158,6 @@ export const SEARCH_CONFIG_FIELDS = {
 
 export const SEARCH_AUDIO_FORMATS = ['FLAC', 'MP3', 'OGG', 'OPUS', 'M4A', 'WAV'] as const;
 export const SEARCH_GENERIC_FORMATS = ['PDF', 'EPUB', 'ZIP', 'TXT', 'JPG', 'PNG'] as const;
-// Compatibility alias for components whose default vocabulary is audio-oriented.
-export const SEARCH_FORMATS = SEARCH_AUDIO_FORMATS;
 export const SEARCH_SAMPLE_RATES = [
   { value: '44100', label: '44.1 kHz' },
   { value: '48000', label: '48 kHz' },

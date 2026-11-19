@@ -72,7 +72,7 @@ public class SearchCompletionTests
         using var searcher = CreateSearcher(client);
         var job = new SearchJob("Artist Album");
         int completedCount = -1;
-        job.Session.Completed += () => completedCount = job.Session.RawSnapshot().Count;
+        job.Session.SearchCompleted += _ => completedCount = job.Session.RawSnapshot().Count;
 
         await searcher.Search(job, new SearchSettings(), new ResponseData(), CancellationToken.None);
 
@@ -108,7 +108,7 @@ public class SearchCompletionTests
         };
         using var searcher = CreateSearcher(client);
         var job = new SearchJob("Artist Album");
-        job.Session.RawResultAdded += _ => responseReceived.TrySetResult();
+        job.Session.ResultsAdded += _ => responseReceived.TrySetResult();
 
         // Cancellation while waiting for channel data may surface as the derived
         // TaskCanceledException. Both paths must retain the caller's cancellation.
@@ -180,7 +180,7 @@ public class SearchCompletionTests
         var job = new SearchJob("Artist Album");
         Exception? reportedFailure = null;
         job.Session.ObserverFailed += (_, error) => reportedFailure = error;
-        job.Session.RawResultAdded += _ => throw observerFailure;
+        job.Session.ResultsAdded += _ => throw observerFailure;
 
         await searcher.Search(job, new SearchSettings(), new ResponseData(), CancellationToken.None);
 
@@ -238,7 +238,7 @@ public class SearchCompletionTests
         };
         using var searcher = CreateSearcher(client);
         var job = new SearchJob("Artist Album");
-        job.Session.RawResultAdded += _ =>
+        job.Session.ResultsAdded += _ =>
         {
             consumerEntered.TrySetResult();
             // A synchronous application observer, intentionally held independently of
@@ -246,7 +246,7 @@ public class SearchCompletionTests
             releaseConsumer.Task.GetAwaiter().GetResult();
         };
         int completedCount = -1;
-        job.Session.Completed += () => completedCount = job.Session.RawSnapshot().Count;
+        job.Session.SearchCompleted += _ => completedCount = job.Session.RawSnapshot().Count;
         using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var search = Task.Run(() => searcher.Search(job, new SearchSettings(), new ResponseData(), watchdog.Token));
         try
@@ -279,7 +279,7 @@ public class SearchCompletionTests
         using var searcher = CreateSearcher(client, events);
         var job = new SearchJob("Artist Album");
         int rawEvents = 0;
-        job.Session.RawResultAdded += _ => rawEvents++;
+        job.Session.ResultsAdded += batch => rawEvents += batch.Results.Count;
 
         await searcher.Search(job, new SearchSettings(), new ResponseData(), CancellationToken.None);
 

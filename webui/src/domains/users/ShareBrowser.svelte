@@ -437,7 +437,7 @@
             <header><strong>Download options</strong><div class="download-options-actions"><ProfilePicker value={profileNames} applied={appliedProfiles} onchange={(names) => { profileNames = names; void loadOptions(); }} /><button type="button" aria-label="Close download options" onclick={() => optionsOpen = false}>×</button></div></header>
             {#if optionsLoading}<LoadingIndicator label="Loading download settings" />
             {:else if optionsError}<p role="alert">{optionsError}</p><button type="button" onclick={() => void loadOptions()}>Retry</button>
-            {:else if downloadValues}<DownloadOptionsPanel bind:value={downloadValues} {capabilities} context="selection" compact />{/if}
+            {:else if downloadValues}<DownloadOptionsPanel bind:value={downloadValues} {capabilities} compact />{/if}
           </section>
         {/if}
 

@@ -73,8 +73,6 @@ public sealed class OutputScope
 
     public static OutputScope Empty { get; } = new([]);
 
-    public IReadOnlyList<string> DefaultFolderSegments => defaultFolderSegments;
-
     public string DefaultFolder => defaultFolderSegments.Length == 0
         ? ""
         : Path.Join(defaultFolderSegments);
@@ -100,9 +98,6 @@ public sealed class OutputScope
 
         return new OutputScope(defaultFolderSegments.Append(cleaned));
     }
-
-    public static OutputScope ForLegacyOwner(Job job, OutputSettings output)
-        => Empty.WithDefaultFolder(job.DefaultFolderName(), output.InvalidReplaceStr);
 
     public static OutputScope ForPreparedJob(Job job, OutputScope inherited, OutputSettings output)
         => JobCreatesDefaultFolderScope(job)
@@ -153,13 +148,13 @@ public class FileManager
         OutputSettings output,
         ExtractionSettings extraction,
         ILogger<FileManager> logger,
-        OutputScope? outputScope = null)
+        OutputScope outputScope)
     {
         this.job = job;
         this.output = output;
         this.extraction = extraction;
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        this.outputScope = outputScope ?? OutputScope.ForLegacyOwner(job, output);
+        this.outputScope = outputScope;
     }
 
     public string GetSavePath(string sourceFname)
@@ -302,10 +297,6 @@ public class FileManager
             organized.Add(song);
         }
     }
-
-    [Obsolete("Use OrganizeDownloadedFile. Placement applies to downloaded files of any requested format.")]
-    public void OrganizeSong(SongJob song)
-        => OrganizeDownloadedFile(song);
 
     private void OrganizeNonAudio(SongJob file, string parent, bool isAdditionalImage, Func<SongJob, string, bool>? preparePlacement)
     {

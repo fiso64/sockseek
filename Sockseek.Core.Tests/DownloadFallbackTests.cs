@@ -1038,7 +1038,7 @@ namespace Tests.Core
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist, album=Album";
-                dl.Extraction.IsAlbum = true;
+                dl.Extraction.RequestedMode = ExtractionMode.Album;
                 dl.Search.NoBrowseFolder = true;
                 dl.Output.ParentDir = outputDir;
                 dl.Output.NameFormat = "Organized/{filename}";
@@ -1228,7 +1228,7 @@ namespace Tests.Core
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist, album=Album";
-                dl.Extraction.IsAlbum = true;
+                dl.Extraction.RequestedMode = ExtractionMode.Album;
                 dl.Search.NoBrowseFolder = true;
                 dl.Output.ParentDir = outputDir;
                 dl.Transfer.MaxDownloadRetries = 1; // Limit to 1 attempt
@@ -1275,7 +1275,7 @@ namespace Tests.Core
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist, album=Album";
-                dl.Extraction.IsAlbum = true;
+                dl.Extraction.RequestedMode = ExtractionMode.Album;
                 dl.Search.NoBrowseFolder = true;
                 dl.Output.ParentDir = outputDir;
 
@@ -1368,7 +1368,8 @@ namespace Tests.Core
                     song,
                     dl.Output,
                     dl.Extraction,
-                    Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance);
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance,
+                    OutputScope.Empty);
                 using var files = new DownloadFileOperations(2);
                 var finalizer = new OutputFinalizer(files);
 
@@ -1428,7 +1429,8 @@ namespace Tests.Core
                     song,
                     dl.Output,
                     dl.Extraction,
-                    Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance);
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<FileManager>.Instance,
+                    OutputScope.Empty);
 
                 var result = await finalizer.FinalizeSongPlacementAsync(
                     song,
@@ -1542,7 +1544,7 @@ namespace Tests.Core
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist, album=Album";
-                dl.Extraction.IsAlbum = true;
+                dl.Extraction.RequestedMode = ExtractionMode.Album;
                 dl.Search.NoBrowseFolder = true;
                 dl.Output.ParentDir = outputDir;
                 dl.Transfer.MaxDownloadRetries = 1;
@@ -1599,7 +1601,7 @@ namespace Tests.Core
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist, album=Album";
-                dl.Extraction.IsAlbum = true;
+                dl.Extraction.RequestedMode = ExtractionMode.Album;
                 dl.Search.GroupResults = true;
                 dl.Search.MinGroupShares = 1;
                 dl.Search.NoBrowseFolder = true;
@@ -1639,7 +1641,7 @@ namespace Tests.Core
                 var eng = new EngineSettings { Username = "u", Password = "p" };
                 var dl = new DownloadSettings();
                 dl.Extraction.Input = "artist=Artist, album=Album";
-                dl.Extraction.IsAlbum = true;
+                dl.Extraction.RequestedMode = ExtractionMode.Album;
                 dl.Search.GroupResults = true;
                 dl.Search.MinGroupShares = 1;
                 dl.Search.NoBrowseFolder = true;

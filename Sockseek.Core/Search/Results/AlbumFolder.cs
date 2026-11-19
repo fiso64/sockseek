@@ -7,14 +7,14 @@ public class AlbumFolder
     public string Username { get; }
     public string FolderPath { get; }
     public List<AlbumFile> Files => files.Value;
-    public int SearchFileCount => Evidence.SearchFileCount;
-    public int SearchAudioFileCount => Evidence.SearchAudioFileCount;
-    public int[] SearchSortedAudioLengths => Evidence.SearchSortedAudioLengths.ToArray();
-    public string? SearchRepresentativeAudioFilename => Evidence.SearchRepresentativeAudioFilename;
-    public AlbumAudioQualityCoverage SearchAudioQualityCoverage => Evidence.SearchAudioQualityCoverage;
-    public bool HasSearchMetadata => Evidence.HasSearchMetadata;
+    public int SearchFileCount { get; }
+    public int SearchAudioFileCount { get; }
+    public int[] SearchSortedAudioLengths => searchSortedAudioLengths.ToArray();
+    public string? SearchRepresentativeAudioFilename { get; }
+    public AlbumAudioQualityCoverage SearchAudioQualityCoverage { get; }
+    public bool HasSearchMetadata { get; }
     public bool IsFullyRetrieved { get; set; }
-    internal ResultSorter.SortEntry? SearchGroupSortEntry => Evidence.GroupSortEntry;
+    internal ResultSorter.SortEntry? SearchGroupSortEntry { get; }
 
     // Search metadata reads share admitted facts. Files remains the explicit
     // execution/CLI conversion, with independent lazy queries per snapshot.
@@ -28,13 +28,7 @@ public class AlbumFolder
         Files.Select(file => file.Candidate.Target).ToArray(),
         IsFullyRetrieved);
 
-    public AlbumSearchEvidence Evidence { get; }
-
-    public AlbumDirectoryCandidate ToDirectoryCandidate()
-        => new(
-            Directory,
-            Files.Select(file => file.Match).ToArray(),
-            Evidence);
+    private readonly int[] searchSortedAudioLengths;
 
     private readonly Lazy<List<AlbumFile>> files;
 
@@ -47,22 +41,12 @@ public class AlbumFolder
         var audioFiles = files
             .Where(f => !f.IsNotAudio)
             .ToList();
-        int searchFileCount = files.Count;
-        int searchAudioFileCount = audioFiles.Count;
-        int[] searchSortedAudioLengths = audioFiles
-            .Select(f => f.Candidate.Length ?? -1)
-            .OrderBy(x => x)
-            .ToArray();
-        string? searchRepresentativeAudioFilename = audioFiles
-            .FirstOrDefault()
-            ?.Filename;
-        Evidence = new AlbumSearchEvidence(
-            searchFileCount,
-            searchAudioFileCount,
-            searchSortedAudioLengths,
-            searchRepresentativeAudioFilename,
-            AlbumAudioQualityCoverage.Inactive(searchAudioFileCount),
-            hasSearchMetadata: true);
+        SearchFileCount = files.Count;
+        SearchAudioFileCount = audioFiles.Count;
+        searchSortedAudioLengths = audioFiles.Select(file => file.Candidate.Length ?? -1).Order().ToArray();
+        SearchRepresentativeAudioFilename = audioFiles.FirstOrDefault()?.Filename;
+        SearchAudioQualityCoverage = AlbumAudioQualityCoverage.Inactive(audioFiles.Count);
+        HasSearchMetadata = true;
     }
 
     public AlbumFolder(string username, string folderPath, Func<List<AlbumFile>> filesFactory)
@@ -119,9 +103,9 @@ public class AlbumFolder
     {
         var result = new List<AlbumFile>(projectionFiles.Count);
         foreach (ProjectedFileCandidate file in projectionFiles)
-            result.Add(AlbumFile.WithProjectionEvidence(
+            result.Add(AlbumFile.WithLazyQuery(
                 () => Searcher.InferSongQuery(file.Input.Filename, inferDefault),
-                file));
+                file.Input.ToFileCandidate(file.ConditionFacts)));
         return result;
     }
 
@@ -140,13 +124,16 @@ public class AlbumFolder
         Username = username;
         FolderPath = folderPath;
         files = new Lazy<List<AlbumFile>>(filesFactory);
-        Evidence = new AlbumSearchEvidence(
-            searchFileCount,
-            searchAudioFileCount,
-            searchSortedAudioLengths,
-            searchRepresentativeAudioFilename,
-            searchAudioQualityCoverage,
-            hasSearchMetadata,
-            searchGroupSortEntry);
+        if (searchFileCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(searchFileCount));
+        if (searchAudioFileCount < 0 || searchAudioFileCount > searchFileCount)
+            throw new ArgumentOutOfRangeException(nameof(searchAudioFileCount));
+        SearchFileCount = searchFileCount;
+        SearchAudioFileCount = searchAudioFileCount;
+        this.searchSortedAudioLengths = searchSortedAudioLengths.ToArray();
+        SearchRepresentativeAudioFilename = searchRepresentativeAudioFilename;
+        SearchAudioQualityCoverage = searchAudioQualityCoverage;
+        HasSearchMetadata = hasSearchMetadata;
+        SearchGroupSortEntry = searchGroupSortEntry;
     }
 }

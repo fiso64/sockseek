@@ -34,8 +34,6 @@ internal sealed class SqliteWriteStatement : IDisposable
         Array.Fill(unbound, true);
     }
 
-    public long LastInsertRowId => raw.sqlite3_last_insert_rowid(connection.Handle);
-
     public void Bind(string name, object? value)
     {
         ObjectDisposedException.ThrowIf(disposed, this);

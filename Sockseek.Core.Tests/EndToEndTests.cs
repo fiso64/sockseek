@@ -35,7 +35,7 @@ namespace Tests.EndToEnd
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var rootSettings = new DownloadSettings();
                 rootSettings.Extraction.Input = "TestArtist TestAlbum";
-                rootSettings.Extraction.IsAlbum = true;
+                rootSettings.Extraction.RequestedMode = ExtractionMode.Album;
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.Output.NameFormat = "{foldername}/{filename}";
 
@@ -747,7 +747,7 @@ namespace Tests.EndToEnd
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var settings = new DownloadSettings();
                 settings.Extraction.Input = "artist=Test Artist, album=Test Album";
-                settings.Extraction.IsAlbum = true;
+                settings.Extraction.RequestedMode = ExtractionMode.Album;
                 settings.Search.NoBrowseFolder = true;
                 settings.Output.ParentDir = outputDir;
                 settings.Output.NameFormat = "Renamed/{foldername}/{filename}";
@@ -855,7 +855,7 @@ namespace Tests.EndToEnd
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var settings = new DownloadSettings();
                 settings.Extraction.Input = "artist=Test Artist, album=Test Album";
-                settings.Extraction.IsAlbum = true;
+                settings.Extraction.RequestedMode = ExtractionMode.Album;
                 settings.Search.NoBrowseFolder = true;
                 settings.Output.ParentDir = outputDir;
                 settings.Output.IncompleteAlbumAction.Kind = IncompleteAlbumActionKind.Move;
@@ -985,7 +985,7 @@ namespace Tests.EndToEnd
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var settings = new DownloadSettings();
                 settings.Extraction.Input = "artist=Test Artist, album=Test Album";
-                settings.Extraction.IsAlbum = true;
+                settings.Extraction.RequestedMode = ExtractionMode.Album;
                 settings.Search.NoBrowseFolder = true;
                 settings.Output.ParentDir = outputDir;
                 settings.Output.IncompleteAlbumAction.Kind = IncompleteAlbumActionKind.Move;
@@ -1067,7 +1067,7 @@ namespace Tests.EndToEnd
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var settings = new DownloadSettings();
                 settings.Extraction.Input = "artist=Test Artist, album=Test Album";
-                settings.Extraction.IsAlbum = true;
+                settings.Extraction.RequestedMode = ExtractionMode.Album;
                 settings.Search.NoBrowseFolder = true;
                 settings.Output.ParentDir = outputDir;
                 settings.Output.IncompleteAlbumAction.Kind = kind;
@@ -1101,7 +1101,7 @@ namespace Tests.EndToEnd
             var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
             var rootSettings = new DownloadSettings();
             rootSettings.Extraction.Input = "testartist - testalbum";
-            rootSettings.Extraction.IsAlbum = true;
+            rootSettings.Extraction.RequestedMode = ExtractionMode.Album;
             rootSettings.Output.ParentDir = outputDir;
             rootSettings.Output.NameFormat = "{foldername}/{filename}";
 
@@ -1645,7 +1645,7 @@ namespace Tests.EndToEnd
                 var rootSettings = new DownloadSettings();
                 rootSettings.Output.ParentDir = outputDir;
                 rootSettings.PrintOption = PrintOption.Results;
-                rootSettings.Extraction.IsAlbum = true;
+                rootSettings.Extraction.RequestedMode = ExtractionMode.Album;
 
                 var albumJob = new AlbumJob(new AlbumQuery { Artist = "testartist", Album = "testalbum" });
                 var clientManager = TestHelpers.CreateMockClientManager(testClient, engineSettings);

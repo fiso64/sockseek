@@ -26,7 +26,7 @@ test.describe('upload-enabled session', () => {
   });
 });
 
-test('starts with fresh history, sharing configuration and peer behavior', async ({ daemon, context }) => {
+test('starts with fresh history, sharing configuration and peer behavior', async ({ context }) => {
   expect(previousJobId).toBeTruthy();
   const previous = await context.request.get(`/api/jobs/${previousJobId}`);
   expect(previous.status()).toBe(404);

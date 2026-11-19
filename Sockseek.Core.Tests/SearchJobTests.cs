@@ -19,7 +19,7 @@ namespace Tests.Unit
             var file = TestHelpers.CreateSlFile(@"Music\Artist\Track.mp3", length: 180);
             var response = new SearchResponse("User1", 1, true, 100, 2, [file]);
             var rawEvents = 0;
-            session.RawResultReceived += _ => rawEvents++;
+            session.ResultsAdded += change => rawEvents += change.Results.Count;
 
             session.AddResponse(response);
             session.AddResponse(response);
@@ -102,14 +102,14 @@ namespace Tests.Unit
             Assert.AreEqual(1, session.PublicFileCount);
             Assert.AreEqual(1, session.LockedFileCount);
             Assert.AreEqual(1, session.ObservedPeerCount);
-            SearchRawResult[] rows = session.RawSnapshot().ToArray();
+            SearchProjectionInput[] rows = session.RawSnapshot().ToArray();
             Assert.AreEqual(2, rows.Length);
             Assert.AreEqual(SearchResultVisibility.Public, rows[0].Visibility);
             Assert.AreEqual(SearchResultVisibility.Locked, rows[1].Visibility);
             Assert.AreEqual(7, rows[0].QueueLength);
             Assert.AreEqual(now, rows[0].ObservedAtUtc);
             Assert.AreEqual(now, rows[1].ObservedAtUtc);
-            Assert.AreEqual(1, session.Snapshot().Count);
+            Assert.AreEqual(1, session.PublicFileCount);
         }
 
         [TestMethod]
@@ -140,8 +140,6 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        [DataRow("raw-received")]
-        [DataRow("raw-added")]
         [DataRow("results-added")]
         [DataRow("change-published")]
         public void SearchSession_ObserverCompletion_FollowsEveryAdmittedResult(string notification)
@@ -150,9 +148,9 @@ namespace Tests.Unit
             var changes = new List<CoreChange>();
             var observed = new List<string>();
             SubscribeToResultNotification(session, notification, session.Complete);
-            session.RawResultAdded += result => observed.Add($"file-{result.Sequence}");
+            session.ResultsAdded += batch => observed.AddRange(batch.Results.Select(result => $"file-{result.Sequence}"));
             session.ChangePublished += changes.Add;
-            session.Completed += () => observed.Add("complete");
+            session.SearchCompleted += _ => observed.Add("complete");
 
             session.AddResponse(new SearchResponse("peer", 1, true, 100, 0,
                 [TestHelpers.CreateSlFile(@"Share\One.flac"), TestHelpers.CreateSlFile(@"Share\Two.flac")]));
@@ -166,8 +164,6 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        [DataRow("raw-received")]
-        [DataRow("raw-added")]
         [DataRow("results-added")]
         [DataRow("change-published")]
         public void SearchSession_ObserverAdmission_PreservesSourceAndEventOrder(string notification)
@@ -183,7 +179,7 @@ namespace Tests.Unit
                 session.AddResponse(new SearchResponse("second-peer", 2, true, 100, 0,
                     [TestHelpers.CreateSlFile(@"Share\Three.flac")]));
             });
-            session.RawResultAdded += result => observed.Add(result.Sequence);
+            session.ResultsAdded += batch => observed.AddRange(batch.Results.Select(result => result.Sequence));
             session.ChangePublished += changes.Add;
 
             session.AddResponse(new SearchResponse("peer", 1, true, 100, 0,
@@ -203,8 +199,6 @@ namespace Tests.Unit
         {
             switch (notification)
             {
-                case "raw-received": session.RawResultReceived += _ => callback(); break;
-                case "raw-added": session.RawResultAdded += _ => callback(); break;
                 case "results-added": session.ResultsAdded += _ => callback(); break;
                 case "change-published": session.ChangePublished += change =>
                     { if (change is SearchResultsAddedChange) callback(); }; break;
@@ -251,9 +245,7 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        [DataRow(false)]
-        [DataRow(true)]
-        public async Task SearchSession_AdmittedResultsRemainReadableWhileObserversAreBlocked(bool rawObserver)
+        public async Task SearchSession_AdmittedResultsRemainReadableWhileObserversAreBlocked()
         {
             var session = new SearchSession(Guid.NewGuid());
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -265,8 +257,7 @@ namespace Tests.Unit
                 entered.TrySetResult();
                 release.Task.GetAwaiter().GetResult();
             }
-            if (rawObserver) session.RawResultAdded += _ => Hold();
-            else session.ResultsAdded += _ => Hold();
+            session.ResultsAdded += _ => Hold();
             var response = new SearchResponse(" Exact Péér ", 3, true, 100, 0,
                 [TestHelpers.CreateSlFile(@"Share\One.flac"), TestHelpers.CreateSlFile(@"Share\Two.flac")],
                 [TestHelpers.CreateSlFile(@"Share\Locked.flac")]);
@@ -280,7 +271,7 @@ namespace Tests.Unit
                     CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 var read = Task.Run(() => (Rows: session.RawSnapshot(),
                     Page: session.RawSnapshot(1, 2), Projection: session.ReadProjectionPage(1, 2), Peers: session.ObservedPeerCount,
-                    Public: session.Snapshot().Count));
+                    Public: session.PublicFileCount));
                 var snapshot = await read.WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.AreEqual(3, snapshot.Rows.Count,
                     "An admitted response must be readable before its slow observer returns.");
@@ -367,41 +358,6 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        public async Task SearchJob_ReadRawResultsAsync_ReplaysExistingAndStreamsUntilComplete()
-        {
-            var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
-            var file1 = TestHelpers.CreateSlFile(@"Music\Artist\Track.mp3", length: 180);
-            var response1 = new SearchResponse("User1", 1, true, 100, 0, [file1]);
-            job.Session.AddResponse(response1);
-
-            var results = new List<SearchRawResult>();
-            var replayRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var readerTask = Task.Run(async () =>
-            {
-                await foreach (var result in job.ReadRawResultsAsync())
-                {
-                    results.Add(result);
-                    replayRead.TrySetResult();
-                }
-            });
-
-            await replayRead.Task.WaitAsync(TimeSpan.FromSeconds(5));
-
-            var file2 = TestHelpers.CreateSlFile(@"Music\Artist\Track Alt.mp3", length: 181);
-            var response2 = new SearchResponse("User2", 1, true, 100, 0, [file2]);
-            job.Session.AddResponse(response2);
-            job.Session.Complete();
-
-            await readerTask.WaitAsync(TimeSpan.FromSeconds(2));
-
-            Assert.AreEqual(2, results.Count);
-            Assert.AreEqual(1, results[0].Sequence);
-            Assert.AreEqual(2, results[1].Sequence);
-            Assert.AreEqual("User1", results[0].Username);
-            Assert.AreEqual("User2", results[1].Username);
-        }
-
-        [TestMethod]
         public async Task Searcher_SearchJob_UsesPreexistingSessionForLiveRawResults()
         {
             var index = new List<SearchResponse>
@@ -416,15 +372,9 @@ namespace Tests.Unit
             var searcher = new Searcher(new ClientTests.MockSoulseekClient(index), registry, new DownloadEvents(), 10, 10);
             var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
             var originalSession = job.Session;
-            var streamed = new List<SearchRawResult>();
-            var readerTask = Task.Run(async () =>
-            {
-                await foreach (var result in job.ReadRawResultsAsync())
-                    streamed.Add(result);
-            });
 
             await searcher.Search(job, config.Search, new ResponseData(), CancellationToken.None);
-            await readerTask.WaitAsync(TimeSpan.FromSeconds(2));
+            var streamed = job.RawSnapshot();
 
             Assert.AreSame(originalSession, job.Session);
             Assert.IsTrue(job.IsComplete);
@@ -676,23 +626,17 @@ namespace Tests.Unit
             client.FailNextSearchWithDisconnect();
             var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
             var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
-            var streamed = new List<SearchRawResult>();
-            var readerTask = Task.Run(async () =>
-            {
-                await foreach (var result in job.ReadRawResultsAsync())
-                    streamed.Add(result);
-            });
 
             engine.Enqueue(job, downloadSettings);
             engine.CompleteEnqueue();
 
             await engine.RunAsync(CancellationToken.None);
-            await readerTask.WaitAsync(TimeSpan.FromSeconds(2));
+            var streamed = job.RawSnapshot();
 
             Assert.AreEqual(JobTerminalOutcome.Succeeded, job.TerminalOutcome);
             Assert.IsTrue(job.IsComplete);
             Assert.IsTrue(client.SearchCallCount >= 2, "Search should retry after reconnect.");
-            Assert.AreEqual(1, streamed.Count, "The live raw-results stream should not complete before the retry succeeds.");
+            Assert.AreEqual(1, streamed.Count, "The successful retry must contribute its results.");
             Assert.AreEqual(@"Music\Artist\Track.mp3", streamed[0].Filename);
         }
 
@@ -707,22 +651,16 @@ namespace Tests.Unit
             client.FailNextSearch();
             var engine = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
             var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
-            var streamed = new List<SearchRawResult>();
-            var readerTask = Task.Run(async () =>
-            {
-                await foreach (var result in job.ReadRawResultsAsync())
-                    streamed.Add(result);
-            });
 
             engine.Enqueue(job, downloadSettings);
             engine.CompleteEnqueue();
 
             await engine.RunAsync(CancellationToken.None);
-            await readerTask.WaitAsync(TimeSpan.FromSeconds(2));
+            var streamed = job.RawSnapshot();
 
             Assert.IsTrue(job.IsUnsuccessfulTerminal);
             Assert.AreEqual(JobFailureReason.Other, job.FailureReason);
-            Assert.IsTrue(job.IsComplete, "Terminal search failures should close live raw-result streams.");
+            Assert.IsTrue(job.IsComplete, "Terminal search failures should complete the session.");
             Assert.AreEqual(0, streamed.Count);
         }
 
@@ -735,12 +673,6 @@ namespace Tests.Unit
             client.FailNextSearch();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
-            var streamed = new List<SearchRawResult>();
-            var readerTask = Task.Run(async () =>
-            {
-                await foreach (var result in job.ReadRawResultsAsync())
-                    streamed.Add(result);
-            });
 
             var threw = false;
             try
@@ -753,9 +685,9 @@ namespace Tests.Unit
             }
 
             Assert.IsTrue(threw, "Expected Searcher.Search to throw on terminal search failure.");
-            await readerTask.WaitAsync(TimeSpan.FromSeconds(2));
+            var streamed = job.RawSnapshot();
 
-            Assert.IsTrue(job.IsComplete, "Direct Searcher.Search callers should not leave raw-result streams open after terminal errors.");
+            Assert.IsTrue(job.IsComplete, "Direct search failures should complete the session.");
             Assert.AreEqual(0, streamed.Count);
         }
     }

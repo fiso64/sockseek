@@ -52,17 +52,6 @@ internal static class BenchmarkDataFactory
         "Flying Lotus",
     ];
 
-    public static readonly string[] SearchTerms =
-    [
-        "Electric Light Orchestra",
-        "Twilight",
-        "Time",
-        "Steely Dan",
-        "Peg",
-        "KNOWER",
-        "Overtime",
-    ];
-
     private static readonly string[] PathTemplates =
     [
         @"Music\{artist}\{album}\{track:D2}. {artist} - {title}.{ext}",
@@ -78,32 +67,6 @@ internal static class BenchmarkDataFactory
     // Artists that never include "Electric Light Orchestra" — used for miss paths.
     private static readonly string[] OtherArtists =
         [.. Artists.Where(a => a != "Electric Light Orchestra")];
-
-    public static string[] CreateFilePaths(int count)
-    {
-        var paths = new string[count];
-        for (int i = 0; i < count; i++)
-        {
-            var artist  = Artists[i % Artists.Length];
-            var album   = Albums[i % Albums.Length];
-            var title   = Titles[i % Titles.Length];
-            var remix   = RemixArtists[i % RemixArtists.Length];
-            var ext     = i % 4 == 0 ? "flac" : "mp3";
-            var track   = (i % 20) + 1;
-            var year    = 1975 + (i % 30);
-            var tmpl    = PathTemplates[i % PathTemplates.Length];
-
-            paths[i] = tmpl
-                .Replace("{artist}", artist)
-                .Replace("{album}", album)
-                .Replace("{title}", title)
-                .Replace("{remix}", remix)
-                .Replace("{ext}", ext)
-                .Replace("{track:D2}", track.ToString("D2"))
-                .Replace("{year}", year.ToString());
-        }
-        return paths;
-    }
 
     // All paths contain "Electric Light Orchestra" at a word boundary.
     public static string[] CreateHitPaths(int count)

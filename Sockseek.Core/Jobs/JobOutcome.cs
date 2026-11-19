@@ -69,9 +69,6 @@ public sealed record JobOutcome
     public static JobOutcome AwaitingSelection()
         => new(shouldCommit: true, lifecycleState: JobLifecycleState.AwaitingSelection);
 
-    public static JobOutcome Activity(JobActivityPhase phase)
-        => new(shouldCommit: true, lifecycleState: JobLifecycleState.Running, activityPhase: phase);
-
     public static JobOutcome Done(
         string? downloadPath = null,
         FileCandidate? chosenCandidate = null,

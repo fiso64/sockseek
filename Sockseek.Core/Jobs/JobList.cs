@@ -32,16 +32,6 @@ namespace Sockseek.Core.Jobs;
         internal void RemoveJobs(IReadOnlySet<Guid> jobIds)
             => members.RemoveWhere(job => jobIds.Contains(job.Id));
 
-        public void Reverse()
-        {
-            members.Reverse();
-            foreach (var job in Jobs)
-            {
-                if (job is JobList jl)
-                    jl.ReverseMembers();
-            }
-        }
-
         // Yields all SongJobs reachable from this list, traversing ExtractJob.Result nodes.
         public IEnumerable<SongJob> AllSongs() => AllJobs().OfType<SongJob>();
 
@@ -65,17 +55,6 @@ namespace Sockseek.Core.Jobs;
                 foreach (var child in jl.Jobs)
                     foreach (var j in WalkJob(child))
                         yield return j;
-        }
-
-        // Reverses a list of jobs and the children inside any JobList containers.
-        public static void ReverseJobList(List<Job> jobs)
-        {
-            jobs.Reverse();
-            foreach (var job in jobs)
-            {
-                if (job is JobList jl)
-                    jl.ReverseMembers();
-            }
         }
 
         public override string ToString(bool noInfo)

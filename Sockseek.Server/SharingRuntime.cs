@@ -123,7 +123,6 @@ public sealed class SharingRuntime : IAsyncDisposable
 
     public SoulseekClientManager ClientManager { get; }
     public ShareCatalogManager Catalogs => catalogs;
-    public ShareScanCoordinator Scans => scans;
     public PeerRestrictionPolicy Restrictions { get; }
     public UploadScheduler Scheduler { get; }
     public UploadCoordinator Uploads { get; }

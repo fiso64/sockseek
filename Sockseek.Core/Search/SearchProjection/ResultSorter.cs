@@ -9,18 +9,6 @@ namespace Sockseek.Core.Services;
 public static partial class ResultSorter
 {
     public static IEnumerable<(SearchResponse response, Soulseek.File file)> OrderedResults(
-        IEnumerable<KeyValuePair<string, (SearchResponse, Soulseek.File)>> results,
-        SongQuery query,
-        SearchSettings search,
-        ConcurrentDictionary<string, int> peerFailureCounts,
-        bool useInfer = false,
-        bool albumMode = false,
-        bool ignoreStringSortConditions = false)
-    {
-        return OrderedResults(results.Select(x => x.Value), query, search, peerFailureCounts, useInfer, albumMode, ignoreStringSortConditions);
-    }
-
-    public static IEnumerable<(SearchResponse response, Soulseek.File file)> OrderedResults(
         IEnumerable<(SearchResponse, Soulseek.File)> results,
         SongQuery query,
         SearchSettings search,

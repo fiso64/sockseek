@@ -1,5 +1,4 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Microsoft.Data.Sqlite;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
 using Sockseek.Core.Services;
@@ -11,39 +10,6 @@ namespace Sockseek.Persistence.Tests;
 [TestClass]
 public sealed class PeerBrowseArtifactStoreTests
 {
-    [TestMethod]
-    public async Task StartupExpiresObsoleteBrowseCacheOnceAndRetainsNewArtifacts()
-    {
-        await using var directory = new TemporaryDirectory();
-        Guid expiredId;
-        string artifactPath;
-        string registryPath;
-        await using (var original = new PeerBrowseArtifactStore(directory.Path))
-        {
-            expiredId = (await CompleteEmptyAsync(original)).BrowseId;
-            artifactPath = Directory.EnumerateFiles(Path.Combine(original.RootDirectory, "artifacts"), "*.browse.gz").Single();
-            registryPath = Path.Combine(original.RootDirectory, "resources.sqlite");
-        }
-        await using (var connection = new SqliteConnection($"Data Source={registryPath};Pooling=False"))
-        {
-            await connection.OpenAsync();
-            await using var command = connection.CreateCommand();
-            command.CommandText = "PRAGMA user_version=9;";
-            await command.ExecuteNonQueryAsync();
-        }
-        Guid currentId;
-        await using (var upgraded = new PeerBrowseArtifactStore(directory.Path))
-        {
-            await upgraded.InitializeAsync();
-            Assert.IsNull(await upgraded.GetAsync(expiredId));
-            Assert.IsFalse(File.Exists(artifactPath));
-            currentId = (await CompleteEmptyAsync(upgraded)).BrowseId;
-        }
-        await using var restarted = new PeerBrowseArtifactStore(directory.Path);
-        Assert.AreEqual(PeerBrowseState.Complete, (await restarted.GetAsync(currentId))!.State);
-        Assert.AreEqual(0, (await restarted.SearchAsync(currentId, "anything", null, null, null, 100)).Items.Count);
-    }
-
     [TestMethod]
     public async Task CompletedArtifact_ProvidesOwnedPublicDirectorySnapshot()
     {

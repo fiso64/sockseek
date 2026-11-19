@@ -123,9 +123,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
 
     // ── public state (read by search and transfer services) ──────────────────
 
-    public ISoulseekClient? Client => _clientManager.Client;
     public SoulseekClientStates ClientState => _clientManager.State;
-    public bool IsConnectedAndLoggedIn => _clientManager.IsConnectedAndLoggedIn;
 
     // Session state
     private readonly ActiveDownloadTracker _activeDownloads = new();

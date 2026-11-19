@@ -527,7 +527,7 @@ public sealed class UploadCoordinatorTests
             CancellationToken cancellationToken = default)
             => ValueTask.FromResult<ShareCatalogBrowseDirectory?>(null);
 
-        public async IAsyncEnumerable<ShareCatalogBrowseDirectory> EnumerateBrowseAsync(
+        public async IAsyncEnumerable<ShareCatalogBrowseRow> EnumerateBrowseRowsAsync(
             [System.Runtime.CompilerServices.EnumeratorCancellation]
             CancellationToken cancellationToken = default)
         {
@@ -588,7 +588,7 @@ public sealed class UploadCoordinatorTests
                 CancellationToken cancellationToken = default)
                 => throw new NotSupportedException();
 
-            public async IAsyncEnumerable<ShareCatalogBrowseDirectory> EnumerateBrowseAsync(
+            public async IAsyncEnumerable<ShareCatalogBrowseRow> EnumerateBrowseRowsAsync(
                 [System.Runtime.CompilerServices.EnumeratorCancellation]
                 CancellationToken cancellationToken = default)
             {

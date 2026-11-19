@@ -332,30 +332,4 @@ public class RealCaptureProjectionBenchmarks
             [file]);
         return (response, file);
     }
-
-    private record CapturePayload(
-        string Name,
-        DateTimeOffset CapturedAt,
-        SongQuery Query,
-        int SearchTimeout,
-        int ResultCount,
-        int LockedFilesCount,
-        List<CapturedResult> Results);
-
-    private record CapturedResult(CapturedUser User, CapturedFile File);
-
-    private record CapturedUser(
-        string Username,
-        int UploadSpeed,
-        bool HasFreeUploadSlot,
-        int QueueLength,
-        int LockedFileCount);
-
-    private record CapturedFile(
-        string Filename,
-        long Size,
-        int? Length,
-        int? Bitrate,
-        int? SampleRate,
-        int? BitDepth);
 }

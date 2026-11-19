@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using Sockseek.Api;
 using Sockseek.Core;
 using Sockseek.Core.Services;
-using System.Runtime.CompilerServices;
 
 namespace Sockseek.Cli;
 
@@ -78,85 +77,6 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
             ct).ConfigureAwait(false);
     }
 
-    public async Task<CreateJobPreviewResponseDto> CreateJobPreviewAsync(
-        SubmitExtractJobRequestDto request,
-        CancellationToken ct = default)
-    {
-        SubmitExtractJobRequestDto prepared = await PrepareExtractRequestAsync(api, request, ct)
-            .ConfigureAwait(false);
-        return await api.CreateJobPreviewAsync(
-            new CreateJobPreviewRequestDto(
-                new ExtractJobDraftDto(
-                    prepared.Input,
-                    prepared.InputType,
-                    ResultDownloadBehavior: prepared.ResultDownloadBehavior,
-                    ArtifactId: prepared.ArtifactId),
-                prepared.Options),
-            ct).ConfigureAwait(false);
-    }
-
-    public async Task<JobPreviewSummaryDto> WaitForJobPreviewAsync(
-        Guid previewId,
-        CancellationToken ct = default)
-    {
-        while (true)
-        {
-            JobPreviewSummaryDto preview = await api.GetJobPreviewAsync(previewId, ct, waitForCompletion: true)
-                .ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
-                    "The Job Preview disappeared before planning completed.");
-            if (preview.State != JobPreviewState.Planning)
-                return preview;
-        }
-    }
-
-    public async IAsyncEnumerable<JobPreviewNodeDto> GetJobPreviewNodesAsync(
-        Guid previewId,
-        [EnumeratorCancellation] CancellationToken ct = default)
-    {
-        await foreach (JobPreviewNodeDto node in GetJobPreviewChildrenAsync(
-            previewId,
-            parentRef: null,
-            ct).ConfigureAwait(false))
-        {
-            yield return node;
-        }
-    }
-
-    private async IAsyncEnumerable<JobPreviewNodeDto> GetJobPreviewChildrenAsync(
-        Guid previewId,
-        string? parentRef,
-        [EnumeratorCancellation] CancellationToken ct)
-    {
-        string? cursor = null;
-        do
-        {
-            CursorPage<JobPreviewNodeDto> page = await api.GetJobPreviewNodesPageAsync(
-                previewId,
-                parentRef,
-                cursor,
-                limit: 200,
-                ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
-                    "The Job Preview disappeared while its nodes were being paged.");
-            foreach (JobPreviewNodeDto node in page.Items)
-            {
-                yield return node;
-                if (node.DirectChildCount <= 0)
-                    continue;
-                await foreach (JobPreviewNodeDto child in GetJobPreviewChildrenAsync(
-                    previewId,
-                    node.Ref,
-                    ct).ConfigureAwait(false))
-                {
-                    yield return child;
-                }
-            }
-            cursor = page.NextCursor;
-        }
-        while (cursor != null);
-    }
-
     internal static async Task<SubmitExtractJobRequestDto> PrepareSubmissionInputAsync(
         SubmitExtractJobRequestDto request, CancellationToken ct)
     {
@@ -168,37 +88,6 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
             InputType = string.IsNullOrWhiteSpace(request.InputType)
                 || string.Equals(request.InputType, InputType.None.ToString(), StringComparison.OrdinalIgnoreCase)
                     ? InputType.CSV.ToString() : request.InputType,
-        };
-    }
-
-    internal static async Task<SubmitExtractJobRequestDto> PrepareExtractRequestAsync(
-        SockseekApiClient api, SubmitExtractJobRequestDto request,
-        CancellationToken ct)
-    {
-        if (request.Input == null || request.ArtifactId != null || !ShouldUploadLocalInput(request))
-            return request;
-
-        await using var input = new FileStream(
-            request.Input,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: 64 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        InputArtifactDto artifact = await api.UploadInputArtifactAsync(
-            input,
-            Path.GetFileName(request.Input),
-            ct).ConfigureAwait(false);
-        string? inputType = request.InputType;
-        if (string.IsNullOrWhiteSpace(inputType)
-            || string.Equals(inputType, InputType.None.ToString(), StringComparison.OrdinalIgnoreCase))
-        {
-            inputType = InputType.CSV.ToString();
-        }
-        return request with
-        {
-            ArtifactId = artifact.ArtifactId,
-            InputType = inputType,
         };
     }
 

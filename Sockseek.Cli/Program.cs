@@ -426,9 +426,6 @@ internal static partial class Program
         }
     }
 
-    internal static bool ArgsRequestProgressJson(IReadOnlyList<string> args)
-        => CliOutputController.ArgsRequestProgressJson(args);
-
 
     private static async Task<CliExitCode> RunRemoteAsync(
         ParsedInvocation invocation,
@@ -1143,20 +1140,6 @@ internal static partial class Program
         PrintOutputRenderer.PrintRequestedOutput(queue);
     }
 
-    internal static async Task PrintRemoteResultsAsync(
-        ICliBackend backend,
-        Guid workflowId,
-        DownloadSettings settings,
-        CancellationToken ct)
-        => await PrintRemoteRequestedOutputAsync(backend, workflowId, settings, ct);
-
-    internal static async Task PrintRemoteJobOutputAsync(
-        ICliBackend backend,
-        Guid workflowId,
-        DownloadSettings settings,
-        CancellationToken ct)
-        => await PrintRemoteRequestedOutputAsync(backend, workflowId, settings, ct);
-
     private static async Task<JobList> BuildRemotePrintQueueAsync(
         ICliBackend backend,
         Guid workflowId,
@@ -1749,9 +1732,6 @@ internal static partial class Program
             target.Length,
             target.Attributes?.Select(attribute =>
                 new FileAttributeSnapshot(attribute.Type, attribute.Value, 0)).ToList());
-
-    private static AlbumJob ToAlbumJob(AlbumJobPayloadDto album)
-        => ToAlbumJob(album, null);
 
     private static AlbumJob ToAlbumJob(AlbumJobPayloadDto album, JobSummaryDto? summary)
     {

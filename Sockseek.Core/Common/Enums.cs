@@ -153,15 +153,6 @@ namespace Sockseek.Core;
         General = 2,
     }
 
-    // backward-compat, remove this
-    public enum TrackTypeOld
-    {
-        Normal = 0,
-        Album = 1,
-        SongGroups = 2,
-        AlbumGroups = 3,
-    }
-
     public enum PrintOption
     {
         None = 0,

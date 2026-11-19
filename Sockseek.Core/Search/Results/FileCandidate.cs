@@ -42,9 +42,6 @@ namespace Sockseek.Core.Models;
             ProjectionFacts = projectionFacts;
         }
 
-        public FileCandidate WithProjectionFacts(SearchConditionFacts facts)
-            => new(Target, Peer, Evidence, facts);
-
         public SearchProjectionInput ToProjectionInput(
             long sequence = 0,
             int revision = 0,

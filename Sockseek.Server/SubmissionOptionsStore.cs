@@ -52,9 +52,6 @@ public sealed class SubmissionOptionsStore
         isolatedJobOptions[jobId] = 0;
     }
 
-    public void RemoveWorkflowOptions(Guid workflowId)
-        => workflowOptions.TryRemove(workflowId, out _);
-
     public long CaptureWorkflowVersion(Guid workflowId)
         => workflowOptions.TryGetValue(workflowId, out var entry)
             ? entry.Version
@@ -200,9 +197,6 @@ public sealed class SubmissionOptionsJobSettingsResolver(
 
     public void SetJobOutputParentDir(Guid jobId, string? outputParentDir)
         => Options.SetJobOutputParentDir(jobId, outputParentDir);
-
-    public void RemoveWorkflowOptions(Guid workflowId)
-        => Options.RemoveWorkflowOptions(workflowId);
 
     public long CaptureWorkflowVersion(Guid workflowId)
         => Options.CaptureWorkflowVersion(workflowId);

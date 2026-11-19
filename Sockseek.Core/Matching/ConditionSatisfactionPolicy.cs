@@ -140,25 +140,6 @@ internal static class ConditionSatisfactionPolicy
                 || nonQualityFileConditions.StrictAlbum && SortQuery.Album.Length > 0;
         }
 
-        public bool Satisfies((SearchResponse Response, Soulseek.File File) result)
-            => Satisfies(result.Response, result.File);
-
-        public bool Satisfies(SearchResponse response, Soulseek.File file)
-        {
-            if (checkUser && !nonQualityFileConditions.UserSatisfies(response))
-                return false;
-
-            if (!checkFile || !Utils.IsMusicFile(file.Filename))
-                return true;
-
-            return nonQualityFileConditions.FileSatisfies(
-                ConditionFile.From(file),
-                SortQuery,
-                response,
-                filenameChecks: true,
-                checkUser: false);
-        }
-
         public bool Satisfies(SearchProjectionInput input)
         {
             if (!nonQualityFileConditions.VisibilitySatisfies(input.Visibility)) return false;

@@ -21,9 +21,9 @@ public sealed class SharingCatalogTests
         var search = await reader.SearchAsync("café track", 10, []);
         var directory = await reader.GetDirectoryAsync(
             RemotePathKey.Create(@"MUSIC\ARTIST"));
-        var browse = new List<ShareCatalogBrowseDirectory>();
-        await foreach (var item in reader.EnumerateBrowseAsync())
-            browse.Add(item);
+        var browse = new List<ShareCatalogBrowseDirectoryRow>();
+        await foreach (var item in reader.EnumerateBrowseRowsAsync())
+            if (item is ShareCatalogBrowseDirectoryRow header) browse.Add(header);
 
         Assert.IsNotNull(resolved);
         Assert.AreEqual("Music", resolved.Root.Alias);
@@ -36,7 +36,7 @@ public sealed class SharingCatalogTests
         Assert.AreEqual(1, directory!.Files.Count);
         Assert.AreEqual(3, browse.Count);
         Assert.IsTrue(browse.Any(x => x.Directory.RemotePath == @"Music\Empty"));
-        Assert.AreEqual(0, browse.Single(x => x.Directory.RemotePath == @"Music\Empty").Files.Count);
+        Assert.AreEqual(0, browse.Single(x => x.Directory.RemotePath == @"Music\Empty").FileCount);
 
         var tree = await PeerBrowseArtifact.FromCatalogAsync(reader, CancellationToken.None);
         var root = tree.ReadDirectories(null, null, false, null, null, 100, CancellationToken.None).Items.Single();

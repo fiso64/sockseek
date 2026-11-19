@@ -101,8 +101,7 @@ public class OpenApiContractTests
         }
         Assert.IsFalse(ServerProtocolEnumExtensions.TryParseJobKind("unknown-kind", out _));
         Assert.IsFalse(ServerProtocolEnumExtensions.TryParseJobKind("7", out _));
-        Assert.IsTrue(ServerProtocolEnumExtensions.TryParseJobKind("RetrieveFolder", out var legacyKind));
-        Assert.AreEqual(ServerJobKind.RetrieveFolder, legacyKind);
+        Assert.IsFalse(ServerProtocolEnumExtensions.TryParseJobKind("RetrieveFolder", out _));
         foreach (var role in Enum.GetValues<ServerJobRole>())
         {
             Assert.IsTrue(ServerProtocolEnumExtensions.TryParseJobRole(role.ToWireString(), out var parsed));
@@ -110,8 +109,7 @@ public class OpenApiContractTests
         }
         Assert.IsFalse(ServerProtocolEnumExtensions.TryParseJobRole("unknown-role", out _));
         Assert.IsFalse(ServerProtocolEnumExtensions.TryParseJobRole("2", out _));
-        Assert.IsTrue(ServerProtocolEnumExtensions.TryParseJobRole("ExecutionChild", out var legacyRole));
-        Assert.AreEqual(ServerJobRole.ExecutionChild, legacyRole);
+        Assert.IsFalse(ServerProtocolEnumExtensions.TryParseJobRole("ExecutionChild", out _));
 
         string documentPath = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..", "docs", "openapi.json"));

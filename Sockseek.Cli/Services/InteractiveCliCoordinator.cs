@@ -302,7 +302,7 @@ internal sealed class InteractiveCliCoordinator
         if (IsCompleted(summary.TerminalOutcome, summary.SkipReason))
             return;
 
-        if (summary.FailureReason == ServerProtocol.FailureReasons.Cancelled)
+        if (summary.FailureReason == ServerJobFailureReason.Cancelled)
             return;
 
         if (session.LastSelectedFolderKey != null)

@@ -71,9 +71,6 @@ namespace Sockseek.Core.Extractors;
 
     public class MusicBrainzClient : IDisposable
     {
-        public JobSourceInfo? DescribeSource(ExtractJob source, Job item)
-            => ReferenceEquals(source, item) ? new(Detail: "MusicBrainz import", PreviewDetail: "MusicBrainz import") : null;
-
         private readonly HttpClient _httpClient;
         private readonly IJobLog _log;
 

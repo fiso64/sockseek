@@ -250,12 +250,12 @@ public class SearchFallbackTests
 
         var incrementalFiles = job.GetSortedTrackCandidates(search, new()).Items;
         Assert.AreEqual(2, incrementalFiles.Count);
-        var filtered = job.Snapshot().Where(x => ConditionSatisfactionPolicy.SearchFileSatisfies(search.NecessaryCond, x.Response, x.File, query)).ToList();
+        var filtered = job.RawSnapshot().Where(x => ConditionSatisfactionPolicy.SearchFileSatisfies(search.NecessaryCond, x, query)).ToList();
         var batchFiles = SearchResultProjector.SortedTrackCandidates(filtered, query, search, new());
         CollectionAssert.AreEqual(batchFiles.Select(x => x.Target.Username).ToArray(), incrementalFiles.Select(x => x.Target.Username).ToArray());
 
         var incremental = job.GetTrackGroups(search, new()).Items;
-        var batch = SearchResultProjector.GroupTracks(job.Snapshot(), query, search, new());
+        var batch = SearchResultProjector.GroupTracks(job.RawSnapshot(), query, search, new());
         Assert.AreEqual(1, batch.Count);
         Assert.AreEqual(1, incremental.Count);
         Assert.AreEqual(2, incremental[0].Candidates?.Count);
@@ -275,7 +275,7 @@ public class SearchFallbackTests
         job.Session.AddResponse(Response("Unrelated", user: "Wrong"));
 
         Assert.AreEqual(2, job.GetAlbumFolders(search).Items.Count);
-        Assert.AreEqual(2, SearchResultProjector.AlbumFolders(job.Snapshot(), query, search).Count);
+        Assert.AreEqual(2, SearchResultProjector.AlbumFolders(job.RawSnapshot(), query, search).Count);
         Assert.AreEqual(1, job.GetAlbumGroups(search).Items.Count);
     }
 

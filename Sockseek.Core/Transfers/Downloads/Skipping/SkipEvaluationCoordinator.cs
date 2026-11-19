@@ -36,35 +36,6 @@ internal sealed class SkipEvaluationCoordinator
         return match != null;
     }
 
-    public bool TrySetJobAlreadyExists(Job job, JobContext ctx)
-    {
-        if (!job.CanBeSkipped) return false;
-        var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.ResolveSearchSettings());
-        Match? match = null;
-
-        if (job is SongJob song)
-        {
-            return TrySetAlreadyExists(job, song, skipCtx);
-        }
-        else if (job is AlbumJob album)
-        {
-            match = FindExistingAlbum(job, album, ctx, skipCtx);
-        }
-        else
-        {
-            return false;
-        }
-
-        if (match != null)
-        {
-            JobOutcomeCommitter.Commit(job, JobOutcome.AlreadyExists(match.Path, match.Source));
-            ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, match.Path);
-            AlreadyExists(job);
-        }
-
-        return match != null;
-    }
-
     public JobOutcome? TryGetJobAlreadyExistsOutcome(Job job, JobContext ctx)
     {
         if (!job.CanBeSkipped) return null;
@@ -120,23 +91,6 @@ internal sealed class SkipEvaluationCoordinator
         {
             JobOutcomeCommitter.Commit(song, JobOutcome.Skipped(JobSkipReason.NotFoundLastTime, NotFoundFailureReasonOrDefault(prev.FailureReason)));
             NotFoundPreviously(song);
-            return true;
-        }
-        return false;
-    }
-
-    public bool TrySetNotFoundLastTimeForJob(Job job)
-    {
-        if (!job.CanBeSkipped) return false;
-        var jobCtx = getContext(job);
-        if (jobCtx.IndexEditor == null) return false;
-        var prev = PreviousRunResult(job, jobCtx.IndexEditor);
-
-        if (prev == null) return false;
-        if (IsNotFoundFailure(prev.FailureReason) || prev.State == JobStateOld.NotFoundLastTime)
-        {
-            JobOutcomeCommitter.Commit(job, JobOutcome.Skipped(JobSkipReason.NotFoundLastTime, NotFoundFailureReasonOrDefault(prev.FailureReason)));
-            NotFoundPreviously(job);
             return true;
         }
         return false;
