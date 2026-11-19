@@ -45,6 +45,17 @@ public class SearchFallbackConfigTests
     }
 
     [TestMethod]
+    public void ResponseLimit_RoundTripsFromCliThroughSubmissionOptions()
+    {
+        var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--response-limit", "700"]);
+        var wire = Sockseek.Server.DownloadSettingsPatchDtoMapper.FromCore(patch);
+        Assert.AreEqual(700, wire!.Search!.ResponseLimit);
+        var settings = new DownloadSettings();
+        Sockseek.Server.DownloadSettingsPatchDtoMapper.ApplyTo(settings, wire);
+        Assert.AreEqual(700, settings.Search.ResponseLimit);
+    }
+
+    [TestMethod]
     public void ExplicitLevel_ClearsEarlierLegacyFlag()
     {
         var search = Bind("--desperate", "--fallback-level", "0").Search;
@@ -65,6 +76,7 @@ public class SearchFallbackConfigTests
     [DataRow("--fallback-level", "-1")]
     [DataRow("--fallback-level", "4")]
     [DataRow("--max-fallback-attempts", "-1")]
+    [DataRow("--response-limit", "0")]
     public void InvalidLimits_AreRejected(string flag, string value)
         => Assert.Throws<Exception>(() => Bind(flag, value));
 
@@ -72,6 +84,7 @@ public class SearchFallbackConfigTests
     [DataRow("Search.FallbackLevel", -1)]
     [DataRow("Search.FallbackLevel", 4)]
     [DataRow("Search.MaxFallbackAttempts", -1)]
+    [DataRow("Search.ResponseLimit", 0)]
     public void RemotePatches_RejectInvalidLimits(string path, int value)
     {
         var patch = RoundTrip(new SettingsPatch([new(path, value)]));

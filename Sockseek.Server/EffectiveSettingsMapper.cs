@@ -122,6 +122,7 @@ internal static class EffectiveSettingsMapper
             FolderConditions(settings.NecessaryFolderCond),
             FolderConditions(settings.PreferredFolderCond),
             settings.SearchTimeout,
+            settings.ResponseLimit,
             settings.DownrankOn,
             settings.IgnoreOn,
             settings.FastSearch,

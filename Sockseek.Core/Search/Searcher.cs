@@ -138,6 +138,7 @@ public partial class Searcher : IDisposable
                     minimumResponseFileCount: 0,
                     minimumPeerUploadSpeed: 0,
                     searchTimeout: timeout,
+                    responseLimit: search.ResponseLimit,
                     removeSingleCharacterSearchTerms: search.RemoveSingleCharSearchTerms,
                     responseFilter: _ => true,
                     fileFilter: _ => true);
@@ -374,6 +375,7 @@ public partial class Searcher : IDisposable
             minimumResponseFileCount: readOnly ? 0 : 1,
             minimumPeerUploadSpeed: readOnly ? 0 : 1,
             searchTimeout: timeout,
+            responseLimit: search.ResponseLimit,
             removeSingleCharacterSearchTerms: search.RemoveSingleCharSearchTerms,
             responseFilter: response => (readOnly || response.UploadSpeed > 0) && necessary.UserSatisfies(response),
             fileFilter: file => ConditionSatisfactionPolicy.SearchFileSatisfies(necessary, null, file, query));

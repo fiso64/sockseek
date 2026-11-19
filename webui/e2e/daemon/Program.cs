@@ -662,6 +662,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                         new("Search.NecessaryCond.MinBitrate", 256),
                         new("Search.NecessaryCond.MaxBitrate", 768),
                         new("Search.SearchTimeout", 2500),
+                        new("Search.ResponseLimit", 600),
                     ]),
                 }] },
                 OperatorDownloadSettings = new Sockseek.Api.DownloadSettingsPatchDto(
@@ -1052,7 +1053,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 case "finish-search": finishSearch?.TrySetResult(); break;
                 case "wait-search-started":
                     await searchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                    Console.WriteLine($"E2E_METRIC search-timeout-ms={peer.LastSearchOptions?.SearchTimeout}");
+                    Console.WriteLine($"E2E_METRIC search-timeout-ms={peer.LastSearchOptions?.SearchTimeout} response-limit={peer.LastSearchOptions?.ResponseLimit}");
                     break;
                 case "hold-download":
                     downloadGate = new(TaskCreationOptions.RunContinuationsAsynchronously);

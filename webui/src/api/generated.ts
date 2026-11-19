@@ -13028,6 +13028,8 @@ export interface components {
             /** Format: int32 */
             searchTimeout?: null | number | string;
             /** Format: int32 */
+            responseLimit?: null | number | string;
+            /** Format: int32 */
             downrankOn?: null | number | string;
             /** Format: int32 */
             ignoreOn?: null | number | string;

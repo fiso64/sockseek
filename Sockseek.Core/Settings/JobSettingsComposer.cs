@@ -65,9 +65,11 @@ public static class SearchSettingsBaselines
         _ => SearchSettingsBaselineKind.Generic,
     };
 
-    public static DownloadSettings Create(SearchSettingsBaselineKind baseline)
+    public static DownloadSettings Create(SearchSettingsBaselineKind baseline, bool manualSearch = false)
     {
         var settings = new DownloadSettings();
+        if (manualSearch)
+            settings.Search.SearchTimeout = 15_000;
         if (baseline == SearchSettingsBaselineKind.Generic)
         {
             settings.Search.NecessaryCond = new();
@@ -159,7 +161,7 @@ public sealed class JobSettingsComposer
             var context = MergeContext(launchContext, request?.ProfileContext);
             // Predicates see the same precedence as execution, without their
             // own patches. Evaluate each once; retain this value if none match.
-            conditionSettings = ComposeLayers(inherited, baseline, inheritance,
+            conditionSettings = ComposeLayers(inherited, CreateBuiltInBase(baseline, job), inheritance,
                 [], allNamedProfiles, request?.Download, provenance: null);
             matchingAutoProfiles = catalog.AutoProfiles
                 .Where(p => p.Condition != null
@@ -172,7 +174,7 @@ public sealed class JobSettingsComposer
         // apply, and no predicate-only settings when no auto-profiles exist.
         var settings = conditionSettings is not null && matchingAutoProfiles.Count == 0 && provenance is null
             ? conditionSettings
-            : ComposeLayers(inherited, baseline, inheritance, matchingAutoProfiles,
+            : ComposeLayers(inherited, CreateBuiltInBase(baseline, job), inheritance, matchingAutoProfiles,
                 allNamedProfiles, request?.Download, provenance);
         settings.AppliedProfiles = [];
         if (catalog.DefaultProfile is { HasDownloadSettings: true } defaults)
@@ -191,14 +193,13 @@ public sealed class JobSettingsComposer
 
     private DownloadSettings ComposeLayers(
         DownloadSettings inherited,
-        SearchSettingsBaselineKind baseline,
+        DownloadSettings settings,
         JobSettingsInheritance inheritance,
         IReadOnlyList<SettingsProfile> autoProfiles,
         IReadOnlyList<SettingsProfile> namedProfiles,
         SettingsPatch? request,
         Dictionary<string, string>? provenance)
     {
-        var settings = CreateBuiltInBase(baseline);
         if (provenance != null)
         {
             string source = operatorDefaults == null ? "built-in" : "operator-default";
@@ -249,13 +250,10 @@ public sealed class JobSettingsComposer
             inherited.Search.PreferredFolderCond);
     }
 
-    private DownloadSettings CreateBuiltInBase(SearchSettingsBaselineKind baseline)
-    {
-        var settings = operatorDefaults == null
-            ? SearchSettingsBaselines.Create(baseline)
+    private DownloadSettings CreateBuiltInBase(SearchSettingsBaselineKind baseline, JobSettingsContext job)
+        => operatorDefaults == null
+            ? SearchSettingsBaselines.Create(baseline, manualSearch: job is { Kind: JobSnapshotKind.Search, SourceInputType: null })
             : SettingsCloner.Clone(operatorDefaults);
-        return settings;
-    }
 
     private static void ApplyTracked(
         DownloadSettings settings,

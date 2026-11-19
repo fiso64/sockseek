@@ -1072,6 +1072,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         if (settings == null)
             return;
         if (settings.SearchTimeout != null
+            || settings.ResponseLimit != null
             || settings.DownrankOn != null
             || settings.IgnoreOn != null
             || settings.FastSearch != null

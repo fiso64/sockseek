@@ -54,6 +54,7 @@ public sealed record SearchSettingsPatchDto(
     FolderConditionsPatchDto? NecessaryFolderCond = null,
     FolderConditionsPatchDto? PreferredFolderCond = null,
     int? SearchTimeout = null,
+    int? ResponseLimit = null,
     int? DownrankOn = null,
     int? IgnoreOn = null,
     bool? FastSearch = null,

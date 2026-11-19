@@ -141,6 +141,10 @@ public class SearchSettings
     [SettingOption("--st", "--search-time", "--search-timeout")]
     public int SearchTimeout { get; set; } = 5_000;
 
+    [SettingOption("--response-limit")]
+    [Range(1, int.MaxValue)]
+    public int ResponseLimit { get; set; } = 250;
+
     [SettingOption("--Mst", "--stale-time", "--max-stale-time")]
     public int MaxStaleTime { get; set; } = 30_000;
 

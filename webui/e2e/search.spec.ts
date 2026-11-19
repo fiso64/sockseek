@@ -1117,7 +1117,7 @@ test('manual-search auto-profiles set per-mode search defaults and leave automat
   await dialog.getByPlaceholder('Album title…').fill('Fixture album');
   await dialog.locator('.new-job-start-button').click();
   await daemon.command('wait-search-started');
-  expect(daemon.logs()).toContain('E2E_METRIC search-timeout-ms=3200');
+  expect(daemon.logs()).toContain('E2E_METRIC search-timeout-ms=3200 response-limit=250');
 });
 
 test('applies named profiles to a search and refines its results independently', async ({ page, daemon }) => {
@@ -1151,7 +1151,7 @@ test('applies named profiles to a search and refines its results independently',
     profileNames: ['track-quality'], downloadSettings: { search: { necessaryCond: { minBitrate: 128, maxBitrate: 640 } } },
   });
   await daemon.command('wait-search-started');
-  expect(daemon.logs()).toContain('E2E_METRIC search-timeout-ms=2500');
+  expect(daemon.logs()).toContain('E2E_METRIC search-timeout-ms=2500 response-limit=600');
 
   await page.getByRole('button', { name: 'Filtering', exact: true }).click();
   await expect(min).toHaveValue('128');

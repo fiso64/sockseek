@@ -141,6 +141,7 @@ public sealed class JobSettingsComposerTests
             new DownloadSettings(),
             new SearchJob("manual.pdf"));
 
+        Assert.AreEqual(15_000, settings.Search.SearchTimeout);
         AssertNeutral(settings.Search.NecessaryCond);
         AssertNeutral(settings.Search.PreferredCond);
         Assert.IsFalse(settings.Search.NecessaryCond.ExcludeLocked);
@@ -161,6 +162,9 @@ public sealed class JobSettingsComposerTests
             new DownloadSettings(),
             new SearchJob(new AlbumQuery { Artist = "Artist", Album = "Album" }));
 
+        Assert.AreEqual(15_000, track.Search.SearchTimeout);
+        Assert.AreEqual(15_000, album.Search.SearchTimeout);
+        Assert.AreEqual(5_000, composer.Compose(new DownloadSettings(), new AlbumJob(new AlbumQuery())).Search.SearchTimeout);
         Assert.AreEqual(track.Search.NecessaryCond, album.Search.NecessaryCond);
         Assert.AreEqual(track.Search.PreferredCond, album.Search.PreferredCond);
         CollectionAssert.AreEqual(SearchDefaults.Formats.ToArray(), track.Search.NecessaryCond.Formats);

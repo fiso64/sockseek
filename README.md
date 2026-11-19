@@ -1074,8 +1074,10 @@ Most common flags:
                                 Note that -x causes yt-dlp to download webms in case ffmpeg
                                 is unavailable.
 
---search-timeout <ms>           Max search time in ms (default: 5000)
+--search-timeout <ms>           Stop a search attempt after this long without an accepted
+                                response (default: 5000 for CLI jobs, 15000 for webui searches)
 --max-stale-time <ms>           Max download time without progress in ms (default: 30000)
+--response-limit <num>          Max accepted peer responses per search attempt (default: 250)
 --searches-per-time <num>       Max searches per time interval. Higher values may cause
                                 30-minute bans, see `--help notes`. (default: 34)
 --searches-renew-time <sec>     Controls how often available searches are replenished.
