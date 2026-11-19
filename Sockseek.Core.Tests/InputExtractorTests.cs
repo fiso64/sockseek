@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core.Jobs;
 using Sockseek.Core;
+using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Extractors;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Models;
@@ -43,10 +44,51 @@ namespace Tests.Extractors
         }
 
         [TestMethod]
+        [DataRow("Artist - Album  format = flac; album-track-count >= 8  br >= 320", "Artist - Album")]
+        [DataRow("\"Artist - Album  Deluxe\"    format=flac;album-track-count>=8    br>=320", "Artist - Album  Deluxe")]
+        [DataRow("Artist - Album\tformat=flac;album-track-count>=8\tbr>=320", "Artist - Album")]
+        public async Task ExtractAsync_ListColumns_KeepSpacesWithinFields(string line, string expectedInput)
+        {
+            File.WriteAllText(_tempList, line);
+
+            var extractor = new ListExtractor();
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            var result = (JobList)await extractor.ExtractAsync(_tempList, config.Extraction);
+            var job = (ExtractJob)result.Jobs.Single();
+
+            Assert.AreEqual(expectedInput, job.Input);
+            CollectionAssert.AreEqual(new[] { "flac" }, job.ExtractorCond?.Formats);
+            Assert.AreEqual(8, job.ExtractorFolderCond?.MinTrackCount);
+            Assert.AreEqual(320, job.ExtractorPrefCond?.MinBitrate);
+        }
+
+        [TestMethod]
+        [DataRow("Artist - Album  format=flac  br>=320  extra", "Expected at most 3 fields, found 4.")]
+        [DataRow("Artist - Album  \"\"  br>=320  extra", "Expected at most 3 fields, found 4.")]
+        [DataRow("Artist - Album  unknown=true", "Unknown condition 'unknown=true'")]
+        [DataRow("Artist - Album  format=flac  br>=fast", "fast")]
+        [DataRow("\"Artist - Album", "Unclosed double quote.")]
+        [DataRow("s:", "Missing input field.")]
+        [DataRow("\"\"  format=flac", "Missing input field.")]
+        public async Task ExtractAsync_MalformedLine_ReportsFileAndLine(string line, string reason)
+        {
+            File.WriteAllLines(_tempList, ["# comment", "Earlier Album", line, "Later Album"]);
+
+            var extractor = new ListExtractor();
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            var error = await Assert.ThrowsExactlyAsync<InvalidDataException>(
+                () => extractor.ExtractAsync(_tempList, config.Extraction));
+
+            var summary = ExceptionText.Summary(error);
+            StringAssert.Contains(summary, $"'{_tempList}' at line 3");
+            StringAssert.Contains(summary, reason);
+        }
+
+        [TestMethod]
         public async Task ExtractAsync_ModePrefixes_SetExplicitRequestedModeOverrides()
         {
             File.WriteAllText(_tempList,
-                "s:\"Artist - Song\"\n" +
+                "s: Artist - Song\n" +
                 "a:\"Artist - Album\"\n" +
                 "\"Artist - Default\"");
 
@@ -58,6 +100,7 @@ namespace Tests.Extractors
 
             Assert.AreEqual(3, jobList.Jobs.Count);
             Assert.AreEqual(ExtractionMode.Song, ((ExtractJob)jobList.Jobs[0]).RequestedModeOverride);
+            Assert.AreEqual("Artist - Song", ((ExtractJob)jobList.Jobs[0]).Input);
             Assert.AreEqual(ExtractionMode.Album, ((ExtractJob)jobList.Jobs[1]).RequestedModeOverride);
             Assert.IsNull(((ExtractJob)jobList.Jobs[2]).RequestedModeOverride);
         }

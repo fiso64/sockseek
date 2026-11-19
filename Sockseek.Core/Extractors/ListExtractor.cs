@@ -69,33 +69,39 @@ namespace Sockseek.Core.Extractors;
 
                 if (line.StartsWith("a:"))
                 {
-                    line = line[2..];
+                    line = line[2..].TrimStart();
                     requestedModeOverride = ExtractionMode.Album;
                 }
                 else if (line.StartsWith("s:"))
                 {
-                    line = line[2..];
+                    line = line[2..].TrimStart();
                     requestedModeOverride = ExtractionMode.Song;
                 }
 
-                var fields = ParseLine(line);
-
-                FileConditionPatch?      extractorCond         = null;
-                FileConditionPatch?      extractorPrefCond     = null;
+                List<string> fields;
+                FileConditionPatch?      extractorCond           = null;
+                FileConditionPatch?      extractorPrefCond       = null;
                 FolderConditionPatch?    extractorFolderCond     = null;
                 FolderConditionPatch?    extractorPrefFolderCond = null;
 
-                if (fields.Count >= 2)
+                try
                 {
-                    var fc = new FolderConditionPatch();
-                    extractorCond       = Services.ConditionParser.ParseFileConditions(fields[1], fc);
-                    extractorFolderCond = fc;
+                    fields = ParseLine(line);
+
+                    if (fields.Count >= 2)
+                    {
+                        extractorFolderCond = new FolderConditionPatch();
+                        extractorCond = Services.ConditionParser.ParseFileConditions(fields[1], extractorFolderCond);
+                    }
+                    if (fields.Count >= 3)
+                    {
+                        extractorPrefFolderCond = new FolderConditionPatch();
+                        extractorPrefCond = Services.ConditionParser.ParseFileConditions(fields[2], extractorPrefFolderCond);
+                    }
                 }
-                if (fields.Count >= 3)
+                catch (Exception e)
                 {
-                    var fc = new FolderConditionPatch();
-                    extractorPrefCond       = Services.ConditionParser.ParseFileConditions(fields[2], fc);
-                    extractorPrefFolderCond = fc;
+                    throw new InvalidDataException($"Error parsing list file '{listFilePath}' at line {i + 1}: {e.Message}");
                 }
 
                 var ej = new ExtractJob(fields[0])
@@ -123,7 +129,6 @@ namespace Sockseek.Core.Extractors;
             var fields = new List<string>();
             bool inQuotes    = false;
             var currentField = new StringBuilder();
-            input = input.Replace('\t', ' ');
 
             for (int i = 0; i < input.Length; i++)
             {
@@ -133,15 +138,21 @@ namespace Sockseek.Core.Extractors;
                 {
                     inQuotes = !inQuotes;
                 }
-                else if (c == ' ' && !inQuotes)
+                else if (!inQuotes && c is ' ' or '\t')
                 {
-                    if (currentField.Length > 0)
+                    int whitespaceStart = i;
+                    while (i + 1 < input.Length && input[i + 1] is ' ' or '\t')
+                        i++;
+
+                    if (c == ' ' && i == whitespaceStart)
+                    {
+                        currentField.Append(c);
+                    }
+                    else
                     {
                         fields.Add(currentField.ToString());
                         currentField.Clear();
                     }
-                    while (i < input.Length - 1 && input[i + 1] == ' ')
-                        i++;
                 }
                 else
                 {
@@ -149,8 +160,14 @@ namespace Sockseek.Core.Extractors;
                 }
             }
 
-            if (currentField.Length > 0)
-                fields.Add(currentField.ToString());
+            if (inQuotes)
+                throw new FormatException("Unclosed double quote.");
+
+            fields.Add(currentField.ToString());
+            if (fields.Count > 3)
+                throw new FormatException($"Expected at most 3 fields, found {fields.Count}.");
+            if (string.IsNullOrWhiteSpace(fields[0]))
+                throw new FormatException("Missing input field.");
 
             return fields;
         }

@@ -323,28 +323,29 @@ Notes:
 
 A path to a local text file listing items of any supported input type. List inputs **must be manually activated** with `--input-type=list`.
 
-Each line in the list file must be of this form:
+Each line has an input followed by optional required and preferred conditions. Separate the fields with at least two spaces or a tab.
 
 ```
-Any input type                conditions (optional)           pref. conditions (optional)
+Any input type       conditions (optional)      pref. conditions (optional)
 ```
 
 Here is an example list file:
 
 ```yaml
-"Artist - Album"                "strict-album=true; album-track-count>=13"   "br >= 320"
+Artist - Album    strict-album=true; album-track-count>=13     br >= 320
 
-# Treat string input as song download with the s: prefix
-s:"Artist - Song"               strict-title=true
+# Use s: for one song, or --song to treat all unprefixed string entries as songs.
+s:Artist - Song   strict-title=true
 
 # Any other input type is also accepted:
 path/to/tracks.csv
 https://www.youtube.com/playlist?list=blah
+
+# Quote a field to preserve repeated spaces within it:
+s:"Artist - Song  (Live)"   "strict-title=true; format=flac"
 ```
 
-The conditions are added on top of the configured conditions and can be omitted.
-For string lines, unprefixed entries use the configured download mode: album by default, or song
-mode when `--song` / `song = true` is set. Lines starting with `#` are treated as comments and ignored.
+The conditions are added on top of the configured conditions and can be omitted. Lines starting with `#` are treated as comments and ignored.
 
 <!-- sockseek-help:end -->
 
