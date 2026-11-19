@@ -45,7 +45,7 @@ public sealed class ChatPersistenceStore(
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
 
     public async Task<int> ReconcilePendingMessagesAsync(CancellationToken cancellationToken = default)
-        => await ExecuteAsync(async (context, ct) =>
+        => await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
             await context.ChatMessages
                 .Where(message => message.SendState == nameof(ChatMessageState.Pending))
                 .ExecuteUpdateAsync(
@@ -89,7 +89,7 @@ public sealed class ChatPersistenceStore(
             return [];
 
         NormalizedInboundMessage[] normalized = messages.Select(NormalizeInboundMessage).ToArray();
-        return await ExecuteAsync(async (context, ct) =>
+        return await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
             ChatSequenceEntity sequence = await GetSequenceAsync(context, ct).ConfigureAwait(false);
             var results = new List<IncomingChatCommitResult>(normalized.Length);
@@ -355,7 +355,7 @@ public sealed class ChatPersistenceStore(
         if (messageId == Guid.Empty)
             throw new ArgumentException("MessageId cannot be empty.", nameof(messageId));
 
-        var prepared = await ExecuteAsync(async (context, ct) =>
+        var prepared = await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
             var existing = await context.ChatMessages.FirstOrDefaultAsync(
                 item => item.Id == messageId, ct).ConfigureAwait(false);
@@ -462,7 +462,7 @@ public sealed class ChatPersistenceStore(
         failureReason = failureReason is null
             ? null
             : failureReason[..Math.Min(failureReason.Length, ChatLimits.MaximumFailureReasonLength)];
-        await ExecuteAsync(async (context, ct) =>
+        await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
             var message = await context.ChatMessages.SingleOrDefaultAsync(
                 item => item.Id == messageId && item.LocalAccountKey == accountKey, ct).ConfigureAwait(false)
@@ -525,19 +525,11 @@ public sealed class ChatPersistenceStore(
         if (archived is not null)
             query = archived.Value ? query.Where(item => item.ArchivedAtUtc != null) : query.Where(item => item.ArchivedAtUtc == null);
         if (unread is not null)
-        {
-            query = unread.Value
-                ? query.Where(item => context.ChatMessages.Any(message =>
-                    message.LocalAccountKey == accountKey
-                    && message.TargetId == item.Id
-                    && message.Direction == nameof(ChatMessageDirection.Incoming)
-                    && message.Sequence > item.LastReadSequence))
-                : query.Where(item => !context.ChatMessages.Any(message =>
-                    message.LocalAccountKey == accountKey
-                    && message.TargetId == item.Id
-                    && message.Direction == nameof(ChatMessageDirection.Incoming)
-                    && message.Sequence > item.LastReadSequence));
-        }
+            query = query.Where(item => unread.Value == context.ChatMessages.Any(message =>
+                message.LocalAccountKey == accountKey
+                && message.TargetId == item.Id
+                && message.Direction == nameof(ChatMessageDirection.Incoming)
+                && message.Sequence > item.LastReadSequence));
         if (position is not null)
             query = query.Where(item => item.LastMessageSequence < position.Value.Sequence
                 || item.LastMessageSequence == position.Value.Sequence && item.Id.CompareTo(position.Value.Id) < 0);
@@ -589,7 +581,7 @@ public sealed class ChatPersistenceStore(
     {
         string accountKey = ChatIdentity.ValidateAccount(localAccount);
         string roomKey = ChatIdentity.NormalizeRoom(roomName);
-        Guid roomId = await ExecuteAsync(async (context, ct) =>
+        Guid roomId = await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
             long now = ToUnixMilliseconds(clock.GetUtcNow());
             var room = await GetOrCreateRoomEntityAsync(
@@ -733,7 +725,7 @@ public sealed class ChatPersistenceStore(
         CancellationToken cancellationToken)
     {
         string accountKey = ChatIdentity.ValidateAccount(localAccount);
-        await ExecuteAsync(async (context, ct) =>
+        await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
             var through = await context.ChatMessages.SingleOrDefaultAsync(
                 item => item.Id == throughMessageId && item.LocalAccountKey == accountKey && item.TargetId == targetId, ct)
@@ -783,7 +775,7 @@ public sealed class ChatPersistenceStore(
         string localAccount, Guid conversationId, bool archived, CancellationToken cancellationToken = default)
     {
         string accountKey = ChatIdentity.ValidateAccount(localAccount);
-        await ExecuteAsync(async (context, ct) =>
+        await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
             var conversation = await context.ChatConversations.SingleOrDefaultAsync(
                 item => item.Id == conversationId && item.LocalAccountKey == accountKey, ct).ConfigureAwait(false)
@@ -802,7 +794,7 @@ public sealed class ChatPersistenceStore(
         CancellationToken cancellationToken = default)
     {
         string accountKey = ChatIdentity.ValidateAccount(localAccount);
-        await ExecuteAsync(async (context, ct) =>
+        await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
             int removed = await context.ChatMessages
                 .Where(item => item.LocalAccountKey == accountKey && item.TargetId == targetId)
@@ -891,7 +883,7 @@ public sealed class ChatPersistenceStore(
         if (throughSequence < 0)
             throw new ArgumentOutOfRangeException(
                 nameof(throughSequence), "Notification sequence cannot be negative.");
-        await ExecuteAsync(async (context, ct) =>
+        await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
             IQueryable<NotificationEntity> query = context.Notifications.Where(
                 item => item.LocalAccountKey == accountKey && item.ReadAtUtc == null);
@@ -945,7 +937,7 @@ public sealed class ChatPersistenceStore(
         long? roomMessageCutoff = roomMessageAge is null
             ? null
             : now - (long)roomMessageAge.Value.TotalMilliseconds;
-        return await ExecuteAsync(async (context, ct) =>
+        return await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
             var messages = await context.ChatMessages
                 .AsNoTracking()
@@ -1122,17 +1114,17 @@ public sealed class ChatPersistenceStore(
     private static IQueryable<ConversationProjection> ProjectConversations(
         SockseekDbContext context,
         IQueryable<ChatConversationEntity> query)
-        => query.Select(entity => new ConversationProjection(
-            entity,
-            context.ChatMessages.Count(message =>
-                message.LocalAccountKey == entity.LocalAccountKey
-                && message.TargetId == entity.Id
-                && message.Direction == nameof(ChatMessageDirection.Incoming)
-                && message.Sequence > entity.LastReadSequence),
-            entity.LastMessageSequence == 0
-                ? null
-                : context.ChatMessages.FirstOrDefault(
-                    message => message.Sequence == entity.LastMessageSequence)));
+        => query.LeftJoin(context.ChatMessages,
+            entity => entity.LastMessageSequence,
+            message => message.Sequence,
+            (entity, last) => new ConversationProjection(
+                entity,
+                context.ChatMessages.Count(message =>
+                    message.LocalAccountKey == entity.LocalAccountKey
+                    && message.TargetId == entity.Id
+                    && message.Direction == nameof(ChatMessageDirection.Incoming)
+                    && message.Sequence > entity.LastReadSequence),
+                last));
 
     private static ConversationRecord MapConversation(
         ChatConversationEntity entity,
@@ -1148,18 +1140,18 @@ public sealed class ChatPersistenceStore(
     private static IQueryable<RoomProjection> ProjectRooms(
         SockseekDbContext context,
         IQueryable<ChatRoomSubscriptionEntity> query)
-        => query.Select(entity => new RoomProjection(
-            entity,
-            context.ChatMessages.Count(message =>
-                message.LocalAccountKey == entity.LocalAccountKey
-                && message.TargetId == entity.Id
-                && message.Direction == nameof(ChatMessageDirection.Incoming)
-                && message.SenderKey != entity.LocalAccountKey
-                && message.Sequence > entity.LastReadSequence),
-            entity.LastMessageSequence == 0
-                ? null
-                : context.ChatMessages.FirstOrDefault(
-                    message => message.Sequence == entity.LastMessageSequence)));
+        => query.LeftJoin(context.ChatMessages,
+            entity => entity.LastMessageSequence,
+            message => message.Sequence,
+            (entity, last) => new RoomProjection(
+                entity,
+                context.ChatMessages.Count(message =>
+                    message.LocalAccountKey == entity.LocalAccountKey
+                    && message.TargetId == entity.Id
+                    && message.Direction == nameof(ChatMessageDirection.Incoming)
+                    && message.SenderKey != entity.LocalAccountKey
+                    && message.Sequence > entity.LastReadSequence),
+                last));
 
     private static RoomSubscriptionRecord MapRoom(
         ChatRoomSubscriptionEntity entity,
@@ -1214,17 +1206,6 @@ public sealed class ChatPersistenceStore(
                   && message.SenderKey != accountKey
                   && message.Sequence > target.LastReadSequence
             select message).CountAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task<TResult> ExecuteAsync<TResult>(
-        Func<SockseekDbContext, CancellationToken, Task<TResult>> action,
-        CancellationToken cancellationToken)
-    {
-        var command = new AwaitablePersistenceCommand<TResult>(action);
-        await inbox.EnqueueCommandAsync(command, cancellationToken).ConfigureAwait(false);
-        // Once admitted, the command is durable intent. Do not let request
-        // cancellation abandon it while the single writer still commits it.
-        return await command.Task.ConfigureAwait(false);
     }
 
     private static string EncodeSequenceCursor(long sequence)

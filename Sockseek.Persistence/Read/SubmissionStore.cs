@@ -113,7 +113,7 @@ public sealed class SubmissionStore(
             || registration.CommitReceiptJson != null && string.IsNullOrWhiteSpace(registration.CommitReceiptJson))
             throw new ArgumentException("An idempotent acceptance requires both its fingerprint and receipt.", nameof(registration));
 
-        var command = new AwaitablePersistenceCommand<bool>(async (context, ct) =>
+        await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
             var existing = await context.Submissions.Include(item => item.Specification)
                 .SingleOrDefaultAsync(item => item.Id == registration.SubmissionId, ct)
@@ -156,9 +156,7 @@ public sealed class SubmissionStore(
                 Revision = 1,
             });
             return true;
-        });
-        await inbox.EnqueueCommandAsync(command, cancellationToken).ConfigureAwait(false);
-        await command.Task.ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PersistedSubmissionPage> GetSubmissionsAsync(
@@ -286,7 +284,7 @@ public sealed class SubmissionStore(
         // The caller first awaits execution. Settle every earlier mutation lane
         // before deleting; an interactive command alone is not a write barrier.
         await inbox.FlushMutationsAsync(cancellationToken).ConfigureAwait(false);
-        var command = new AwaitablePersistenceCommand<IReadOnlyList<SubmissionDeleteResult>>(async (context, ct) =>
+        return await inbox.CommitOnceAdmittedAsync<IReadOnlyList<SubmissionDeleteResult>>(async (context, ct) =>
         {
             var existing = await context.Submissions.Where(item => submissionIds.Contains(item.Id))
                 .Select(item => item.Id).ToHashSetAsync(ct).ConfigureAwait(false);
@@ -304,9 +302,7 @@ public sealed class SubmissionStore(
                 return new SubmissionDeleteResult(id, existing.Contains(id) && !rejected ? 1 : 0,
                     rejected ? 0 : count?.Count ?? 0, rejected ? 1 : 0, rejected ? "nonterminal-jobs" : null);
             }).ToArray();
-        });
-        await inbox.EnqueueCommandAsync(command, cancellationToken).ConfigureAwait(false);
-        return await command.Task.ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     internal static async Task DeleteEmptyAsync(SockseekDbContext context, Guid[] candidates, CancellationToken ct)

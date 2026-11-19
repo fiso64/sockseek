@@ -14,14 +14,13 @@
   import { liveTransferPresentation } from '../transfers/model';
   import { selectedJobFile, jobFileTransfer } from './selected-file';
   import { directoryManifestFileRow, directoryKnownSize } from './directory-files';
-  import { canReuseJobDetail, jobDetailVersion, startJobDetailRefresh, readJobSummaries, jobSummaryRetryIds, type JobSummaryRead } from './details';
+  import { canReuseJobDetail, jobDetailVersion, startJobDetailRefresh, loadJobAncestors, readJobSummaries, jobSummaryRetryIds, type JobSummaryRead } from './detail-reads';
   import { completedExtract, presentedChildren, resolvePresentedJob } from './presentation';
   import { jobDetailInfo } from './detail-info';
   import { jobStatusLabel, jobStatusClass, jobTransferTone } from './status';
   import { jobKindLabel } from './kind';
   import { canDeleteSubmission } from './deletion';
   import RelativeTime from '../../components/RelativeTime.svelte';
-  import { loadJobAncestors } from './ancestors';
   import { formatCount, humanizeStateValue } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
   import FileItemCard from '../../components/items/FileItemCard.svelte';

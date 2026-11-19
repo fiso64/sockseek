@@ -70,13 +70,10 @@ internal readonly struct AlbumFolderProjectionPlan
         this.enforceMinimumTrackCount = enforceMinimumTrackCount;
         combineDiscs = SearchResultProjector.CanCombineDiscDirectories(query);
         projectionFilter = ConditionSatisfactionPolicy.CreateAlbumSearchFilter(query, search);
-        groupSortKeyContext = ResultSorter.CreateSortKeyContext(
-            [],
+        groupSortKeyContext = new ResultSorter.SortKeyContext(
             projectionFilter.SortQuery,
             search,
             peerFailureCounts ?? new ConcurrentDictionary<string, int>(),
-            useBracketCheck: false,
-            useInfer: false,
             albumMode: true,
             ignoreStringSortConditions: ignoreStringSortConditions,
             necessaryConditionEvaluator: projectionFilter.Satisfies);

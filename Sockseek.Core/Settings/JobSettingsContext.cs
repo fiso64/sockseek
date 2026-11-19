@@ -36,7 +36,7 @@ public readonly record struct JobSettingsContext(
     public static implicit operator JobSettingsContext(Job job)
     {
         ArgumentNullException.ThrowIfNull(job);
-        return new(job.Id, job.WorkflowId, CoreSnapshotFactory.GetJobKind(job), job.SourceInputType,
+        return new(job.Id, job.WorkflowId, job.Kind, job.SourceInputType,
             (job as ExtractJob)?.Input, (job as ExtractJob)?.InputType,
             (job as ExtractJob)?.RequestedModeOverride, job is not SearchJob search ? null
                 : search.DefaultFolderProjection is not null

@@ -72,9 +72,6 @@ public sealed class JobSubmissions
         Volatile.Write(ref configuration, new(profiles, resolver));
     }
 
-    private static JobSummaryDto BuildSubmittedJobSummary(Job job, Guid? sourceJobId = null)
-        => ServerSnapshotMapper.ToSubmittedJobSummary(job, sourceJobId);
-
     private static SubmissionOptionsJobSettingsResolver CreateJobSettingsResolver(
         ServerOptions options,
         ProfileCatalog profiles,
@@ -310,7 +307,7 @@ public sealed class JobSubmissions
             || job.Kind == JobSnapshotKind.Search && string.IsNullOrWhiteSpace(job.QueryText);
         DownloadSettingsPatchDto? combinedPatch = DownloadSettingsPatchDtoMapper.Combine(
             request.Options?.DownloadSettings,
-            JobRequestMapper.DraftDownloadSettings(request.Job));
+            request.Job.DownloadSettings);
         SubmissionOptionsDto requestOptions = (request.Options ?? new SubmissionOptionsDto()) with
         {
             DownloadSettings = combinedPatch,
@@ -348,7 +345,7 @@ public sealed class JobSubmissions
             foreach (JobDraftDto childDraft in listDraft.Jobs)
             {
                 JobSettingsContext child = JobRequestMapper.CreateSettingsContext(childDraft, allowMissingInput: false);
-                DownloadSettingsPatchDto? childPatch = JobRequestMapper.DraftDownloadSettings(childDraft);
+                DownloadSettingsPatchDto? childPatch = childDraft.DownloadSettings;
                 SubmissionOptionsDto? childOptions = SubmissionOptionsStore.Merge(
                     submissionOptions,
                     childPatch == null
@@ -402,19 +399,10 @@ public sealed class JobSubmissions
         activity?.SetTag("job.id", job.Id);
         ct.ThrowIfCancellationRequested();
 
-        if (options?.WorkflowId is Guid workflowId)
-            job.WorkflowId = workflowId;
-        JobRequestMapper.AssignWorkflowId(job, job.WorkflowId);
+        job.AssignWorkflow(options?.WorkflowId ?? job.WorkflowId);
         resolver.SetWorkflowOptions(job.WorkflowId, options);
 
-        var settings = resolver.Resolve(defaultDownloadSettings, job);
-
-        ValidateExplicitRemoteTransferOverrides(
-            job, options?.DownloadSettings, settings, resolver, childDrafts: childDrafts);
-        RemoteTransferSubmissionPolicy.NormalizeSettings(job, settings);
-
-        if (!CanAcceptLoginRequiredJobs() && ContainsLoginRequiredJob(job, settings, resolver))
-            throw new ArgumentException("This server is not configured for Soulseek login. Configure username/password, enable random login, or use a non-login submission.");
+        var settings = ResolveRootSettings(job, resolver, options?.DownloadSettings, childDrafts);
         activity?.AddEvent(new("prepared"));
 
         await new JobPlanner(resolver).PrepareResolvedAsync(job, settings, ct).ConfigureAwait(false);
@@ -428,7 +416,7 @@ public sealed class JobSubmissions
             artifactId: artifactId);
         activity?.AddEvent(new("captured"));
         job.EnsureDisplayId();
-        TReceipt receipt = createReceipt(BuildSubmittedJobSummary(job), settings);
+        TReceipt receipt = createReceipt(ServerSnapshotMapper.ToSubmittedJobSummary(job), settings);
         await AcceptAsync(
             job,
             settings,
@@ -468,9 +456,7 @@ public sealed class JobSubmissions
         if (draft is ExtractJobDraftDto { ArtifactId: null } extract && string.IsNullOrWhiteSpace(extract.Input))
             draft = ResolveExtractInput(extract, submissionOptions, resolver);
         Job root = JobRequestMapper.CreateJob(draft);
-        if (submissionOptions?.WorkflowId is Guid workflowId)
-            root.WorkflowId = workflowId;
-        JobRequestMapper.AssignWorkflowId(root, root.WorkflowId);
+        root.AssignWorkflow(submissionOptions?.WorkflowId ?? root.WorkflowId);
         AttachArtifactRevisions(root, artifactRevisions);
         var settingsResolver = resolver.CreateScope(root.WorkflowId);
         settingsResolver.SetWorkflowOptions(root.WorkflowId, submissionOptions);
@@ -479,25 +465,9 @@ public sealed class JobSubmissions
             draft,
             (item, patch) => settingsResolver.SetJobOptions(
                 item.Id, new SubmissionOptionsDto(DownloadSettings: patch)));
-        DownloadSettings rootSettings = settingsResolver.Resolve(defaultDownloadSettings, root);
-        if (RemoteTransferSubmissionPolicy.ValidateOverrides(
-            root,
-            rootSettings,
-            SubmissionOptionsStore.Merge(
-                submissionOptions,
-                JobRequestMapper.DraftDownloadSettings(draft) is { } rootPatch
-                    ? new SubmissionOptionsDto(DownloadSettings: rootPatch) : null)?.DownloadSettings,
-            (parent, child, _) => settingsResolver.Resolve(parent, child, JobSettingsInheritance.SearchConstraints),
-            (draft as JobListJobDraftDto)?.Jobs))
-        {
-            RemoteTransferSettingsValidator.ValidateExplicitNameFormat(options.LaunchDownloadSettings);
-        }
-        RemoteTransferSubmissionPolicy.NormalizeSettings(root, rootSettings);
-        if (!CanAcceptLoginRequiredJobs() && ContainsLoginRequiredJob(root, rootSettings, settingsResolver))
-        {
-            throw new ArgumentException(
-                "This server is not configured for Soulseek login. Configure username/password, enable random login, or use a non-login submission.");
-        }
+        var rootPatch = DownloadSettingsPatchDtoMapper.Combine(submissionOptions?.DownloadSettings,
+            draft.DownloadSettings);
+        var rootSettings = ResolveRootSettings(root, settingsResolver, rootPatch, (draft as JobListJobDraftDto)?.Jobs);
 
         var planner = new JobPlanner(settingsResolver);
         await foreach (PlannedJobNode node in planner.PlanResolvedAsync(
@@ -505,6 +475,17 @@ public sealed class JobSubmissions
         {
             yield return node;
         }
+    }
+
+    private DownloadSettings ResolveRootSettings(Job root, SubmissionOptionsJobSettingsResolver resolver,
+        DownloadSettingsPatchDto? explicitPatch, IReadOnlyList<JobDraftDto>? childDrafts)
+    {
+        var settings = resolver.Resolve(defaultDownloadSettings, root);
+        ValidateExplicitRemoteTransferOverrides(root, explicitPatch, settings, resolver, childDrafts);
+        RemoteTransferSubmissionPolicy.NormalizeSettings(root, settings);
+        if (!CanAcceptLoginRequiredJobs() && ContainsLoginRequiredJob(root, settings, resolver))
+            throw new ArgumentException("This server is not configured for Soulseek login. Configure username/password, enable random login, or use a non-login submission.");
+        return settings;
     }
 
     private static void AttachArtifactRevisions(
@@ -581,7 +562,6 @@ public sealed class JobSubmissions
         DownloadSettings rootSettings = root.PlannedSettings?.ReadSettings()
             ?? SearchSettingsBaselines.Create(SearchSettingsBaselineKind.Generic);
         root.PlannedSettings = JobSettingsSnapshot.Capture(rootSettings);
-        JobRequestMapper.AssignWorkflowId(root, root.WorkflowId);
         SubmissionSpecification specification = SubmissionSpecification.Create(root);
         SubmissionIdentity.AssignAccepted(
             root,
@@ -633,40 +613,8 @@ public sealed class JobSubmissions
     {
         if (persistence?.Submissions == null)
             throw new NotSupportedException("Submission rerun is unavailable because persistence is disabled or not started.");
-        var started = System.Diagnostics.Stopwatch.StartNew();
-        // Accepted intent is committed before execution starts. Replaying it
-        // requires neither terminal history handoffs nor mutable job counts.
-        string? retained = await persistence.Submissions
-            .GetSpecificationJsonAsync(submissionId, cancellationToken)
+        return await ReplayAsync(persistence.Submissions, submissionId, null, Stopwatch.StartNew(), cancellationToken)
             .ConfigureAwait(false);
-        if (retained == null)
-            return null;
-        long readMs = started.ElapsedMilliseconds;
-
-        SubmissionSpecification specification =
-            SubmissionSpecificationCodec.Deserialize(retained);
-        var (job, settings) = specification.Materialize(defaultDownloadSettings);
-        JobRequestMapper.AssignWorkflowId(job, job.WorkflowId);
-        RemoteTransferSubmissionPolicy.NormalizeSettings(job, settings);
-        if (settings.NeedLogin && !CanAcceptLoginRequiredJobs())
-            throw new ArgumentException("This retained submission requires Soulseek login, but the server is not configured for it.");
-
-        SubmissionIdentity.AssignAccepted(
-            job,
-            specification,
-            rerunOfSubmissionId: submissionId);
-        long materializedMs = started.ElapsedMilliseconds;
-        await AcceptAsync(
-            job,
-            settings,
-            sourceJobId: null,
-            cancellationToken,
-            settingsAreFinal: true).ConfigureAwait(false);
-        long durationMs = started.ElapsedMilliseconds;
-        ServerLogMessages.SubmissionRerunAccepted(logger, submissionId, job.SubmissionId!.Value, durationMs);
-        ServerLogMessages.SubmissionRerunTiming(logger, submissionId, job.SubmissionId.Value,
-            readMs, materializedMs - readMs, durationMs - materializedMs);
-        return StateStore.GetJobSummary(job.Id) ?? BuildSubmittedJobSummary(job);
     }
 
     public async Task<JobSummaryDto?> RerunSearchJobAsync(
@@ -699,25 +647,36 @@ public sealed class JobSubmissions
             submissionId = retainedSubmissionId;
         }
 
-        string? retained = await persistence.Submissions
-            .GetSpecificationJsonAsync(submissionId, cancellationToken).ConfigureAwait(false);
+        return await ReplayAsync(persistence.Submissions, submissionId, sourceJobId, started, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<JobSummaryDto?> ReplayAsync(
+        ISubmissionStore submissions, Guid submissionId, Guid? searchJobId, Stopwatch started,
+        CancellationToken cancellationToken)
+    {
+        // Accepted intent is committed before execution starts. Replaying it
+        // requires neither terminal history handoffs nor mutable job counts.
+        string? retained = await submissions
+            .GetSpecificationJsonAsync(submissionId, cancellationToken)
+            .ConfigureAwait(false);
         if (retained == null)
             return null;
         long readMs = started.ElapsedMilliseconds;
-        SubmissionSpecification accepted = SubmissionSpecificationCodec.Deserialize(retained);
-        SubmissionSpecification replay = accepted.ForSearchJob(sourceJobId)
-            ?? throw new ArgumentException(
-                $"Search {sourceJobId} has no matching planned command in its retained submission.");
-        var (restoredJob, settings) = replay.Materialize(defaultDownloadSettings);
-        var job = (SearchJob)restoredJob;
-        JobRequestMapper.AssignWorkflowId(job, job.WorkflowId);
+
+        SubmissionSpecification specification =
+            SubmissionSpecificationCodec.Deserialize(retained);
+        if (searchJobId is Guid id)
+            specification = specification.ForSearchJob(id)
+                ?? throw new ArgumentException($"Search {id} has no matching planned command in its retained submission.");
+        var (job, settings) = specification.Materialize(defaultDownloadSettings);
         RemoteTransferSubmissionPolicy.NormalizeSettings(job, settings);
         if (settings.NeedLogin && !CanAcceptLoginRequiredJobs())
-            throw new ArgumentException("This retained search requires Soulseek login, but the server is not configured for it.");
+            throw new ArgumentException("This retained submission requires Soulseek login, but the server is not configured for it.");
 
         SubmissionIdentity.AssignAccepted(
             job,
-            replay,
+            specification,
             rerunOfSubmissionId: submissionId);
         long materializedMs = started.ElapsedMilliseconds;
         await AcceptAsync(
@@ -730,7 +689,7 @@ public sealed class JobSubmissions
         ServerLogMessages.SubmissionRerunAccepted(logger, submissionId, job.SubmissionId!.Value, durationMs);
         ServerLogMessages.SubmissionRerunTiming(logger, submissionId, job.SubmissionId.Value,
             readMs, materializedMs - readMs, durationMs - materializedMs);
-        return StateStore.GetJobSummary(job.Id) ?? BuildSubmittedJobSummary(job);
+        return StateStore.GetJobSummary(job.Id) ?? ServerSnapshotMapper.ToSubmittedJobSummary(job);
     }
 
     private bool CanAcceptLoginRequiredJobs()
@@ -760,7 +719,7 @@ public sealed class JobSubmissions
             settings, resolver);
         RemoteTransferSubmissionPolicy.NormalizeSettings(followUpJob, settings);
         await AcceptAsync(followUpJob, settings, sourceJobId, ct).ConfigureAwait(false);
-        return StateStore.GetJobSummary(followUpJob.Id) ?? BuildSubmittedJobSummary(followUpJob, sourceJobId);
+        return StateStore.GetJobSummary(followUpJob.Id) ?? ServerSnapshotMapper.ToSubmittedJobSummary(followUpJob, sourceJobId);
     }
 
     internal async Task AcceptAsync(

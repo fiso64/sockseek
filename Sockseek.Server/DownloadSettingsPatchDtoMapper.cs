@@ -44,7 +44,7 @@ public static class DownloadSettingsPatchDtoMapper
     {
         if (patch == null) return SettingsPatch.Empty;
         var operations = new List<SettingChange>();
-        var leaves = SettingsSchema.For(root).Leaves.ToDictionary(member => member.Path, StringComparer.Ordinal);
+        var leaves = SettingsSchema.For(root).Leaves;
         void Visit(JsonObject value, string prefix)
         {
             foreach (var (name, node) in value)
@@ -90,7 +90,7 @@ public static class DownloadSettingsPatchDtoMapper
         if (patch?.HasOperations != true) return null;
         patch.Validate<DownloadSettings>();
         var document = new JsonObject();
-        var leaves = SettingsSchema.For(typeof(DownloadSettings)).Leaves.ToDictionary(member => member.Path, StringComparer.Ordinal);
+        var leaves = SettingsSchema.For(typeof(DownloadSettings)).Leaves;
         IEnumerable<SettingChange> ExpandGroups()
         {
             foreach (var change in patch.Operations)

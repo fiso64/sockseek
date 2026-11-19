@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import type { SearchDraft, SearchResultMode } from '../domains/search/model';
-  import { editableSearchDraft, isGroupSearchMode, searchDelimiter, searchModeFamily as family } from '../domains/search/model';
+  import type { SearchDraft } from '../domains/search/model';
+  import { editableSearchDraft, isGroupSearchMode, searchDelimiter, searchModeOptions as modes, parseSearchResultMode, searchModeFamily as family } from '../domains/search/model';
   import ModeIconToggle from './ModeIconToggle.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -76,28 +76,6 @@
     if ((searchEngaged || settingsOpen) && event.target instanceof Node && !searchRoot?.contains(event.target)) dismissSearch();
   }
 
-  const modes = [
-    {
-      value: 'generic', label: 'File Search', icon: 'generic' as const, description:
-      'Standard Soulseek file search.'
-    },
-    {
-      value: 'track', label: 'Track Search', icon: 'track' as const, description:
-      'Shows results as tracks. Uses music-oriented default filters and ranking.'
-    },
-    {
-      value: 'album', label: 'Album Search', icon: 'album' as const, description:
-      'Shows results as albums. Uses music-oriented default filters and ranking.'
-    },
-    {
-      value: 'song-groups', label: 'Song Groups', icon: 'song-groups' as const, description:
-      'Like Track Search, but combines matching copies from different peers into one result per song. Choose a copy within each result. Supports artist-only searches to show all distinct songs by an artist from Soulseek.'
-    },
-    {
-      value: 'album-groups', label: 'Album Groups', icon: 'album-groups' as const, description:
-      'Like Album Search, but combines matching album folders from different peers into one result per album. Choose a folder within each result. Supports artist-only searches to show all distinct songs by an artist from Soulseek.'
-    },
-  ];
   const userModes = [
     { value: 'user', label: 'User', icon: 'user' as const },
     { value: 'shares', label: 'Shares', icon: 'folder' as const },
@@ -112,9 +90,8 @@
   }
 
   function setMode(next: string): void {
-    if (!modes.some((mode) => mode.value === next)) return;
-    const resultMode = next as SearchResultMode;
-    if (resultMode === value.resultMode) return;
+    const resultMode = parseSearchResultMode(next);
+    if (!resultMode || resultMode === value.resultMode) return;
     // The prototype starts a fresh condition set across the generic/music
     // boundary. The daemon then resolves defaults for the new concrete intent.
     const crossingGeneric = resultMode === 'generic' || value.resultMode === 'generic';

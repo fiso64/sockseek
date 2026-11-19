@@ -240,59 +240,10 @@ public sealed class IncrementalAlbumFolderProjector
 
     private int CompareRanked(AlbumFolder x, AlbumFolder y, long xFirstSequence, long yFirstSequence)
     {
-        ResultSorter.SortEntry? xEntry = x.SearchGroupSortEntry;
-        ResultSorter.SortEntry? yEntry = y.SearchGroupSortEntry;
-        if (xEntry.HasValue && yEntry.HasValue)
-        {
-            int comparison = ResultSorter.AlbumBeforeQualitySortEntryComparer.Instance.Compare(
-                xEntry.Value,
-                yEntry.Value);
-            if (comparison != 0)
-                return comparison;
-        }
-        else if (xEntry.HasValue)
-            return -1;
-        else if (yEntry.HasValue)
-            return 1;
-
-        if (rankQualityCoverage)
-        {
-            int comparison = CompareCoverage(
-                x.SearchAudioQualityCoverage.Format,
-                y.SearchAudioQualityCoverage.Format);
-            if (comparison != 0)
-                return comparison;
-            comparison = CompareCoverage(
-                x.SearchAudioQualityCoverage.Bitrate,
-                y.SearchAudioQualityCoverage.Bitrate);
-            if (comparison != 0)
-                return comparison;
-            comparison = CompareCoverage(
-                x.SearchAudioQualityCoverage.SampleRate,
-                y.SearchAudioQualityCoverage.SampleRate);
-            if (comparison != 0)
-                return comparison;
-            comparison = CompareCoverage(
-                x.SearchAudioQualityCoverage.BitDepth,
-                y.SearchAudioQualityCoverage.BitDepth);
-            if (comparison != 0)
-                return comparison;
-        }
-
-        if (xEntry.HasValue && yEntry.HasValue)
-        {
-            int comparison = ResultSorter.SortEntryComparer.Instance.Compare(
-                xEntry.Value,
-                yEntry.Value);
-            if (comparison != 0)
-                return comparison;
-        }
-        else if (xEntry.HasValue)
-            return -1;
-        else if (yEntry.HasValue)
-            return 1;
-
-        int rank = xFirstSequence.CompareTo(yFirstSequence);
+        int rank = AlbumFolderGroupComparer.CompareRank(x.SearchGroupSortEntry, y.SearchGroupSortEntry,
+            x.SearchAudioQualityCoverage, y.SearchAudioQualityCoverage, rankQualityCoverage);
+        if (rank != 0) return rank;
+        rank = xFirstSequence.CompareTo(yFirstSequence);
         if (rank != 0)
             return rank;
         int username = string.Compare(x.Username, y.Username, StringComparison.Ordinal);
@@ -300,11 +251,6 @@ public sealed class IncrementalAlbumFolderProjector
             ? username
             : string.Compare(x.FolderPath, y.FolderPath, StringComparison.Ordinal);
     }
-
-    private static int CompareCoverage(
-        AlbumQualityCoverageBucket x,
-        AlbumQualityCoverageBucket y)
-        => y.Bucket.CompareTo(x.Bucket);
 
     private static PeerPathKey FolderKey(AlbumFolder folder)
         => new(folder.Username, folder.FolderPath);

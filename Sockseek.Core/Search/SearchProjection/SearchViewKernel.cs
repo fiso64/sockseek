@@ -285,7 +285,6 @@ public sealed class SearchViewKernel
                 projection.SongQuery!,
                 SettingsCloner.Clone(settings),
                 peerFailures,
-                useInfer: false,
                 requireFileSatisfies: !projection.IncludeFullResults,
                 retainProjectedRows: projectionKind == SearchViewProjectionKind.Files
                     && retainProjectedRows,

@@ -490,7 +490,7 @@ public sealed class EngineSupervisor : IDisposable
         };
         var settings = source.RuntimeJob?.Config ?? Submissions.SettingsResolver.ResolveFollowUp(retrieveJob, options: null);
         await Submissions.AcceptAsync(retrieveJob, settings, sourceJobId, ct).ConfigureAwait(false);
-        return StateStore.GetJobSummary(retrieveJob.Id) ?? BuildSubmittedJobSummary(retrieveJob, sourceJobId);
+        return StateStore.GetJobSummary(retrieveJob.Id) ?? ServerSnapshotMapper.ToSubmittedJobSummary(retrieveJob, sourceJobId);
     }
 
     internal async Task<JobSummaryDto?> StartSearchViewDirectoryRetrievalAsync(
@@ -517,7 +517,7 @@ public sealed class EngineSupervisor : IDisposable
             settings,
             submissionId: idempotencyKey);
         retrieveJob.EnsureDisplayId();
-        JobSummaryDto receipt = BuildSubmittedJobSummary(retrieveJob, sourceJobId);
+        JobSummaryDto receipt = ServerSnapshotMapper.ToSubmittedJobSummary(retrieveJob, sourceJobId);
         await Submissions.AcceptAsync(
             retrieveJob,
             settings,
@@ -556,7 +556,7 @@ public sealed class EngineSupervisor : IDisposable
             if (engine?.TryStartManualSongSelection(sourceJobId, candidate,
                 song => resolver.ApplyManualSelectionOptions(sourceJob, song, request.Options), out _) != true)
                 throw new ArgumentException("The song is no longer awaiting selection.");
-            return new List<JobSummaryDto> { StateStore.GetJobSummary(manualSong.Id) ?? BuildSubmittedJobSummary(manualSong, sourceJobId) };
+            return new List<JobSummaryDto> { StateStore.GetJobSummary(manualSong.Id) ?? ServerSnapshotMapper.ToSubmittedJobSummary(manualSong, sourceJobId) };
         }
 
         foreach (var file in request.Files)
@@ -573,7 +573,7 @@ public sealed class EngineSupervisor : IDisposable
                     song => resolver.ApplyManualSelectionOptions(sourceJob, song, request.Options), out var selectedSong)
                     || selectedSong == null)
                     throw new ArgumentException("The group is no longer accepting selections.");
-                summaries.Add(StateStore.GetJobSummary(selectedSong.Id) ?? BuildSubmittedJobSummary(selectedSong, sourceJobId));
+                summaries.Add(StateStore.GetJobSummary(selectedSong.Id) ?? ServerSnapshotMapper.ToSubmittedJobSummary(selectedSong, sourceJobId));
                 continue;
             }
 
@@ -634,7 +634,7 @@ public sealed class EngineSupervisor : IDisposable
             },
             out var selectedAlbum) == true)
         {
-            return StateStore.GetJobSummary(selectedAlbum!.Id) ?? BuildSubmittedJobSummary(selectedAlbum!, sourceJobId);
+            return StateStore.GetJobSummary(selectedAlbum!.Id) ?? ServerSnapshotMapper.ToSubmittedJobSummary(selectedAlbum!, sourceJobId);
         }
         if (manualSelection)
             throw new ArgumentException("The job is no longer accepting selections.");
@@ -736,9 +736,6 @@ public sealed class EngineSupervisor : IDisposable
 
     internal bool ReleaseTransientResults(Guid submissionId, out int count)
         => transientResults.Release(submissionId, out count);
-
-    private static JobSummaryDto BuildSubmittedJobSummary(Job job, Guid? sourceJobId = null)
-        => ServerSnapshotMapper.ToSubmittedJobSummary(job, sourceJobId);
 
     private void EnqueueAccepted(Job job, DownloadSettings settings, Guid? sourceJobId, bool settingsAreFinal)
     {

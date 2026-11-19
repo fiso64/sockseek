@@ -51,16 +51,6 @@ public class LargeResultProjectionBenchmarks
             .Count;
 
     [Benchmark]
-    public int SongSort_NoInfer()
-        => SearchResultProjector.SortedTrackCandidates(
-                trackResults,
-                trackQuery,
-                search,
-                peerFailureCounts,
-                useInfer: false)
-            .Count;
-
-    [Benchmark]
     public int AlbumGroup()
         => SearchResultProjector.AlbumFolders(albumResults, albumQuery, search).Count;
 
@@ -74,8 +64,7 @@ public class LargeResultProjectionBenchmarks
                 trackResults,
                 trackQuery,
                 artworkSearch,
-                peerFailureCounts,
-                useInfer: false)
+                peerFailureCounts)
             .Count;
 
     [Benchmark]

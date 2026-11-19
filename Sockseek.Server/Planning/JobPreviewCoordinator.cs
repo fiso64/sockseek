@@ -64,36 +64,25 @@ public sealed class JobPreviewCoordinator(
                 FileAccess.ReadWrite,
                 FileShare.None);
             await candidate.InitializeAsync(cancellationToken).ConfigureAwait(false);
-            store = candidate;
-            spoolLease = candidateLease;
-            spoolDirectory = candidateDirectory;
-            await RunMaintenanceOnceAsync(cancellationToken).ConfigureAwait(false);
-            worker = RunWorkerAsync(lifetime.Token);
-            maintenance = RunMaintenanceAsync(lifetime.Token);
         }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception exception)
         {
+            if (candidate != null)
+                await candidate.DisposeAsync().ConfigureAwait(false);
+            candidateLease?.Dispose();
+            DeleteSpoolDirectory(candidateDirectory);
+            if (cancellationToken.IsCancellationRequested)
+                throw;
             initializationFailure = exception;
-            store = null;
-            spoolLease = null;
-            spoolDirectory = null;
-            if (candidate != null)
-                await candidate.DisposeAsync().ConfigureAwait(false);
-            candidateLease?.Dispose();
-            DeleteSpoolDirectory(candidateDirectory);
             ServerLogMessages.JobPreviewUnavailable(logger, exception);
+            return;
         }
-        catch
-        {
-            store = null;
-            spoolLease = null;
-            spoolDirectory = null;
-            if (candidate != null)
-                await candidate.DisposeAsync().ConfigureAwait(false);
-            candidateLease?.Dispose();
-            DeleteSpoolDirectory(candidateDirectory);
-            throw;
-        }
+
+        store = candidate;
+        spoolLease = candidateLease;
+        spoolDirectory = candidateDirectory;
+        worker = RunWorkerAsync(lifetime.Token);
+        maintenance = RunMaintenanceAsync(lifetime.Token);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -501,7 +490,6 @@ public sealed class JobPreviewCoordinator(
 
         SubmissionSpecification acceptedSpecification = AssembleSelectedSpecification(resolved);
         var (root, rootSettings) = acceptedSpecification.Materialize(submissions.DefaultDownloadSettings);
-        JobRequestMapper.AssignWorkflowId(root, root.WorkflowId);
         long materializedMs = started.ElapsedMilliseconds;
 
         Guid submissionId = request.IdempotencyKey;
@@ -673,7 +661,7 @@ public sealed class JobPreviewCoordinator(
                 node.Role.ToString(),
                 node.State.ToString(),
                 selectable,
-                ServerSnapshotMapper.ToServerJobKind(node.Kind).ToString(),
+                node.Kind.ToServer().ToString(),
                 displayName ?? node.PreviewTitle,
                 node.QueryText,
                 node.DirectChildCount,
@@ -818,7 +806,7 @@ public sealed class JobPreviewCoordinator(
     private static bool ContainsInlineCredentials(CreateJobPreviewRequestDto request)
         => HasCredentials(request.Options?.DownloadSettings)
             || Drafts(request.Job).Any(draft =>
-                HasCredentials(JobRequestMapper.DraftDownloadSettings(draft)));
+                HasCredentials(draft.DownloadSettings));
 
     private static IEnumerable<JobDraftDto> Drafts(JobDraftDto root)
     {

@@ -11,6 +11,17 @@ namespace Tests
 {
     public static class TestHelpers
     {
+        public static IEnumerable<SearchProjectionInput> ProjectionInputs(IEnumerable<(SearchResponse Response, File File)> results)
+            => results.Select((pair, index) => SearchProjectionInput.FromLive(index + 1L, 1, pair.Response, pair.File, DateTimeOffset.UnixEpoch));
+
+        public static List<SearchProjectionInput> OrderResults(IEnumerable<(SearchResponse, File)> results,
+            SongQuery query, SearchSettings settings, ConcurrentDictionary<string, int> failures, bool albumMode = false)
+        {
+            var sorter = new IncrementalResultSorter(query, settings, failures, albumMode);
+            sorter.AddRange(ProjectionInputs(results));
+            return sorter.SnapshotInputs();
+        }
+
         public sealed class DownloadGate
         {
             private readonly ConcurrentQueue<TaskCompletionSource> releases = new();

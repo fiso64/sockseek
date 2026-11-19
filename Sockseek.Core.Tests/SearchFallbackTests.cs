@@ -24,7 +24,7 @@ public class SearchFallbackTests
     [TestMethod]
     public async Task StringInput_SecondaryArtistFallbackPassesStrictArtist()
     {
-        var extracted = await new StringExtractor().GetTracks("Artist1; Artist2 - Title",
+        var extracted = await new StringExtractor().ExtractAsync("Artist1; Artist2 - Title",
             new ExtractionSettings { RequestedMode = ExtractionMode.Song });
         Assert.IsInstanceOfType<SongJob>(extracted);
         var song = (SongJob)extracted;
@@ -42,7 +42,7 @@ public class SearchFallbackTests
         search.NecessaryCond.StrictArtist = true;
         search.NecessaryCond.StrictTitle = true;
 
-        await searcher.SearchSong(song, search, new ResponseData(), CancellationToken.None);
+        await searcher.SearchSong(song, search, CancellationToken.None);
 
         CollectionAssert.AreEqual(new[] { "artist1 artist2 title", "artist1 title", "artist2 title" }, queries);
         Assert.AreEqual(1, song.Candidates?.Count);
@@ -66,7 +66,7 @@ public class SearchFallbackTests
         search.NecessaryCond.StrictArtist = true;
         search.NecessaryCond.StrictTitle = true;
 
-        await searcher.SearchSong(song, search, new ResponseData(), CancellationToken.None);
+        await searcher.SearchSong(song, search, CancellationToken.None);
 
         Assert.AreEqual(calls, client.SearchCallCount);
         Assert.AreEqual(candidates, song.Candidates?.Count ?? 0);
@@ -87,7 +87,7 @@ public class SearchFallbackTests
         search.NecessaryCond.StrictArtist = true;
         search.NecessaryCond.StrictTitle = true;
 
-        await searcher.SearchSong(song, search, new ResponseData(), CancellationToken.None);
+        await searcher.SearchSong(song, search, CancellationToken.None);
 
         Assert.AreEqual(2, client.SearchCallCount);
         Assert.AreEqual(1, song.Candidates?.Count);
@@ -103,7 +103,7 @@ public class SearchFallbackTests
         var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Some Song (ft. Guest)" });
         var search = new SearchSettings();
         search.NecessaryCond.StrictTitle = true;
-        await searcher.SearchSong(song, search, new ResponseData(), CancellationToken.None);
+        await searcher.SearchSong(song, search, CancellationToken.None);
 
         Assert.AreEqual(2, client.SearchCallCount);
         Assert.AreEqual(1, song.Candidates?.Count);
@@ -120,7 +120,7 @@ public class SearchFallbackTests
         var search = new SearchSettings { DesperateSearch = desperate };
         search.NecessaryCond.LengthTolerance = 3;
 
-        await searcher.SearchSong(song, search, new ResponseData(), CancellationToken.None);
+        await searcher.SearchSong(song, search, CancellationToken.None);
 
         Assert.AreEqual(desperate ? 1 : 0, song.Candidates?.Count ?? 0);
         if (!desperate)
@@ -136,7 +136,7 @@ public class SearchFallbackTests
         var search = new SearchSettings();
         search.PreferredCond.Formats = ["flac"];
 
-        await searcher.SearchSong(song, search, new ResponseData(), CancellationToken.None);
+        await searcher.SearchSong(song, search, CancellationToken.None);
 
         Assert.AreEqual(1, client.SearchCallCount);
         Assert.AreEqual(1, song.Candidates?.Count);
@@ -151,7 +151,7 @@ public class SearchFallbackTests
         var search = new SearchSettings();
         search.NecessaryCond.StrictArtist = true;
 
-        await searcher.SearchAlbum(album, search, new ResponseData(), CancellationToken.None);
+        await searcher.SearchAlbum(album, search, CancellationToken.None);
 
         Assert.AreEqual(3, client.SearchCallCount);
         Assert.AreEqual(1, album.Results.Count);
@@ -167,7 +167,7 @@ public class SearchFallbackTests
         var search = new SearchSettings();
         search.NecessaryFolderCond.MinTrackCount = 2;
 
-        await searcher.SearchAlbum(album, search, new ResponseData(), CancellationToken.None);
+        await searcher.SearchAlbum(album, search, CancellationToken.None);
 
         Assert.AreEqual(1, client.SearchCallCount);
         Assert.AreEqual(0, album.Results.Count);
@@ -178,7 +178,7 @@ public class SearchFallbackTests
     {
         var client = new MockSoulseekClient([]);
         using var searcher = CreateSearcher(client);
-        await searcher.Search(new SearchJob("First;Second Some Song (feat. Guest)"), new SearchSettings(), new ResponseData(), CancellationToken.None);
+        await searcher.Search(new SearchJob("First;Second Some Song (feat. Guest)"), new SearchSettings(), CancellationToken.None);
         Assert.AreEqual(1, client.SearchCallCount);
     }
 
@@ -217,8 +217,8 @@ public class SearchFallbackTests
         var query = new SongQuery { Artist = $"First;{requested}", Title = "Some Song" };
         var results = new[] { (unrelated, unrelated.Files.Single()), (secondary, secondary.Files.Single()) };
 
-        var ordered = ResultSorter.OrderedResults(results, query, search, new(), albumMode: albumMode).ToList();
-        Assert.AreEqual("Matching", ordered[0].response.Username);
+        var ordered = TestHelpers.OrderResults(results, query, search, new(), albumMode: albumMode).ToList();
+        Assert.AreEqual("Matching", ordered[0].Username);
     }
 
     [TestMethod]
@@ -229,9 +229,9 @@ public class SearchFallbackTests
         var search = new SearchSettings();
         search.PreferredCond.StrictArtist = true;
         var query = new SongQuery { Artist = "First;Second", Title = "Some Song" };
-        var ordered = ResultSorter.OrderedResults(
+        var ordered = TestHelpers.OrderResults(
             [(primary, primary.Files.Single()), (secondary, secondary.Files.Single())], query, search, new()).ToList();
-        Assert.AreEqual("Secondary", ordered[0].response.Username);
+        Assert.AreEqual("Secondary", ordered[0].Username);
     }
 
     [TestMethod]
@@ -287,7 +287,7 @@ public class SearchFallbackTests
         var job = new SongGroupsJob(new SongQuery { Artist = "First;Second", Title = "Some Song" });
         var search = new SearchSettings();
         search.NecessaryCond.StrictArtist = true;
-        await searcher.SearchGroup(job, search, new ResponseData(), CancellationToken.None);
+        await searcher.SearchSongGroups(job, search, CancellationToken.None);
 
         Assert.AreEqual(3, client.SearchCallCount);
         Assert.AreEqual(1, job.Songs.Count);
@@ -349,7 +349,7 @@ public class SearchFallbackTests
         using var searcher = CreateSearcher(client);
         var song = new SongJob(new SongQuery { Artist = "First;First;Second;Third;Fourth", Title = "Song" });
         int notifications = 0;
-        await searcher.SearchSong(song, new SearchSettings { MaxFallbackAttempts = 2 }, new ResponseData(), CancellationToken.None,
+        await searcher.SearchSong(song, new SearchSettings { MaxFallbackAttempts = 2 }, CancellationToken.None,
             onSearch: () => notifications++);
         Assert.AreEqual(3, client.SearchCallCount);
         Assert.AreEqual(3, notifications);
@@ -366,7 +366,7 @@ public class SearchFallbackTests
         using var searcher = new Searcher(client, TestHelpers.CreatePeerFailureTracker(), new DownloadEvents(), 1, 60, searchEvents: events);
         var song = new SongJob(new SongQuery { Artist = "First;Second", Title = "Song" });
 
-        await Assert.ThrowsAsync<OperationCanceledException>(() => searcher.SearchSong(song, new SearchSettings(), new ResponseData(), cts.Token));
+        await Assert.ThrowsAsync<OperationCanceledException>(() => searcher.SearchSong(song, new SearchSettings(), cts.Token));
         Assert.IsTrue(limited);
         Assert.AreEqual(1, client.SearchCallCount);
     }
@@ -377,7 +377,7 @@ public class SearchFallbackTests
         var client = new MockSoulseekClient([Response("Bjork")]);
         using var searcher = CreateSearcher(client);
         var song = new SongJob(new SongQuery { Artist = "Björk;Guest", Title = "Some Song" });
-        await searcher.SearchSong(song, new SearchSettings(), new ResponseData(), CancellationToken.None);
+        await searcher.SearchSong(song, new SearchSettings(), CancellationToken.None);
         Assert.AreEqual(4, client.SearchCallCount);
         Assert.AreEqual(1, song.Candidates?.Count);
     }

@@ -1,3 +1,4 @@
+using Sockseek.Core.Snapshots;
 using System.Collections.Concurrent;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
@@ -17,6 +18,8 @@ public sealed record AlbumGroupProjection(AlbumQuery Query);
 
 public class SearchJob : Job
 {
+    public override JobSnapshotKind Kind => JobSnapshotKind.Search;
+
     private readonly Lock _projectionCacheLock = new();
     private readonly Dictionary<ProjectionCacheKey, object> _incrementalProjectionStates = [];
     private readonly ConcurrentDictionary<PeerDirectoryIdentity, PeerDirectorySnapshot> retrievedDirectories = [];
@@ -30,7 +33,7 @@ public class SearchJob : Job
 
     public SearchSession Session { get; }
 
-    public int ResultCount => Session.ResultCount;
+    public int ResultCount => Session.PublicFileCount;
     public int Revision => Session.Revision;
     public bool IsComplete => Session.IsComplete;
     public SearchDefinition? Definition { get; internal set; }
@@ -95,7 +98,6 @@ public class SearchJob : Job
                     projection.Query,
                     ProjectionSettings(search),
                     peerFailureCounts,
-                    useInfer: false,
                     requireFileSatisfies: !projection.IncludeFullResults)));
 
         return state.Snapshot(this);

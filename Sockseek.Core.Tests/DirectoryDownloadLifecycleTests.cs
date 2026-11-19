@@ -1,4 +1,9 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Sockseek.Core.Planning;
+using Sockseek.Core.Snapshots;
+using Sockseek.Core.Transfers.Downloads.Commands;
+using Sockseek.Core.Transfers.Downloads.JobTracking;
+using Sockseek.Core.Transfers.Downloads.State;
 
 namespace Tests.Core;
 
@@ -29,6 +34,25 @@ public sealed class DirectoryDownloadLifecycleTests
         Assert.AreSame(plan, job.ActiveAttempt!.Plan);
         Assert.AreSame(plan, source.Plan);
         Assert.AreEqual(0, job.FileJobs.Count);
+    }
+
+    [TestMethod]
+    public void ParentCommandsReachActiveFilesInAnAcceptedDirectory()
+    {
+        var directory = new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(Plan()));
+        var file = new RemoteFileJob(Target(@"Root\A.bin"));
+        directory.MaterializeDirectoryChildren([new RemoteFileJob(Target(@"Root\B.bin")), file]);
+        var root = new JobList(jobs: [directory]) { Retention = JobRetention.Memory };
+        var submissionId = SubmissionIdentity.AssignAccepted(root, specification: null);
+
+        var active = new ActiveDownloadTracker();
+        using var cancellation = new CancellationTokenSource();
+        var transfer = new ActiveDownload(Guid.NewGuid(), file, file.Target, "A.bin", cancellation, directory);
+        active.TryAdd(transfer);
+        var resolver = new DownloadCommandTargetResolver(new DownloadJobTracker(new DownloadEvents()), active);
+        Assert.AreEqual(root.WorkflowId, file.WorkflowId);
+        Assert.AreEqual(submissionId, file.SubmissionId);
+        Assert.AreSame(transfer, resolver.ActiveDownloadsFor(root).Single());
     }
 
     [TestMethod]
@@ -189,6 +213,7 @@ public sealed class DirectoryDownloadLifecycleTests
 
     private sealed class TestDirectoryJob : DirectoryDownloadJob
     {
+        public override JobSnapshotKind Kind => JobSnapshotKind.Generic;
         protected override bool DefaultCanBeSkipped => false;
 
         public void AddSupplemental(FileDownloadJob child)

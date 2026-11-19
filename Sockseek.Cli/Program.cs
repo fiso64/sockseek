@@ -1348,7 +1348,7 @@ internal static partial class Program
                 ct);
             return folders == null
                 ? null
-                : new AlbumJob(ToAlbumQuery(search.AlbumQuery))
+                : new AlbumJob(JobRequestMapper.ToCore(search.AlbumQuery))
                 {
                     Results = folders.Items.Select(CliSearchProjectionMapper.ToCore).ToList(),
                 };
@@ -1361,7 +1361,7 @@ internal static partial class Program
         var files = await backend.GetFileResultsAsync(searchJobId, fileProjection, ct);
         return files == null
             ? null
-            : new SongJob(ToSongQuery(fileProjection.SongQuery ?? new SongQueryDto(null, search.QueryText, null, null, null, false)))
+            : new SongJob(JobRequestMapper.ToCore(fileProjection.SongQuery ?? new SongQueryDto(null, search.QueryText, null, null, null, false)))
             {
                 Candidates = files.Items.Select(CliSearchProjectionMapper.ToCore).ToList(),
             };
@@ -1405,9 +1405,9 @@ internal static partial class Program
             songGroupsJobId,
             new TrackGroupProjectionRequestDto(group.Query, IncludeCandidates: true),
             ct);
-        return results == null ? null : new SongGroupsJob(ToSongQuery(group.Query))
+        return results == null ? null : new SongGroupsJob(JobRequestMapper.ToCore(group.Query))
         {
-            Songs = results.Items.Select(result => new SongJob(ToSongQuery(result.Query))
+            Songs = results.Items.Select(result => new SongJob(JobRequestMapper.ToCore(result.Query))
             {
                 ItemName = result.ItemName,
                 Candidates = result.Candidates?.Select(CliSearchProjectionMapper.ToCore).ToList(),
@@ -1425,9 +1425,9 @@ internal static partial class Program
             songGroupsJobId,
             new AlbumGroupProjectionRequestDto(group.Query, IncludeFolders: true),
             ct);
-        return results == null ? null : new AlbumGroupsJob(ToAlbumQuery(group.Query))
+        return results == null ? null : new AlbumGroupsJob(JobRequestMapper.ToCore(group.Query))
         {
-            Albums = results.Items.Select(result => new AlbumJob(ToAlbumQuery(result.Query))
+            Albums = results.Items.Select(result => new AlbumJob(JobRequestMapper.ToCore(result.Query))
             {
                 ItemName = result.ItemName,
                 Results = result.Folders?.Select(CliSearchProjectionMapper.ToCore).ToList() ?? [],
@@ -1441,12 +1441,12 @@ internal static partial class Program
         if (search.DefaultProjection == ServerSearchDefaultProjectionKind.Album
             && search.AlbumQuery != null)
         {
-            job = new SearchJob(ToAlbumQuery(search.AlbumQuery));
+            job = new SearchJob(JobRequestMapper.ToCore(search.AlbumQuery));
         }
         else if (search.SongQuery != null)
         {
             job = new SearchJob(
-                ToSongQuery(search.SongQuery),
+                JobRequestMapper.ToCore(search.SongQuery),
                 search.IncludeFullResults);
         }
         else
@@ -1672,15 +1672,7 @@ internal static partial class Program
 
     private static SongJob ToSongJob(SongJobPayloadDto song, JobSummaryDto? summary)
     {
-        var job = new SongJob(new SongQuery
-        {
-            Artist = song.Query.Artist ?? "",
-            Title = song.Query.Title ?? "",
-            Album = song.Query.Album ?? "",
-            URI = song.Query.Uri ?? "",
-            Length = song.Query.Length ?? -1,
-            ArtistMaybeWrong = song.Query.ArtistMaybeWrong,
-        })
+        var job = new SongJob(JobRequestMapper.ToCore(song.Query))
         {
             DownloadPath = song.File.DownloadPath,
             BytesTransferred = song.File.BytesTransferred,
@@ -1697,7 +1689,7 @@ internal static partial class Program
 
         if (song.ExactTarget != null)
         {
-            job.ExactTarget = ToPeerFileTarget(song.ExactTarget);
+            job.ExactTarget = JobRequestMapper.ToPeerFileTarget(song.ExactTarget);
         }
         else if (!string.IsNullOrWhiteSpace(song.ResolvedUsername)
             && !string.IsNullOrWhiteSpace(song.ResolvedFilename))
@@ -1721,21 +1713,9 @@ internal static partial class Program
         return job;
     }
 
-    private static PeerFileTarget ToPeerFileTarget(PeerFileTargetDto target)
-        => new(
-            new PeerFileIdentity(target.Username, target.Filename),
-            target.Size,
-            target.Extension,
-            target.BitRate,
-            target.BitDepth,
-            target.SampleRate,
-            target.Length,
-            target.Attributes?.Select(attribute =>
-                new FileAttributeSnapshot(attribute.Type, attribute.Value, 0)).ToList());
-
     private static AlbumJob ToAlbumJob(AlbumJobPayloadDto album, JobSummaryDto? summary)
     {
-        var job = new AlbumJob(ToAlbumQuery(album.Query))
+        var job = new AlbumJob(JobRequestMapper.ToCore(album.Query))
         {
             DownloadPath = album.Directory.DownloadPath,
         };
@@ -1749,7 +1729,7 @@ internal static partial class Program
     private static SongGroupsJob ToSongGroupsJob(
         SongGroupsJobPayloadDto group,
         IEnumerable<JobDetailDto> children)
-        => new(ToSongQuery(group.Query))
+        => new(JobRequestMapper.ToCore(group.Query))
         {
             Songs = children
                 .Select(child => child.Payload)
@@ -1760,7 +1740,7 @@ internal static partial class Program
 
     private static AlbumGroupsJob ToAlbumGroupsJob(AlbumGroupsJobPayloadDto albumGroups, JobSummaryDto? summary = null)
     {
-        var job = new AlbumGroupsJob(ToAlbumQuery(albumGroups.Query));
+        var job = new AlbumGroupsJob(JobRequestMapper.ToCore(albumGroups.Query));
         if (summary != null)
             ApplyJobOutcome(job, summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, summary.FailureMessage, summary.CancellationSource);
         return job;
@@ -1875,27 +1855,6 @@ internal static partial class Program
             : Enum.TryParse(source.ToString(), out JobCancellationSource coreSource)
                 ? coreSource
                 : JobCancellationSource.InternalEngine;
-
-    private static SongQuery ToSongQuery(SongQueryDto query)
-        => new()
-        {
-            Artist = query.Artist ?? "",
-            Title = query.Title ?? "",
-            Album = query.Album ?? "",
-            URI = query.Uri ?? "",
-            Length = query.Length ?? -1,
-            ArtistMaybeWrong = query.ArtistMaybeWrong,
-        };
-
-    private static AlbumQuery ToAlbumQuery(AlbumQueryDto query)
-        => new()
-        {
-            Artist = query.Artist ?? "",
-            Album = query.Album ?? "",
-            SearchHint = query.SearchHint ?? "",
-            URI = query.Uri ?? "",
-            ArtistMaybeWrong = query.ArtistMaybeWrong,
-        };
 
     private static void Write(
         CliOutputController output,

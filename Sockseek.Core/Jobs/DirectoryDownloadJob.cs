@@ -73,6 +73,7 @@ public abstract class DirectoryDownloadJob : Job
     /// post-plan work, such as album art selected during music finalization.
     /// </summary>
     public IReadOnlyList<FileDownloadJob> FileJobs => fileJobs;
+    internal override IReadOnlyList<Job> Children => FileJobs;
     public long BytesTransferred => progress.Summary.BytesTransferred;
     public long TotalKnownBytes => (ActiveAttempt?.Plan.TotalKnownBytes ?? 0)
         + progress.Summary.SupplementalKnownBytes;

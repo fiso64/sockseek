@@ -15,15 +15,14 @@ public sealed class SearchSession
     private readonly HashSet<string> observedPeers = new(StringComparer.Ordinal);
     private TimeProvider timeProvider;
     private int _revision;
-    private int _resultCount;
+    private int _publicFileCount;
     private int _lockedFileCount;
     private long _sequence;
     private int _isComplete;
 
     public Guid JobId { get; }
     public string QueryText { get; }
-    public int ResultCount => Volatile.Read(ref _resultCount);
-    public int PublicFileCount => ResultCount;
+    public int PublicFileCount => Volatile.Read(ref _publicFileCount);
     public int Revision => Volatile.Read(ref _revision);
     public int LockedFileCount => Volatile.Read(ref _lockedFileCount);
     public int ObservedPeerCount { get { lock (admissionGate) return observedPeers.Count; } }
@@ -109,7 +108,7 @@ public sealed class SearchSession
                         rawResults.Add(rawResult);
                         added.Add(rawResult);
                         if (visibility == SearchResultVisibility.Public)
-                            _resultCount++;
+                            _publicFileCount++;
                         else
                             _lockedFileCount++;
                         observedPeers.Add(response.Username);
@@ -119,7 +118,7 @@ public sealed class SearchSession
 
             SearchResultsAddedChange? change = added.Count > 0
                 ? new SearchResultsAddedChange(
-                    CoreChangeSequencer.Next(), timeProvider.GetUtcNow(), JobId, revision,
+                    CoreChange.NextSequence(), timeProvider.GetUtcNow(), JobId, revision,
                     added.AsReadOnly())
                 : null;
             publications.Enqueue(change);
@@ -138,8 +137,8 @@ public sealed class SearchSession
                     return;
                 _isComplete = 1;
                 change = new SearchCompletedChange(
-                    CoreChangeSequencer.Next(), timeProvider.GetUtcNow(), JobId, ++_revision,
-                    QueryText, _resultCount, _lockedFileCount, observedPeers.Count);
+                    CoreChange.NextSequence(), timeProvider.GetUtcNow(), JobId, ++_revision,
+                    QueryText, _publicFileCount, _lockedFileCount, observedPeers.Count);
             }
             publications.Enqueue(change);
             PublishPending();

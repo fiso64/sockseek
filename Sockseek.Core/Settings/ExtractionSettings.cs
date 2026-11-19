@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
-using Sockseek.Core;
+using System.Text.Json.Serialization;
+using Sockseek.Core.Extractors;
 
 namespace Sockseek.Core.Settings;
 
@@ -53,4 +54,87 @@ public class ExtractionSettings
 
     [SettingOption("--eMtc", "--extract-max-track-count")]
     public bool SetAlbumMaxTrackCount { get; set; }
+}
+
+/// Controls Bandcamp extraction behaviour.
+public class BandcampSettings
+{
+    /// When set, read the page HTML from this local file instead of fetching it from the URL.
+    [SettingOption("--from-html")]
+    public string? HtmlFromFile { get; set; }
+}
+
+public class CsvSettings
+{
+    [SettingOption("--ac", "--artist-col")]
+    public string ArtistCol { get; set; } = "";
+
+    [SettingOption("--alc", "--album-col")]
+    public string AlbumCol { get; set; } = "";
+
+    [SettingOption("--tc", "--track-col", "--title-col")]
+    public string TitleCol { get; set; } = "";
+
+    [SettingOption("--yic", "--yt-id-col")]
+    public string YtIdCol { get; set; } = "";
+
+    [SettingOption("--ydc", "--yt-desc-col")]
+    public string DescCol { get; set; } = "";
+
+    [SettingOption("--atcc", "--album-track-count-col")]
+    public string TrackCountCol { get; set; } = "";
+
+    [SettingOption("--lc", "--length-col")]
+    public string LengthCol { get; set; } = "";
+
+    [SettingOption("--tf", "--time-format")]
+    [SettingValidation(typeof(CsvExtractor), nameof(CsvExtractor.ValidateTimeFormat))]
+    public string TimeUnit { get; set; } = "s";
+
+    [SettingOption("--yp", "--yt-parse")]
+    public bool YtParse { get; set; }
+}
+
+/// Controls SoundCloud extraction behaviour.
+public class SoundCloudSettings
+{
+    /// OAuth token sent to the SoundCloud api-v2 endpoints.
+    [SettingOption("--soundcloud-token")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? AuthToken { get; set; }
+}
+
+public class SpotifySettings
+{
+    [SettingOption("--si", "--spotify-id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? ClientId { get; set; }
+
+    [SettingOption("--ss", "--spotify-secret")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? ClientSecret { get; set; }
+
+    [SettingOption("--stk", "--spotify-token")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? Token { get; set; }
+
+    [SettingOption("--str", "--spotify-refresh")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? Refresh { get; set; }
+}
+
+/// Controls YouTube playlist/video extraction.
+public class YouTubeSettings
+{
+    [SettingOption("--yk", "--youtube-key")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? ApiKey { get; set; }
+
+    /// When true, also fetch deleted tracks from an archive service.
+    [SettingOption("--gd", "--get-deleted")]
+    public bool GetDeleted { get; set; }
+
+    /// When true, only return deleted tracks (skip live ones).
+    [SettingOption("--do", "--deleted-only")]
+    public bool DeletedOnly { get; set; }
 }

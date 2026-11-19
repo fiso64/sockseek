@@ -11,7 +11,8 @@ public sealed record StartupReconciliationResult(
     int InterruptedJobCount,
     int InterruptedTransferCount,
     int InterruptedAttemptCount,
-    int InterruptedSearchCount);
+    int InterruptedSearchCount,
+    long MaximumRetainedDisplayId);
 
 public sealed class PersistenceRuntimeSession(
     IDbContextFactory<SockseekDbContext> contextFactory,
@@ -154,6 +155,8 @@ public sealed class PersistenceRuntimeSession(
                 .ConfigureAwait(false);
         }
 
+        long maximumDisplayId = await context.Jobs.MaxAsync(job => (long?)job.DisplayId, cancellationToken)
+            .ConfigureAwait(false) ?? 0;
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         Volatile.Write(ref current, runtime);
 
@@ -163,7 +166,8 @@ public sealed class PersistenceRuntimeSession(
             interruptedJobs,
             interruptedTransfers,
             interruptedAttempts,
-            interruptedSearches);
+            interruptedSearches,
+            maximumDisplayId);
     }
 
     public async Task StopAsync(string shutdownKind = "Clean", CancellationToken cancellationToken = default)

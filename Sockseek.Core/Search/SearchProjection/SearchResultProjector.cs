@@ -15,29 +15,25 @@ public static partial class SearchResultProjector
         IEnumerable<(SearchResponse Response, Soulseek.File File)> rawResults,
         SongQuery query,
         SearchSettings search,
-        ConcurrentDictionary<string, int> peerFailureCounts,
-        bool useInfer = true)
+        ConcurrentDictionary<string, int> peerFailureCounts)
         => SortedTrackCandidates(
             rawResults.Select((result, index) => SearchProjectionInput.FromLive(
                 index + 1L, index + 1, result.Response, result.File, DateTimeOffset.UnixEpoch)),
             query,
             search,
-            peerFailureCounts,
-            useInfer);
+            peerFailureCounts);
 
     public static List<FileCandidate> SortedTrackCandidates(
         IEnumerable<SearchProjectionInput> rawResults,
         SongQuery query,
         SearchSettings search,
         ConcurrentDictionary<string, int> peerFailureCounts,
-        bool useInfer = true,
         bool includeFullResults = true)
     {
         var sorter = new IncrementalResultSorter(
             query,
             search,
             peerFailureCounts,
-            useInfer: useInfer,
             requireFileSatisfies: !includeFullResults);
         sorter.AddRange(rawResults);
         return sorter.SnapshotProjectedFiles()
@@ -452,36 +448,9 @@ public static partial class SearchResultProjector
             if (y == null)
                 return -1;
 
-            int beforeQualityComparison = ResultSorter.AlbumBeforeQualitySortEntryComparer.Instance.Compare(
-                x.GroupSortEntry, y.GroupSortEntry);
-            if (beforeQualityComparison != 0)
-                return beforeQualityComparison;
-
-            if (compareQualityCoverage)
-            {
-                // Match the file-sort key order, but lift each audio-quality key to
-                // folder-level coverage: identity/length first, then format, bitrate,
-                // sample rate, bit depth. This keeps high-quality unrelated folders
-                // from outranking the album we asked for, while still preferring e.g.
-                // 9/10 FLAC folders over 1/10 FLAC folders.
-                int comparison = CompareCoverageBuckets(x.QualityCoverage.Format, y.QualityCoverage.Format);
-                if (comparison != 0)
-                    return comparison;
-                comparison = CompareCoverageBuckets(x.QualityCoverage.Bitrate, y.QualityCoverage.Bitrate);
-                if (comparison != 0)
-                    return comparison;
-                comparison = CompareCoverageBuckets(x.QualityCoverage.SampleRate, y.QualityCoverage.SampleRate);
-                if (comparison != 0)
-                    return comparison;
-                comparison = CompareCoverageBuckets(x.QualityCoverage.BitDepth, y.QualityCoverage.BitDepth);
-                if (comparison != 0)
-                    return comparison;
-            }
-
-            int groupComparison = ResultSorter.SortEntryComparer.Instance.Compare(
-                x.GroupSortEntry, y.GroupSortEntry);
-            if (groupComparison != 0)
-                return groupComparison;
+            int rank = AlbumFolderGroupComparer.CompareRank(x.GroupSortEntry, y.GroupSortEntry,
+                x.QualityCoverage, y.QualityCoverage, compareQualityCoverage);
+            if (rank != 0) return rank;
 
             int usernameComparison = string.Compare(x.Username, y.Username, StringComparison.Ordinal);
             return usernameComparison != 0
@@ -489,8 +458,6 @@ public static partial class SearchResultProjector
                 : string.Compare(x.FolderPath, y.FolderPath, StringComparison.Ordinal);
         }
 
-        private static int CompareCoverageBuckets(AlbumQualityCoverageBucket x, AlbumQualityCoverageBucket y)
-            => y.Bucket.CompareTo(x.Bucket);
     }
 
     private readonly record struct AlbumFolderFile(

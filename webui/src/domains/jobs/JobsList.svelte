@@ -13,7 +13,7 @@
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import { canDeleteRoot } from './deletion';
   import { presentedJobs, sortPresentedJobsNewestFirst, type PresentedJob } from './presentation';
-  import { readJobSummaries, jobSummaryRetryIds, type JobSummaryRead } from './details';
+  import { readJobSummaries, jobSummaryRetryIds, type JobSummaryRead } from './detail-reads';
 
   interface Props {
     jobs: JobSummaryDto[];

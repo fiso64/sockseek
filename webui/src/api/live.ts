@@ -28,9 +28,6 @@ const subscribeChatMethod = 'SubscribeChat' satisfies Schema<'LiveClientInvocati
 const unsubscribeChatMethod = 'UnsubscribeChat' satisfies Schema<'LiveClientInvocation'>;
 const subscribeUserBrowseMethod = 'SubscribeUserBrowse' satisfies Schema<'LiveClientInvocation'>;
 const unsubscribeUserBrowseMethod = 'UnsubscribeUserBrowse' satisfies Schema<'LiveClientInvocation'>;
-const observeSearchViewMethod = 'ObserveSearchView' satisfies Schema<'LiveClientInvocation'>;
-const observeTransferTimelineMethod = 'ObserveTransferTimeline' satisfies Schema<'LiveClientInvocation'>;
-const observeJobsMethod = 'ObserveJobs' satisfies Schema<'LiveClientInvocation'>;
 const chatMessageTailSize = 100 satisfies Schema<'ChatLiveMessageTailSize'>;
 
 export type LiveConnectionStatus = 'offline' | 'connecting' | 'connected' | 'reconnecting' | 'failed';
@@ -163,26 +160,25 @@ export class DaemonLiveClient {
 
   constructor(private readonly api: DaemonApiClient = daemonApi, private readonly detail: Schema<'DaemonStateDetail'> = 'Overview') {}
 
-  observeSearchView(viewId: string, next: (summary: Schema<'SearchViewSummaryDto'>) => void,
+  private observe<T>(method: Schema<'LiveClientInvocation'>, args: unknown[], next: (update: T) => void,
     error: (error: Error) => void, complete: () => void): () => void {
     const connection = this.connection;
     if (!connection || connection.state !== HubConnectionState.Connected)
       throw new Error('The daemon live connection is not ready.');
-    const subscription = connection.stream<Schema<'SearchViewSummaryDto'>>(observeSearchViewMethod, viewId)
-      .subscribe({ next, error: (failure) => error(asError(failure)), complete });
+    const subscription = connection.stream<T>(method, ...args)
+      .subscribe({ next, error: cause => error(asError(cause)), complete });
     return () => subscription.dispose();
+  }
+
+  observeSearchView(viewId: string, next: (summary: Schema<'SearchViewSummaryDto'>) => void,
+    error: (error: Error) => void, complete: () => void): () => void {
+    return this.observe('ObserveSearchView', [viewId], next, error, complete);
   }
 
   observeUserPresence(username: string, next: (presence: Schema<'UserPresenceDto'>) => void,
     error: (error: Error) => void): () => void {
-    const connection = this.connection;
-    if (!connection || connection.state !== HubConnectionState.Connected)
-      throw new Error('The daemon live connection is not ready.');
-    const method = 'ObserveUserPresence' satisfies Schema<'LiveClientInvocation'>;
-    const subscription = connection.stream<Schema<'UserPresenceDto'>>(method, username)
-      .subscribe({ next, error: failure => error(asError(failure)),
-        complete: () => error(new Error('Presence updates stopped.')) });
-    return () => subscription.dispose();
+    return this.observe('ObserveUserPresence', [username], next, error,
+      () => error(new Error('Presence updates stopped.')));
   }
 
   onState(listener: StateListener): () => void {
@@ -192,42 +188,25 @@ export class DaemonLiveClient {
 
   observeTransferTimeline(scope: Schema<'TransferTimelineScopeDto'>, next: (update: Schema<'TransferTimelineUpdateDto'>) => void,
     error: (error: Error) => void): () => void {
-    const connection = this.connection;
-    if (!connection || connection.state !== HubConnectionState.Connected)
-      throw new Error('The daemon live connection is not ready.');
-    const subscription = connection.stream<Schema<'TransferTimelineUpdateDto'>>(observeTransferTimelineMethod,
-      scope)
-      .subscribe({ next, error: (failure) => error(asError(failure)),
-        complete: () => error(new Error('Transfer updates stopped. Retry to reconnect.')) });
-    return () => subscription.dispose();
+    return this.observe('ObserveTransferTimeline', [scope], next, error,
+      () => error(new Error('Transfer updates stopped. Retry to reconnect.')));
   }
 
   observeJobList(scope: Schema<'JobListScopeDto'>, next: (update: Schema<'JobListUpdateDto'>) => void,
     error: (error: Error) => void): () => void {
-    const connection = this.connection;
-    if (!connection || connection.state !== HubConnectionState.Connected)
-      throw new Error('The daemon live connection is not ready.');
-    const method = 'ObserveJobList' satisfies Schema<'LiveClientInvocation'>;
-    const subscription = connection.stream<Schema<'JobListUpdateDto'>>(method, scope)
-      .subscribe({ next, error: cause => error(asError(cause)),
-        complete: () => error(new Error('Job list updates stopped. Retry to reconnect.')) });
-    return () => subscription.dispose();
+    return this.observe('ObserveJobList', [scope], next, error,
+      () => error(new Error('Job list updates stopped. Retry to reconnect.')));
   }
 
   observeJobs(jobId: string, jobIds: string[], next: (update: Schema<'JobObservationUpdateDto'>) => void,
     error: (error: Error) => void): () => void {
     const connection = this.connection;
-    if (!connection || connection.state !== HubConnectionState.Connected)
-      throw new Error('The daemon live connection is not ready.');
-    const fail = (cause: unknown) => {
-      // Connection status owns transport interruption; a connected stream's
-      // failure is an independent job/progress error with its own Retry.
-      if (connection.state === HubConnectionState.Connected) error(asError(cause));
+    // Connection status owns transport interruptions. Report job-specific failures while connected.
+    const fail = (cause: Error) => {
+      if (connection?.state === HubConnectionState.Connected) error(cause);
     };
-    const subscription = connection.stream<Schema<'JobObservationUpdateDto'>>(observeJobsMethod, jobId, jobIds)
-      .subscribe({ next, error: fail,
-        complete: () => fail(new Error('Live job updates stopped. Retry to reconnect.')) });
-    return () => subscription.dispose();
+    return this.observe('ObserveJobs', [jobId, jobIds], next, fail,
+      () => fail(new Error('Live job updates stopped. Retry to reconnect.')));
   }
 
   onStatus(listener: StatusListener): () => void {

@@ -441,8 +441,14 @@ public class EngineStateStoreTests
         Assert.AreEqual(StateStreamScopeKind.Daemon, batches.Single().Scope.Kind);
 
         DaemonStateDto current = store.GetDaemonSnapshot().Daemon!;
+        var reset = DateTimeOffset.UnixEpoch.AddMinutes(1);
+        store.UpdateSearchRateLimit(reset);
         store.UpdateDaemonRuntime(current.SoulseekClient, current.RestartCount + 1);
-        Assert.AreEqual(1, store.GetDaemonSnapshot().Daemon!.TerminalTransferCommitRevision);
+        var updated = store.GetDaemonSnapshot().Daemon!;
+        Assert.AreEqual(1, updated.TerminalTransferCommitRevision);
+        Assert.AreEqual(reset, updated.SearchRateLimitResetsAtUtc);
+        store.UpdateSearchRateLimit(reset);
+        Assert.AreEqual(updated, store.GetDaemonSnapshot().Daemon);
         Assert.AreEqual(jobs, store.GetDaemonSnapshot().JobHistoryPosition);
         job.SetDone();
         UpdateState(store, job);
@@ -1793,17 +1799,18 @@ public class EngineStateStoreTests
     [TestMethod]
     public void PublicJobEnumsPreserveTheMeaningOfEveryNamedCoreValue()
     {
-        AssertMapping<JobSemanticRole, ServerJobRole>(ServerSnapshotMapper.ToServerJobRole);
-        AssertMapping<JobLifecycleState, ServerJobLifecycleState>(ServerSnapshotMapper.ToServerJobLifecycleState);
-        AssertMapping<JobActivityPhase, ServerJobActivityPhase>(ServerSnapshotMapper.ToServerJobActivityPhase);
-        AssertMapping<JobTerminalOutcome, ServerJobTerminalOutcome>(ServerSnapshotMapper.ToServerJobTerminalOutcome);
-        AssertMapping<SongDownloadSource, ServerSongDownloadSource>(ServerSnapshotMapper.ToServerSongDownloadSource);
-        AssertMapping<JobSkipReason, ServerJobSkipReason>(ServerSnapshotMapper.ToServerJobSkipReason);
-        AssertMapping<JobCancellationSource, ServerJobCancellationSource>(ServerSnapshotMapper.ToServerJobCancellationSource);
-        AssertMapping<FolderRetrievalOutcome, ServerFolderRetrievalOutcome>(ServerSnapshotMapper.ToServerFolderRetrievalOutcome);
+        AssertMapping<JobSnapshotKind, ServerJobKind>(ApiEnumMapper.ToServer);
+        AssertMapping<JobSemanticRole, ServerJobRole>(ApiEnumMapper.ToServer);
+        AssertMapping<JobLifecycleState, ServerJobLifecycleState>(ApiEnumMapper.ToServer);
+        AssertMapping<JobActivityPhase, ServerJobActivityPhase>(ApiEnumMapper.ToServer);
+        AssertMapping<JobTerminalOutcome, ServerJobTerminalOutcome>(ApiEnumMapper.ToServer);
+        AssertMapping<SongDownloadSource, ServerSongDownloadSource>(ApiEnumMapper.ToServer);
+        AssertMapping<JobSkipReason, ServerJobSkipReason>(ApiEnumMapper.ToServer);
+        AssertMapping<JobCancellationSource, ServerJobCancellationSource>(ApiEnumMapper.ToServer);
+        AssertMapping<FolderRetrievalOutcome, ServerFolderRetrievalOutcome>(ApiEnumMapper.ToServer);
         foreach (JobFailureReason reason in Enum.GetValues<JobFailureReason>())
             Assert.AreEqual(reason == JobFailureReason.None ? null : reason.ToString(),
-                ServerSnapshotMapper.ToServerFailureReason(reason)?.ToString());
+                reason.ToServer()?.ToString());
 
         static void AssertMapping<TCore, TPublic>(Func<TCore, TPublic> map)
             where TCore : struct, Enum where TPublic : struct, Enum

@@ -24,7 +24,7 @@ namespace Tests.Unit
             session.AddResponse(response);
             session.AddResponse(response);
 
-            Assert.AreEqual(1, session.ResultCount, "Duplicate raw result keys should not be added twice.");
+            Assert.AreEqual(1, session.PublicFileCount, "Duplicate raw result keys should not be added twice.");
             Assert.AreEqual(1, session.Revision, "Revision should change only when a new raw result is added.");
             Assert.AreEqual(1, rawEvents, "Raw result event should fire only for newly added files.");
         }
@@ -42,7 +42,7 @@ namespace Tests.Unit
                 TestHelpers.CreateSlFile("track.mp3", length: 181),
             ]));
 
-            Assert.AreEqual(2, session.ResultCount,
+            Assert.AreEqual(2, session.PublicFileCount,
                 "Exact peer/file identities must not collide when either component contains a path separator.");
             CollectionAssert.AreEquivalent(
                 new[] { "alpha", @"alpha\beta" },
@@ -239,7 +239,7 @@ namespace Tests.Unit
                 if (addTask != null) await addTask.WaitAsync(TimeSpan.FromSeconds(5));
             }
             Assert.IsTrue(session.IsComplete);
-            Assert.AreEqual(0, session.ResultCount);
+            Assert.AreEqual(0, session.PublicFileCount);
             Assert.AreEqual(1, session.Revision);
             Assert.AreEqual(0, session.LockedFileCount);
         }
@@ -373,7 +373,7 @@ namespace Tests.Unit
             var job = new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
             var originalSession = job.Session;
 
-            await searcher.Search(job, config.Search, new ResponseData(), CancellationToken.None);
+            await searcher.Search(job, config.Search, CancellationToken.None);
             var streamed = job.RawSnapshot();
 
             Assert.AreSame(originalSession, job.Session);
@@ -427,7 +427,7 @@ namespace Tests.Unit
             var job = album ? new SearchJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
                 : new SearchJob(new SongQuery { Artist = "Artist", Title = "Track" });
 
-            await searcher.Search(job, config.Search, new ResponseData(), CancellationToken.None);
+            await searcher.Search(job, config.Search, CancellationToken.None);
             job.SetDone();
 
             int Count(SearchSettings search) => album ? job.GetAlbumFolders(search).Items.Count
@@ -677,7 +677,7 @@ namespace Tests.Unit
             var threw = false;
             try
             {
-                await searcher.Search(job, config.Search, new ResponseData(), CancellationToken.None);
+                await searcher.Search(job, config.Search, CancellationToken.None);
             }
             catch (Exception)
             {

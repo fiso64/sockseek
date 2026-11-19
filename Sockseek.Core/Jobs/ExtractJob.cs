@@ -1,3 +1,4 @@
+using Sockseek.Core.Snapshots;
 using Sockseek.Core;
 using Sockseek.Core.Models;
 
@@ -7,6 +8,8 @@ namespace Sockseek.Core.Jobs;
     // The ExtractJob itself stays in the tree as a historical record of what was extracted.
     public class ExtractJob : Job
     {
+        public override JobSnapshotKind Kind => JobSnapshotKind.Extract;
+
         public string     Input     { get; }
         public InputType? InputType { get; set; }
         public ExtractionMode? RequestedModeOverride { get; set; }
@@ -24,14 +27,15 @@ namespace Sockseek.Core.Jobs;
         public DownloadBehaviorPolicy? ResultDownloadBehaviorPolicy { get; set; }
 
         // Set by the engine after extraction. Null until the engine processes this job.
-        private Job? result;
+        private IReadOnlyList<Job> children = [];
+        internal override IReadOnlyList<Job> Children => children;
         public Job? Result
         {
-            get => result;
+            get => children is [var result] ? result : null;
             set
             {
-                if (ReferenceEquals(result, value)) return;
-                result = value;
+                if (ReferenceEquals(Result, value)) return;
+                children = value is null ? [] : [value];
                 OnPropertyChanged();
             }
         }

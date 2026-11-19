@@ -74,7 +74,7 @@ public class SearchCompletionTests
         int completedCount = -1;
         job.Session.SearchCompleted += _ => completedCount = job.Session.RawSnapshot().Count;
 
-        await searcher.Search(job, new SearchSettings(), new ResponseData(), CancellationToken.None);
+        await searcher.Search(job, new SearchSettings(), CancellationToken.None);
 
         Assert.IsTrue(job.IsComplete);
         Assert.AreEqual(16, job.ResultCount);
@@ -113,7 +113,7 @@ public class SearchCompletionTests
         // Cancellation while waiting for channel data may surface as the derived
         // TaskCanceledException. Both paths must retain the caller's cancellation.
         var error = await Assert.ThrowsAsync<OperationCanceledException>(() =>
-            searcher.Search(job, new SearchSettings(), new ResponseData(), cancellation.Token)
+            searcher.Search(job, new SearchSettings(), cancellation.Token)
                 .WaitAsync(TimeSpan.FromSeconds(5)));
 
         Assert.AreEqual(cancellation.Token, error.CancellationToken);
@@ -136,7 +136,7 @@ public class SearchCompletionTests
         using var searcher = CreateSearcher(client);
 
         var error = await Assert.ThrowsExactlyAsync<SynchronizationLockException>(() =>
-            searcher.Search(new SearchJob("Artist Album"), new SearchSettings(), new ResponseData(), CancellationToken.None));
+            searcher.Search(new SearchJob("Artist Album"), new SearchSettings(), CancellationToken.None));
 
         Assert.AreSame(cleanupFailure, error);
     }
@@ -156,7 +156,7 @@ public class SearchCompletionTests
         using var searcher = CreateSearcher(client);
 
         var error = await Assert.ThrowsExactlyAsync<SynchronizationLockException>(() =>
-            searcher.Search(new SearchJob("Artist Album"), new SearchSettings(), new ResponseData(), CancellationToken.None));
+            searcher.Search(new SearchJob("Artist Album"), new SearchSettings(), CancellationToken.None));
 
         Assert.AreSame(failure, error);
     }
@@ -182,7 +182,7 @@ public class SearchCompletionTests
         job.Session.ObserverFailed += (_, error) => reportedFailure = error;
         job.Session.ResultsAdded += _ => throw observerFailure;
 
-        await searcher.Search(job, new SearchSettings(), new ResponseData(), CancellationToken.None);
+        await searcher.Search(job, new SearchSettings(), CancellationToken.None);
 
         Assert.AreSame(observerFailure, reportedFailure);
         Assert.AreEqual(1, job.ResultCount);
@@ -248,7 +248,7 @@ public class SearchCompletionTests
         int completedCount = -1;
         job.Session.SearchCompleted += _ => completedCount = job.Session.RawSnapshot().Count;
         using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var search = Task.Run(() => searcher.Search(job, new SearchSettings(), new ResponseData(), watchdog.Token));
+        var search = Task.Run(() => searcher.Search(job, new SearchSettings(), watchdog.Token));
         try
         {
             await networkCompleted.Task.WaitAsync(watchdog.Token);
@@ -281,7 +281,7 @@ public class SearchCompletionTests
         int rawEvents = 0;
         job.Session.ResultsAdded += batch => rawEvents += batch.Results.Count;
 
-        await searcher.Search(job, new SearchSettings(), new ResponseData(), CancellationToken.None);
+        await searcher.Search(job, new SearchSettings(), CancellationToken.None);
 
         Assert.AreEqual(fileCount, job.ResultCount);
         Assert.AreEqual(fileCount, job.RawSnapshot().Count);

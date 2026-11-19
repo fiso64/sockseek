@@ -66,7 +66,7 @@ public sealed class JobPreviewTests
                         job.ExtractorInfo = "Catalog entry: A12";
                         var spec = SubmissionSpecification.CreateShallow(job, settings);
                         nodes.Add(new(preview.Id, 0, reference, parent, "Orchestration", "Ready",
-                            job is not (ExtractJob or JobList), ServerSnapshotMapper.ToServerJobKind(job).ToString(),
+                            job is not (ExtractJob or JobList), job.Kind.ToServer().ToString(),
                             CoreSnapshotFactory.JobTitle(job), null, job is JobList list ? list.Count : job is ExtractJob ? 1 : 0,
                             "[]", SubmissionSpecificationCodec.Serialize(spec with { EffectiveSettingsJson = "{}" }),
                             "source-settings", spec.EffectiveSettingsJson, "[]", null, null));

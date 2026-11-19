@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Soulseek;
 using Microsoft.Extensions.Logging;
 using Sockseek.Core.Jobs;
@@ -99,11 +100,11 @@ public class DownloadEvents
         job.CreatedAtUtc ??= registeredAtUtc;
         UpdateDirectoryGroup(job, parent, directoryEntry);
         Publish(new JobRegisteredChange(
-            NextSequence(),
+            CoreChange.NextSequence(),
             registeredAtUtc,
             Snapshot(job, incrementRevision: true),
             parent?.Id,
-            sourceJobId));
+            sourceJobId), JobRegistered);
     }
 
     internal void UpdateDirectoryGroup(Job job, Job? parent, DirectoryTransferEntry? directoryEntry)
@@ -122,14 +123,14 @@ public class DownloadEvents
     }
 
     internal void RaiseJobStructureChanged(Job job)
-        => Publish(new JobStructureChangedChange(NextSequence(), UtcNow(), Snapshot(job, incrementRevision: true)));
+        => Publish(new JobStructureChangedChange(CoreChange.NextSequence(), UtcNow(), Snapshot(job, incrementRevision: true)), JobStructureChanged);
 
     internal void RaiseJobStateChanged(Job job, JobStateTransition? transition = null)
     {
         var snapshot = transition is { } captured
             ? CoreSnapshotFactory.CreateExecution(job, captured.After)
             : Execution(job, incrementRevision: true);
-        Publish(new JobStateChangedChange(NextSequence(), UtcNow(), snapshot));
+        Publish(new JobStateChangedChange(CoreChange.NextSequence(), UtcNow(), snapshot), JobStateChanged);
         // An activity notification cannot be published without its owning state
         // transition. Consumers persist the state once and may render this edge.
         if (transition is { ActivityChanged: true }
@@ -138,39 +139,39 @@ public class DownloadEvents
         {
             var reference = new JobReferenceSnapshot(snapshot.Id, snapshot.DisplayId,
                 snapshot.WorkflowId, snapshot.Kind, snapshot.Revision, snapshot.ItemName, snapshot.PrintOption);
-            Publish(new JobActivityChangedChange(NextSequence(), UtcNow(), reference,
-                snapshot.ActivityPhase, snapshot.ActivityUntilUtc));
+            Publish(new JobActivityChangedChange(CoreChange.NextSequence(), UtcNow(), reference,
+                snapshot.ActivityPhase, snapshot.ActivityUntilUtc), JobActivityChanged);
         }
     }
 
     internal void RaiseJobDiscoveryChanged(Job job)
-        => Publish(new JobDiscoveryChangedChange(NextSequence(), UtcNow(), Execution(job, incrementRevision: true)));
+        => Publish(new JobDiscoveryChangedChange(CoreChange.NextSequence(), UtcNow(), Execution(job, incrementRevision: true)), JobDiscoveryChanged);
 
     internal void RaiseJobExecutionCompleted(Job job)
-        => Publish(new JobExecutionCompletedChange(NextSequence(), UtcNow(), Execution(job, incrementRevision: true)));
+        => Publish(new JobExecutionCompletedChange(CoreChange.NextSequence(), UtcNow(), Execution(job, incrementRevision: true)), JobExecutionCompleted);
 
     internal void RaiseJobResultCreated(ExtractJob job, Job result)
-        => Publish(new JobResultCreatedChange(NextSequence(), UtcNow(), Snapshot(job, incrementRevision: true), Snapshot(result, incrementRevision: true)));
+        => Publish(new JobResultCreatedChange(CoreChange.NextSequence(), UtcNow(), Snapshot(job, incrementRevision: true), Snapshot(result, incrementRevision: true)), JobResultCreated);
 
     internal void RaiseEngineCompleted(JobList queue)
-        => Publish(new EngineCompletedChange(NextSequence(), UtcNow(), Reference(queue)));
+        => Publish(new EngineCompletedChange(CoreChange.NextSequence(), UtcNow(), Reference(queue)), EngineCompleted);
 
     internal void RaiseWorkflowRetired(Guid workflowId, int jobCount)
     {
-        Publish(new WorkflowRetiredChange(NextSequence(), UtcNow(), workflowId));
+        Publish(new WorkflowRetiredChange(CoreChange.NextSequence(), UtcNow(), workflowId), WorkflowRetired);
         RetireWorkflowState(workflowId);
         DownloadLogMessages.WorkflowRetired(logger, workflowId, jobCount);
     }
 
 
     internal void RaiseJobStatus(Job job, string status)
-        => Publish(new JobStatusChange(NextSequence(), UtcNow(), Reference(job), status));
+        => Publish(new JobStatusChange(CoreChange.NextSequence(), UtcNow(), Reference(job), status), JobStatus);
 
     internal void RaiseJobMessage(Job job, LogLevel level, string? source, string message)
-        => Publish(new JobMessageChange(NextSequence(), UtcNow(), Reference(job), level, source, message));
+        => Publish(new JobMessageChange(CoreChange.NextSequence(), UtcNow(), Reference(job), level, source, message), JobMessage);
 
     internal void RaiseWorkflowMessage(Guid workflowId, LogLevel level, string? source, string message)
-        => Publish(new WorkflowMessageChange(NextSequence(), UtcNow(), workflowId, level, source, message));
+        => Publish(new WorkflowMessageChange(CoreChange.NextSequence(), UtcNow(), workflowId, level, source, message), WorkflowMessage);
 
     internal void RaiseDownloadStarted(Guid transferId, FileDownloadJob owner, PeerFileTarget target, string outputPath)
         => PublishNonTerminalTransfer(transferId, facts =>
@@ -181,21 +182,21 @@ public class DownloadEvents
             if (owner is SongJob { ActiveCandidate: { } candidate } semanticSong
                 && candidate.Target.Identity == target.Identity)
                 semanticSong.LastAttemptedCandidate = candidate;
-            return new DownloadStartedChange(
-                NextSequence(),
+            Publish(new DownloadStartedChange(
+                CoreChange.NextSequence(),
                 UtcNow(),
                 Execution(owner),
                 SnapshotTransfer(facts, transferId, owner, target, outputPath, state: "Started", bytesTransferred: owner.BytesTransferred, totalBytes: target.Size ?? 0, attemptCount: 0,
-                    transition: TransferLifecycleTransition.Requested));
+                    transition: TransferLifecycleTransition.Requested)), DownloadStarted);
         });
 
     internal void RaiseFallbackTransferStarted(Guid transferId, SongJob song, string sourceReference, string outputPath)
-        => PublishNonTerminalTransfer(transferId, facts => new FallbackTransferStartedChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new FallbackTransferStartedChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "Started", 0, 0, 0,
-                transition: TransferLifecycleTransition.Requested)));
+                transition: TransferLifecycleTransition.Requested)), FallbackTransferStarted));
 
     internal void RaiseDownloadProgress(
         Guid transferId,
@@ -205,13 +206,13 @@ public class DownloadEvents
         long xfer,
         long total,
         double? bytesPerSecond = null)
-        => PublishNonTerminalTransfer(transferId, facts => new DownloadProgressedChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new DownloadProgressedChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             CoreSnapshotFactory.CreateFileDownloadState(song),
             SnapshotTransfer(facts, transferId, song, c, outputPath, state: "InProgress", bytesTransferred: xfer, totalBytes: total, attemptCount: 0,
-                transition: TransferLifecycleTransition.Progress, bytesPerSecond: bytesPerSecond)));
+                transition: TransferLifecycleTransition.Progress, bytesPerSecond: bytesPerSecond)), DownloadProgress));
 
     internal void RaiseDownloadStateChanged(
         Guid transferId,
@@ -222,8 +223,8 @@ public class DownloadEvents
         long bytesTransferred,
         long totalBytes,
         double? bytesPerSecond = null)
-        => PublishNonTerminalTransfer(transferId, facts => new DownloadStateChangedChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new DownloadStateChangedChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             CoreSnapshotFactory.CreateFileDownloadState(song),
@@ -231,7 +232,7 @@ public class DownloadEvents
                 transition: s.HasFlag(TransferStates.InProgress)
                     ? TransferLifecycleTransition.Started
                     : TransferLifecycleTransition.Observed,
-                bytesPerSecond: bytesPerSecond)));
+                bytesPerSecond: bytesPerSecond)), DownloadStateChanged));
 
     internal void RaiseDownloadAttemptFailed(
         Guid transferId,
@@ -242,15 +243,15 @@ public class DownloadEvents
         int attempt,
         int maxAttempts,
         Exception ex)
-        => PublishNonTerminalTransfer(transferId, facts => new DownloadAttemptFailedChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new DownloadAttemptFailedChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             SnapshotTransfer(facts, transferId, song, c, transferOutputPath, state: "AttemptFailed", bytesTransferred: song.BytesTransferred, totalBytes: c.Size ?? 0, attemptCount: attempt),
             attemptOutputPath,
             attempt,
             maxAttempts,
-            CoreSnapshotFactory.CreateException(ex)));
+            CoreSnapshotFactory.CreateException(ex)), DownloadAttemptFailed));
 
     internal void RaiseTransferCompleted(
         Guid transferId,
@@ -259,13 +260,13 @@ public class DownloadEvents
         string finalLocalPath,
         long totalBytes,
         int attemptCount)
-        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => new TransferCompletedChange(
-            NextSequence(),
+        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => Publish(new TransferCompletedChange(
+            CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
             SnapshotTransfer(facts, transferId, song, candidate, finalLocalPath, "Completed", totalBytes, totalBytes, attemptCount,
                 transition: TransferLifecycleTransition.Completed),
-            finalLocalPath));
+            finalLocalPath), TransferCompleted));
 
     internal void RaiseTransferFailed(
         Guid transferId,
@@ -277,15 +278,15 @@ public class DownloadEvents
         int attemptCount,
         TransferFailureReason reason,
         Exception exception)
-        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => new TransferFailedChange(
-            NextSequence(),
+        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => Publish(new TransferFailedChange(
+            CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
             SnapshotTransfer(facts, transferId, song, candidate, outputPath, "Failed", bytesTransferred, totalBytes, attemptCount,
                 transition: TransferLifecycleTransition.Failed,
                 failureReason: reason),
             reason,
-            CoreSnapshotFactory.CreateException(exception)));
+            CoreSnapshotFactory.CreateException(exception)), TransferFailed));
 
     internal void RaiseTransferCancelled(
         Guid transferId,
@@ -296,14 +297,14 @@ public class DownloadEvents
         long totalBytes,
         int attemptCount,
         TransferCancellationReason reason)
-        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => new TransferCancelledChange(
-            NextSequence(),
+        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => Publish(new TransferCancelledChange(
+            CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
             SnapshotTransfer(facts, transferId, song, candidate, outputPath, "Cancelled", bytesTransferred, totalBytes, attemptCount,
                 transition: TransferLifecycleTransition.Cancelled,
                 cancellationReason: reason),
-            reason));
+            reason), TransferCancelled));
 
     internal void RaiseTransferOutputChanged(FileDownloadJob job, string path)
     {
@@ -317,7 +318,7 @@ public class DownloadEvents
                 || string.Equals(previous.LocalPath, path, StringComparison.Ordinal)) return;
             var updated = previous with { Revision = ++facts.Revision, LocalPath = path };
             facts.Metadata = updated;
-            Publish(new TransferOutputChangedChange(NextSequence(), UtcNow(), Reference(job), updated));
+            Publish(new TransferOutputChangedChange(CoreChange.NextSequence(), UtcNow(), Reference(job), updated), TransferOutputChanged);
         }
     }
 
@@ -328,13 +329,13 @@ public class DownloadEvents
         string finalLocalPath,
         long totalBytes,
         int attemptCount)
-        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => new TransferCompletedChange(
-            NextSequence(),
+        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => Publish(new TransferCompletedChange(
+            CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
             SnapshotFallbackTransfer(facts, transferId, song, sourceReference, finalLocalPath, "Completed", totalBytes, totalBytes, attemptCount,
                 transition: TransferLifecycleTransition.Completed),
-            finalLocalPath));
+            finalLocalPath), TransferCompleted));
 
     internal void RaiseFallbackTransferFailed(
         Guid transferId,
@@ -344,15 +345,15 @@ public class DownloadEvents
         int attemptCount,
         TransferFailureReason reason,
         Exception exception)
-        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => new TransferFailedChange(
-            NextSequence(),
+        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => Publish(new TransferFailedChange(
+            CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
             SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "Failed", 0, 0, attemptCount,
                 transition: TransferLifecycleTransition.Failed,
                 failureReason: reason),
             reason,
-            CoreSnapshotFactory.CreateException(exception)));
+            CoreSnapshotFactory.CreateException(exception)), TransferFailed));
 
     internal void RaiseFallbackTransferCancelled(
         Guid transferId,
@@ -361,14 +362,14 @@ public class DownloadEvents
         string? outputPath,
         int attemptCount,
         TransferCancellationReason reason)
-        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => new TransferCancelledChange(
-            NextSequence(),
+        => PublishTerminalTransfer(transferId, (facts, completedAtUtc) => Publish(new TransferCancelledChange(
+            CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
             SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "Cancelled", 0, 0, attemptCount,
                 transition: TransferLifecycleTransition.Cancelled,
                 cancellationReason: reason),
-            reason));
+            reason), TransferCancelled));
 
     internal void RaiseTransferAttemptStarted(
         Guid transferId,
@@ -378,8 +379,8 @@ public class DownloadEvents
         PeerFileTarget candidate,
         string transferOutputPath,
         string attemptOutputPath)
-        => PublishNonTerminalTransfer(transferId, facts => new TransferAttemptStartedChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new TransferAttemptStartedChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, "AttemptStarted", song.BytesTransferred, candidate.Size ?? 0, attemptNumber,
@@ -388,7 +389,7 @@ public class DownloadEvents
             attemptNumber,
             NextAttemptRevision(facts, attemptId),
             TransferAttemptSource.SoulseekPeer,
-            attemptOutputPath));
+            attemptOutputPath), TransferAttemptStarted));
 
     internal void RaiseTransferAttemptCompleted(
         Guid transferId,
@@ -397,14 +398,14 @@ public class DownloadEvents
         FileDownloadJob song,
         PeerFileTarget candidate,
         string transferOutputPath)
-        => PublishNonTerminalTransfer(transferId, facts => new TransferAttemptCompletedChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new TransferAttemptCompletedChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, "AttemptCompleted", song.BytesTransferred, candidate.Size ?? 0, attemptNumber),
             attemptId,
             attemptNumber,
-            NextAttemptRevision(facts, attemptId)));
+            NextAttemptRevision(facts, attemptId)), TransferAttemptCompleted));
 
     internal void RaiseTransferAttemptFailed(
         Guid transferId,
@@ -414,15 +415,15 @@ public class DownloadEvents
         PeerFileTarget candidate,
         string transferOutputPath,
         Exception exception)
-        => PublishNonTerminalTransfer(transferId, facts => new TransferAttemptFailedChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new TransferAttemptFailedChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, "AttemptFailed", song.BytesTransferred, candidate.Size ?? 0, attemptNumber),
             attemptId,
             attemptNumber,
             NextAttemptRevision(facts, attemptId),
-            CoreSnapshotFactory.CreateException(exception)));
+            CoreSnapshotFactory.CreateException(exception)), TransferAttemptFailed));
 
     internal void RaiseTransferAttemptCancelled(
         Guid transferId,
@@ -432,15 +433,15 @@ public class DownloadEvents
         PeerFileTarget candidate,
         string transferOutputPath,
         TransferCancellationReason reason)
-        => PublishNonTerminalTransfer(transferId, facts => new TransferAttemptCancelledChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new TransferAttemptCancelledChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, "AttemptCancelled", song.BytesTransferred, candidate.Size ?? 0, attemptNumber),
             attemptId,
             attemptNumber,
             NextAttemptRevision(facts, attemptId),
-            reason));
+            reason), TransferAttemptCancelled));
 
     internal void RaiseFallbackTransferAttemptStarted(
         Guid transferId,
@@ -448,8 +449,8 @@ public class DownloadEvents
         SongJob song,
         string sourceReference,
         string outputPath)
-        => PublishNonTerminalTransfer(transferId, facts => new TransferAttemptStartedChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new TransferAttemptStartedChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "AttemptStarted", 0, 0, 1,
@@ -458,7 +459,7 @@ public class DownloadEvents
             AttemptNumber: 1,
             AttemptRevision: NextAttemptRevision(facts, attemptId),
             Source: TransferAttemptSource.Fallback,
-            OutputPath: outputPath));
+            OutputPath: outputPath), TransferAttemptStarted));
 
     internal void RaiseFallbackTransferAttemptCompleted(
         Guid transferId,
@@ -466,14 +467,14 @@ public class DownloadEvents
         SongJob song,
         string sourceReference,
         string outputPath)
-        => PublishNonTerminalTransfer(transferId, facts => new TransferAttemptCompletedChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new TransferAttemptCompletedChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "AttemptCompleted", 0, 0, 1),
             attemptId,
             AttemptNumber: 1,
-            AttemptRevision: NextAttemptRevision(facts, attemptId)));
+            AttemptRevision: NextAttemptRevision(facts, attemptId)), TransferAttemptCompleted));
 
     internal void RaiseFallbackTransferAttemptFailed(
         Guid transferId,
@@ -482,15 +483,15 @@ public class DownloadEvents
         string sourceReference,
         string outputPath,
         Exception exception)
-        => PublishNonTerminalTransfer(transferId, facts => new TransferAttemptFailedChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new TransferAttemptFailedChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "AttemptFailed", 0, 0, 1),
             attemptId,
             AttemptNumber: 1,
             AttemptRevision: NextAttemptRevision(facts, attemptId),
-            Exception: CoreSnapshotFactory.CreateException(exception)));
+            Exception: CoreSnapshotFactory.CreateException(exception)), TransferAttemptFailed));
 
     internal void RaiseFallbackTransferAttemptCancelled(
         Guid transferId,
@@ -499,42 +500,44 @@ public class DownloadEvents
         string sourceReference,
         string outputPath,
         TransferCancellationReason reason)
-        => PublishNonTerminalTransfer(transferId, facts => new TransferAttemptCancelledChange(
-            NextSequence(),
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new TransferAttemptCancelledChange(
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
             SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "AttemptCancelled", 0, 0, 1),
             attemptId,
             AttemptNumber: 1,
             AttemptRevision: NextAttemptRevision(facts, attemptId),
-            Reason: reason));
+            Reason: reason), TransferAttemptCancelled));
 
     internal void RaiseTrackBatchResolved(Job job, IReadOnlyList<SongJob> pending, IReadOnlyList<SongJob> existing, IReadOnlyList<SongJob> notFound)
         => Publish(new TrackBatchResolvedChange(
-            NextSequence(),
+            CoreChange.NextSequence(),
             UtcNow(),
             Reference(job),
             SnapshotCollections.Freeze(pending.Select(song => Reference(song))),
             SnapshotCollections.Freeze(existing.Select(song => Reference(song))),
-            SnapshotCollections.Freeze(notFound.Select(song => Reference(song)))));
+            SnapshotCollections.Freeze(notFound.Select(song => Reference(song)))), TrackBatchResolved);
 
     internal void RaiseTrackListReady(IEnumerable<SongJob> songs)
-        => Publish(new TrackListReadyChange(NextSequence(), UtcNow(), SnapshotSongs(songs)));
+        => Publish(new TrackListReadyChange(CoreChange.NextSequence(), UtcNow(), SnapshotSongs(songs)), TrackListReady);
 
     internal void RaiseListProgress(JobList list, int dl, int fl, int total)
-        => Publish(new ListProgressChange(NextSequence(), UtcNow(), Reference(list), dl, fl, total));
+        => Publish(new ListProgressChange(CoreChange.NextSequence(), UtcNow(), Reference(list), dl, fl, total), ListProgress);
 
     internal void RaiseOverallProgress(int dl, int fl, int total)
-        => Publish(new OverallProgressChange(NextSequence(), UtcNow(), dl, fl, total));
+        => Publish(new OverallProgressChange(CoreChange.NextSequence(), UtcNow(), dl, fl, total), OverallProgress);
 
     internal void RaiseSearchChange(CoreChange change)
     {
-        if (change is not (SearchResultsAddedChange or SearchCompletedChange))
-            throw new ArgumentException($"Unsupported search change {change.GetType().Name}.", nameof(change));
-        Publish(change);
+        switch (change)
+        {
+            case SearchResultsAddedChange results: Publish(results, SearchResultsAdded); break;
+            case SearchCompletedChange completed: Publish(completed, SearchCompleted); break;
+            default: throw new ArgumentException($"Unsupported search change {change.GetType().Name}.", nameof(change));
+        }
     }
 
-    private long NextSequence() => CoreChangeSequencer.Next();
 
     private DateTimeOffset UtcNow() => timeProvider.GetUtcNow();
 
@@ -722,7 +725,7 @@ public class DownloadEvents
         return snapshot;
     }
 
-    private void PublishNonTerminalTransfer(Guid transferId, Func<TransferFacts, CoreChange> changeFactory)
+    private void PublishNonTerminalTransfer(Guid transferId, Action<TransferFacts> publish)
     {
         var facts = transferFacts.GetOrAdd(transferId, static _ => new TransferFacts());
         lock (facts)
@@ -730,11 +733,11 @@ public class DownloadEvents
             if (facts.IsTerminal)
                 return;
 
-            Publish(changeFactory(facts));
+            publish(facts);
         }
     }
 
-    private void PublishTerminalTransfer(Guid transferId, Func<TransferFacts, DateTimeOffset, CoreChange> changeFactory)
+    private void PublishTerminalTransfer(Guid transferId, Action<TransferFacts, DateTimeOffset> publish)
     {
         var facts = transferFacts.GetOrAdd(transferId, static _ => new TransferFacts());
         lock (facts)
@@ -745,7 +748,7 @@ public class DownloadEvents
             facts.IsTerminal = true;
             // The original outcome owns its time; later output-path updates retain it.
             var completedAtUtc = facts.CompletedAtUtc = UtcNow();
-            Publish(changeFactory(facts, completedAtUtc.Value));
+            publish(facts, completedAtUtc.Value);
         }
     }
 
@@ -792,106 +795,11 @@ public class DownloadEvents
         public TransferCancellationReason? CancellationReason { get; set; }
     }
 
-    private void Publish(CoreChange change)
+    private void Publish<T>(T change, Action<T>? observers,
+        [CallerArgumentExpression(nameof(observers))] string eventName = "") where T : CoreChange
     {
-        switch (change)
-        {
-            case JobRegisteredChange specific:
-                InvokeObservers(JobRegistered, specific, nameof(JobRegistered));
-                break;
-            case JobStructureChangedChange specific:
-                InvokeObservers(JobStructureChanged, specific, nameof(JobStructureChanged));
-                break;
-            case JobStateChangedChange specific:
-                InvokeObservers(JobStateChanged, specific, nameof(JobStateChanged));
-                break;
-            case JobActivityChangedChange specific:
-                InvokeObservers(JobActivityChanged, specific, nameof(JobActivityChanged));
-                break;
-            case JobDiscoveryChangedChange specific:
-                InvokeObservers(JobDiscoveryChanged, specific, nameof(JobDiscoveryChanged));
-                break;
-            case JobExecutionCompletedChange specific:
-                InvokeObservers(JobExecutionCompleted, specific, nameof(JobExecutionCompleted));
-                break;
-            case JobResultCreatedChange specific:
-                InvokeObservers(JobResultCreated, specific, nameof(JobResultCreated));
-                break;
-            case EngineCompletedChange specific:
-                InvokeObservers(EngineCompleted, specific, nameof(EngineCompleted));
-                break;
-            case WorkflowRetiredChange specific:
-                InvokeObservers(WorkflowRetired, specific, nameof(WorkflowRetired));
-                break;
-            case JobStatusChange specific:
-                InvokeObservers(JobStatus, specific, nameof(JobStatus));
-                break;
-            case JobMessageChange specific:
-                InvokeObservers(JobMessage, specific, nameof(JobMessage));
-                break;
-            case WorkflowMessageChange specific:
-                InvokeObservers(WorkflowMessage, specific, nameof(WorkflowMessage));
-                break;
-            case DownloadStartedChange specific:
-                InvokeObservers(DownloadStarted, specific, nameof(DownloadStarted));
-                break;
-            case FallbackTransferStartedChange specific:
-                InvokeObservers(FallbackTransferStarted, specific, nameof(FallbackTransferStarted));
-                break;
-            case DownloadProgressedChange specific:
-                InvokeObservers(DownloadProgress, specific, nameof(DownloadProgress));
-                break;
-            case DownloadStateChangedChange specific:
-                InvokeObservers(DownloadStateChanged, specific, nameof(DownloadStateChanged));
-                break;
-            case DownloadAttemptFailedChange specific:
-                InvokeObservers(DownloadAttemptFailed, specific, nameof(DownloadAttemptFailed));
-                break;
-            case TransferOutputChangedChange specific:
-                InvokeObservers(TransferOutputChanged, specific, nameof(TransferOutputChanged));
-                break;
-            case TransferCompletedChange specific:
-                InvokeObservers(TransferCompleted, specific, nameof(TransferCompleted));
-                break;
-            case TransferFailedChange specific:
-                InvokeObservers(TransferFailed, specific, nameof(TransferFailed));
-                break;
-            case TransferCancelledChange specific:
-                InvokeObservers(TransferCancelled, specific, nameof(TransferCancelled));
-                break;
-            case TransferAttemptStartedChange specific:
-                InvokeObservers(TransferAttemptStarted, specific, nameof(TransferAttemptStarted));
-                break;
-            case TransferAttemptCompletedChange specific:
-                InvokeObservers(TransferAttemptCompleted, specific, nameof(TransferAttemptCompleted));
-                break;
-            case TransferAttemptFailedChange specific:
-                InvokeObservers(TransferAttemptFailed, specific, nameof(TransferAttemptFailed));
-                break;
-            case TransferAttemptCancelledChange specific:
-                InvokeObservers(TransferAttemptCancelled, specific, nameof(TransferAttemptCancelled));
-                break;
-            case SearchResultsAddedChange specific:
-                InvokeObservers(SearchResultsAdded, specific, nameof(SearchResultsAdded));
-                break;
-            case SearchCompletedChange specific:
-                InvokeObservers(SearchCompleted, specific, nameof(SearchCompleted));
-                break;
-            case TrackBatchResolvedChange specific:
-                InvokeObservers(TrackBatchResolved, specific, nameof(TrackBatchResolved));
-                break;
-            case TrackListReadyChange specific:
-                InvokeObservers(TrackListReady, specific, nameof(TrackListReady));
-                break;
-            case ListProgressChange specific:
-                InvokeObservers(ListProgress, specific, nameof(ListProgress));
-                break;
-            case OverallProgressChange specific:
-                InvokeObservers(OverallProgress, specific, nameof(OverallProgress));
-                break;
-        }
-
-        InvokeObservers(ChangePublished, change, nameof(ChangePublished));
+        InvokeObservers(observers, change, eventName);
+        InvokeObservers(ChangePublished, (CoreChange)change, nameof(ChangePublished));
     }
 
     private void RetireWorkflowState(Guid workflowId)

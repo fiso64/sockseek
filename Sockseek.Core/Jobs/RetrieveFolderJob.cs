@@ -1,3 +1,4 @@
+using Sockseek.Core.Snapshots;
 using Sockseek.Core;
 using Sockseek.Core.Models;
 
@@ -12,6 +13,8 @@ namespace Sockseek.Core.Jobs;
 
     public class RetrieveFolderJob : Job
     {
+        public override JobSnapshotKind Kind => JobSnapshotKind.RetrieveFolder;
+
         public PeerDirectoryIdentity Directory { get; }
         private PeerDirectorySnapshot? result;
         public PeerDirectorySnapshot? Result

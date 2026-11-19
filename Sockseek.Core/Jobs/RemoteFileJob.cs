@@ -1,3 +1,4 @@
+using Sockseek.Core.Snapshots;
 using Sockseek.Core.Models;
 
 namespace Sockseek.Core.Jobs;
@@ -5,6 +6,8 @@ namespace Sockseek.Core.Jobs;
 /// <summary>An ordinary remote-file download with an exact peer target.</summary>
 public sealed class RemoteFileJob : FileDownloadJob
 {
+    public override JobSnapshotKind Kind => JobSnapshotKind.RemoteFile;
+
     public RemoteFileJob(PeerFileTarget target, RelativeOutputPath? outputPath = null)
     {
         ArgumentNullException.ThrowIfNull(target);

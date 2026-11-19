@@ -325,7 +325,7 @@ public sealed class JobSettingsComposer
 internal static class SettingsFieldSnapshot
 {
     public static Dictionary<string, string?> Capture(DownloadSettings settings)
-        => SettingsSchema.For(typeof(DownloadSettings)).Leaves.ToDictionary(
+        => SettingsSchema.For(typeof(DownloadSettings)).Leaves.Values.ToDictionary(
             member => member.Path, member => StableValue(member.Get(settings)), StringComparer.Ordinal);
 
     private static string? StableValue(object? value)

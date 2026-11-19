@@ -179,6 +179,17 @@ public sealed class ExactPeerFileTransferRunner
             }
         }
 
+        void CancelAttempt(TransferCancellationReason reason)
+            => events.RaiseTransferAttemptCancelled(transferId, currentAttemptId, Math.Max(attemptCount, 1),
+                owner, target, outputPath, reason);
+
+        void CancelTransfer(TransferCancellationReason reason)
+        {
+            CancelAttempt(reason);
+            events.RaiseTransferCancelled(transferId, owner, target, outputPath, owner.BytesTransferred,
+                totalBytes, Math.Max(attemptCount, 1), reason);
+        }
+
         var prepared = await fileOperations.PrepareAsync(target, outputPath, incompleteOutputPath, owner.Id, owner.WorkflowId,
             publishToDuplicateCache, allowOverwrite, allowReuse);
         if (prepared.Reused != null) return prepared.Reused;
@@ -312,14 +323,7 @@ public sealed class ExactPeerFileTransferRunner
                 target,
                 activeDownload.StaleMaxStaleTimeMs ?? maxStaleTimeMs);
             events.RaiseDownloadAttemptFailed(transferId, owner, target, outputPath, incompleteOutputPath, Math.Max(attemptCount, 1), Math.Max(attemptCount, 1), staleException);
-            events.RaiseTransferAttemptCancelled(
-                transferId,
-                currentAttemptId,
-                Math.Max(attemptCount, 1),
-                owner,
-                target,
-                outputPath,
-                TransferCancellationReason.Stale);
+            CancelAttempt(TransferCancellationReason.Stale);
             events.RaiseTransferFailed(
                 transferId,
                 owner,
@@ -338,23 +342,7 @@ public sealed class ExactPeerFileTransferRunner
 
             if (activeDownloads.TryRemove(transferId, out var ad) && ad.IsManuallySkipped)
             {
-                events.RaiseTransferAttemptCancelled(
-                    transferId,
-                    currentAttemptId,
-                    Math.Max(attemptCount, 1),
-                    owner,
-                    target,
-                    outputPath,
-                    TransferCancellationReason.ManualSkip);
-                events.RaiseTransferCancelled(
-                    transferId,
-                    owner,
-                    target,
-                    outputPath,
-                    owner.BytesTransferred,
-                    totalBytes,
-                    Math.Max(attemptCount, 1),
-                    TransferCancellationReason.ManualSkip);
+                CancelTransfer(TransferCancellationReason.ManualSkip);
                 return ExactFileTransferOutcome.ManuallySkipped(target);
             }
 
@@ -363,23 +351,7 @@ public sealed class ExactPeerFileTransferRunner
                     || ct?.IsCancellationRequested == true);
             if (cancellationRequested)
             {
-                events.RaiseTransferAttemptCancelled(
-                    transferId,
-                    currentAttemptId,
-                    Math.Max(attemptCount, 1),
-                    owner,
-                    target,
-                    outputPath,
-                    TransferCancellationReason.Requested);
-                events.RaiseTransferCancelled(
-                    transferId,
-                    owner,
-                    target,
-                    outputPath,
-                    owner.BytesTransferred,
-                    totalBytes,
-                    Math.Max(attemptCount, 1),
-                    TransferCancellationReason.Requested);
+                CancelTransfer(TransferCancellationReason.Requested);
             }
             else
             {

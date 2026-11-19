@@ -33,49 +33,22 @@ public static class RemoteTransferSubmissionPolicy
         bool containsRemoteTransfer = IsOrdinaryRemoteTransfer(job, settings);
         if (job is JobList list)
         {
-            if (childDrafts is null)
+            var children = list.Jobs;
+            for (int index = 0; index < children.Count; index++)
             {
-                // Follow-ups without drafts have no per-child explicit patches.
-                // Finding one remote descendant is sufficient for root validation.
-                foreach (Job child in list.Jobs)
-                {
-                    if (!ContainsOrdinaryRemoteTransfer(
-                        child, resolveChildSettings(settings, child, null), resolveChildSettings)) continue;
-                    containsRemoteTransfer = true;
-                    break;
-                }
-            }
-            else
-            {
-                for (int index = 0; index < list.Jobs.Count; index++)
-                {
-                    Job child = list.Jobs[index];
-                    JobDraftDto? draft = index < childDrafts.Count ? childDrafts[index] : null;
-                    DownloadSettingsPatchDto? childPatch = draft is null ? null
-                        : JobRequestMapper.DraftDownloadSettings(draft);
-                    containsRemoteTransfer |= ValidateOverrides(
-                        child, resolveChildSettings(settings, child, childPatch), childPatch,
-                        resolveChildSettings, (draft as JobListJobDraftDto)?.Jobs);
-                }
+                // With no child overrides, one remote descendant settles the root policy.
+                if (childDrafts is null && containsRemoteTransfer) break;
+                Job child = children[index];
+                JobDraftDto? draft = childDrafts is not null && index < childDrafts.Count ? childDrafts[index] : null;
+                DownloadSettingsPatchDto? childPatch = draft?.DownloadSettings;
+                containsRemoteTransfer |= ValidateOverrides(child, resolveChildSettings(settings, child, childPatch),
+                    childPatch, resolveChildSettings, (draft as JobListJobDraftDto)?.Jobs);
             }
         }
 
         if (containsRemoteTransfer && patch != null)
             RemoteTransferSettingsValidator.ValidateExplicitPatch(patch);
         return containsRemoteTransfer;
-    }
-
-    private static bool ContainsOrdinaryRemoteTransfer(
-        Job job,
-        DownloadSettings settings,
-        Func<DownloadSettings, Job, DownloadSettingsPatchDto?, DownloadSettings> resolveChildSettings)
-    {
-        if (IsOrdinaryRemoteTransfer(job, settings)) return true;
-        if (job is JobList list)
-            foreach (Job child in list.Jobs)
-                if (ContainsOrdinaryRemoteTransfer(
-                    child, resolveChildSettings(settings, child, null), resolveChildSettings)) return true;
-        return false;
     }
 
     public static bool IsOrdinaryRemoteTransfer(JobSettingsContext job, DownloadSettings settings)

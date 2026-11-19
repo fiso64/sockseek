@@ -14,7 +14,7 @@ public static class JobExtraction
     {
         ArgumentNullException.ThrowIfNull(source);
         if (source.Config is null) throw new InvalidOperationException("Resolve settings before extraction.");
-        var (inputType, extractor) = ExtractorRegistry.GetMatchingExtractor(
+        var (inputType, extractor) = ExtractorRegistry.CreateExtractor(
             source.Input, source.InputType ?? InputType.None, source.Config);
         source.InputType = inputType;
         source.Config.Extraction.InputType = inputType;
@@ -27,7 +27,7 @@ public static class JobExtraction
             settings.RequestedMode = requested;
         }
         cancellationToken.ThrowIfCancellationRequested();
-        Job result = await extractor.GetTracks(source.Input, settings, context ?? ExtractorContext.None)
+        Job result = await extractor.ExtractAsync(source.Input, settings, context ?? ExtractorContext.None)
             .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         return new(Normalize(source, result, settings.UpgradeToAlbum, extractor), inputType, extractor);
@@ -65,7 +65,6 @@ public static class JobExtraction
 
         void Apply(Job item)
         {
-            item.WorkflowId = source.WorkflowId;
             item.SourceInputType = source.InputType;
             if (collectionType is not null) item.SourceCollectionInputType = collectionType;
             item.ArtifactId = source.ArtifactId;

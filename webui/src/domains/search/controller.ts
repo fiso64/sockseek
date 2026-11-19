@@ -15,11 +15,11 @@ import { DaemonApiError } from '../../api/http';
 import { SearchSelection, selectionCountKey,
   type GroupOption, type SearchSelectionState } from './selection';
 
-export type SearchPage =
-  | SearchViewFilePageDto
-  | SearchViewDirectoryPageDto
-  | SearchViewTrackGroupPageDto
-  | SearchViewAlbumGroupPageDto;
+interface SearchPage {
+  rows: SearchRow[];
+  revision: SearchViewSummaryDto['revision'];
+  nextCursor?: string | null;
+}
 
 export type SearchRow =
   | { kind: 'file'; ref: string; value: SearchViewFilePageDto['items'][number] }
@@ -101,6 +101,34 @@ export function searchViewUnavailable(state: Pick<SearchViewState, 'error' | 're
     .some(error => error instanceof DaemonApiError && error.status === 404);
 }
 
+type ViewState = Omit<SearchViewState, keyof SearchSelectionState | 'canRetryPendingCommit'>;
+
+function initialState(): ViewState {
+  return {
+    groupOptions: null,
+    optionSteps: new Map(),
+    choiceValidationLoading: false,
+    choiceValidationError: null,
+    retrievals: new Map(),
+    directoryFiles: new Map(),
+    phase: 'idle',
+    loadingMore: false,
+    refining: false,
+    refinementError: null,
+    job: null,
+    draft: null,
+    summary: null,
+    sortOrder: 'Relevance',
+    rows: [],
+    nextCursor: null,
+    selectionCountsLoading: false,
+    selectionCountsError: null,
+    committing: false,
+    receipt: null,
+    error: null,
+  };
+}
+
 export class SearchViewController {
   private readonly selection = new SearchSelection();
   private listeners = new Set<Listener>();
@@ -134,29 +162,7 @@ export class SearchViewController {
   private groupOptionsRequest: AbortController | null = null;
   private choiceRequest: AbortController | null = null;
   private choiceRequestKey: string | null = null;
-  private state: Omit<SearchViewState, keyof SearchSelectionState | 'canRetryPendingCommit'> = {
-    groupOptions: null,
-    optionSteps: new Map(),
-    choiceValidationLoading: false,
-    choiceValidationError: null,
-    retrievals: new Map(),
-    directoryFiles: new Map(),
-    phase: 'idle',
-    loadingMore: false,
-    refining: false,
-    refinementError: null,
-    job: null,
-    draft: null,
-    summary: null,
-    sortOrder: 'Relevance',
-    rows: [],
-    nextCursor: null,
-    selectionCountsLoading: false,
-    selectionCountsError: null,
-    committing: false,
-    receipt: null,
-    error: null,
-  };
+  private state = initialState();
 
   constructor(
     private readonly api: DaemonApiClient = daemonApi,
@@ -250,27 +256,12 @@ export class SearchViewController {
     this.retrievalInFlight.clear();
     this.retrievalRequests.clear();
     this.state = {
+      ...initialState(),
       phase: 'loading',
-      groupOptions: null,
-      optionSteps: new Map(),
-      choiceValidationLoading: false,
-      choiceValidationError: null,
-      retrievals: new Map(),
-      loadingMore: false,
-      refining: false,
-      refinementError: null,
-      directoryFiles: new Map(),
       job: submitted.job,
       draft: { ...submitted.draft },
       summary: submitted.view,
       sortOrder: submitted.view.sortOrder ?? 'Relevance',
-      rows: [],
-      nextCursor: null,
-      selectionCountsLoading: false,
-      selectionCountsError: null,
-      committing: false,
-      receipt: null,
-      error: null,
     };
     this.emit();
     await this.reloadVisiblePages(submitted.view, 1);
@@ -536,7 +527,7 @@ export class SearchViewController {
     this.emit();
     try {
       const page = await this.loadPage(summary, this.state.nextCursor, this.state.sortOrder, request.signal);
-      if (this.stopped || request.signal.aborted || generation !== this.generation || pages !== this.pages || !sameWireInteger(page.revision.revision, summary.revision)) return;
+      if (this.stopped || request.signal.aborted || generation !== this.generation || pages !== this.pages || !sameWireInteger(page.revision, summary.revision)) return;
       this.pages = [...this.pages, page];
       this.publishPages(summary);
     } catch (error) {
@@ -967,7 +958,7 @@ export class SearchViewController {
       // adds latency and traffic but cannot yield any cards.
       for (let index = 0; Number(summary.counters.topLevelItemCount) > 0 && index < count; index += 1) {
         const page = await this.loadPage(summary, cursor, order, request.signal);
-        if (!sameWireInteger(page.revision.revision, summary.revision)) {
+        if (!sameWireInteger(page.revision, summary.revision)) {
           throw new Error('Search View page revision does not match its summary.');
         }
         pages.push(page);
@@ -975,12 +966,13 @@ export class SearchViewController {
         if (!cursor) break;
       }
       if (this.stopped || request.signal.aborted) return false;
-      const mode = this.state.draft?.resultMode;
-      const directories = mode === 'generic' || mode === 'album'
-        ? (pages as SearchViewDirectoryPageDto[]).flatMap(page => page.items)
-        : mode === 'album-groups'
-          ? (pages as SearchViewAlbumGroupPageDto[]).flatMap(page => page.items.map(item => item.representative))
-          : [];
+      const directories: Schema<'SearchViewDirectoryDto'>[] = [];
+      for (const page of pages) {
+        for (const row of page.rows) {
+          if (row.kind === 'directory') directories.push(row.value);
+          if (row.kind === 'album-group') directories.push(row.value.representative);
+        }
+      }
       const orderingOnly = Boolean(options?.request) && !replacing;
       // Reordering the same snapshot cannot invalidate cached child pages or
       // advance a pinned selection. Retry/validation belongs to an actual refresh.
@@ -1019,40 +1011,31 @@ export class SearchViewController {
     }
   }
 
-  private loadPage(summary: SearchViewSummaryDto, cursor: string | null, sortOrder: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchPage> {
-    const mode = this.state.draft?.resultMode;
-    if (mode === 'generic' || mode === 'album') {
-      return this.api.getSearchViewDirectories(summary.viewId, summary.revision, cursor, searchDirectoryPageSize, sortOrder, signal);
+  private async loadPage(summary: SearchViewSummaryDto, cursor: string | null, sortOrder: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchPage> {
+    function page<T>(response: { revision: SearchViewFilePageDto['revision']; nextCursor?: string | null; items: T[] },
+      row: (value: T) => SearchRow): SearchPage {
+      return { revision: response.revision.revision, nextCursor: response.nextCursor, rows: response.items.map(row) };
     }
-    if (mode === 'song-groups') {
-      return this.api.getSearchViewTrackGroups(summary.viewId, summary.revision, cursor, searchFilePageSize, signal);
+    const { viewId, revision } = summary;
+    switch (this.state.draft?.resultMode ?? 'track') {
+      case 'generic':
+      case 'album':
+        return page(await this.api.getSearchViewDirectories(viewId, revision, cursor, searchDirectoryPageSize, sortOrder, signal),
+          value => ({ kind: 'directory', ref: value.ref.ref, value }));
+      case 'song-groups':
+        return page(await this.api.getSearchViewTrackGroups(viewId, revision, cursor, searchFilePageSize, signal),
+          value => ({ kind: 'track-group', ref: value.ref, value }));
+      case 'album-groups':
+        return page(await this.api.getSearchViewAlbumGroups(viewId, revision, cursor, searchDirectoryPageSize, signal),
+          value => ({ kind: 'album-group', ref: value.ref, value }));
+      case 'track':
+        return page(await this.api.getSearchViewFiles(viewId, revision, cursor, searchFilePageSize, sortOrder, signal),
+          value => ({ kind: 'file', ref: value.ref, value }));
     }
-    if (mode === 'album-groups') {
-      return this.api.getSearchViewAlbumGroups(summary.viewId, summary.revision, cursor, searchDirectoryPageSize, signal);
-    }
-    return this.api.getSearchViewFiles(summary.viewId, summary.revision, cursor, searchFilePageSize, sortOrder, signal);
   }
 
   private publishPages(summary: SearchViewSummaryDto, refreshedDirectories?: Map<string, DirectoryFilesPage>): void {
-    const rows: SearchRow[] = [];
-    const mode = this.state.draft?.resultMode;
-    if (mode === 'track') {
-      for (const page of this.pages as SearchViewFilePageDto[]) {
-        for (const item of page.items) rows.push({ kind: 'file', ref: item.ref, value: item });
-      }
-    } else if (mode === 'generic' || mode === 'album') {
-      for (const page of this.pages as SearchViewDirectoryPageDto[]) {
-        for (const item of page.items) rows.push({ kind: 'directory', ref: item.ref.ref, value: item });
-      }
-    } else if (mode === 'song-groups') {
-      for (const page of this.pages as SearchViewTrackGroupPageDto[]) {
-        for (const item of page.items) rows.push({ kind: 'track-group', ref: item.ref, value: item });
-      }
-    } else if (mode === 'album-groups') {
-      for (const page of this.pages as SearchViewAlbumGroupPageDto[]) {
-        for (const item of page.items) rows.push({ kind: 'album-group', ref: item.ref, value: item });
-      }
-    }
+    const rows = this.pages.flatMap(page => page.rows);
     const directoryFiles = refreshedDirectories ?? (sameWireInteger(this.state.summary?.revision ?? -1, summary.revision)
       ? new Map(this.state.directoryFiles) : new Map<string, DirectoryFilesPage>());
     const retrievals = new Map(this.state.retrievals);

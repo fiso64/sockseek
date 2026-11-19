@@ -23,7 +23,11 @@ public interface ICoalescibleCoreChange : ICoreChange
 /// </summary>
 public interface IOrderedCoreChange : ICoreChange;
 
-public closed record CoreChange(long Sequence, DateTimeOffset OccurredAtUtc) : ICoreChange;
+public closed record CoreChange(long Sequence, DateTimeOffset OccurredAtUtc) : ICoreChange
+{
+    private static long lastSequence;
+    internal static long NextSequence() => Interlocked.Increment(ref lastSequence);
+}
 
 public sealed record JobRegisteredChange(
     long Sequence,

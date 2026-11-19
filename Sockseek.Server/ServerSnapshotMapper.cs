@@ -20,42 +20,45 @@ public static class ServerSnapshotMapper
         DateTimeOffset? activityUntilUtc = null,
         JobTerminalOutcome? terminalOutcome = null,
         JobSummaryStatsDto? stats = null,
-        bool includeActions = true)
+        bool includeActions = true,
+        (int? Public, int? Locked, int? Peers)? discoveryCounts = null)
     {
         var effectiveLifecycleState = lifecycleState ?? job.LifecycleState;
         var effectiveActivityPhase = activityPhase ?? job.ActivityPhase;
         var effectiveTerminalOutcome = terminalOutcome ?? job.TerminalOutcome;
         SearchDefinition? searchDefinition = (job.Payload as SearchJobSnapshotPayload)?.Definition;
 
+        var counts = discoveryCounts ?? (job.Discovery?.RawResultCount, job.Discovery?.LockedFileCount,
+            job.Discovery?.ObservedPeerCount);
         return new JobSummaryDto(
             job.Id,
             job.DisplayId,
             job.WorkflowId,
-            ToServerJobKind(job.Kind),
-            ToServerJobLifecycleState(effectiveLifecycleState),
-            ToServerJobActivityPhase(effectiveActivityPhase),
+            job.Kind.ToServer(),
+            effectiveLifecycleState.ToServer(),
+            effectiveActivityPhase.ToServer(),
             effectiveActivityPhase == JobActivityPhase.None ? null : activityUntilUtc ?? job.ActivityUntilUtc,
-            ToServerJobTerminalOutcome(effectiveTerminalOutcome),
-            ToServerJobSkipReason(job.SkipReason),
+            effectiveTerminalOutcome.ToServer(),
+            job.SkipReason.ToServer(),
             job.ItemName,
             job.QueryText,
-            ToServerFailureReason(job.FailureReason),
+            job.FailureReason.ToServer(),
             job.FailureMessage,
             parentJobId,
             resultJobId,
             sourceJobId,
-            job.Discovery?.RawResultCount,
-            job.Discovery?.LockedFileCount,
+            counts.Public,
+            counts.Locked,
             job.AppliedProfiles.Select(profile => new AppliedProfileDto(profile.Name, profile.Source)).ToArray(),
             includeActions ? BuildJobActions(job.Id, job.CanCancel) : [],
             job.FailureDetail,
-            ToServerJobCancellationSource(job.CancellationSource),
+            job.CancellationSource.ToServer(),
             job.PrintOption.ToServer(),
             job.SubmissionId,
-            ToServerJobRole(job.SemanticRole),
+            job.SemanticRole.ToServer(),
             job.CreatedAtUtc,
-            DiscoveryPublicFileCount: job.Discovery?.RawResultCount,
-            DiscoveryObservedPeerCount: job.Discovery?.ObservedPeerCount,
+            DiscoveryPublicFileCount: counts.Public,
+            DiscoveryObservedPeerCount: counts.Peers,
             Stats: stats,
             SourceDetail: job.SourceDetail,
             SearchDefaultProjection: searchDefinition?.DefaultProjection.ToServer(),
@@ -131,7 +134,7 @@ public static class ServerSnapshotMapper
                 retrieve.Directory.FolderPath,
                 retrieve.Directory.Username,
                 retrieve.NewFilesFoundCount,
-                ToServerFolderRetrievalOutcome(retrieve.RetrievalOutcome),
+                retrieve.RetrievalOutcome.ToServer(),
                 retrieve.RetrievalCancelled),
             AlbumExecutionPayload album => new AlbumJobPayloadDto(
                 ToAlbumQueryDto(album.Query), album.ResultCount, ToDirectoryDownloadStateDto(album.Directory),
@@ -149,9 +152,9 @@ public static class ServerSnapshotMapper
                 list.Outcomes.Completed, list.Outcomes.Succeeded, list.Outcomes.Failed),
             RetrieveFolderExecutionPayload retrieve => new RetrieveFolderJobPayloadDto(
                 retrieve.Directory.FolderPath, retrieve.Directory.Username, retrieve.NewFilesFoundCount,
-                ToServerFolderRetrievalOutcome(retrieve.RetrievalOutcome), retrieve.RetrievalCancelled),
+                retrieve.RetrievalOutcome.ToServer(), retrieve.RetrievalCancelled),
             GenericJobSnapshotPayload generic => new GenericJobPayloadDto(generic.Text),
-            null => new GenericJobPayloadDto(job.QueryText ?? ToServerJobKind(job.Kind).ToWireString()),
+            null => new GenericJobPayloadDto(job.QueryText ?? job.Kind.ToServer().ToWireString()),
         };
 
     // Summary readers need scalar counters, not a rendered detail payload. Both
@@ -287,17 +290,17 @@ public static class ServerSnapshotMapper
             song.ResolvedTarget?.Attributes?.Select(ToFileAttributeDto).ToList(),
             job.Id,
             job.DisplayId,
-            ToServerJobLifecycleState(job.LifecycleState),
-            ToServerJobActivityPhase(job.ActivityPhase),
+            job.LifecycleState.ToServer(),
+            job.ActivityPhase.ToServer(),
             job.ActivityUntilUtc,
-            ToServerJobTerminalOutcome(job.TerminalOutcome),
-            ToServerJobSkipReason(job.SkipReason),
-            ToServerFailureReason(job.FailureReason),
+            job.TerminalOutcome.ToServer(),
+            job.SkipReason.ToServer(),
+            job.FailureReason.ToServer(),
             job.FailureMessage,
             BuildJobActions(job.Id, job.CanCancel),
             transferState,
-            ToServerJobCancellationSource(job.CancellationSource),
-            ToServerSongDownloadSource(song.DownloadSource),
+            job.CancellationSource.ToServer(),
+            song.DownloadSource.ToServer(),
             song.ExactTarget == null ? null : ToPeerFileTargetDto(song.ExactTarget),
             ToAttemptedSongFileDto(song.LastAttemptedCandidate),
             ToFallbackSourceDto(song.Fallback));
@@ -352,153 +355,11 @@ public static class ServerSnapshotMapper
             Optional(query.Uri),
             query.ArtistMaybeWrong);
 
-    public static ServerJobKind ToServerJobKind(JobSnapshotKind kind)
-        => kind switch
-        {
-            JobSnapshotKind.Extract => ServerJobKind.Extract,
-            JobSnapshotKind.Search => ServerJobKind.Search,
-            JobSnapshotKind.Song => ServerJobKind.Song,
-            JobSnapshotKind.Album => ServerJobKind.Album,
-            JobSnapshotKind.SongGroups => ServerJobKind.SongGroups,
-            JobSnapshotKind.AlbumGroups => ServerJobKind.AlbumGroups,
-            JobSnapshotKind.JobList => ServerJobKind.JobList,
-            JobSnapshotKind.RetrieveFolder => ServerJobKind.RetrieveFolder,
-            JobSnapshotKind.RemoteFile => ServerJobKind.RemoteFile,
-            JobSnapshotKind.RemoteDirectory => ServerJobKind.RemoteDirectory,
-            _ => ServerJobKind.Generic,
-        };
-
     private static string? Optional(string value)
         => value.Length == 0 ? null : value;
 
     private static int? Optional(int value)
         => value < 0 ? null : value;
-
-    public static ServerJobKind ToServerJobKind(Job job) => job switch
-    {
-        ExtractJob => ServerJobKind.Extract,
-        SearchJob => ServerJobKind.Search,
-        SongJob => ServerJobKind.Song,
-        AlbumJob => ServerJobKind.Album,
-        RemoteFileJob => ServerJobKind.RemoteFile,
-        RemoteDirectoryJob => ServerJobKind.RemoteDirectory,
-        JobList => ServerJobKind.JobList,
-        RetrieveFolderJob => ServerJobKind.RetrieveFolder,
-        SongGroupsJob => ServerJobKind.SongGroups,
-        AlbumGroupsJob => ServerJobKind.AlbumGroups,
-        _ => ServerJobKind.Generic,
-    };
-
-    public static ServerJobRole ToServerJobRole(JobSemanticRole role)
-        => role switch
-        {
-            JobSemanticRole.UserRoot => ServerJobRole.UserRoot,
-            JobSemanticRole.SemanticResult => ServerJobRole.SemanticResult,
-            JobSemanticRole.Orchestration => ServerJobRole.Orchestration,
-            JobSemanticRole.ExecutionChild => ServerJobRole.ExecutionChild,
-            _ => throw new ArgumentOutOfRangeException(nameof(role), role, null),
-        };
-
-    public static ServerJobLifecycleState ToServerJobLifecycleState(JobLifecycleState state)
-        => state switch
-        {
-            JobLifecycleState.Pending => ServerJobLifecycleState.Pending,
-            JobLifecycleState.Running => ServerJobLifecycleState.Running,
-            JobLifecycleState.AwaitingSelection => ServerJobLifecycleState.AwaitingSelection,
-            JobLifecycleState.Terminal => ServerJobLifecycleState.Terminal,
-            _ => throw new ArgumentOutOfRangeException(nameof(state), state, null),
-        };
-
-    public static ServerJobActivityPhase ToServerJobActivityPhase(JobActivityPhase phase)
-        => phase switch
-        {
-            JobActivityPhase.None => ServerJobActivityPhase.None,
-            JobActivityPhase.WaitingForSearchConcurrency => ServerJobActivityPhase.WaitingForSearchConcurrency,
-            JobActivityPhase.SearchRateLimited => ServerJobActivityPhase.SearchRateLimited,
-            JobActivityPhase.Searching => ServerJobActivityPhase.Searching,
-            JobActivityPhase.ProcessingSearchResults => ServerJobActivityPhase.ProcessingSearchResults,
-            JobActivityPhase.Extracting => ServerJobActivityPhase.Extracting,
-            JobActivityPhase.Downloading => ServerJobActivityPhase.Downloading,
-            JobActivityPhase.RetrievingFolder => ServerJobActivityPhase.RetrievingFolder,
-            JobActivityPhase.RunningChildren => ServerJobActivityPhase.RunningChildren,
-            JobActivityPhase.Organizing => ServerJobActivityPhase.Organizing,
-            JobActivityPhase.RunningOnComplete => ServerJobActivityPhase.RunningOnComplete,
-            JobActivityPhase.RunningFallback => ServerJobActivityPhase.RunningFallback,
-            JobActivityPhase.SearchingFallback => ServerJobActivityPhase.SearchingFallback,
-            JobActivityPhase.DownloadingFallback => ServerJobActivityPhase.DownloadingFallback,
-            JobActivityPhase.ProcessingFallback => ServerJobActivityPhase.ProcessingFallback,
-            _ => throw new ArgumentOutOfRangeException(nameof(phase), phase, null),
-        };
-
-    public static ServerJobTerminalOutcome ToServerJobTerminalOutcome(JobTerminalOutcome outcome)
-        => outcome switch
-        {
-            JobTerminalOutcome.None => ServerJobTerminalOutcome.None,
-            JobTerminalOutcome.Succeeded => ServerJobTerminalOutcome.Succeeded,
-            JobTerminalOutcome.Failed => ServerJobTerminalOutcome.Failed,
-            JobTerminalOutcome.Skipped => ServerJobTerminalOutcome.Skipped,
-            JobTerminalOutcome.Cancelled => ServerJobTerminalOutcome.Cancelled,
-            JobTerminalOutcome.PartialSuccess => ServerJobTerminalOutcome.PartialSuccess,
-            _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, null),
-        };
-
-    public static ServerSongDownloadSource ToServerSongDownloadSource(SongDownloadSource source)
-        => source switch
-        {
-            SongDownloadSource.None => ServerSongDownloadSource.None,
-            SongDownloadSource.Soulseek => ServerSongDownloadSource.Soulseek,
-            SongDownloadSource.Fallback => ServerSongDownloadSource.Fallback,
-            _ => throw new ArgumentOutOfRangeException(nameof(source), source, null),
-        };
-
-    public static ServerJobSkipReason ToServerJobSkipReason(JobSkipReason reason)
-        => reason switch
-        {
-            JobSkipReason.None => ServerJobSkipReason.None,
-            JobSkipReason.AlreadyExists => ServerJobSkipReason.AlreadyExists,
-            JobSkipReason.NotFoundLastTime => ServerJobSkipReason.NotFoundLastTime,
-            JobSkipReason.Manual => ServerJobSkipReason.Manual,
-            JobSkipReason.Filtered => ServerJobSkipReason.Filtered,
-            _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
-        };
-
-    public static ServerJobFailureReason? ToServerFailureReason(JobFailureReason reason)
-        => reason switch
-        {
-            JobFailureReason.None => null,
-            JobFailureReason.InvalidSearchString => ServerJobFailureReason.InvalidSearchString,
-            JobFailureReason.OutOfDownloadRetries => ServerJobFailureReason.OutOfDownloadRetries,
-            JobFailureReason.AllDownloadsFailed => ServerJobFailureReason.AllDownloadsFailed,
-            JobFailureReason.Other => ServerJobFailureReason.Other,
-            JobFailureReason.ExtractionFailed => ServerJobFailureReason.ExtractionFailed,
-            JobFailureReason.Cancelled => ServerJobFailureReason.Cancelled,
-            JobFailureReason.ChildJobsFailed => ServerJobFailureReason.ChildJobsFailed,
-            JobFailureReason.NoSearchResults => ServerJobFailureReason.NoSearchResults,
-            JobFailureReason.NoMatchingResults => ServerJobFailureReason.NoMatchingResults,
-            _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
-        };
-
-    public static ServerJobCancellationSource ToServerJobCancellationSource(JobCancellationSource source)
-        => source switch
-        {
-            JobCancellationSource.None => ServerJobCancellationSource.None,
-            JobCancellationSource.UserRequestedJob => ServerJobCancellationSource.UserRequestedJob,
-            JobCancellationSource.ParentJob => ServerJobCancellationSource.ParentJob,
-            JobCancellationSource.UserRequestedWorkflow => ServerJobCancellationSource.UserRequestedWorkflow,
-            JobCancellationSource.UserRequestedAllJobs => ServerJobCancellationSource.UserRequestedAllJobs,
-            JobCancellationSource.InternalEngine => ServerJobCancellationSource.InternalEngine,
-            _ => throw new ArgumentOutOfRangeException(nameof(source), source, null),
-        };
-
-    public static ServerFolderRetrievalOutcome ToServerFolderRetrievalOutcome(FolderRetrievalOutcome outcome)
-        => outcome switch
-        {
-            FolderRetrievalOutcome.None => ServerFolderRetrievalOutcome.None,
-            FolderRetrievalOutcome.Completed => ServerFolderRetrievalOutcome.Completed,
-            FolderRetrievalOutcome.Cancelled => ServerFolderRetrievalOutcome.Cancelled,
-            FolderRetrievalOutcome.Failed => ServerFolderRetrievalOutcome.Failed,
-            _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, null),
-        };
 
     public static IEnumerable<Guid> NestedJobIds(JobSnapshot container)
         => DirectNestedJobs(container).SelectMany(EnumerateSubtreeIds);

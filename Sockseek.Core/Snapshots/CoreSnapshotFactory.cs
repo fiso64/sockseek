@@ -18,7 +18,7 @@ public static class CoreSnapshotFactory
         => CreateJob(job, state.Revision, [], state);
 
     public static JobReferenceSnapshot CreateJobReference(Job job, long revision)
-        => new(job.Id, job.DisplayId, job.WorkflowId, GetJobKind(job), revision,
+        => new(job.Id, job.DisplayId, job.WorkflowId, job.Kind, revision,
             JobTitle(job), job.EffectivePrintOption);
 
     public static FileCandidateSnapshot CreateFileCandidate(FileCandidate candidate)
@@ -258,7 +258,7 @@ public static class CoreSnapshotFactory
                 job.RerunOfSubmissionId,
                 job.PreviewId,
                 job.ArtifactId,
-                GetJobKind(job),
+                job.Kind,
                 revision,
                 state.LifecycleState,
                 state.ActivityPhase,
@@ -513,22 +513,6 @@ public static class CoreSnapshotFactory
         => state.LifecycleState != JobLifecycleState.Terminal
             && job.Cts != null
             && !job.Cts.IsCancellationRequested;
-
-    internal static JobSnapshotKind GetJobKind(Job job)
-        => job switch
-        {
-            ExtractJob => JobSnapshotKind.Extract,
-            SearchJob => JobSnapshotKind.Search,
-            SongJob => JobSnapshotKind.Song,
-            AlbumJob => JobSnapshotKind.Album,
-            RemoteFileJob => JobSnapshotKind.RemoteFile,
-            RemoteDirectoryJob => JobSnapshotKind.RemoteDirectory,
-            SongGroupsJob => JobSnapshotKind.SongGroups,
-            AlbumGroupsJob => JobSnapshotKind.AlbumGroups,
-            JobList => JobSnapshotKind.JobList,
-            RetrieveFolderJob => JobSnapshotKind.RetrieveFolder,
-            _ => JobSnapshotKind.Generic,
-        };
 
     private static SongQuerySnapshot CreateSongQuery(SongQuery query)
         => new(

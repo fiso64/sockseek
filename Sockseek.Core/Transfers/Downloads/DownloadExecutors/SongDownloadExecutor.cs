@@ -244,7 +244,6 @@ internal sealed class SongDownloadExecutor
         FileManager organizer,
         CancellationTokenSource cts)
     {
-        var responseData = new ResponseData();
         bool searched = false;
 
         if (song.ExactTarget is { } exactTarget && song.Candidates == null)
@@ -257,7 +256,7 @@ internal sealed class SongDownloadExecutor
             if (!config.Search.FastSearch)
             {
                 searched = true;
-                await context.Runtime.Searcher.SearchSong(song, config.Search, responseData, cts.Token);
+                await context.Runtime.Searcher.SearchSong(song, config.Search, cts.Token);
             }
             else
             {
@@ -274,7 +273,7 @@ internal sealed class SongDownloadExecutor
                         TaskCreationOptions.RunContinuationsAsynchronously);
 
                 searched = true;
-                var searchTask = context.Runtime.Searcher.SearchSong(song, config.Search, responseData, searchCts.Token,
+                var searchTask = context.Runtime.Searcher.SearchSong(song, config.Search, searchCts.Token,
                     onFastSearchCandidate: fc =>
                     {
                         if (Interlocked.CompareExchange(ref fastCandidateClaimed, 1, 0) != 0)
@@ -399,7 +398,7 @@ internal sealed class SongDownloadExecutor
 
             DownloadLogMessages.JobDecision(logger, song.Id, "no-suitable-candidates", 0);
             return searched
-                ? DownloadOutcomes.NoMatchingDiscovery(responseData, "file result", "file results", "song candidates")
+                ? DownloadOutcomes.NoMatchingDiscovery(song, "song candidates")
                 : DownloadOutcomes.NoMatchingCandidates();
         }
 

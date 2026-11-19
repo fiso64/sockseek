@@ -1,3 +1,4 @@
+using Sockseek.Core.Snapshots;
 using Sockseek.Core;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
@@ -85,6 +86,16 @@ namespace Sockseek.Core.Jobs;
 
         // Stable logical grouping for sequentially-related jobs.
         // Multiple executable jobs can share one workflow without sharing job identity.
+        public abstract JobSnapshotKind Kind { get; }
+        internal virtual IReadOnlyList<Job> Children => [];
+
+        public void AssignWorkflow(Guid workflowId)
+        {
+            WorkflowId = workflowId;
+            var children = Children;
+            for (int i = 0; i < children.Count; i++) children[i].AssignWorkflow(workflowId);
+        }
+
         public Guid WorkflowId { get; set; } = Guid.NewGuid();
 
         // Set by the engine before execution registration, including queued work.

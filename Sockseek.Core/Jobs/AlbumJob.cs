@@ -1,3 +1,4 @@
+using Sockseek.Core.Snapshots;
 using Sockseek.Core;
 using Sockseek.Core.Models;
 using Sockseek.Core.Planning;
@@ -21,6 +22,9 @@ namespace Sockseek.Core.Jobs;
     // a folder is chosen it's set on ResolvedTarget and download proceeds.
     public class AlbumJob : DirectoryDownloadJob, IUpgradeable
     {
+        public override JobSnapshotKind Kind => JobSnapshotKind.Album;
+        internal override IReadOnlyList<Job> Children => TrackJobs;
+
         public AlbumQuery Query { get; set; }
 
         // Whole-folder acceptance may still exclude individual files. Apply this

@@ -17,13 +17,10 @@ internal sealed class AlbumFolderGroupComparer : IComparer<AlbumFolder>
         ConcurrentDictionary<string, int>? peerFailureCounts = null)
     {
         this.folderOrder = folderOrder;
-        keyContext = ResultSorter.CreateSortKeyContext(
-            [],
+        keyContext = new ResultSorter.SortKeyContext(
             SearchResultProjector.AlbumFileMatchQuery(query),
             search,
             peerFailureCounts ?? new ConcurrentDictionary<string, int>(),
-            useBracketCheck: false,
-            useInfer: false,
             albumMode: true,
             ignoreStringSortConditions: true);
     }
@@ -40,48 +37,9 @@ internal sealed class AlbumFolderGroupComparer : IComparer<AlbumFolder>
         if (y == null)
             return -1;
 
-        var xBeforeQuality = BestEntry(x);
-        var yBeforeQuality = BestEntry(y);
-        if (xBeforeQuality.HasValue && yBeforeQuality.HasValue)
-        {
-            int comparison = ResultSorter.AlbumBeforeQualitySortEntryComparer.Instance.Compare(xBeforeQuality.Value, yBeforeQuality.Value);
-            if (comparison != 0)
-                return comparison;
-        }
-        else if (xBeforeQuality.HasValue)
-        {
-            return -1;
-        }
-        else if (yBeforeQuality.HasValue)
-        {
-            return 1;
-        }
-
-        int coverageComparison = CompareCoverageBuckets(x.SearchAudioQualityCoverage.Format, y.SearchAudioQualityCoverage.Format);
-        if (coverageComparison != 0) return coverageComparison;
-        coverageComparison = CompareCoverageBuckets(x.SearchAudioQualityCoverage.Bitrate, y.SearchAudioQualityCoverage.Bitrate);
-        if (coverageComparison != 0) return coverageComparison;
-        coverageComparison = CompareCoverageBuckets(x.SearchAudioQualityCoverage.SampleRate, y.SearchAudioQualityCoverage.SampleRate);
-        if (coverageComparison != 0) return coverageComparison;
-        coverageComparison = CompareCoverageBuckets(x.SearchAudioQualityCoverage.BitDepth, y.SearchAudioQualityCoverage.BitDepth);
-        if (coverageComparison != 0) return coverageComparison;
-
-        var xBest = BestEntry(x);
-        var yBest = BestEntry(y);
-        if (xBest.HasValue && yBest.HasValue)
-        {
-            int comparison = ResultSorter.SortEntryComparer.Instance.Compare(xBest.Value, yBest.Value);
-            if (comparison != 0)
-                return comparison;
-        }
-        else if (xBest.HasValue)
-        {
-            return -1;
-        }
-        else if (yBest.HasValue)
-        {
-            return 1;
-        }
+        int rank = CompareRank(BestEntry(x), BestEntry(y),
+            x.SearchAudioQualityCoverage, y.SearchAudioQualityCoverage, compareCoverage: true);
+        if (rank != 0) return rank;
 
         int orderComparison = GetFolderOrder(x).CompareTo(GetFolderOrder(y));
         if (orderComparison != 0)
@@ -141,6 +99,25 @@ internal sealed class AlbumFolderGroupComparer : IComparer<AlbumFolder>
     private static PeerPathKey FolderKey(AlbumFolder folder)
         => new(folder.Username, folder.FolderPath);
 
-    private static int CompareCoverageBuckets(AlbumQualityCoverageBucket x, AlbumQualityCoverageBucket y)
-        => y.Bucket.CompareTo(x.Bucket);
+    // Compare identity and length before folder-wide quality. Remaining file
+    // criteria follow coverage, so an unrelated FLAC cannot outrank the requested album.
+    internal static int CompareRank(
+        ResultSorter.SortEntry? x, ResultSorter.SortEntry? y,
+        in AlbumAudioQualityCoverage xQuality, in AlbumAudioQualityCoverage yQuality,
+        bool compareCoverage)
+    {
+        if (x.HasValue != y.HasValue) return x.HasValue ? -1 : 1;
+        int rank = 0;
+        if (x is { } first && y is { } second)
+            rank = ResultSorter.AlbumBeforeQualitySortEntryComparer.Instance.Compare(first, second);
+        if (rank == 0 && compareCoverage)
+        {
+            rank = yQuality.Format.Bucket.CompareTo(xQuality.Format.Bucket);
+            if (rank == 0) rank = yQuality.Bitrate.Bucket.CompareTo(xQuality.Bitrate.Bucket);
+            if (rank == 0) rank = yQuality.SampleRate.Bucket.CompareTo(xQuality.SampleRate.Bucket);
+            if (rank == 0) rank = yQuality.BitDepth.Bucket.CompareTo(xQuality.BitDepth.Bucket);
+        }
+        return rank == 0 && x.HasValue && y.HasValue
+            ? ResultSorter.SortEntryComparer.Instance.Compare(x.Value, y.Value) : rank;
+    }
 }

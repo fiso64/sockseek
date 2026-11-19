@@ -243,6 +243,18 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
     {
         var command = new AwaitablePersistenceCommand<T>(action, requiresTransaction);
         using var cancellation = cancellationToken.Register(() => command.CancelBeforeStart(cancellationToken));
+        return await EnqueueAndWaitAsync(command, cancellationToken, background).ConfigureAwait(false);
+    }
+
+    // Chat, submission and removal operations commit once admitted, even if the requester disconnects.
+    internal Task<T> CommitOnceAdmittedAsync<T>(
+        Func<SockseekDbContext, CancellationToken, Task<T>> action,
+        CancellationToken cancellationToken)
+        => EnqueueAndWaitAsync(new AwaitablePersistenceCommand<T>(action), cancellationToken, background: false);
+
+    private async Task<T> EnqueueAndWaitAsync<T>(
+        AwaitablePersistenceCommand<T> command, CancellationToken cancellationToken, bool background)
+    {
         await EnqueueCommandAsync(command, cancellationToken, background).ConfigureAwait(false);
         return await command.Task.ConfigureAwait(false);
     }

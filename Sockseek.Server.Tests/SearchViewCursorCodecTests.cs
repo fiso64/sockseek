@@ -1,5 +1,4 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Persistence.Planning;
 using Sockseek.Api;
 using Sockseek.Server.Planning;
 
@@ -12,42 +11,35 @@ public sealed class SearchViewCursorCodecTests
     public void CursorsBindViewRevisionParentAndProcessLifetime()
     {
         Guid viewId = Guid.NewGuid();
-        var position = new SearchViewFilePosition(9, 8, 7, 6, 5, 4, 3, 2, "row");
+        var position = new SearchViewFilePosition(new(9, 8, 7, 5, 4, 3), 2, "row");
         var directoryPosition = new SearchViewDirectoryPosition(
-            9, 8, 7, 6, 5, 4, 3, 2, "Peer", @"Share\Folder", "directory");
+            new(9, 8, 7, 5, 4, 3), 2, "Peer", @"Share\Folder", "directory");
         var childPosition = new SearchViewDirectoryFilePosition("Track.flac", "file");
         var first = new SearchViewCursorCodec();
-        string fileCursor = first.EncodeFiles(viewId, 12, position);
-        string directoryCursor = first.EncodeDirectories(viewId, 12, directoryPosition);
-        string childCursor = first.EncodeDirectoryFiles(
-            viewId, "directory", 12, childPosition);
+        string? fileCursor = first.Files(viewId, 12).Encode(position);
+        string? directoryCursor = first.Directories(viewId, 12).Encode(directoryPosition);
+        string? childCursor = first.DirectoryFiles(viewId, 12, "directory").Encode(childPosition);
 
-        string orderedFiles = first.EncodeFiles(viewId, 12, position, ServerSearchViewSortOrder.UploadSpeed);
-        string orderedDirectories = first.EncodeDirectories(viewId, 12, directoryPosition,
-            ServerSearchViewSortOrder.DirectoryNameAscending);
+        string? orderedFiles = first.Files(viewId, 12, ServerSearchViewSortOrder.UploadSpeed).Encode(position);
+        string? orderedDirectories = first.Directories(viewId, 12, ServerSearchViewSortOrder.DirectoryNameAscending).Encode(directoryPosition);
         var restarted = new SearchViewCursorCodec();
-        Assert.ThrowsExactly<ArgumentException>(() => restarted.DecodeFiles(fileCursor, viewId, 12));
-        Assert.AreEqual(position, first.DecodeFiles(fileCursor, viewId, 12));
-        Assert.AreEqual(position, first.DecodeFiles(orderedFiles, viewId, 12, ServerSearchViewSortOrder.UploadSpeed));
-        Assert.AreEqual(directoryPosition, first.DecodeDirectories(orderedDirectories, viewId, 12,
-            ServerSearchViewSortOrder.DirectoryNameAscending));
-        Assert.ThrowsExactly<ArgumentException>(() => first.DecodeFiles(orderedFiles, viewId, 12,
-            ServerSearchViewSortOrder.QueueDepth));
-        Assert.ThrowsExactly<ArgumentException>(() => first.DecodeFiles(orderedFiles, viewId, 12));
-        Assert.ThrowsExactly<ArgumentException>(() => first.DecodeDirectories(orderedDirectories, viewId, 12,
-            ServerSearchViewSortOrder.DirectorySizeAscending));
-        Assert.AreEqual(directoryPosition, first.DecodeDirectories(
-            directoryCursor, viewId, 12));
-        Assert.AreEqual(childPosition, first.DecodeDirectoryFiles(
-            childCursor, viewId, "directory", 12));
+        Assert.ThrowsExactly<ArgumentException>(() => restarted.Files(viewId, 12).Decode(fileCursor));
+        Assert.AreEqual(position, first.Files(viewId, 12).Decode(fileCursor));
+        Assert.ThrowsExactly<ArgumentException>(() => first.Files(Guid.NewGuid(), 12).Decode(fileCursor));
+        Assert.ThrowsExactly<ArgumentException>(() => first.TrackGroupOptions(viewId, 12, "group").Decode(fileCursor));
+        Assert.AreEqual(position, first.Files(viewId, 12, ServerSearchViewSortOrder.UploadSpeed).Decode(orderedFiles));
+        Assert.AreEqual(directoryPosition, first.Directories(viewId, 12, ServerSearchViewSortOrder.DirectoryNameAscending).Decode(orderedDirectories));
+        Assert.ThrowsExactly<ArgumentException>(() => first.Files(viewId, 12, ServerSearchViewSortOrder.QueueDepth).Decode(orderedFiles));
+        Assert.ThrowsExactly<ArgumentException>(() => first.Files(viewId, 12).Decode(orderedFiles));
+        Assert.ThrowsExactly<ArgumentException>(() => first.Directories(viewId, 12, ServerSearchViewSortOrder.DirectorySizeAscending).Decode(orderedDirectories));
+        Assert.AreEqual(directoryPosition, first.Directories(viewId, 12).Decode(directoryCursor));
+        Assert.AreEqual(childPosition, first.DirectoryFiles(viewId, 12, "directory").Decode(childCursor));
         Assert.ThrowsExactly<ArgumentException>(() =>
-            first.DecodeFiles(fileCursor, viewId, 13));
+            first.Files(viewId, 13).Decode(fileCursor));
         Assert.ThrowsExactly<ArgumentException>(() =>
-            first.DecodeFiles(fileCursor + "tampered", viewId, 12));
-        Assert.ThrowsExactly<ArgumentException>(() => first.DecodeDirectories(
-            directoryCursor, viewId, 13));
-        Assert.ThrowsExactly<ArgumentException>(() => first.DecodeDirectoryFiles(
-            childCursor, viewId, "other-directory", 12));
+            first.Files(viewId, 12).Decode(fileCursor + "tampered"));
+        Assert.ThrowsExactly<ArgumentException>(() => first.Directories(viewId, 13).Decode(directoryCursor));
+        Assert.ThrowsExactly<ArgumentException>(() => first.DirectoryFiles(viewId, 12, "other-directory").Decode(childCursor));
     }
 
 }

@@ -27,7 +27,7 @@ internal static class SubmissionDtoMapper
                 SubmissionSpecificationCodec.Deserialize(submission.SpecificationJson);
             return new SubmissionDetailDto(
                 ToSummary(submission),
-                ServerSnapshotMapper.ToServerJobKind(specification.Command.Kind),
+                specification.Command.Kind.ToServer(),
                 specification.CredentialBindings);
         }
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or System.Text.Json.JsonException)

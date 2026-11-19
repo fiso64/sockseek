@@ -19,7 +19,7 @@ public sealed class PersistenceCoordinator(
     IOptions<ServerOptions> serverOptions,
     ILogger<PersistenceCoordinator>? logger = null,
     ILoggerFactory? loggerFactory = null,
-    TimeProvider? timeProvider = null)
+    TimeProvider? timeProvider = null) : IHostedService
 {
     private readonly ServerOptions options = serverOptions.Value;
     private readonly ILogger<PersistenceCoordinator> logger = logger

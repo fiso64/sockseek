@@ -95,11 +95,6 @@
   let headingPaths = $derived(sources?.folders.length ? sources.folders : [path]);
   let detailPath = $derived(headingPaths.join(' · '));
 
-  function indeterminate(node: HTMLInputElement, value: boolean) {
-    node.indeterminate = value;
-    return { update(next: boolean) { node.indeterminate = next; } };
-  }
-
   function transferIcon(value?: TransferPresentation): AppIconName {
     if (value?.tone === 'complete') return 'check';
     if (value?.tone === 'active') return value.direction === 'upload' ? 'upload' : 'download';
@@ -203,7 +198,7 @@
             type="checkbox"
             checked={selected}
             aria-label={`Select all files in ${basename(path)}`}
-            use:indeterminate={partial}
+            indeterminate={partial}
             onchange={(event) => onselectall?.((event.currentTarget as HTMLInputElement).checked)}
           />
           {@render folderIdentity()}
@@ -268,7 +263,7 @@
               type="checkbox"
               checked={rowSelected}
               aria-label={`Select ${onselectfolder || filesComplete ? 'all matching' : 'loaded'} files in ${row.name}`}
-              use:indeterminate={rowPartial}
+              indeterminate={rowPartial}
               onchange={(event) => onselectfolder
                 ? onselectfolder(row.relativePath, (event.currentTarget as HTMLInputElement).checked)
                 : selectFolderFiles(row.node, (event.currentTarget as HTMLInputElement).checked)}

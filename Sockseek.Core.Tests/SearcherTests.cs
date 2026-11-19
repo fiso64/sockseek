@@ -83,13 +83,13 @@ namespace Tests.Unit
             IReadOnlyList<AlbumFolder> folders;
             if (job is AlbumGroupsJob groups)
             {
-                var result = await searcher.SearchAlbumGroup(groups, settings.Search, new ResponseData(), CancellationToken.None);
-                folders = result.Albums.Single().Results;
+                await searcher.SearchAlbumGroups(groups, settings.Search, CancellationToken.None);
+                folders = groups.Albums.Single().Results;
             }
             else
             {
                 var album = (AlbumJob)job;
-                await searcher.SearchAlbum(album, settings.Search, new ResponseData(), CancellationToken.None);
+                await searcher.SearchAlbum(album, settings.Search, CancellationToken.None);
                 folders = album.Results;
             }
             CollectionAssert.AreEqual(new[] { "healthy", "downranked" }, folders.Select(folder => folder.Username).ToArray());
@@ -117,7 +117,7 @@ namespace Tests.Unit
             var searcher = CreateSearcher(client, settings);
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Twilight", Length = 522 });
 
-            await searcher.SearchSong(song, settings.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchSong(song, settings.Search, CancellationToken.None);
 
             Assert.AreEqual(requireLength ? 0 : 1, song.Candidates?.Count ?? 0);
         }
@@ -142,11 +142,11 @@ namespace Tests.Unit
                 if (group)
                 {
                     var job = new SongGroupsJob(query);
-                    await searcher.SearchGroup(job, settings.Search, new ResponseData(), CancellationToken.None);
+                    await searcher.SearchSongGroups(job, settings.Search, CancellationToken.None);
                     return (job, job.Songs.Sum(song => song.Candidates?.Count ?? 0));
                 }
                 var song = new SongJob(query);
-                await searcher.SearchSong(song, settings.Search, new ResponseData(), CancellationToken.None);
+                await searcher.SearchSong(song, settings.Search, CancellationToken.None);
                 return (song, song.Candidates?.Count ?? 0);
             }
             var initial = await Discover();
@@ -183,11 +183,11 @@ namespace Tests.Unit
                 if (group)
                 {
                     var job = new SongGroupsJob(query) { Config = settings };
-                    await searcher.SearchGroup(job, settings.Search, new ResponseData(), CancellationToken.None);
+                    await searcher.SearchSongGroups(job, settings.Search, CancellationToken.None);
                     return job.Songs.SelectMany(song => song.Candidates!).ToList();
                 }
                 var song = new SongJob(query) { Config = settings };
-                await searcher.SearchSong(song, settings.Search, new ResponseData(), CancellationToken.None,
+                await searcher.SearchSong(song, settings.Search, CancellationToken.None,
                     onFastSearchCandidate: _ => provisional++);
                 return song.Candidates!;
             }
@@ -224,7 +224,7 @@ namespace Tests.Unit
                     phases.Add(song.ActivityPhase);
             };
 
-            await searcher.SearchSong(song, settings.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchSong(song, settings.Search, CancellationToken.None);
 
             AssertPhaseOrder(
                 phases,
@@ -259,7 +259,7 @@ namespace Tests.Unit
                     counts.Add(change.Discovery.RawResultCount);
             };
 
-            await searcher.SearchAlbum(album, settings.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchAlbum(album, settings.Search, CancellationToken.None);
 
             Assert.IsTrue(counts.Count > 0, "The visible album job must receive discovery progress.");
             Assert.AreEqual(files.Length, counts[^1], "The final progress count must include every result.");
@@ -276,7 +276,7 @@ namespace Tests.Unit
             var searcher = CreateSearcher(client, settings);
             var album = new AlbumJob(new AlbumQuery { Album = "testalbum", Artist = "testartist" });
 
-            await searcher.SearchAlbum(album, settings.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchAlbum(album, settings.Search, CancellationToken.None);
 
             var testUserFolder = album.Results.First(folder => folder.Username == "testuser");
             Assert.AreEqual(4, testUserFolder.Files.Count);
@@ -364,11 +364,11 @@ namespace Tests.Unit
                 if (group)
                 {
                     var job = new AlbumGroupsJob(query) { Config = settings };
-                    var result = await searcher.SearchAlbumGroup(job, settings.Search, new ResponseData(), CancellationToken.None);
-                    return result.Albums.SelectMany(album => album.Results).ToList();
+                    await searcher.SearchAlbumGroups(job, settings.Search, CancellationToken.None);
+                    return job.Albums.SelectMany(album => album.Results).ToList();
                 }
                 var album = new AlbumJob(query) { Config = settings };
-                await searcher.SearchAlbum(album, settings.Search, new ResponseData(), CancellationToken.None);
+                await searcher.SearchAlbum(album, settings.Search, CancellationToken.None);
                 return album.Results;
             }
 
@@ -1024,7 +1024,7 @@ namespace Tests.Unit
             var searcher = CreateSearcher(client, config);
             var job = new AlbumJob(new AlbumQuery { Artist = "ELO", Album = "Time" });
 
-            await searcher.SearchAlbum(job, config.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchAlbum(job, config.Search, CancellationToken.None);
 
             Assert.AreEqual(1, job.Results.Count);
             Assert.AreEqual("User1", job.Results[0].Username);
@@ -1076,7 +1076,7 @@ namespace Tests.Unit
             var searcher = CreateSearcher(client, config);
             var job = new AlbumJob(new AlbumQuery { Artist = "ELO", Album = "Time" });
 
-            await searcher.SearchAlbum(job, config.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchAlbum(job, config.Search, CancellationToken.None);
 
             Assert.AreEqual(1, job.Results.Count);
             Assert.AreEqual("User2", job.Results[0].Username);
@@ -1092,9 +1092,8 @@ namespace Tests.Unit
             
             // Search for "ELO Time" specifically
             var job = new AlbumJob(new AlbumQuery { Artist = "ELO", Album = "Time" });
-            var responseData = new ResponseData();
 
-            await searcher.SearchAlbum(job, config.Search, responseData, CancellationToken.None);
+            await searcher.SearchAlbum(job, config.Search, CancellationToken.None);
 
             // We expect folders matching "ELO" AND "Time" (or at least "Time")
             // 1. User1: ELO\Time (10 tracks)
@@ -1126,7 +1125,7 @@ namespace Tests.Unit
             var searcher = CreateSearcher(client, config);
             var job = new AlbumJob(new AlbumQuery { Artist = "ELO", Album = "Time" });
 
-            await searcher.SearchAlbum(job, config.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchAlbum(job, config.Search, CancellationToken.None);
 
             Assert.AreEqual(1, job.Results.Count, "Child directories should merge into the parent album folder.");
             Assert.AreEqual(@"ELO\Time", job.Results[0].FolderPath);
@@ -1150,7 +1149,7 @@ namespace Tests.Unit
             var searcher = CreateSearcher(client, config);
             var job = new AlbumJob(new AlbumQuery { Artist = "ELO", Album = "Time" });
 
-            await searcher.SearchAlbum(job, config.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchAlbum(job, config.Search, CancellationToken.None);
 
             Assert.AreEqual(1, job.Results.Count, "Disc folders should be treated as one album folder.");
             Assert.AreEqual(@"ELO\Time", job.Results[0].FolderPath);
@@ -1168,8 +1167,8 @@ namespace Tests.Unit
             var albumJob = new AlbumJob(albumQuery);
             var searchJob = new SearchJob(albumQuery);
 
-            await searcher.SearchAlbum(albumJob, config.Search, new ResponseData(), CancellationToken.None);
-            await searcher.Search(searchJob, config.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchAlbum(albumJob, config.Search, CancellationToken.None);
+            await searcher.Search(searchJob, config.Search, CancellationToken.None);
 
             var projected = searchJob.GetAlbumFolders(config.Search).Items;
 
@@ -1198,7 +1197,7 @@ namespace Tests.Unit
             var searcher = CreateSearcher(client, config);
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-            await searcher.SearchAlbum(job, config.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchAlbum(job, config.Search, CancellationToken.None);
 
             Assert.AreEqual(1, job.Results.Count);
             Assert.AreEqual(@"Artist\Album", job.Results[0].FolderPath);
@@ -1224,7 +1223,7 @@ namespace Tests.Unit
             var searcher = CreateSearcher(client, config);
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-            await searcher.SearchAlbum(job, config.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchAlbum(job, config.Search, CancellationToken.None);
 
             Assert.AreEqual(1, job.Results.Count, "StrictTitle should not require album names to appear in basenames for normal album searches.");
         }
@@ -1251,7 +1250,7 @@ namespace Tests.Unit
             var searcher = CreateSearcher(client, config);
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album", SearchHint = "Blue Sky" });
 
-            await searcher.SearchAlbum(job, config.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchAlbum(job, config.Search, CancellationToken.None);
 
             Assert.AreEqual(1, job.Results.Count);
             Assert.AreEqual("User1", job.Results[0].Username);
@@ -1268,9 +1267,9 @@ namespace Tests.Unit
             var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
-            var responseData = new ResponseData();
 
-            var (results, _) = await searcher.SearchAlbumGroup(job, config.Search, responseData, CancellationToken.None);
+            await searcher.SearchAlbumGroups(job, config.Search, CancellationToken.None);
+            var results = job.Albums;
 
             // Expected groups:
             // 1. Time Standard (10 tracks, lengths 181..190 - shared by User1, User6)
@@ -1296,9 +1295,9 @@ namespace Tests.Unit
             var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
-            var responseData = new ResponseData();
 
-            var (results, _) = await searcher.SearchAlbumGroup(job, config.Search, responseData, CancellationToken.None);
+            await searcher.SearchAlbumGroups(job, config.Search, CancellationToken.None);
+            var results = job.Albums;
 
             // Only the "Standard Time" version (shared by User1 and User6) meets the threshold.
             Assert.AreEqual(1, results.Count, "High entropy filter (minShares=2) failed.");
@@ -1891,9 +1890,8 @@ namespace Tests.Unit
             var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
-            var responseData = new ResponseData();
 
-            await searcher.SearchGroup(job, config.Search, responseData, CancellationToken.None);
+            await searcher.SearchSongGroups(job, config.Search, CancellationToken.None);
 
             // Verified groups: 
             // 1. "Blue Sky" group (User1, User2)
@@ -1926,9 +1924,8 @@ namespace Tests.Unit
             var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
-            var responseData = new ResponseData();
 
-            await searcher.SearchGroup(job, config.Search, responseData, CancellationToken.None);
+            await searcher.SearchSongGroups(job, config.Search, CancellationToken.None);
 
             // Should all three group into one job after inference handles the name variations.
             var songs = job.Songs!;
@@ -1958,9 +1955,8 @@ namespace Tests.Unit
             var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new SongGroupsJob(new SongQuery { Artist = "ELO", Title = "Blue Sky" });
-            var responseData = new ResponseData();
 
-            await searcher.SearchGroup(job, config.Search, responseData, CancellationToken.None);
+            await searcher.SearchSongGroups(job, config.Search, CancellationToken.None);
 
             // Version A has more shares (3) so it should be first, even though bitrate is lower.
             var songs = job.Songs!;
@@ -1992,9 +1988,9 @@ namespace Tests.Unit
             var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
-            var responseData = new ResponseData();
 
-            var (results, _) = await searcher.SearchAlbumGroup(job, config.Search, responseData, CancellationToken.None);
+            await searcher.SearchAlbumGroups(job, config.Search, CancellationToken.None);
+            var results = job.Albums;
 
             // First result should be the one with 2 shares.
             Assert.AreEqual(2, results.Count);
@@ -2024,9 +2020,9 @@ namespace Tests.Unit
             var registry = TestHelpers.CreatePeerFailureTracker();
             var searcher = new Searcher(client, registry, new DownloadEvents(), 10, 10);
             var job = new AlbumGroupsJob(new AlbumQuery { Artist = "ELO" });
-            var responseData = new ResponseData();
 
-            var (results, _) = await searcher.SearchAlbumGroup(job, config.Search, responseData, CancellationToken.None);
+            await searcher.SearchAlbumGroups(job, config.Search, CancellationToken.None);
+            var results = job.Albums;
 
             Assert.AreEqual(2, results.Count, "Single-track album versions should not merge just because lengths match.");
             Assert.IsTrue(results.Any(r => r.Results[0].Files.Any(f => f.Query.Title.Contains("Blue Sky"))));
@@ -2046,14 +2042,14 @@ namespace Tests.Unit
             var searcher = new Searcher(client, registry, events, searchesPerTime: 1, searchRenewTime: 10, searchEvents: searchEvents);
 
             var song1 = new SongJob(new SongQuery { Artist = "A", Title = "B" });
-            await searcher.SearchSong(song1, settings.Search, new ResponseData(), CancellationToken.None);
+            await searcher.SearchSong(song1, settings.Search, CancellationToken.None);
 
             bool fired = false;
             searchEvents.SearchRateLimited += _ => fired = true;
 
             var song2 = new SongJob(new SongQuery { Artist = "C", Title = "D" });
             using var cts = new CancellationTokenSource();
-            var task2 = searcher.SearchSong(song2, settings.Search, new ResponseData(), cts.Token);
+            var task2 = searcher.SearchSong(song2, settings.Search, cts.Token);
 
             // onWaiting fires synchronously before WaitAsync yields, so fired is already true
             Assert.IsTrue(fired, "SearchRateLimited should fire when the rate semaphore is exhausted.");

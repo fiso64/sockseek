@@ -56,7 +56,7 @@ namespace Sockseek.Core.Models;
             return res;
         }
 
-        public FileConditions With(FileConditions other) => new(this)
+        public FileConditions With(FileConditions other) => new()
         {
             LengthTolerance = other.LengthTolerance ?? LengthTolerance,
             MinBitrate = other.MinBitrate ?? MinBitrate,
@@ -76,92 +76,24 @@ namespace Sockseek.Core.Models;
             AcceptMissingProps = AcceptMissingProps && other.AcceptMissingProps,
         };
 
-        public FileConditionPatch AddConditions(FileConditionPatch mod)
+        public void AddConditions(FileConditionPatch mod)
         {
-            var undoMod = new FileConditionPatch();
-
-            if (mod.LengthTolerance != null)
-            {
-                undoMod.LengthTolerance = LengthTolerance;
-                LengthTolerance = mod.LengthTolerance.Value;
-            }
-            if (mod.MinBitrate != null)
-            {
-                undoMod.MinBitrate = MinBitrate;
-                MinBitrate = mod.MinBitrate.Value;
-            }
-            if (mod.MaxBitrate != null)
-            {
-                undoMod.MaxBitrate = MaxBitrate;
-                MaxBitrate = mod.MaxBitrate.Value;
-            }
-            if (mod.MinSampleRate != null)
-            {
-                undoMod.MinSampleRate = MinSampleRate;
-                MinSampleRate = mod.MinSampleRate.Value;
-            }
-            if (mod.MaxSampleRate != null)
-            {
-                undoMod.MaxSampleRate = MaxSampleRate;
-                MaxSampleRate = mod.MaxSampleRate.Value;
-            }
-            if (mod.MinBitDepth != null)
-            {
-                undoMod.MinBitDepth = MinBitDepth;
-                MinBitDepth = mod.MinBitDepth.Value;
-            }
-            if (mod.MaxBitDepth != null)
-            {
-                undoMod.MaxBitDepth = MaxBitDepth;
-                MaxBitDepth = mod.MaxBitDepth.Value;
-            }
-            if (mod.StrictTitle != null)
-            {
-                undoMod.StrictTitle = StrictTitle;
-                StrictTitle = mod.StrictTitle.Value;
-            }
-            if (mod.StrictArtist != null)
-            {
-                undoMod.StrictArtist = StrictArtist;
-                StrictArtist = mod.StrictArtist.Value;
-            }
-            if (mod.StrictAlbum != null)
-            {
-                undoMod.StrictAlbum = StrictAlbum;
-                StrictAlbum = mod.StrictAlbum.Value;
-            }
-            if (mod.ExcludeLocked != null)
-            {
-                undoMod.ExcludeLocked = ExcludeLocked;
-                ExcludeLocked = mod.ExcludeLocked.Value;
-            }
-            if (mod.Formats != null)
-            {
-                undoMod.Formats = Formats;
-                Formats = mod.Formats.ToArray();
-            }
-            if (mod.BannedUsers != null)
-            {
-                undoMod.BannedUsers = BannedUsers;
-                BannedUsers = mod.BannedUsers.ToArray();
-            }
-            if (mod.AllowedUsers != null)
-            {
-                undoMod.AllowedUsers = AllowedUsers;
-                AllowedUsers = mod.AllowedUsers.ToArray();
-            }
-            if (mod.AcceptNoLength != null)
-            {
-                undoMod.AcceptNoLength = AcceptNoLength;
-                AcceptNoLength = mod.AcceptNoLength.Value;
-            }
-            if (mod.AcceptMissingProps != null)
-            {
-                undoMod.AcceptMissingProps = AcceptMissingProps;
-                AcceptMissingProps = mod.AcceptMissingProps.Value;
-            }
-
-            return undoMod;
+            LengthTolerance = mod.LengthTolerance ?? LengthTolerance;
+            MinBitrate = mod.MinBitrate ?? MinBitrate;
+            MaxBitrate = mod.MaxBitrate ?? MaxBitrate;
+            MinSampleRate = mod.MinSampleRate ?? MinSampleRate;
+            MaxSampleRate = mod.MaxSampleRate ?? MaxSampleRate;
+            MinBitDepth = mod.MinBitDepth ?? MinBitDepth;
+            MaxBitDepth = mod.MaxBitDepth ?? MaxBitDepth;
+            StrictTitle = mod.StrictTitle ?? StrictTitle;
+            StrictArtist = mod.StrictArtist ?? StrictArtist;
+            StrictAlbum = mod.StrictAlbum ?? StrictAlbum;
+            ExcludeLocked = mod.ExcludeLocked ?? ExcludeLocked;
+            Formats = mod.Formats?.ToArray() ?? Formats;
+            BannedUsers = mod.BannedUsers?.ToArray() ?? BannedUsers;
+            AllowedUsers = mod.AllowedUsers?.ToArray() ?? AllowedUsers;
+            AcceptNoLength = mod.AcceptNoLength ?? AcceptNoLength;
+            AcceptMissingProps = mod.AcceptMissingProps ?? AcceptMissingProps;
         }
 
         public override bool Equals(object? obj)

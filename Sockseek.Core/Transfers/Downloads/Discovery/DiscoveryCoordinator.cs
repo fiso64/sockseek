@@ -64,10 +64,10 @@ internal sealed class DiscoveryCoordinator
                 job.Cts.Token.ThrowIfCancellationRequested();
                 return await JobExtraction.ExtractAsync(
                     job,
-                    ExtractorContext.ForExtractJob(
+                    ExtractorContext.ForJob(
                         job,
                         context.Events,
-                        ExtractorLogSource(job.InputType ?? InputType.None),
+                        (job.InputType ?? InputType.None).ToInputName(),
                         context.SensitiveOutput),
                     job.Cts.Token).ConfigureAwait(false);
             });
@@ -144,22 +144,19 @@ internal sealed class DiscoveryCoordinator
 
     public sealed record ExtractJobResult(JobOutcome Outcome, Job? Result, IExtractor? Extractor);
 
-    static string ExtractorLogSource(InputType inputType)
-        => inputType.ToInputName();
-
     public async Task<JobOutcome> ProcessSearchJob(SearchJob job, CancellationToken parentToken)
     {
-        var responseData = new ResponseData();
-        var (outcome, searchFailure) = await TrySearchWithReconnect(job, parentToken,
-            () => context.Runtime.Searcher.Search(job, job.Config.Search, responseData, job.Cts!.Token, completeSessionOnError: false));
+        var searchFailure = await TrySearchWithReconnect(job, parentToken,
+            () => context.Runtime.Searcher.Search(job, job.Config.Search, job.Cts!.Token, completeSessionOnError: false));
         if (searchFailure != null)
             return searchFailure;
 
+        var outcome = JobOutcome.Done();
         JobOutcomeCommitter.Commit(job, outcome);
         return outcome;
     }
 
-    async Task<T> RunSearchWithReconnect<T>(CancellationToken ct, Func<Task<T>> searchAction)
+    async Task RunSearchWithReconnect(CancellationToken ct, Func<Task> searchAction)
     {
         while (true)
         {
@@ -167,7 +164,8 @@ internal sealed class DiscoveryCoordinator
 
             try
             {
-                return await searchAction();
+                await searchAction();
+                return;
             }
             catch (OperationCanceledException)
             {
@@ -181,26 +179,16 @@ internal sealed class DiscoveryCoordinator
 
     async Task<JobOutcome?> TrySearchWithReconnect(Job job, CancellationToken parentToken, Func<Task> searchAction)
     {
-        var (_, outcome) = await TrySearchWithReconnect(job, parentToken, async () =>
-        {
-            await searchAction();
-            return true;
-        });
-        return outcome;
-    }
-
-    async Task<(T Result, JobOutcome? Failure)> TrySearchWithReconnect<T>(Job job, CancellationToken parentToken, Func<Task<T>> searchAction)
-    {
         try
         {
-            var result = await RunSearchWithReconnect(job.Cts!.Token, searchAction);
-            return (result, null);
+            await RunSearchWithReconnect(job.Cts!.Token, searchAction);
+            return null;
         }
         catch (OperationCanceledException) when (jobs.IsJobCancellationRequested(job, parentToken))
         {
             var outcome = JobOutcome.Cancelled(jobs.CancellationSourceFor(job, parentToken));
             JobOutcomeCommitter.Commit(job, outcome);
-            return (default!, outcome);
+            return outcome;
         }
         catch (Exception e)
         {
@@ -209,7 +197,7 @@ internal sealed class DiscoveryCoordinator
 
             var outcome = DownloadOutcomes.ExceptionFailure(JobFailureReason.Other, e);
             JobOutcomeCommitter.Commit(job, outcome);
-            return (default!, outcome);
+            return outcome;
         }
     }
 
@@ -249,15 +237,14 @@ internal sealed class DiscoveryCoordinator
 
         if (config.PrintResults)
         {
-            var printResponseData = new ResponseData();
             var searchFailure = await TrySearchWithReconnect(job, parentToken,
-                () => context.Runtime.Searcher.SearchSong(job, config.Search, printResponseData, job.Cts!.Token));
+                () => context.Runtime.Searcher.SearchSong(job, config.Search, job.Cts!.Token));
             if (searchFailure != null)
                 return searchFailure;
 
             var outcome = job.Candidates?.Count > 0
                 ? JobOutcome.Done()
-                : DownloadOutcomes.NoMatchingDiscovery(printResponseData, "file result", "file results", "song candidates");
+                : DownloadOutcomes.NoMatchingDiscovery(job, "song candidates");
             JobOutcomeCommitter.Commit(job, outcome);
             return outcome;
         }
@@ -265,21 +252,19 @@ internal sealed class DiscoveryCoordinator
         if (job.DownloadBehavior != DownloadBehavior.Manual || job.ResolvedPeerTarget != null)
             return null;
 
-        var responseData = new ResponseData();
         if (job.Candidates == null)
         {
             var searchFailure = await TrySearchWithReconnect(job, parentToken,
-                () => context.Runtime.Searcher.SearchSong(job, config.Search, responseData, job.Cts!.Token));
+                () => context.Runtime.Searcher.SearchSong(job, config.Search, job.Cts!.Token));
             if (searchFailure != null)
                 return searchFailure;
         }
 
         job.Discovery ??= new DiscoverySummary();
-        job.Discovery.LockedFileCount = responseData.lockedFilesCount;
 
         var manualOutcome = job.Candidates?.Count > 0
             ? JobOutcome.AwaitingSelection()
-            : DownloadOutcomes.NoMatchingDiscovery(responseData, "file result", "file results", "song candidates");
+            : DownloadOutcomes.NoMatchingDiscovery(job, "song candidates");
         JobOutcomeCommitter.Commit(job, manualOutcome);
         return manualOutcome;
     }
@@ -289,8 +274,6 @@ internal sealed class DiscoveryCoordinator
         await context.ClientManager.WaitUntilReadyAsync(job.Cts!.Token);
 
         var config = job.Config;
-        var responseData = new ResponseData();
-        bool foundSomething;
 
         if (job.ResolvedTarget != null)
         {
@@ -304,34 +287,20 @@ internal sealed class DiscoveryCoordinator
                 if (retrieval.RetrievalCancelled || job.ResolvedTarget.Files.Count == 0)
                     job.Results.Clear();
             }
-
-            foundSomething = true;
         }
-        else if (job.Results.Count > 0)
-            foundSomething = true;
-        else
+        else if (job.Results.Count == 0)
         {
-            var (searchOutcome, searchFailure) = await TrySearchWithReconnect(job, parentToken,
-                () => context.Runtime.Searcher.SearchAlbum(job, config.Search, responseData, job.Cts!.Token));
+            var searchFailure = await TrySearchWithReconnect(job, parentToken,
+                () => context.Runtime.Searcher.SearchAlbum(job, config.Search, job.Cts!.Token));
             if (searchFailure != null)
                 return searchFailure;
-
-            if (searchOutcome != null)
-            {
-                JobOutcomeCommitter.Commit(job, searchOutcome);
-                return searchOutcome;
-            }
-
-            foundSomething = job.Results.Count > 0;
         }
-        foundSomething = job.Results.Count > 0;
 
         job.Discovery ??= new DiscoverySummary();
-        job.Discovery.LockedFileCount = responseData.lockedFilesCount;
 
-        if (!foundSomething)
+        if (job.Results.Count == 0)
         {
-            var outcome = DownloadOutcomes.NoMatchingDiscovery(responseData, "file result", "file results", "album folders");
+            var outcome = DownloadOutcomes.NoMatchingDiscovery(job, "album folders");
             outcome = await jobs.RunOnCompleteIfApplicable(job, null, context.Ctx(job), outcome);
             JobOutcomeCommitter.Commit(job, outcome);
 
@@ -365,26 +334,14 @@ internal sealed class DiscoveryCoordinator
         await context.ClientManager.WaitUntilReadyAsync(job.Cts!.Token);
 
         var config = job.Config;
-        var responseData = new ResponseData();
-        var (searchOutcome, searchFailure) = await TrySearchWithReconnect(job, parentToken,
-            () => context.Runtime.Searcher.SearchGroup(job, config.Search, responseData, job.Cts!.Token));
+        var searchFailure = await TrySearchWithReconnect(job, parentToken,
+            () => context.Runtime.Searcher.SearchSongGroups(job, config.Search, job.Cts!.Token));
         if (searchFailure != null)
             return searchFailure;
 
-        if (searchOutcome != null)
+        if (job.Songs.Count == 0)
         {
-            JobOutcomeCommitter.Commit(job, searchOutcome);
-            return searchOutcome;
-        }
-
-        bool foundSomething = job.Songs.Count > 0;
-
-        job.Discovery ??= new DiscoverySummary();
-        job.Discovery.LockedFileCount = responseData.lockedFilesCount;
-
-        if (!foundSomething)
-        {
-            var outcome = DownloadOutcomes.NoMatchingDiscovery(responseData, "file result", "file results", "group track candidates");
+            var outcome = DownloadOutcomes.NoMatchingDiscovery(job, "group track candidates");
             JobOutcomeCommitter.Commit(job, outcome);
 
             if (!config.PrintResults)
@@ -422,28 +379,14 @@ internal sealed class DiscoveryCoordinator
         await context.ClientManager.WaitUntilReadyAsync(job.Cts!.Token);
 
         var config = job.Config;
-        var responseData = new ResponseData();
-        var (searchResult, searchFailure) = await TrySearchWithReconnect(job, parentToken,
-            () => context.Runtime.Searcher.SearchAlbumGroup(job, config.Search, responseData, job.Cts!.Token));
+        var searchFailure = await TrySearchWithReconnect(job, parentToken,
+            () => context.Runtime.Searcher.SearchAlbumGroups(job, config.Search, job.Cts!.Token));
         if (searchFailure != null)
             return searchFailure;
 
-        var (newAlbumJobs, searchOutcome) = searchResult;
-
-        if (searchOutcome != null)
-        {
-            JobOutcomeCommitter.Commit(job, searchOutcome);
-            return searchOutcome;
-        }
-
-        job.Albums = newAlbumJobs;
-
-        foreach (var album in newAlbumJobs)
+        var albums = job.Albums;
+        foreach (var album in albums)
             album.DownloadBehaviorPolicy = job.DownloadBehaviorPolicy;
-
-        bool foundSomething = newAlbumJobs.Count > 0;
-        job.Discovery ??= new DiscoverySummary();
-        job.Discovery.LockedFileCount = responseData.lockedFilesCount;
 
         if (config.PrintResults)
         {
@@ -452,9 +395,9 @@ internal sealed class DiscoveryCoordinator
             return outcome;
         }
 
-        if (!foundSomething)
+        if (albums.Count == 0)
         {
-            var outcome = DownloadOutcomes.NoMatchingDiscovery(responseData, "file result", "file results", "album groups candidates");
+            var outcome = DownloadOutcomes.NoMatchingDiscovery(job, "album groups candidates");
             JobOutcomeCommitter.Commit(job, outcome);
             return outcome;
         }
@@ -466,9 +409,9 @@ internal sealed class DiscoveryCoordinator
             return outcome;
         }
 
-        foreach (var aj in newAlbumJobs)
-            aj.ItemName ??= job.ItemName;
-        var albumList = context.PrepareGroupChildren(job, newAlbumJobs, ctx);
+        foreach (var album in albums)
+            album.ItemName ??= job.ItemName;
+        var albumList = context.PrepareGroupChildren(job, albums, ctx);
 
         job.UpdateActivity(JobActivityPhase.RunningChildren);
         await jobs.ProcessJob(albumList, job.Cts!.Token, job);
@@ -622,6 +565,5 @@ internal sealed class DiscoveryCoordinator
             LogIdentity.Hash(job.Directory.Username + "\0" + job.Directory.FolderPath));
         return outcome;
     }
-
 
 }

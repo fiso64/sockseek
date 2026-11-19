@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { loadJobAncestors } from '../src/domains/jobs/ancestors';
+import { loadJobAncestors } from '../src/domains/jobs/detail-reads';
 
 it('loads only ancestors in breadcrumb order and reports cyclic relationships', async () => {
   const fetch = vi.fn().mockResolvedValueOnce({ summary: { jobId: 'parent', parentJobId: 'root' } })

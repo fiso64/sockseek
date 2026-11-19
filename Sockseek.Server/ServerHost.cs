@@ -284,7 +284,7 @@ public static class ServerHost
             });
         });
         builder.Services.AddSingleton<PersistenceCoordinator>();
-        builder.Services.AddHostedService<PersistenceRuntimeHostedService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<PersistenceCoordinator>());
         builder.Services.AddOperatorAuthentication(isOpenApiGeneration);
         builder.Services.AddHostedService<PersistenceMaintenanceHostedService>();
         builder.Services.AddSingleton<InputArtifactCoordinator>();

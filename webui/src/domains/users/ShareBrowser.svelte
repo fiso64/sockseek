@@ -16,7 +16,7 @@
   import MutationStatus, { type MutationState } from '../../components/MutationStatus.svelte';
   import { fileTypeIcon } from '../presentation/file-types';
   import { filteredTreeRows } from './filter-tree';
-  import { inheritedSelection, projectSelection } from './selection';
+  import { inheritedSelection, projectSelection } from '../../app/tree-selection';
 
   import type { PageState, ShareBrowserSession } from './session';
 
@@ -327,26 +327,16 @@
   }
 
   function isInheritedSelection(key: string): boolean { return !selected.has(key) && hasSelectedAncestor(key); }
-  function selectedSize(key: string): number {
-    const included = !excludedSelection.has(key) && (selected.has(key) || hasSelectedAncestor(key));
-    return (included ? selectionSize(key) : 0) + (selectionProjection.descendantDeltas.get(key) ?? 0);
-  }
-
   function isSelectionChecked(key: string): boolean {
     if (selectionSize(key) === 0) return false;
     if (!key.startsWith('d:')) return !excludedSelection.has(key) && (selected.has(key) || hasSelectedAncestor(key));
     const total = selectionSize(key);
-    return total > 0 && selectedSize(key) === total;
+    return total > 0 && selectionProjection.subtreeCount(key) === total;
   }
 
   function isFolderPartial(key: string): boolean {
-    const count = selectedSize(key);
+    const count = selectionProjection.subtreeCount(key);
     return count > 0 && count < selectionSize(key);
-  }
-
-  function indeterminate(node: HTMLInputElement, value: boolean): { update: (value: boolean) => void } {
-    node.indeterminate = value;
-    return { update: (next) => { node.indeterminate = next; } };
   }
 
   function beginRange(additive: boolean) {
@@ -463,7 +453,7 @@
                 {#if item.kind === 'directory'}
                   {@const count = Number(item.totalSubtreeFileCount ?? item.publicSubtreeFileCount ?? 0)}
                   <div data-keyboard-item={key} data-range-disabled={selectionSize(key) === 0 || undefined} tabindex="-1" class="share-tree-row folder" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
-                    {#if item.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" use:indeterminate={isFolderPartial(key)} aria-label={`Select ${item.displayPath}`} checked={isSelectionChecked(key)}  onchange={(event) => setSelection([key], (event.currentTarget as HTMLInputElement).checked)}/>{/if}
+                    {#if item.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" indeterminate={isFolderPartial(key)} aria-label={`Select ${item.displayPath}`} checked={isSelectionChecked(key)}  onchange={(event) => setSelection([key], (event.currentTarget as HTMLInputElement).checked)}/>{/if}
                     <button type="button" class="share-tree-folder-button" data-keyboard-disclosure aria-label={`${collapsedFiltered.has(String(item.entryId)) ? 'Expand' : 'Collapse'} ${item.name}`} aria-expanded={!collapsedFiltered.has(String(item.entryId))} onclick={() => toggleFilteredDirectory(String(item.entryId))}>
                       <span class="share-tree-toggle" class:expanded={!collapsedFiltered.has(String(item.entryId))} aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></span>
                       <span class="share-tree-icon"><Icon name="folder"/></span>
@@ -499,7 +489,7 @@
                 {@const count = Number(row.entry.totalRecursiveFileCount ?? row.entry.recursiveFileCount)}
                 <div data-keyboard-item={key} data-range-disabled={selectionSize(key) === 0 || undefined} tabindex="-1" class="share-tree-row folder" style={`--share-depth:${row.depth}`}
                   title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
-                  {#if row.entry.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" use:indeterminate={isFolderPartial(key)}
+                  {#if row.entry.visibility === 'locked'}<LockedIndicator />{:else if source.download}<input type="checkbox" indeterminate={isFolderPartial(key)}
                     checked={isSelectionChecked(key)} aria-label={`Select ${row.entry.displayPath}`}
                     onchange={(event) => setSelection([key], (event.currentTarget as HTMLInputElement).checked)}/>{/if}
                   <button type="button" class="share-tree-folder-button" data-keyboard-disclosure

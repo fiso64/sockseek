@@ -1,3 +1,4 @@
+using Sockseek.Core.Snapshots;
 using Sockseek.Core.Models;
 using System.Collections.Frozen;
 
@@ -36,6 +37,8 @@ public abstract record RemoteDirectorySource
 /// <summary>An ordinary remote-directory download with exactly one explicit source case.</summary>
 public sealed class RemoteDirectoryJob : DirectoryDownloadJob
 {
+    public override JobSnapshotKind Kind => JobSnapshotKind.RemoteDirectory;
+
     public RemoteDirectoryJob(RemoteDirectorySource source)
     {
         ArgumentNullException.ThrowIfNull(source);

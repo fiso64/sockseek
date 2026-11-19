@@ -4,19 +4,14 @@ using Sockseek.Core;
 using Sockseek.Core.Settings;
 
 namespace Sockseek.Core.Services;
-    public readonly record struct NameIndexEntry(string PathPart, string Name, bool IsKnownAudio);
-    public readonly record struct NameConditionIndexEntry(string PathPart, string Name, SimpleFile File, bool IsKnownAudio);
-    public readonly record struct TagIndexEntry(string Artist, string Title, string Album, string AlbumArtist, bool IsKnownAudio);
-    public readonly record struct TagConditionIndexEntry(string Artist, string Title, string Album, string AlbumArtist, SimpleFile File, bool IsKnownAudio);
-
     public static class TrackSkipperRegistry
     {
         public static TrackSkipper GetSkipper(SkipMode mode, string dir, bool useConditions)
         {
             return mode switch
             {
-                SkipMode.Name  => useConditions ? new NameConditionalSkipper(dir) : new NameSkipper(dir),
-                SkipMode.Tag   => useConditions ? new TagConditionalSkipper(dir)  : new TagSkipper(dir),
+                SkipMode.Name  => new NameSkipper(dir, useConditions),
+                SkipMode.Tag   => new TagSkipper(dir, useConditions),
                 SkipMode.Index => useConditions ? new IndexConditionalSkipper()   : new IndexSkipper(),
                 _ => throw new ArgumentException("Invalid SkipMode")
             };
@@ -74,281 +69,147 @@ namespace Sockseek.Core.Services;
                 || ConditionSatisfactionPolicy.LocalAlbumSatisfies(files, context.conditions, context.searchSettings, job.Query);
     }
 
-    public abstract class FileBasedSkipper<T> : TrackSkipper
+    internal abstract class FileBasedSkipper<T>(string root, bool useConditions) : TrackSkipper where T : struct
     {
-        protected abstract IEnumerable<(string path, T item)> Index { get; }
-        protected abstract string Preprocess(string s, bool removeSlash, bool isQuery);
-        protected abstract bool FileMatchesSong(string path, string artist, string title, T item, TrackSkipperContext context, SongJob? song);
-        protected abstract bool DirectoryMatchesAlbum(string directory, string? albumArtist, string album, T item, TrackSkipperContext context, AlbumJob job);
+        protected string Root => root;
+        protected bool UseConditions => useConditions;
+        protected readonly record struct Entry(string Path, T Match, bool IsAudio, SimpleFile? Metadata);
+        private sealed record FileIndex(Entry[] Files, ILookup<string, SimpleFile>? AudioByDirectory);
+        private FileIndex index = new([], null);
+
+        protected abstract string Preprocess(string text, bool isQuery);
+        protected abstract Entry? Read(string path);
+        protected abstract bool MatchesSong(T item, string artist, string title);
+        protected abstract bool MatchesAlbum(T item, string? albumArtist, string album);
+        protected virtual bool RequiresAudioForAlbum(TrackSkipperContext context) => true;
+
+        public override void BuildIndex()
+        {
+            Entry[] files = Directory.Exists(root) ? ReadFiles().ToArray() : [];
+            var audioByDirectory = useConditions
+                ? files.Where(file => file.IsAudio).ToLookup(
+                    file => Utils.NormalizedPath(Path.GetDirectoryName(file.Path)!), file => file.Metadata!)
+                : null;
+            index = new(files, audioByDirectory);
+            IndexIsBuilt = true;
+        }
+
+        private IEnumerable<Entry> ReadFiles()
+        {
+            // Collect paths first so the matching data is allocated together for repeated scans.
+            foreach (string path in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
+                if (!FileIndexPathPolicy.IsTransientSockseekPath(path) && Read(path) is { } entry)
+                    yield return entry;
+        }
+
+        private bool SongMatches(in Entry file, string artist, string title, FileConditions? conditions, SongQuery? query)
+            => MatchesSong(file.Match, artist, title)
+                && (file.Metadata is null || conditions is null
+                    || ConditionSatisfactionPolicy.LocalFileSatisfies(conditions, file.Metadata, query));
 
         public override bool SongExists(SongJob song, TrackSkipperContext context, out string? foundPath)
         {
-            foundPath = null;
-            string title  = Preprocess(song.Query.Title, true, true);
-            string artist = Preprocess(song.Query.Artist, true, true);
-
-            foreach ((var path, T item) in Index)
+            string title = Preprocess(song.Query.Title, true);
+            string artist = Preprocess(song.Query.Artist, true);
+            foreach (var file in index.Files)
             {
-                if (FileMatchesSong(path, artist, title, item, context, song))
+                if (SongMatches(file, artist, title, context.conditions, song.Query))
                 {
-                    foundPath = path;
+                    foundPath = file.Path;
                     return true;
                 }
             }
+            foundPath = null;
             return false;
         }
 
         public override bool AlbumExists(AlbumJob job, TrackSkipperContext context, out string? foundPath)
         {
-            foundPath = null;
-            string? albumArtist = job.Query.Album.Length > 0 ? null : job.Query.Artist;
-            string album  = Preprocess(job.Query.Album,  true, true);
-            string artist = Preprocess(job.Query.Artist, true, true);
-            var parents   = new HashSet<string>();
-
-            // Use SearchHint only for "track within album" style queries; QueryTrack.Title is the album title.
-            string title = job.Query.Album.Length == 0 ? Preprocess(job.Query.SearchHint, true, true) : "";
-            bool hasTitle = title.Length > 0;
-
-            foreach ((var path, T item) in Index)
+            var query = job.Query;
+            string? albumArtist = query.Album.Length > 0 ? null : query.Artist;
+            string album = Preprocess(query.Album, true);
+            string artist = Preprocess(query.Artist, true);
+            string title = query.Album.Length == 0 ? Preprocess(query.SearchHint, true) : "";
+            var checkedDirectories = new HashSet<string>();
+            var snapshot = index;
+            bool requireAudio = RequiresAudioForAlbum(context);
+            foreach (var file in snapshot.Files)
             {
-                if (hasTitle && !FileMatchesSong(path, artist, title, item, context, null))
+                if ((!file.IsAudio && requireAudio)
+                    || !MatchesAlbum(file.Match, albumArtist, album)
+                    || (title.Length > 0 && !SongMatches(file, artist, title, context.conditions, null)))
                     continue;
 
-                var parent = Path.GetDirectoryName(path);
-                if (parent == null || parents.Contains(parent))
+                string? parent = Path.GetDirectoryName(file.Path);
+                if (parent is null || !checkedDirectories.Add(parent)) continue;
+                if (snapshot.AudioByDirectory != null && context.conditions != null
+                    && !AlbumConditionsSatisfy(snapshot.AudioByDirectory[Utils.NormalizedPath(parent)], context, job))
                     continue;
-
-                if (DirectoryMatchesAlbum(parent, albumArtist, album, item, context, job))
+                if (ConditionSatisfactionPolicy.LocalAlbumDirectorySatisfies(context.folderConditions, parent))
                 {
-                    if (ConditionSatisfactionPolicy.LocalAlbumDirectorySatisfies(context.folderConditions, parent))
-                    {
-                        foundPath = parent;
-                        return true;
-                    }
-                    parents.Add(parent);
+                    foundPath = parent;
+                    return true;
                 }
             }
+            foundPath = null;
             return false;
         }
     }
 
-    public class NameSkipper : FileBasedSkipper<NameIndexEntry>
+    internal sealed class NameSkipper(string root, bool useConditions = false)
+        : FileBasedSkipper<(string PathPart, string Name)>(root, useConditions)
     {
-        private readonly List<(string path, NameIndexEntry item)> index = new();
-        protected override IEnumerable<(string path, NameIndexEntry item)> Index => index;
-        readonly string[] ignore = { "_", "-", ".", "(", ")", "[", "]" };
-        readonly string dir;
+        private static readonly string[] ignore = ["_", "-", ".", "(", ")", "[", "]"];
 
-        public NameSkipper(string dir) { this.dir = dir; }
-
-        protected override string Preprocess(string s, bool removeSlash, bool isQuery)
+        protected override string Preprocess(string text, bool isQuery)
         {
-            s = s.ToLower();
-            if (isQuery) s = s.RemoveFt();
-            s = s.Replace(ignore, " ");
-            s = s.ReplaceInvalidChars(' ', false, removeSlash);
-            return s.RemoveConsecutiveWs().Trim();
+            text = text.ToLower();
+            if (isQuery) text = text.RemoveFt();
+            return text.Replace(ignore, " ").ReplaceInvalidChars(' ', false, isQuery).RemoveConsecutiveWs().Trim();
         }
 
-        public override void BuildIndex()
+        protected override Entry? Read(string path)
         {
-            if (!Directory.Exists(dir)) { IndexIsBuilt = true; return; }
-            foreach (var path in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
-            {
-                if (FileIndexPathPolicy.ShouldIgnoreNameIndexPath(path))
-                    continue;
-
-                string ppath = Preprocess(FileIndexPathPolicy.RelativePathWithoutExtension(dir, path), false, false);
-                string pname = Path.GetFileName(ppath);
-                index.Add((path, new NameIndexEntry(ppath, pname, Utils.IsMusicFile(path))));
-            }
-            IndexIsBuilt = true;
+            string relative = Preprocess(FileIndexPathPolicy.RelativePathWithoutExtension(Root, path), false);
+            return new(path, (relative, Path.GetFileName(relative)), Utils.IsMusicFile(path),
+                UseConditions ? new SimpleFile(path) : null);
         }
 
-        protected override bool FileMatchesSong(string path, string artist, string title, NameIndexEntry item, TrackSkipperContext c, SongJob? song)
+        protected override bool MatchesSong((string PathPart, string Name) item, string artist, string title)
             => item.Name.ContainsWithBoundary(title) && item.PathPart.ContainsWithBoundary(artist);
 
-        protected override bool DirectoryMatchesAlbum(string dir, string? albumArtist, string album, NameIndexEntry item, TrackSkipperContext c, AlbumJob job)
-            => item.IsKnownAudio
-                && item.PathPart.ContainsWithBoundary(album)
-                && item.PathPart.ContainsWithBoundary(albumArtist);
+        protected override bool MatchesAlbum((string PathPart, string Name) item, string? albumArtist, string album)
+            => item.PathPart.ContainsWithBoundary(album) && item.PathPart.ContainsWithBoundary(albumArtist);
+
+        protected override bool RequiresAudioForAlbum(TrackSkipperContext context)
+            => !UseConditions || context.conditions != null;
     }
 
-    public class NameConditionalSkipper : FileBasedSkipper<NameConditionIndexEntry>
+    internal readonly record struct TrackTags(string Artist, string Title, string Album, string AlbumArtist);
+
+    internal sealed class TagSkipper(string root, bool useConditions = false) : FileBasedSkipper<TrackTags>(root, useConditions)
     {
-        private readonly Dictionary<string, List<(string path, NameConditionIndexEntry item)>> index = new();
-        protected override IEnumerable<(string path, NameConditionIndexEntry item)> Index => index.Values.SelectMany(x => x);
-        readonly string[] ignore = { "_", "-", ".", "(", ")", "[", "]" };
-        readonly string dir;
+        protected override string Preprocess(string text, bool isQuery)
+            => (isQuery ? text.RemoveFt() : text).Replace(" ", "").ToLower();
 
-        public NameConditionalSkipper(string dir) { this.dir = dir; }
-
-        protected override string Preprocess(string s, bool removeSlash, bool isQuery)
+        protected override Entry? Read(string path)
         {
-            s = s.ToLower();
-            if (isQuery) s = s.RemoveFt();
-            s = s.Replace(ignore, " ");
-            s = s.ReplaceInvalidChars(' ', false, removeSlash);
-            return s.RemoveConsecutiveWs().Trim();
-        }
-
-        public override void BuildIndex()
-        {
-            if (!Directory.Exists(dir)) { IndexIsBuilt = true; return; }
-            foreach (var path in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+            try
             {
-                if (FileIndexPathPolicy.ShouldIgnoreNameIndexPath(path))
-                    continue;
-
-                string ppath  = Preprocess(FileIndexPathPolicy.RelativePathWithoutExtension(dir, path), false, false);
-                string pname  = Path.GetFileName(ppath);
-                var    parent = Utils.NormalizedPath(Path.GetDirectoryName(path)!);
-                var    simpleFile = new SimpleFile(path);
-                var    item = new NameConditionIndexEntry(ppath, pname, simpleFile, Utils.IsMusicFile(path));
-
-                if (!index.TryGetValue(parent, out var value))
-                    index[parent] = new() { (path, item) };
-                else
-                    value.Add((path, item));
+                using var file = TagLib.File.Create(path);
+                var tags = new TrackTags(Preprocess(file.Tag.JoinedPerformers ?? "", false),
+                    Preprocess(file.Tag.Title ?? "", false), Preprocess(file.Tag.Album ?? "", false),
+                    Preprocess(file.Tag.JoinedAlbumArtists ?? "", false));
+                return new(path, tags, Utils.IsMusicFile(path), UseConditions ? new SimpleFile(file) : null);
             }
-            IndexIsBuilt = true;
+            catch (Exception) { return null; }
         }
 
-        protected override bool FileMatchesSong(string path, string artist, string title, NameConditionIndexEntry item, TrackSkipperContext context, SongJob? song)
-            => item.Name.ContainsWithBoundary(title)
-            && item.PathPart.ContainsWithBoundary(artist)
-            && (context.conditions == null || ConditionSatisfactionPolicy.LocalFileSatisfies(context.conditions, item.File, song?.Query));
-
-        protected override bool DirectoryMatchesAlbum(string dir, string? albumArtist, string album, NameConditionIndexEntry item, TrackSkipperContext context, AlbumJob job)
-        {
-            if (!item.PathPart.ContainsWithBoundary(album) || !item.PathPart.ContainsWithBoundary(albumArtist))
-                return false;
-            if (context.conditions == null)
-                return true;
-
-            if (!item.IsKnownAudio)
-                return false;
-
-            var parent = Utils.NormalizedPath(Path.GetDirectoryName(item.File.Path)!);
-            return AlbumConditionsSatisfy(
-                index[parent].Where(x => x.item.IsKnownAudio).Select(x => x.item.File),
-                context,
-                job);
-        }
-    }
-
-    public class TagSkipper : FileBasedSkipper<TagIndexEntry>
-    {
-        readonly string dir;
-        readonly List<(string path, TagIndexEntry item)> index = new();
-        protected override IEnumerable<(string path, TagIndexEntry item)> Index => index;
-
-        public TagSkipper(string dir) { this.dir = dir; }
-
-        protected override string Preprocess(string s, bool _, bool isQuery)
-        {
-            if (isQuery) s = s.RemoveFt();
-            return s.Replace(" ", "").ToLower();
-        }
-
-        public override void BuildIndex()
-        {
-            if (!Directory.Exists(dir)) { IndexIsBuilt = true; return; }
-            foreach (var path in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
-            {
-                if (FileIndexPathPolicy.ShouldIgnoreTagIndexPath(path))
-                    continue;
-
-                try
-                {
-                    using var musicFile = TagLib.File.Create(path);
-                    string partist      = Preprocess(musicFile.Tag.JoinedPerformers ?? "",   false, false);
-                    string ptitle       = Preprocess(musicFile.Tag.Title ?? "",              false, false);
-                    string palbum       = Preprocess(musicFile.Tag.Album ?? "",              false, false);
-                    string palbumArtist = Preprocess(musicFile.Tag.JoinedAlbumArtists ?? "", false, false);
-                    index.Add((path, new TagIndexEntry(partist, ptitle, palbum, palbumArtist, Utils.IsMusicFile(path))));
-                }
-                catch (Exception) { continue; }
-            }
-            IndexIsBuilt = true;
-        }
-
-        protected override bool FileMatchesSong(string path, string artist, string title, TagIndexEntry item, TrackSkipperContext c, SongJob? song)
+        protected override bool MatchesSong(TrackTags item, string artist, string title)
             => title == item.Title && item.Artist.Contains(artist);
 
-        protected override bool DirectoryMatchesAlbum(string dir, string? albumArtist, string album, TagIndexEntry item, TrackSkipperContext c, AlbumJob job)
-            => item.IsKnownAudio
-                && album == item.Album
-                && (albumArtist == null || item.AlbumArtist.Contains(albumArtist));
-    }
-
-    public class TagConditionalSkipper : FileBasedSkipper<TagConditionIndexEntry>
-    {
-        readonly string dir;
-        private readonly Dictionary<string, List<(string path, TagConditionIndexEntry item)>> index = new();
-        protected override IEnumerable<(string path, TagConditionIndexEntry item)> Index => index.Values.SelectMany(x => x);
-
-        public TagConditionalSkipper(string dir) { this.dir = dir; }
-
-        protected override string Preprocess(string s, bool _, bool isQuery)
-        {
-            if (isQuery) s = s.RemoveFt();
-            return s.Replace(" ", "").ToLower();
-        }
-
-        public override void BuildIndex()
-        {
-            if (!Directory.Exists(dir)) { IndexIsBuilt = true; return; }
-            foreach (var path in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
-            {
-                if (FileIndexPathPolicy.ShouldIgnoreTagIndexPath(path))
-                    continue;
-
-                try
-                {
-                    using var musicFile = TagLib.File.Create(path);
-                    string partist      = Preprocess(musicFile.Tag.JoinedPerformers ?? "",   false, false);
-                    string ptitle       = Preprocess(musicFile.Tag.Title ?? "",              false, false);
-                    string palbum       = Preprocess(musicFile.Tag.Album ?? "",              false, false);
-                    string palbumArtist = Preprocess(musicFile.Tag.JoinedAlbumArtists ?? "", false, false);
-                    var    parent       = Utils.NormalizedPath(Path.GetDirectoryName(path)!);
-                    var    simpleFile   = new SimpleFile(musicFile);
-                    var    item = new TagConditionIndexEntry(
-                        partist,
-                        ptitle,
-                        palbum,
-                        palbumArtist,
-                        simpleFile,
-                        Utils.IsMusicFile(path));
-
-                    if (!index.TryGetValue(parent, out var value))
-                        index[parent] = new() { (path, item) };
-                    else
-                        value.Add((path, item));
-                }
-                catch (Exception) { continue; }
-            }
-            IndexIsBuilt = true;
-        }
-
-        protected override bool FileMatchesSong(string path, string artist, string title, TagConditionIndexEntry item, TrackSkipperContext c, SongJob? song)
-            => title == item.Title
-            && item.Artist.Contains(artist)
-            && (c.conditions == null || ConditionSatisfactionPolicy.LocalFileSatisfies(c.conditions, item.File, song?.Query));
-
-        protected override bool DirectoryMatchesAlbum(string dir, string? albumArtist, string album, TagConditionIndexEntry item, TrackSkipperContext c, AlbumJob job)
-        {
-            if (!item.IsKnownAudio || album != item.Album) return false;
-            if (albumArtist != null && !item.AlbumArtist.Contains(albumArtist)) return false;
-            if (c.conditions == null) return true;
-
-            var parent = Utils.NormalizedPath(Path.GetDirectoryName(item.File.Path)!);
-            return AlbumConditionsSatisfy(
-                index[parent].Where(x => x.item.IsKnownAudio).Select(x => x.item.File),
-                c,
-                job);
-        }
+        protected override bool MatchesAlbum(TrackTags item, string? albumArtist, string album)
+            => album == item.Album && (albumArtist == null || item.AlbumArtist.Contains(albumArtist));
     }
 
     internal static class FileIndexPathPolicy
@@ -361,13 +222,7 @@ namespace Sockseek.Core.Services;
                 Path.GetFileNameWithoutExtension(relative));
         }
 
-        public static bool ShouldIgnoreNameIndexPath(string path)
-            => IsTransientSockseekPath(path);
-
-        public static bool ShouldIgnoreTagIndexPath(string path)
-            => IsTransientSockseekPath(path);
-
-        private static bool IsTransientSockseekPath(string path)
+        public static bool IsTransientSockseekPath(string path)
         {
             var segments = Utils.NormalizedPath(path)
                 .Split('/', StringSplitOptions.RemoveEmptyEntries);

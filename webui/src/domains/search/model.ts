@@ -1,15 +1,47 @@
 import type { Schema } from '../../api/types';
 
-export type SearchResultMode = 'generic' | 'track' | 'album' | 'song-groups' | 'album-groups';
 export type SearchInputMode = 'simple' | 'split';
 export type SearchModeFamily = 'generic' | 'track' | 'album';
 
-const resultModes: readonly SearchResultMode[] = [
-  'generic', 'track', 'album', 'song-groups', 'album-groups',
-];
+const searchModes = {
+  'generic': {
+    label: 'File Search', family: 'generic', kind: 'GenericDirectories',
+    description: 'Standard Soulseek file search.',
+  },
+  'track': {
+    label: 'Track Search', family: 'track', kind: 'Files',
+    description: 'Shows results as tracks. Uses music-oriented default filters and ranking.',
+  },
+  'album': {
+    label: 'Album Search', family: 'album', kind: 'AlbumDirectories',
+    description: 'Shows results as albums. Uses music-oriented default filters and ranking.',
+  },
+  'song-groups': {
+    label: 'Song Groups', family: 'track', kind: 'TrackGroups',
+    description: 'Like Track Search, but combines matching copies from different peers into one result per song. Choose a copy within each result. Supports artist-only searches to show all distinct songs by an artist from Soulseek.',
+  },
+  'album-groups': {
+    label: 'Album Groups', family: 'album', kind: 'AlbumGroups',
+    description: 'Like Album Search, but combines matching album folders from different peers into one result per album. Choose a folder within each result. Supports artist-only searches to show all distinct songs by an artist from Soulseek.',
+  },
+} as const satisfies Record<string, {
+  label: string; family: SearchModeFamily; kind: Schema<'ServerSearchViewProjectionKind'>; description: string;
+}>;
+
+export type SearchResultMode = keyof typeof searchModes;
+
+export const searchModeOptions = (Object.keys(searchModes) as SearchResultMode[]).map(value => ({
+  ...searchModes[value], value, icon: value,
+}));
+
+export function modeForProjection(kind: Schema<'ServerSearchViewProjectionKind'>): SearchResultMode {
+  const option = searchModeOptions.find(option => option.kind === kind);
+  if (!option) throw new Error(`Unknown search projection ${kind}`);
+  return option.value;
+}
 
 export function parseSearchResultMode(value: string | null): SearchResultMode | null {
-  return resultModes.find((mode) => mode === value) ?? null;
+  return searchModeOptions.find(option => option.value === value)?.value ?? null;
 }
 
 export function searchJobPath(jobId: string, mode: SearchResultMode): string {
@@ -29,7 +61,7 @@ export function directoryTotals(directory: Pick<Schema<'SearchViewDirectoryDto'>
 }
 
 export function searchModeFamily(mode: SearchResultMode): SearchModeFamily {
-  return mode === 'generic' ? 'generic' : mode === 'album' || mode === 'album-groups' ? 'album' : 'track';
+  return searchModes[mode].family;
 }
 
 export function isGroupSearchMode(mode: SearchResultMode): boolean {
@@ -83,24 +115,11 @@ export function networkQuery(draft: SearchDraft): string {
 }
 
 export function searchModeLabel(mode: SearchResultMode): string {
-  return {
-    generic: 'File Search',
-    track: 'Track Search',
-    album: 'Album Search',
-    'song-groups': 'Song Groups',
-    'album-groups': 'Album Groups',
-  }[mode];
+  return searchModes[mode].label;
 }
 
 export function searchViewKind(mode: SearchResultMode): Schema<'ServerSearchViewProjectionKind'> {
-  const kinds: Record<SearchResultMode, Exclude<Schema<'ServerSearchViewProjectionKind'>, null>> = {
-    generic: 'GenericDirectories',
-    track: 'Files',
-    album: 'AlbumDirectories',
-    'song-groups': 'TrackGroups',
-    'album-groups': 'AlbumGroups',
-  };
-  return kinds[mode];
+  return searchModes[mode].kind;
 }
 
 export function searchDelimiter(input: string): { index: number; length: number } | null {

@@ -126,7 +126,11 @@ public sealed record JobProvenanceDto(
 [JsonDerivedType(typeof(JobListJobDraftDto), ServerProtocol.JobDraftKinds.JobList)]
 [JsonDerivedType(typeof(RemoteFileJobDraftDto), ServerProtocol.JobDraftKinds.RemoteFile)]
 [JsonDerivedType(typeof(RemoteDirectoryJobDraftDto), ServerProtocol.JobDraftKinds.RemoteDirectory)]
-public abstract record JobDraftDto;
+public abstract record JobDraftDto
+{
+    public abstract DownloadSettingsPatchDto? DownloadSettings { get; init; }
+    public abstract JobProvenanceDto? Provenance { get; init; }
+}
 
 public sealed record ExtractJobDraftDto(
     string? Input = null,

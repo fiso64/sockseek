@@ -46,34 +46,6 @@ namespace Tests.TrackSkipperTests
     public class TrackSkipperRegistryTests
     {
         [TestMethod]
-        public void GetSkipper_NameMode_NoConditions_ReturnsNameSkipper()
-        {
-            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, "/tmp", false);
-            Assert.IsInstanceOfType(skipper, typeof(NameSkipper));
-        }
-
-        [TestMethod]
-        public void GetSkipper_NameMode_WithConditions_ReturnsNameConditionalSkipper()
-        {
-            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, "/tmp", true);
-            Assert.IsInstanceOfType(skipper, typeof(NameConditionalSkipper));
-        }
-
-        [TestMethod]
-        public void GetSkipper_TagMode_NoConditions_ReturnsTagSkipper()
-        {
-            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Tag, "/tmp", false);
-            Assert.IsInstanceOfType(skipper, typeof(TagSkipper));
-        }
-
-        [TestMethod]
-        public void GetSkipper_TagMode_WithConditions_ReturnsTagConditionalSkipper()
-        {
-            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Tag, "/tmp", true);
-            Assert.IsInstanceOfType(skipper, typeof(TagConditionalSkipper));
-        }
-
-        [TestMethod]
         public void GetSkipper_IndexMode_NoConditions_ReturnsIndexSkipper()
         {
             var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Index, "/tmp", false);
@@ -507,7 +479,7 @@ namespace Tests.TrackSkipperTests
         {
             File.WriteAllBytes(Path.Combine(_tempDir, "Cool Artist - Great Song.mp3"), TestHelpers.EmptyMp3Bytes);
 
-            var skipper = new NameSkipper(_tempDir);
+            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, _tempDir, useConditions: false);
             skipper.BuildIndex();
 
             var song = new SongJob(new SongQuery { Artist = "Cool Artist", Title = "Great Song" });
@@ -523,7 +495,7 @@ namespace Tests.TrackSkipperTests
             string pdfPath = Path.Combine(_tempDir, "Cool Artist - Great Booklet.pdf");
             File.WriteAllText(pdfPath, "pdf payload");
 
-            var skipper = new NameSkipper(_tempDir);
+            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, _tempDir, useConditions: false);
             skipper.BuildIndex();
 
             var song = new SongJob(new SongQuery { Artist = "Cool Artist", Title = "Great Booklet" });
@@ -543,7 +515,7 @@ namespace Tests.TrackSkipperTests
                 PreferredCond = new FileConditions(),
             };
 
-            var skipper = new NameConditionalSkipper(_tempDir);
+            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, _tempDir, useConditions: true);
             skipper.BuildIndex();
             var context = TrackSkipperContext.From(
                 new JobContext(),
@@ -577,7 +549,7 @@ namespace Tests.TrackSkipperTests
                 PreferredCond = new FileConditions(),
             };
 
-            var skipper = new NameConditionalSkipper(_tempDir);
+            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, _tempDir, useConditions: true);
             skipper.BuildIndex();
             var context = TrackSkipperContext.From(
                 new JobContext(),
@@ -594,7 +566,7 @@ namespace Tests.TrackSkipperTests
             Directory.CreateDirectory(staging);
             File.WriteAllText(Path.Combine(staging, "Cool Artist - Great Booklet.pdf"), "staged payload");
 
-            var skipper = new NameSkipper(_tempDir);
+            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, _tempDir, useConditions: false);
             skipper.BuildIndex();
 
             var song = new SongJob(new SongQuery { Artist = "Cool Artist", Title = "Great Booklet" });
@@ -616,13 +588,13 @@ namespace Tests.TrackSkipperTests
                 PreferredCond = new FileConditions(),
             };
 
-            var uncheckedSkipper = new NameSkipper(_tempDir);
+            var uncheckedSkipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, _tempDir, useConditions: false);
             uncheckedSkipper.BuildIndex();
             Assert.IsTrue(
                 uncheckedSkipper.SongExists(song, new TrackSkipperContext { checkFileExists = false }, out _),
                 "Without skip-check-cond, name-mode skipping should ignore the current bitrate condition.");
 
-            var checkedSkipper = new NameConditionalSkipper(_tempDir);
+            var checkedSkipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, _tempDir, useConditions: true);
             checkedSkipper.BuildIndex();
             var checkedContext = TrackSkipperContext.From(
                 new JobContext(),
@@ -638,7 +610,7 @@ namespace Tests.TrackSkipperTests
         {
             File.WriteAllBytes(Path.Combine(_tempDir, "Other Artist - Other Song.mp3"), TestHelpers.EmptyMp3Bytes);
 
-            var skipper = new NameSkipper(_tempDir);
+            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, _tempDir, useConditions: false);
             skipper.BuildIndex();
 
             var song = new SongJob(new SongQuery { Artist = "Cool Artist", Title = "Great Song" });
@@ -651,7 +623,7 @@ namespace Tests.TrackSkipperTests
         [TestMethod]
         public void NameSkipper_EmptyDirectory_ReturnsFalse()
         {
-            var skipper = new NameSkipper(_tempDir);
+            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, _tempDir, useConditions: false);
             skipper.BuildIndex();
 
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Title" });
@@ -668,7 +640,7 @@ namespace Tests.TrackSkipperTests
             Directory.CreateDirectory(albumDir);
             File.WriteAllBytes(Path.Combine(albumDir, "01. Library Artist - First Track.mp3"), TestHelpers.EmptyMp3Bytes);
 
-            var skipper = new NameSkipper(_tempDir);
+            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, _tempDir, useConditions: false);
             skipper.BuildIndex();
 
             var album = new AlbumJob(new AlbumQuery { Artist = "Library Artist", Album = "Library Album" });
@@ -686,7 +658,7 @@ namespace Tests.TrackSkipperTests
             Directory.CreateDirectory(albumDir);
             File.WriteAllBytes(Path.Combine(albumDir, "01. Library Artist - First Track.mp3"), TestHelpers.EmptyMp3Bytes);
 
-            var skipper = new NameSkipper(_tempDir);
+            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, _tempDir, useConditions: false);
             skipper.BuildIndex();
 
             var album = new AlbumJob(new AlbumQuery { Album = "Library Album" });
@@ -700,7 +672,7 @@ namespace Tests.TrackSkipperTests
         [TestMethod]
         public void NameSkipper_NonExistentDirectory_IndexIsBuilt()
         {
-            var skipper = new NameSkipper("/definitely/does/not/exist");
+            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Name, "/definitely/does/not/exist", useConditions: false);
             skipper.BuildIndex();
             Assert.IsTrue(skipper.IndexIsBuilt);
         }
@@ -747,13 +719,13 @@ namespace Tests.TrackSkipperTests
                 PreferredCond = new FileConditions(),
             };
 
-            var uncheckedSkipper = new TagSkipper(_tempDir);
+            var uncheckedSkipper = TrackSkipperRegistry.GetSkipper(SkipMode.Tag, _tempDir, useConditions: false);
             uncheckedSkipper.BuildIndex();
             Assert.IsTrue(
                 uncheckedSkipper.SongExists(song, new TrackSkipperContext { checkFileExists = false }, out _),
                 "Without skip-check-cond, tag-mode skipping should ignore the current bitrate condition.");
 
-            var checkedSkipper = new TagConditionalSkipper(_tempDir);
+            var checkedSkipper = TrackSkipperRegistry.GetSkipper(SkipMode.Tag, _tempDir, useConditions: true);
             checkedSkipper.BuildIndex();
             var checkedContext = TrackSkipperContext.From(
                 new JobContext(),
@@ -769,7 +741,7 @@ namespace Tests.TrackSkipperTests
         {
             File.WriteAllText(Path.Combine(_tempDir, "Cool Artist - Great Booklet.pdf"), "not a TagLib file");
 
-            var skipper = new TagSkipper(_tempDir);
+            var skipper = TrackSkipperRegistry.GetSkipper(SkipMode.Tag, _tempDir, useConditions: false);
             skipper.BuildIndex();
 
             var song = new SongJob(new SongQuery { Artist = "Cool Artist", Title = "Great Booklet" });

@@ -69,10 +69,10 @@ public class SettingsResolutionTests
         var query = new SongQuery { Artist = "Artist", Title = "Track", Album = "Album", Length = 180 };
         var settings = ArtworkSettings();
         settings.Search.PreferredCond.AcceptNoLength = false;
-        var context = ResultSorter.CreateSortKeyContext([], query, settings.ResolveSearchSettings(), new(),
-            useBracketCheck: false, useInfer: false, albumMode: true);
+        var context = new ResultSorter.SortKeyContext(query, settings.ResolveSearchSettings(), new(),
+            albumMode: true);
 
-        Assert.AreEqual(0, context.CreateKey(response, low).CompareTo(context.CreateKey(response, high)));
+        Assert.AreEqual(0, context.CreateKey(SearchProjectionInput.FromLive(1, 1, response, low, DateTimeOffset.UnixEpoch)).CompareTo(context.CreateKey(SearchProjectionInput.FromLive(2, 1, response, high, DateTimeOffset.UnixEpoch))));
     }
 
     [TestMethod]

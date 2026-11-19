@@ -6,6 +6,9 @@ namespace Sockseek.Core.Jobs;
     // all versions of a song, or all results for a given name). Groups same songs.
     public class SongGroupsJob : Job, IUpgradeable
     {
+        public override JobSnapshotKind Kind => JobSnapshotKind.SongGroups;
+        internal override IReadOnlyList<Job> Children => Songs;
+
         public SongQuery Query { get; }
         public override SongQuery QueryTrack => Query;
 

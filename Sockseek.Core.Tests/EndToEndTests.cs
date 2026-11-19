@@ -1474,7 +1474,7 @@ namespace Tests.EndToEnd
                 var registry = TestHelpers.CreatePeerFailureTracker();
                 var searcher = new Searcher(testClient, registry, new DownloadEvents(), 10, 10);
                 var seedJob = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Chosen Album" });
-                await searcher.SearchAlbum(seedJob, rootSettings.Search, new ResponseData(), CancellationToken.None);
+                await searcher.SearchAlbum(seedJob, rootSettings.Search, CancellationToken.None);
                 var selected = seedJob.Results.Single();
 
                 var concreteJob = new AlbumJob(new AlbumQuery { Artist = "Wrong Artist", Album = "Wrong Album" })
@@ -1530,7 +1530,7 @@ namespace Tests.EndToEnd
                 var registry = TestHelpers.CreatePeerFailureTracker();
                 var searcher = new Searcher(testClient, registry, new DownloadEvents(), 10, 10);
                 var seedSong = new SongJob(new SongQuery { Artist = "Artist", Title = "Real Track" });
-                await searcher.SearchSong(seedSong, rootSettings.Search, new ResponseData(), CancellationToken.None);
+                await searcher.SearchSong(seedSong, rootSettings.Search, CancellationToken.None);
                 var selected = seedSong.Candidates!.Single();
 
                 var concreteJob = new SongJob(new SongQuery { Artist = "Wrong Artist", Title = "Wrong Track" })

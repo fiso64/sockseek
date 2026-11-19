@@ -562,30 +562,21 @@ public sealed class EngineStateStore
         }
     }
 
-    public void UpdateDaemonState(
-        SoulseekClientStatusDto soulseekClient,
-        int restartCount,
-        DateTimeOffset? searchRateLimitResetsAtUtc)
+    private void UpdateDaemonState(Func<DaemonStateDto, DaemonStateDto> update)
     {
         lock (gate)
         {
-            var next = daemonState with
-            {
-                Revision = daemonState.Revision + 1,
-                SoulseekClient = soulseekClient,
-                RestartCount = restartCount,
-                SearchRateLimitResetsAtUtc = searchRateLimitResetsAtUtc,
-            };
-            if (daemonState with { Revision = 0 } == next with { Revision = 0 })
-                return;
-
-            daemonState = next;
-            AppendDaemonChanges(
-                StateDelta.Empty with { Daemon = daemonState },
-                DateTimeOffset.UtcNow);
+            var next = update(daemonState);
+            if (next == daemonState) return;
+            SetDaemonStateLocked(next);
         }
-
         PublishStateChanges();
+    }
+
+    private void SetDaemonStateLocked(DaemonStateDto next)
+    {
+        daemonState = next with { Revision = checked(daemonState.Revision + 1) };
+        AppendDaemonChanges(StateDelta.Empty with { Daemon = daemonState }, DateTimeOffset.UtcNow);
     }
 
     public void NotifyTerminalTransferCommitted()
@@ -595,91 +586,25 @@ public sealed class EngineStateStore
     }
 
     private void RecordTerminalTransferCommit()
-    {
-        daemonState = daemonState with
+        => SetDaemonStateLocked(daemonState with
         {
-            Revision = checked(daemonState.Revision + 1),
             TerminalTransferCommitRevision = checked(daemonState.TerminalTransferCommitRevision + 1),
-        };
-        AppendDaemonChanges(StateDelta.Empty with { Daemon = daemonState }, DateTimeOffset.UtcNow);
-    }
+        });
 
     public void UpdateSearchRateLimit(DateTimeOffset? resetsAtUtc)
-    {
-        SoulseekClientStatusDto soulseekClient;
-        int restartCount;
-        lock (gate)
-        {
-            soulseekClient = daemonState.SoulseekClient;
-            restartCount = daemonState.RestartCount;
-        }
-
-        UpdateDaemonState(soulseekClient, restartCount, resetsAtUtc);
-    }
+        => UpdateDaemonState(state => state with { SearchRateLimitResetsAtUtc = resetsAtUtc });
 
     public void UpdateDaemonRuntime(SoulseekClientStatusDto soulseekClient, int restartCount)
-    {
-        DateTimeOffset? searchRateLimitResetsAtUtc;
-        lock (gate)
-            searchRateLimitResetsAtUtc = daemonState.SearchRateLimitResetsAtUtc;
-
-        UpdateDaemonState(soulseekClient, restartCount, searchRateLimitResetsAtUtc);
-    }
+        => UpdateDaemonState(state => state with { SoulseekClient = soulseekClient, RestartCount = restartCount });
 
     public void UpdateConfigurationStatus(ConfigurationStatusDto status)
-    {
-        lock (gate)
-        {
-            if (daemonState.Configuration == status) return;
-            daemonState = daemonState with { Revision = daemonState.Revision + 1, Configuration = status };
-            AppendDaemonChanges(StateDelta.Empty with { Daemon = daemonState }, DateTimeOffset.UtcNow);
-        }
-        PublishStateChanges();
-    }
+        => UpdateDaemonState(state => state with { Configuration = status });
 
-    public void UpdateSharingRuntime(
-        SharingStateDto sharing,
-        UploadRuntimeStateDto uploads)
-    {
-        lock (gate)
-        {
-            var next = daemonState with
-            {
-                Revision = daemonState.Revision + 1,
-                Sharing = sharing,
-                Uploads = uploads,
-            };
-            if (daemonState with { Revision = 0 } == next with { Revision = 0 })
-                return;
-            daemonState = next;
-            AppendDaemonChanges(
-                StateDelta.Empty with { Daemon = daemonState },
-                DateTimeOffset.UtcNow);
-        }
-        PublishStateChanges();
-    }
+    public void UpdateSharingRuntime(SharingStateDto sharing, UploadRuntimeStateDto uploads)
+        => UpdateDaemonState(state => state with { Sharing = sharing, Uploads = uploads });
 
-    public void UpdateChatRuntime(
-        ChatRuntimeStateDto chat,
-        NotificationSummaryDto notifications)
-    {
-        lock (gate)
-        {
-            var next = daemonState with
-            {
-                Revision = daemonState.Revision + 1,
-                Chat = chat,
-                Notifications = notifications,
-            };
-            if (daemonState with { Revision = 0 } == next with { Revision = 0 })
-                return;
-            daemonState = next;
-            AppendDaemonChanges(
-                StateDelta.Empty with { Daemon = daemonState },
-                DateTimeOffset.UtcNow);
-        }
-        PublishStateChanges();
-    }
+    public void UpdateChatRuntime(ChatRuntimeStateDto chat, NotificationSummaryDto notifications)
+        => UpdateDaemonState(state => state with { Chat = chat, Notifications = notifications });
 
     public void PublishNotification(UserNotificationRecord notification)
     {

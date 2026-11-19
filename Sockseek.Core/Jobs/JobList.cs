@@ -8,6 +8,9 @@ namespace Sockseek.Core.Jobs;
     // State is derived: Done when all children are done, Failed if all failed.
     public class JobList : Job, IUpgradeable
     {
+        public override JobSnapshotKind Kind => JobSnapshotKind.JobList;
+        internal override IReadOnlyList<Job> Children => Jobs;
+
         private readonly JobMembers<Job> members;
         public IReadOnlyList<Job> Jobs => members.Snapshot;
         public int Count => members.Count;

@@ -1,3 +1,5 @@
+import { projectSelection } from '../../app/tree-selection';
+
 export type SubtreeRule = { ref: string; selected: boolean };
 
 function contains(ancestor: string, ref: string): boolean {
@@ -28,37 +30,16 @@ export function toggleSubtree(
     : [...outside, { ref, selected }];
 }
 
-/** Counts include a selectable node itself as well as selectable descendants. */
-export function selectedSubtreeCount(
-  ref: string,
-  subtreeCounts: ReadonlyMap<string, number>,
-  defaultSelected: boolean,
-  rules: readonly SubtreeRule[],
-): number {
-  const count = subtreeCounts.get(ref) ?? 0;
-  let selected = effectiveSelection(ref, defaultSelected, rules) ? count : 0;
-  const nested = rules.filter((rule) => rule.ref !== ref && contains(ref, rule.ref))
-    .sort((a, b) => a.ref.length - b.ref.length);
-  for (const rule of nested) {
-    const parentSelection = effectiveSelection(rule.ref, defaultSelected, rules.filter((candidate) => candidate.ref !== rule.ref));
-    if (rule.selected !== parentSelection)
-      selected += (rule.selected ? 1 : -1) * (subtreeCounts.get(rule.ref) ?? 0);
-  }
-  return selected;
+export function projectPreviewSelection(
+  total: number, subtreeCounts: ReadonlyMap<string, number>, defaultSelected: boolean, rules: readonly SubtreeRule[],
+) {
+  const included = new Set<string>();
+  const excluded = new Set<string>();
+  for (const rule of rules) (rule.selected ? included : excluded).add(rule.ref);
+  return projectSelection(included, excluded, parentRef, ref => subtreeCounts.get(ref) ?? 0, defaultSelected, total);
 }
 
-export function selectedPreviewCount(
-  total: number,
-  subtreeCounts: ReadonlyMap<string, number>,
-  defaultSelected: boolean,
-  rules: readonly SubtreeRule[],
-): number {
-  let selected = defaultSelected ? total : 0;
-  const ordered = [...rules].sort((a, b) => a.ref.length - b.ref.length);
-  for (const rule of ordered) {
-    const inherited = effectiveSelection(rule.ref, defaultSelected, ordered.filter((candidate) => candidate.ref !== rule.ref));
-    if (rule.selected !== inherited)
-      selected += (rule.selected ? 1 : -1) * (subtreeCounts.get(rule.ref) ?? 0);
-  }
-  return selected;
+function parentRef(ref: string): string | null {
+  const separator = ref.lastIndexOf('/');
+  return separator < 0 ? null : ref.slice(0, separator);
 }

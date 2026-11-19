@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import type { Schema } from '../src/api/types';
 import { directoryFileRow, directoryKnownSize, directoryManifestFileRow } from '../src/domains/jobs/directory-files';
-import { readJobSummaries, jobSummaryRetryIds } from '../src/domains/jobs/details';
+import { readJobSummaries, jobSummaryRetryIds } from '../src/domains/jobs/detail-reads';
 
 it('keeps missing outcomes and unknown sizes distinct from success and empty files', () => {
   const supplemental = { ordinal: 1, target: null, relativeDirectoryComponents: [], childJobId: 'pruned' } satisfies Schema<'DirectoryManifestEntryDto'>;

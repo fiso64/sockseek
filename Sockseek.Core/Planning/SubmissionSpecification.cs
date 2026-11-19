@@ -148,7 +148,7 @@ public sealed record SubmissionSpecification(
 
     private static NormalizedJobCommand BindCommandJobIds(NormalizedJobCommand command, Job job)
     {
-        if (command.Kind != Kind(job))
+        if (command.Kind != job.Kind)
             throw new InvalidOperationException("The accepted job does not match its retained command kind.");
 
         NormalizedJobCommand? result = command.ExtractedResult;
@@ -279,7 +279,7 @@ public sealed record SubmissionSpecification(
     {
         var command = new NormalizedJobCommand
         {
-            Kind = Kind(job),
+            Kind = job.Kind,
             AcceptedJobId = job.Id,
             ItemName = job.ItemName,
             ItemNumber = job.ItemNumber,
@@ -719,21 +719,6 @@ public sealed record SubmissionSpecification(
         }
         return settings;
     }
-
-    private static JobSnapshotKind Kind(Job job) => job switch
-    {
-        ExtractJob => JobSnapshotKind.Extract,
-        SearchJob => JobSnapshotKind.Search,
-        SongJob => JobSnapshotKind.Song,
-        AlbumJob => JobSnapshotKind.Album,
-        SongGroupsJob => JobSnapshotKind.SongGroups,
-        AlbumGroupsJob => JobSnapshotKind.AlbumGroups,
-        JobList => JobSnapshotKind.JobList,
-        RetrieveFolderJob => JobSnapshotKind.RetrieveFolder,
-        RemoteFileJob => JobSnapshotKind.RemoteFile,
-        RemoteDirectoryJob => JobSnapshotKind.RemoteDirectory,
-        _ => JobSnapshotKind.Generic,
-    };
 
     private static DirectoryTransferPlan DirectoryPlan(DirectoryTransferPlanSnapshot plan)
         => new(

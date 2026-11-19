@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { JobSummaryDto, Schema } from '../src/api/types';
-import { canReuseJobDetail, jobDetailVersion, startJobDetailRefresh } from '../src/domains/jobs/details';
+import { canReuseJobDetail, jobDetailVersion, startJobDetailRefresh } from '../src/domains/jobs/detail-reads';
 import { presentJob, presentedJobs, presentedChildren, resolvePresentedJob, sortPresentedJobsNewestFirst } from '../src/domains/jobs/presentation';
 import { searchJobMode } from '../src/domains/jobs/kind';
 

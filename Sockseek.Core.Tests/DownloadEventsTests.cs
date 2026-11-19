@@ -160,6 +160,7 @@ namespace Tests.Eventing
 
         private sealed class UnvisitedJob : Job
         {
+            public override JobSnapshotKind Kind => JobSnapshotKind.Generic;
             protected override bool DefaultCanBeSkipped => false;
             public override string ToString(bool noInfo)
                 => throw new InvalidOperationException("A presentation notification must not visit descendants.");

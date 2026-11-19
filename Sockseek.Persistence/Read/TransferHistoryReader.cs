@@ -445,7 +445,7 @@ public sealed class TransferHistoryReader(
         if (inbox is null)
             throw new NotSupportedException("Transfer removal requires the daemon persistence writer.");
 
-        var command = new Persistence.Write.AwaitablePersistenceCommand<TransferRemovalResult>(
+        return await inbox.CommitOnceAdmittedAsync<TransferRemovalResult>(
             async (context, ct) =>
             {
                 IQueryable<Entities.TransferEntity> matching = ApplyRemovalFilter(
@@ -478,9 +478,7 @@ public sealed class TransferHistoryReader(
                 if (noOp > 0)
                     reasons["already-removed"] = noOp;
                 return new(resolved, changed, noOp, rejected, reasons);
-            });
-        await inbox.EnqueueCommandAsync(command, cancellationToken).ConfigureAwait(false);
-        return await command.Task.ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
     }
 
     private static IQueryable<Entities.TransferEntity> ApplyRemovalFilter(

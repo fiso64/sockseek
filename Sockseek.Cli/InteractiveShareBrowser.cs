@@ -278,7 +278,7 @@ internal sealed class InteractiveShareBrowser
             Console.WriteLine("Download selected shares?");
             Console.WriteLine();
             Console.WriteLine(
-                $"{cart.TotalFileCount:N0} files ({UserCommandRunner.FormatBytes(cart.TotalBytes)}) from "
+                $"{cart.TotalFileCount:N0} files ({UserCommands.FormatBytes(cart.TotalBytes)}) from "
                 + $"{cart.DirectoryCount:N0} folder roots and {cart.FileCount:N0} standalone files");
             if (cart.LockedBranchesSkipped > 0)
                 Console.WriteLine($"Locked branches skipped: {cart.LockedBranchesSkipped:N0}");
@@ -375,13 +375,13 @@ internal sealed class InteractiveShareBrowser
         {
             BrowserRow.Directory directory =>
                 $"{directory.Value.RecursiveFileCount:N0} files · "
-                + UserCommandRunner.FormatBytes(directory.Value.RecursiveFileBytes)
+                + UserCommands.FormatBytes(directory.Value.RecursiveFileBytes)
                 + (directory.Value.LockedDescendantCount > 0
                     ? $" · {directory.Value.LockedDescendantCount:N0} locked"
                     : "")
                 + (directory.Value.Visibility == ShareVisibility.Locked ? " · locked" : ""),
             BrowserRow.File file =>
-                UserCommandRunner.FormatBytes(file.Value.File.Size)
+                UserCommands.FormatBytes(file.Value.File.Size)
                 + $" · {file.Value.File.Extension ?? "file"}"
                 + (file.Value.Visibility == ShareVisibility.Locked ? " · locked" : ""),
             _ => "",

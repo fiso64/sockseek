@@ -134,7 +134,7 @@ public sealed class DownloadOutputFile
     private sealed class OutputNode(Job job, OutputNode? parent)
     {
         public readonly Guid Id = job.Id;
-        public readonly JobSnapshotKind Kind = CoreSnapshotFactory.GetJobKind(job);
+        public readonly JobSnapshotKind Kind = job.Kind;
         public readonly OutputNode? Parent = parent;
         public readonly List<OutputNode> Children = [];
         public string? PlaylistLine;
@@ -290,22 +290,15 @@ public sealed class DownloadOutputFile
                 foreach (var node in matches.ToArray()) RefreshNode(node, owner);
     }
 
-    private static IEnumerable<Job> Children(Job job) => job switch
-    {
-        JobList list => list.Jobs,
-        ExtractJob { Result: { } result } => [result],
-        SongGroupsJob group => group.Songs,
-        AlbumGroupsJob group => group.Albums,
-        AlbumJob album => album.TrackJobs,
-        _ => [],
-    };
+    // Ordinary remote directories do not contribute music index or playlist entries.
+    private static IReadOnlyList<Job> OutputChildren(Job job) => job is RemoteDirectoryJob ? [] : job.Children;
 
     private OutputNode RegisterNode(Job job, OutputNode? parent)
     {
         var node = new OutputNode(job, parent);
         if (!nodes.TryGetValue(job.Id, out var memberships)) nodes.Add(job.Id, memberships = []);
         memberships.Add(node);
-        foreach (var child in Children(job)) node.Children.Add(RegisterNode(child, node));
+        foreach (var child in OutputChildren(job)) node.Children.Add(RegisterNode(child, node));
         node.SuccessfulChildren = node.Children.Count(child => child.Successful);
         return node;
     }
@@ -318,7 +311,7 @@ public sealed class DownloadOutputFile
         if (memberships.Count == 0) nodes.Remove(node.Id);
     }
 
-    private void RebuildChildren(OutputNode node, Job job)
+    private void RebuildChildren(OutputNode node, IReadOnlyList<Job> children)
     {
         // Keep cached facts/positions for unchanged identities, including
         // duplicate source memberships. Appending an extraction must not erase
@@ -326,7 +319,7 @@ public sealed class DownloadOutputFile
         var retained = node.Children.GroupBy(child => child.Id)
             .ToDictionary(group => group.Key, group => new Queue<OutputNode>(group));
         node.Children.Clear();
-        foreach (var child in Children(job))
+        foreach (var child in children)
             node.Children.Add(retained.TryGetValue(child.Id, out var matches) && matches.Count > 0
                 ? matches.Dequeue() : RegisterNode(child, node));
         foreach (var remaining in retained.Values)
@@ -339,9 +332,9 @@ public sealed class DownloadOutputFile
     {
         // Containers reconcile explicit membership. A leaf update never reaches
         // this traversal; captured lines and index records survive between it.
-        var children = Children(job).ToArray();
+        var children = OutputChildren(job).ToArray();
         if (!node.Children.Select(child => child.Id).SequenceEqual(children.Select(child => child.Id)))
-            RebuildChildren(node, job);
+            RebuildChildren(node, children);
         node.Search = job.Config?.Search ?? node.Parent?.Search;
         for (int i = 0; i < children.Length; i++) RefreshNode(node.Children[i], children[i], capture);
         if (capture) Capture(node, job);

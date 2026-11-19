@@ -17,11 +17,6 @@ public sealed record PersistenceQueueSnapshot(
     int RetryMutationCount,
     int BufferedSearchResultCount);
 
-public sealed record PersistenceRuntimeStartup(
-    SqliteInitializationResult Initialization,
-    StartupReconciliationResult Reconciliation,
-    long MaximumRetainedDisplayId);
-
 public sealed record PersistenceRuntimeStop(
     bool Drained,
     Guid? RuntimeId,
@@ -94,7 +89,7 @@ public sealed class PersistenceRuntimeHost
     public Authentication.ApiKeyStore? ApiKeys { get; private set; }
     public long? DatabaseSizeBytes => FileSize(sqliteOptions.DatabasePath);
     public long? WalSizeBytes => FileSize(sqliteOptions.DatabasePath + "-wal");
-    public async Task<PersistenceRuntimeStartup> StartAsync(CancellationToken cancellationToken = default)
+    public async Task<StartupReconciliationResult> StartAsync(CancellationToken cancellationToken = default)
     {
         if (IsStarted)
             throw new InvalidOperationException("The persistence runtime host is already started.");
@@ -121,9 +116,6 @@ public sealed class PersistenceRuntimeHost
             runtimeSession = new PersistenceRuntimeSession(contextFactory);
             var reconciliation = await runtimeSession.StartAsync(version, cancellationToken).ConfigureAwait(false);
             Reconciliation = reconciliation;
-            long maximumDisplayId = await new PersistenceMetadataReader(contextFactory)
-                .GetMaximumDisplayIdAsync(cancellationToken)
-                .ConfigureAwait(false);
 
             inbox = new PersistenceInbox(writerOptions, Health, mutationObserver);
             retention = new RetentionService(inbox, retentionOptions);
@@ -164,7 +156,7 @@ public sealed class PersistenceRuntimeHost
             }
             IsStarted = true;
 
-            return new PersistenceRuntimeStartup(Initialization, reconciliation, maximumDisplayId);
+            return reconciliation;
         }
         catch (Exception ex)
         {

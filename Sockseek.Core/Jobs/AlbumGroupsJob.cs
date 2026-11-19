@@ -6,6 +6,9 @@ namespace Sockseek.Core.Jobs;
     // Has no download state of its own after conversion.
     public class AlbumGroupsJob : Job, IUpgradeable
     {
+        public override JobSnapshotKind Kind => JobSnapshotKind.AlbumGroups;
+        internal override IReadOnlyList<Job> Children => Albums;
+
         public AlbumQuery Query { get; set; }
 
         // SongQuery-shaped view for base-class helpers. Recomputed from Query so it stays current after preprocessing.

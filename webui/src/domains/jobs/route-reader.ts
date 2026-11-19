@@ -2,7 +2,7 @@ import type { DaemonApiClient } from '../../api/client';
 import type { DaemonLiveClient } from '../../api/live';
 import type { Schema } from '../../api/types';
 import { jobStateSummary } from '../../api/job-summary';
-import { jobDetailVersion } from './details';
+import { jobDetailVersion } from './detail-reads';
 import { resolvePresentedJob } from './presentation';
 
 /** Resolves deep links/extraction results and rejects reads overtaken by relevant changes. */

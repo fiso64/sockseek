@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { jobDetailInfo } from '../src/domains/jobs/detail-info';
 import type { JobSummaryDto, Schema } from '../src/api/types';
 import { jobStatusClass, jobStatusLabel, jobTransferTone } from '../src/domains/jobs/status';
-import { searchJobStats } from '../src/domains/jobs/search-stats';
+import { searchJobStats } from '../src/domains/jobs/list-stats';
 
 it('keeps unknown search counts absent while preserving explicit zero and public counts', () => {
   expect(searchJobStats({})).toEqual([]);

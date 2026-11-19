@@ -1,3 +1,4 @@
+using Sockseek.Core.Snapshots;
 using Sockseek.Core;
 using Sockseek.Core.Models;
 
@@ -8,6 +9,8 @@ namespace Sockseek.Core.Jobs;
     // If ResolvedTarget is non-null the engine skips the search phase.
     public class SongJob : FileDownloadJob, IUpgradeable
     {
+        public override JobSnapshotKind Kind => JobSnapshotKind.Song;
+
         public SongQuery Query { get; set; }
 
         // Provider-owned provenance, retained independently of peer candidates.

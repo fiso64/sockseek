@@ -1,6 +1,10 @@
 using Sockseek.Api;
 using Sockseek.Core;
 using Sockseek.Core.Chat;
+using Sockseek.Core.Jobs;
+using Sockseek.Core.Planning;
+using Sockseek.Core.Snapshots;
+using System.Collections.Frozen;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
@@ -63,63 +67,102 @@ public static class ApiEnumMapper
     public static PrintOption ToCore(this ServerPrintOption value)
         => (PrintOption)ValidatePrintOption((int)value, nameof(value));
 
-    public static DownloadBehavior ToCore(this ServerDownloadBehavior value) => Map<DownloadBehavior>(value);
+    public static DownloadBehavior ToCore(this ServerDownloadBehavior value) => EnumMap<ServerDownloadBehavior, DownloadBehavior>.Get(value);
 
-    public static ServerIncompleteAlbumActionKind ToServer(this IncompleteAlbumActionKind value) => Map<ServerIncompleteAlbumActionKind>(value);
+    public static ServerIncompleteAlbumActionKind ToServer(this IncompleteAlbumActionKind value) => EnumMap<IncompleteAlbumActionKind, ServerIncompleteAlbumActionKind>.Get(value);
 
-    public static ServerSkipMode ToServer(this SkipMode value) => Map<ServerSkipMode>(value);
+    public static ServerSkipMode ToServer(this SkipMode value) => EnumMap<SkipMode, ServerSkipMode>.Get(value);
 
-    public static ServerInputType ToServer(this InputType value) => Map<ServerInputType>(value);
-    public static InputType ToCore(this ServerInputType value) => Map<InputType>(value);
+    public static ServerInputType ToServer(this InputType value) => EnumMap<InputType, ServerInputType>.Get(value);
+    public static InputType ToCore(this ServerInputType value) => EnumMap<ServerInputType, InputType>.Get(value);
 
-    public static ServerExtractionMode ToServer(this ExtractionMode value) => Map<ServerExtractionMode>(value);
-    public static ExtractionMode ToCore(this ServerExtractionMode value) => Map<ExtractionMode>(value);
+    public static ServerExtractionMode ToServer(this ExtractionMode value) => EnumMap<ExtractionMode, ServerExtractionMode>.Get(value);
+    public static ExtractionMode ToCore(this ServerExtractionMode value) => EnumMap<ServerExtractionMode, ExtractionMode>.Get(value);
 
-    public static ServerAlbumArtOption ToServer(this AlbumArtOption value) => Map<ServerAlbumArtOption>(value);
+    public static ServerAlbumArtOption ToServer(this AlbumArtOption value) => EnumMap<AlbumArtOption, ServerAlbumArtOption>.Get(value);
 
-    public static ServerSearchSettingsBaselineKind ToServer(this SearchSettingsBaselineKind value) => Map<ServerSearchSettingsBaselineKind>(value);
+    public static ServerSearchSettingsBaselineKind ToServer(this SearchSettingsBaselineKind value) => EnumMap<SearchSettingsBaselineKind, ServerSearchSettingsBaselineKind>.Get(value);
 
-    public static ServerSearchDefaultProjectionKind ToServer(this SearchDefaultProjectionKind value) => Map<ServerSearchDefaultProjectionKind>(value);
+    public static ServerSearchDefaultProjectionKind ToServer(this SearchDefaultProjectionKind value) => EnumMap<SearchDefaultProjectionKind, ServerSearchDefaultProjectionKind>.Get(value);
 
-    public static ServerSearchViewProjectionKind ToServer(this SearchViewProjectionKind value) => Map<ServerSearchViewProjectionKind>(value);
-    public static SearchViewProjectionKind ToCore(this ServerSearchViewProjectionKind value) => Map<SearchViewProjectionKind>(value);
+    public static ServerSearchViewProjectionKind ToServer(this SearchViewProjectionKind value) => EnumMap<SearchViewProjectionKind, ServerSearchViewProjectionKind>.Get(value);
+    public static SearchViewProjectionKind ToCore(this ServerSearchViewProjectionKind value) => EnumMap<ServerSearchViewProjectionKind, SearchViewProjectionKind>.Get(value);
 
-    public static ServerSearchViewSortOrder ToServer(this SearchViewSortOrder value) => Map<ServerSearchViewSortOrder>(value);
-    public static SearchViewSortOrder ToCore(this ServerSearchViewSortOrder value) => Map<SearchViewSortOrder>(value);
+    public static ServerSearchViewSortOrder ToServer(this SearchViewSortOrder value) => EnumMap<SearchViewSortOrder, ServerSearchViewSortOrder>.Get(value);
+    public static SearchViewSortOrder ToCore(this ServerSearchViewSortOrder value) => EnumMap<ServerSearchViewSortOrder, SearchViewSortOrder>.Get(value);
 
-    public static ServerSearchResultVisibility ToServer(this SearchResultVisibility value) => Map<ServerSearchResultVisibility>(value);
-    public static SearchResultVisibility ToCore(this ServerSearchResultVisibility value) => Map<SearchResultVisibility>(value);
+    public static ServerSearchResultVisibility ToServer(this SearchResultVisibility value) => EnumMap<SearchResultVisibility, ServerSearchResultVisibility>.Get(value);
+    public static SearchResultVisibility ToCore(this ServerSearchResultVisibility value) => EnumMap<ServerSearchResultVisibility, SearchResultVisibility>.Get(value);
 
-    public static ServerSearchPreferenceTier ToServer(this SearchPreferenceTier value) => Map<ServerSearchPreferenceTier>(value);
-    public static SearchPreferenceTier ToCore(this ServerSearchPreferenceTier value) => Map<SearchPreferenceTier>(value);
+    public static ServerSearchPreferenceTier ToServer(this SearchPreferenceTier value) => EnumMap<SearchPreferenceTier, ServerSearchPreferenceTier>.Get(value);
+    public static SearchPreferenceTier ToCore(this ServerSearchPreferenceTier value) => EnumMap<ServerSearchPreferenceTier, SearchPreferenceTier>.Get(value);
 
-    public static ServerSearchPreferenceCondition ToServer(this SearchPreferenceCondition value) => Map<ServerSearchPreferenceCondition>(value);
-    public static SearchPreferenceCondition ToCore(this ServerSearchPreferenceCondition value) => Map<SearchPreferenceCondition>(value);
+    public static ServerSearchPreferenceCondition ToServer(this SearchPreferenceCondition value) => EnumMap<SearchPreferenceCondition, ServerSearchPreferenceCondition>.Get(value);
+    public static SearchPreferenceCondition ToCore(this ServerSearchPreferenceCondition value) => EnumMap<ServerSearchPreferenceCondition, SearchPreferenceCondition>.Get(value);
 
-    public static ServerChatTargetKind ToServer(this ChatTargetKind value) => Map<ServerChatTargetKind>(value);
+    public static ServerChatTargetKind ToServer(this ChatTargetKind value) => EnumMap<ChatTargetKind, ServerChatTargetKind>.Get(value);
 
-    public static ServerChatMessageDirection ToServer(this ChatMessageDirection value) => Map<ServerChatMessageDirection>(value);
+    public static ServerChatMessageDirection ToServer(this ChatMessageDirection value) => EnumMap<ChatMessageDirection, ServerChatMessageDirection>.Get(value);
 
-    public static ServerChatMessageState ToServer(this ChatMessageState value) => Map<ServerChatMessageState>(value);
+    public static ServerChatMessageState ToServer(this ChatMessageState value) => EnumMap<ChatMessageState, ServerChatMessageState>.Get(value);
 
-    public static ServerChatRoomKind ToServer(this ChatRoomKind value) => Map<ServerChatRoomKind>(value);
+    public static ServerChatRoomKind ToServer(this ChatRoomKind value) => EnumMap<ChatRoomKind, ServerChatRoomKind>.Get(value);
 
-    public static ServerChatRoomJoinPhase ToServer(this ChatRoomJoinPhase value) => Map<ServerChatRoomJoinPhase>(value);
+    public static ServerChatRoomJoinPhase ToServer(this ChatRoomJoinPhase value) => EnumMap<ChatRoomJoinPhase, ServerChatRoomJoinPhase>.Get(value);
 
-    public static ServerUserNotificationKind ToServer(this UserNotificationKind value) => Map<ServerUserNotificationKind>(value);
-    public static UserNotificationKind ToCore(this ServerUserNotificationKind value) => Map<UserNotificationKind>(value);
+    public static ServerUserNotificationKind ToServer(this UserNotificationKind value) => EnumMap<UserNotificationKind, ServerUserNotificationKind>.Get(value);
+    public static UserNotificationKind ToCore(this ServerUserNotificationKind value) => EnumMap<ServerUserNotificationKind, UserNotificationKind>.Get(value);
 
-    public static ServerShareScanPhase ToServer(this ShareScanPhase value) => Map<ServerShareScanPhase>(value);
+    public static ServerShareScanPhase ToServer(this ShareScanPhase value) => EnumMap<ShareScanPhase, ServerShareScanPhase>.Get(value);
 
-    private static TTarget Map<TTarget>(Enum value) where TTarget : struct, Enum
+    public static ServerJobKind ToServer(this JobSnapshotKind value)
+        => EnumMap<JobSnapshotKind, ServerJobKind>.Values.GetValueOrDefault(value, ServerJobKind.Generic);
+
+    public static ServerJobRole ToServer(this JobSemanticRole value)
+        => EnumMap<JobSemanticRole, ServerJobRole>.Get(value);
+
+    public static ServerJobLifecycleState ToServer(this JobLifecycleState value)
+        => EnumMap<JobLifecycleState, ServerJobLifecycleState>.Get(value);
+
+    public static ServerJobActivityPhase ToServer(this JobActivityPhase value)
+        => EnumMap<JobActivityPhase, ServerJobActivityPhase>.Get(value);
+
+    public static ServerJobTerminalOutcome ToServer(this JobTerminalOutcome value)
+        => EnumMap<JobTerminalOutcome, ServerJobTerminalOutcome>.Get(value);
+
+    public static ServerSongDownloadSource ToServer(this SongDownloadSource value)
+        => EnumMap<SongDownloadSource, ServerSongDownloadSource>.Get(value);
+
+    public static ServerJobSkipReason ToServer(this JobSkipReason value)
+        => EnumMap<JobSkipReason, ServerJobSkipReason>.Get(value);
+
+    public static ServerJobFailureReason? ToServer(this JobFailureReason value)
+        => value == JobFailureReason.None ? null : EnumMap<JobFailureReason, ServerJobFailureReason>.Get(value);
+
+    public static ServerJobCancellationSource ToServer(this JobCancellationSource value)
+        => EnumMap<JobCancellationSource, ServerJobCancellationSource>.Get(value);
+
+    public static ServerFolderRetrievalOutcome ToServer(this FolderRetrievalOutcome value)
+        => EnumMap<FolderRetrievalOutcome, ServerFolderRetrievalOutcome>.Get(value);
+
+    private static class EnumMap<TSource, TTarget>
+        where TSource : struct, Enum
+        where TTarget : struct, Enum
     {
-        if (Enum.TryParse(value.ToString(), out TTarget target) && Enum.IsDefined(target))
-            return target;
+        internal static readonly FrozenDictionary<TSource, TTarget> Values = Build();
 
-        throw new ArgumentOutOfRangeException(
-            nameof(value),
-            value,
-            $"{value.GetType().Name}.{value} has no {typeof(TTarget).Name} mapping.");
+        private static FrozenDictionary<TSource, TTarget> Build()
+        {
+            var values = new Dictionary<TSource, TTarget>();
+            foreach (var source in Enum.GetValues<TSource>())
+                if (Enum.TryParse<TTarget>(source.ToString(), out var target))
+                    values[source] = target;
+            return values.ToFrozenDictionary();
+        }
+
+        internal static TTarget Get(TSource value) => Values.TryGetValue(value, out var target) ? target
+            : throw new ArgumentOutOfRangeException(nameof(value), value,
+                $"{typeof(TSource).Name}.{value} has no {typeof(TTarget).Name} mapping.");
     }
 
     private static int ValidatePrintOption(int value, string parameterName)

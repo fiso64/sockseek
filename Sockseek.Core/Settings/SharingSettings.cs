@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text.Json;
 using Sockseek.Core.Sharing;
 
 namespace Sockseek.Core.Settings;
@@ -36,6 +38,22 @@ public sealed class SharingSettings
     [SettingOption("--share-filter", DefaultProfileOnly = true)]
     private static void ConfigureFilter(SettingWriter changes, string value)
         => changes.ListItem(nameof(Filters), value, item => item);
+
+    public string CatalogFingerprint()
+    {
+        byte[] canonical = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            SchemaVersion = ShareCatalogVersions.Schema,
+            Roots = Roots.Select(root => new
+            {
+                root.LocalPath,
+                Alias = root.EffectiveAlias,
+            }),
+            Exclusions = ExcludedDirectories,
+            Filters,
+        });
+        return Convert.ToHexString(SHA256.HashData(canonical));
+    }
 
     private static TimeSpan? ParseRescanInterval(string value, string flag)
     {

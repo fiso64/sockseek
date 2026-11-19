@@ -51,6 +51,15 @@ public sealed class YtDlpSongDownloadFallback(IYtDlpClient client) : ISongDownlo
     }
 }
 
+public sealed record YtDlpSearchResult(int Length, string Id, string Title);
+
+public interface IYtDlpClient
+{
+    Task<IReadOnlyList<YtDlpSearchResult>> SearchAsync(SongQuery query, IJobLog? log, CancellationToken ct);
+
+    Task<string> DownloadAsync(string id, string savePathNoExt, string ytdlpArgument, IJobLog? log, CancellationToken ct, Action? processing = null);
+}
+
 public sealed class YtDlpClient : IYtDlpClient
 {
     public async Task<IReadOnlyList<YtDlpSearchResult>> SearchAsync(SongQuery query, IJobLog? log, CancellationToken ct)

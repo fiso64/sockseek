@@ -24,7 +24,9 @@ import {
   networkQuery,
   searchModeFamily,
   searchSubmissionOptions,
+  isGroupSearchMode,
   searchViewKind,
+  modeForProjection,
   songQuery,
   type SearchDraft,
   type SearchResultMode,
@@ -486,20 +488,14 @@ function searchDraftFromDetail(
     ? detail.payload.query : null);
   const album = payload?.albumQuery ?? (detail.payload?.kind === 'album' || detail.payload?.kind === 'album-groups'
     ? detail.payload.query : null);
-  const group = kind === 'TrackGroups' || kind === 'AlbumGroups';
+  const resultMode = modeForProjection(kind);
+  const group = isGroupSearchMode(resultMode);
   const split = group
     ? Boolean(song?.title || album?.album || album?.searchHint)
     : Boolean(song?.artist || album?.artist || (album?.album && album?.searchHint));
-  const modes: Record<SearchViewSummaryDto['kind'], SearchResultMode> = {
-    Files: 'track',
-    GenericDirectories: 'generic',
-    AlbumDirectories: 'album',
-    TrackGroups: 'song-groups',
-    AlbumGroups: 'album-groups',
-  };
   return {
     mode: split ? 'split' : 'simple',
-    resultMode: modes[kind],
+    resultMode,
     query: split ? '' : (group ? song?.artist ?? album?.artist : song?.title ?? album?.album ?? album?.searchHint) ?? payload?.queryText ?? detail.summary.queryText ?? detail.summary.itemName ?? '',
     artist: song?.artist ?? album?.artist ?? '',
     title: song?.title ?? album?.album ?? '',

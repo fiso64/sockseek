@@ -5,8 +5,7 @@
   import { searchModeLabel } from '../search/model';
   import { canDeleteSubmission } from './deletion';
   import { jobKindIcon, jobKindLabel, searchJobMode } from './kind';
-  import { automaticJobListStats, automaticJobProgressPercent } from './list-stats';
-  import { searchJobStats } from './search-stats';
+  import { automaticJobListStats, automaticJobProgressPercent, searchJobStats } from './list-stats';
   import { jobStatusLabel, jobStatusClass } from './status';
 
   let { job, root, resultState, progressPercent, deleting = false, onopen, oncancel, ondelete }: {

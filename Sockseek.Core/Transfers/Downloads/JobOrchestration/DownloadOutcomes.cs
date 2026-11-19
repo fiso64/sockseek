@@ -1,5 +1,4 @@
 using Sockseek.Core.Jobs;
-using Sockseek.Core.Models;
 
 namespace Sockseek.Core;
 
@@ -14,19 +13,15 @@ internal static class DownloadOutcomes
             Diagnostics.ExceptionText.Summary(exception),
             Diagnostics.ExceptionText.Detail(exception));
 
-    public static JobOutcome NoMatchingDiscovery(
-        ResponseData responseData,
-        string rawResultSingular,
-        string rawResultPlural,
-        string candidatePlural)
+    public static JobOutcome NoMatchingDiscovery(Job job, string candidatePlural)
     {
-        if (responseData.resultCount <= 0)
-            return JobOutcome.Failed(JobFailureReason.NoSearchResults, $"No Soulseek {rawResultPlural} found.");
+        int files = job.Discovery?.RawResultCount ?? 0;
+        if (files == 0)
+            return JobOutcome.Failed(JobFailureReason.NoSearchResults, "No Soulseek file results found.");
 
-        var rawResultNoun = responseData.resultCount == 1 ? rawResultSingular : rawResultPlural;
-        return JobOutcome.Failed(
-            JobFailureReason.NoMatchingResults,
-            $"{responseData.resultCount} Soulseek {rawResultNoun} found, but no matching {candidatePlural} satisfied the required conditions.");
+        string noun = files == 1 ? "file result" : "file results";
+        return JobOutcome.Failed(JobFailureReason.NoMatchingResults,
+            $"{files} Soulseek {noun} found, but no matching {candidatePlural} satisfied the required conditions.");
     }
 
     public static JobOutcome NoMatchingCandidates()

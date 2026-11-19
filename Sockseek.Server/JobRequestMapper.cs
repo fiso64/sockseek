@@ -75,30 +75,6 @@ public static class JobRequestMapper
     public static JobList CreateJobList(SubmitJobListRequestDto request)
         => CreateJobList(request.Name, request.Jobs);
 
-    public static void AssignWorkflowId(Job job, Guid workflowId)
-    {
-        job.WorkflowId = workflowId;
-
-        switch (job)
-        {
-            case JobList list:
-                foreach (var child in list.Jobs)
-                    AssignWorkflowId(child, workflowId);
-                break;
-            case ExtractJob extract when extract.Result != null:
-                AssignWorkflowId(extract.Result, workflowId);
-                break;
-            case SongGroupsJob group:
-                foreach (var song in group.Songs)
-                    AssignWorkflowId(song, workflowId);
-                break;
-            case AlbumGroupsJob group:
-                foreach (var album in group.Albums)
-                    AssignWorkflowId(album, workflowId);
-                break;
-        }
-    }
-
     public static SongQuery ToSongQuery(SongQueryDto dto)
     {
         ValidateSearchText(dto.Artist, nameof(dto.Artist), allowEmpty: true);
@@ -106,7 +82,11 @@ public static class JobRequestMapper
         ValidateSearchText(dto.Album, nameof(dto.Album), allowEmpty: true);
         ValidateSearchText(dto.Uri, nameof(dto.Uri), maxLength: MaxSearchUriLength, allowEmpty: true);
 
-        return new()
+        return ToCore(dto);
+    }
+
+    public static SongQuery ToCore(SongQueryDto dto)
+        => new()
         {
             Artist = dto.Artist ?? "",
             Title = dto.Title ?? "",
@@ -115,7 +95,6 @@ public static class JobRequestMapper
             Length = dto.Length ?? -1,
             ArtistMaybeWrong = dto.ArtistMaybeWrong,
         };
-    }
 
     public static AlbumQuery ToAlbumQuery(AlbumQueryDto dto)
     {
@@ -124,7 +103,11 @@ public static class JobRequestMapper
         ValidateSearchText(dto.SearchHint, nameof(dto.SearchHint), allowEmpty: true);
         ValidateSearchText(dto.Uri, nameof(dto.Uri), maxLength: MaxSearchUriLength, allowEmpty: true);
 
-        return new()
+        return ToCore(dto);
+    }
+
+    public static AlbumQuery ToCore(AlbumQueryDto dto)
+        => new()
         {
             Artist = dto.Artist ?? "",
             Album = dto.Album ?? "",
@@ -132,7 +115,6 @@ public static class JobRequestMapper
             URI = dto.Uri ?? "",
             ArtistMaybeWrong = dto.ArtistMaybeWrong,
         };
-    }
 
     private static void ValidateSearchText(
         string? value,
@@ -183,22 +165,7 @@ public static class JobRequestMapper
             RemoteDirectoryJobDraftDto remote => RemoteDirectoryCommand(remote),
             _ => throw new ArgumentException($"Unsupported job draft type '{item.GetType().Name}'"),
         };
-        JobProvenanceDto? provenance = item switch
-        {
-            ExtractJobDraftDto value => value.Provenance,
-            GenericSearchJobDraftDto value => value.Provenance,
-            TrackSearchJobDraftDto value => value.Provenance,
-            AlbumSearchJobDraftDto value => value.Provenance,
-            SongJobDraftDto value => value.Provenance,
-            AlbumJobDraftDto value => value.Provenance,
-            SongGroupsJobDraftDto value => value.Provenance,
-            AlbumGroupsJobDraftDto value => value.Provenance,
-            JobListJobDraftDto value => value.Provenance,
-            RemoteFileJobDraftDto value => value.Provenance,
-            RemoteDirectoryJobDraftDto value => value.Provenance,
-            _ => throw new ArgumentException($"Unsupported job draft type '{item.GetType().Name}'"),
-        };
-        return provenance is null ? command : command with
+        return item.Provenance is not { } provenance ? command : command with
         {
             ItemNumber = provenance.ItemNumber, LineNumber = provenance.LineNumber,
             SourceMutation = ToSourceMutation(provenance.SourceMutation),
@@ -278,23 +245,6 @@ public static class JobRequestMapper
             _ => throw new InvalidOperationException("Unknown directory source."),
         };
 
-    public static DownloadSettingsPatchDto? DraftDownloadSettings(JobDraftDto draft)
-        => draft switch
-        {
-            ExtractJobDraftDto typed => typed.DownloadSettings,
-            GenericSearchJobDraftDto typed => typed.DownloadSettings,
-            TrackSearchJobDraftDto typed => typed.DownloadSettings,
-            AlbumSearchJobDraftDto typed => typed.DownloadSettings,
-            SongJobDraftDto typed => typed.DownloadSettings,
-            AlbumJobDraftDto typed => typed.DownloadSettings,
-            SongGroupsJobDraftDto typed => typed.DownloadSettings,
-            AlbumGroupsJobDraftDto typed => typed.DownloadSettings,
-            JobListJobDraftDto typed => typed.DownloadSettings,
-            RemoteFileJobDraftDto typed => typed.DownloadSettings,
-            RemoteDirectoryJobDraftDto typed => typed.DownloadSettings,
-            _ => null,
-        };
-
     public static void ApplyDraftDownloadSettings(
         JobList jobs,
         IReadOnlyList<JobDraftDto> drafts,
@@ -309,7 +259,7 @@ public static class JobRequestMapper
         JobDraftDto draft,
         Action<Job, DownloadSettingsPatchDto> apply)
     {
-        if (DraftDownloadSettings(draft) is { } patch)
+        if (draft.DownloadSettings is { } patch)
             apply(job, patch);
         if (job is JobList children && draft is JobListJobDraftDto childDraft)
             ApplyDraftDownloadSettings(children, childDraft.Jobs, apply);
@@ -331,7 +281,7 @@ public static class JobRequestMapper
         return new RemoteDirectorySource.Resolved(ToDirectoryTransferPlan(draft.Plan!));
     }
 
-    private static PeerFileTarget ToPeerFileTarget(PeerFileTargetDto target)
+    public static PeerFileTarget ToPeerFileTarget(PeerFileTargetDto target)
         => new(
             new PeerFileIdentity(target.Username, target.Filename),
             target.Size,

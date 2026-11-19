@@ -69,42 +69,10 @@ internal static class HistoricalJobDtoMapper
         => ToSummary(job, ReadSnapshot(job, tolerateInvalidPayload: true));
 
     internal static JobSummaryDto ToSummary(PersistedJob job, JobSnapshot snapshot)
-    {
-        SearchDefinition? searchDefinition = (snapshot.Payload as SearchJobSnapshotPayload)?.Definition;
-        return new(
-            job.Id,
-            checked((int)job.DisplayId),
-            job.WorkflowId,
-            Parse(job.Kind, ServerJobKind.Generic),
-            Parse(job.LifecycleState, ServerJobLifecycleState.Pending),
-            Parse(job.ActivityPhase, ServerJobActivityPhase.None),
-            job.ActivityUntilUtc,
-            Parse(job.TerminalOutcome, ServerJobTerminalOutcome.None),
-            Parse(job.SkipReason, ServerJobSkipReason.None),
-            job.ItemName,
-            job.QueryText,
-            job.FailureReason == "None" ? null : Parse(job.FailureReason, ServerJobFailureReason.Other),
-            job.FailureMessage,
-            job.ParentJobId,
-            job.ResultJobId,
-            job.SourceJobId,
-            ToNullableInt(job.DiscoveryPublicFileCount),
-            ToNullableInt(job.DiscoveryLockedFileCount),
-            snapshot.AppliedProfiles.Select(profile => new AppliedProfileDto(profile.Name, profile.Source)).ToArray(),
-            [],
-            job.FailureDetail,
-            Parse(job.CancellationSource, ServerJobCancellationSource.None),
-            SubmissionId: job.SubmissionId,
-            Role: Enum.Parse<ServerJobRole>(job.SemanticRole),
-            CreatedAtUtc: job.CreatedAtUtc,
-            DiscoveryPublicFileCount: ToNullableInt(job.DiscoveryPublicFileCount),
-            DiscoveryObservedPeerCount: ToNullableInt(job.DiscoveryObservedPeerCount),
-            Stats: ServerSnapshotMapper.ToJobSummaryStats(snapshot),
-            SearchDefaultProjection: searchDefinition?.DefaultProjection.ToServer(),
-            SearchGroupResults: searchDefinition?.GroupResults,
-            SourceDetail: job.SourceDetail,
-            PrintOption: ((PrintOption)job.PrintOption).ToServer());
-    }
+        => ServerSnapshotMapper.ToJobSummary(snapshot, job.ParentJobId, job.ResultJobId, job.SourceJobId,
+            stats: ServerSnapshotMapper.ToJobSummaryStats(snapshot), includeActions: false,
+            discoveryCounts: (ToNullableInt(job.DiscoveryPublicFileCount), ToNullableInt(job.DiscoveryLockedFileCount),
+                ToNullableInt(job.DiscoveryObservedPeerCount)));
 
     // A detail/manifest read decodes once and shares that capture between summary,
     // presentation and selected-file mapping. No cache retains database rows.

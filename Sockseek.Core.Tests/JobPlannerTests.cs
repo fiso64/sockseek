@@ -214,23 +214,22 @@ public sealed class JobPlannerTests
                     "Queued jobs have not searched and must not repeat search descriptions in history.");
                 using var searcher = new Searcher(new MockSoulseekClient([]),
                     TestHelpers.CreatePeerFailureTracker(), new DownloadEvents(), 10, 10);
-                var response = new ResponseData();
                 switch (prepared)
                 {
                     case SongJob song:
-                        await searcher.SearchSong(song, prepared.Config.Search, response, CancellationToken.None);
+                        await searcher.SearchSong(song, prepared.Config.Search, CancellationToken.None);
                         break;
                     case AlbumJob album:
-                        await searcher.SearchAlbum(album, prepared.Config.Search, response, CancellationToken.None);
+                        await searcher.SearchAlbum(album, prepared.Config.Search, CancellationToken.None);
                         break;
                     case SongGroupsJob group:
-                        await searcher.SearchGroup(group, prepared.Config.Search, response, CancellationToken.None);
+                        await searcher.SearchSongGroups(group, prepared.Config.Search, CancellationToken.None);
                         break;
                     case AlbumGroupsJob group:
-                        await searcher.SearchAlbumGroup(group, prepared.Config.Search, response, CancellationToken.None);
+                        await searcher.SearchAlbumGroups(group, prepared.Config.Search, CancellationToken.None);
                         break;
                     case SearchJob search:
-                        await searcher.Search(search, prepared.Config.Search, response, CancellationToken.None);
+                        await searcher.Search(search, prepared.Config.Search, CancellationToken.None);
                         break;
                 }
                 Assert.IsNotNull(prepared.ExecutedSearchDefinition, prepared.GetType().Name);
@@ -248,7 +247,7 @@ public sealed class JobPlannerTests
         IExtractor extractor = new CatalogExtractor(song);
         var source = new ExtractJob("catalog:42") { Config = new DownloadSettings(), ItemNumber = 42 };
         Job prepared = JobExtraction.Normalize(source,
-            await extractor.GetTracks(source.Input, source.Config.Extraction), false, extractor);
+            await extractor.ExtractAsync(source.Input, source.Config.Extraction), false, extractor);
         Assert.AreSame(song, prepared, "Preparation must reuse the extractor's Job.");
         Assert.AreEqual(info.Detail, CoreSnapshotFactory.CreateJob(prepared, 1).SourceDetail);
         Job restored = SubmissionSpecificationCodec.Deserialize(SubmissionSpecificationCodec.Serialize(
@@ -259,7 +258,7 @@ public sealed class JobPlannerTests
 
     private sealed class CatalogExtractor(Job result) : IExtractor
     {
-        public Task<Job> GetTracks(string input, ExtractionSettings extraction, ExtractorContext? context = null)
+        public Task<Job> ExtractAsync(string input, ExtractionSettings extraction, ExtractorContext? context = null)
             => Task.FromResult(result);
     }
 

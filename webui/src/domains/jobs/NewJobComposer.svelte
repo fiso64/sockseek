@@ -18,7 +18,7 @@
   import type { Schema } from '../../api/types';
   import { daemonApi } from '../../api/client';
   import { PreviewController, previewNeedsReview, type PreviewState } from './preview-controller';
-  import { selectedPreviewCount, selectedSubtreeCount, toggleSubtree, type SubtreeRule } from './preview-selection';
+  import { projectPreviewSelection, toggleSubtree, type SubtreeRule } from './preview-selection';
   import { buildJobPreviewRequest, buildJobSettingsRequest, createNewJobDraft, newJobDraftFromSearch, type NewJobChoice, type NewJobDraft } from './submission';
   import { jobKindIcon, jobKindLabel } from './kind';
   import { basename } from '../presentation/items';
@@ -89,7 +89,8 @@
   $effect(() => oncommittingchange(Boolean(preview.committing)));
   let subtreeCounts = $derived(new Map([...preview.branches.values()].flatMap((page) =>
     page.items.map((node) => [node.ref, Number(node.selectableSubtreeCount)] as const))));
-  let selectedCount = $derived(selectedPreviewCount(Number(preview.summary?.selectableNodeCount ?? 0), subtreeCounts, all, selectionRules));
+  let selection = $derived(projectPreviewSelection(Number(preview.summary?.selectableNodeCount ?? 0), subtreeCounts, all, selectionRules));
+  let selectedCount = $derived(selection.total);
   let committable = $derived(!needsReview && (preview.summary?.state === 'Ready' || preview.summary?.state === 'PartiallyReady'));
   function previewNodeTitle(node: Schema<'JobPreviewNodeDto'>): string {
     if (node.kind === 'song' && node.songQuery) {
@@ -282,10 +283,6 @@
     selectionRules = toggleSubtree(ref, selected, all, selectionRules);
   }
 
-  function indeterminate(node: HTMLInputElement, value: boolean) {
-    node.indeterminate = value;
-    return { update(next: boolean) { node.indeterminate = next; } };
-  }
 </script>
 
 <section class="new-job-composer" aria-label="New job">
@@ -371,10 +368,10 @@
   <div class:job-preview-tree={depth === 0}>
     {#each page?.items ?? [] as node (node.ref)}
       {@const count = subtreeCounts.get(node.ref) ?? 0}
-      {@const selected = selectedSubtreeCount(node.ref, subtreeCounts, all, selectionRules)}
+      {@const selected = selection.subtreeCount(node.ref)}
       <div class="job-preview-node" style={`--job-preview-depth:${depth}`}>
         <label class="job-preview-row">
-          <input type="checkbox" disabled={!count} checked={selected === count && count > 0} use:indeterminate={selected > 0 && selected < count} onchange={(event) => toggle(node.ref, event.currentTarget.checked)} />
+          <input type="checkbox" disabled={!count} checked={selected === count && count > 0} indeterminate={selected > 0 && selected < count} onchange={(event) => toggle(node.ref, event.currentTarget.checked)} />
           <span class="job-preview-icon"><Icon name={jobKindIcon(node.kind)} /></span>
           <strong class="job-preview-title" title={previewNodeTitle(node)}>{previewNodeTitle(node)}</strong>
           <span class="job-preview-details" title={node.failureMessage ?? undefined}>

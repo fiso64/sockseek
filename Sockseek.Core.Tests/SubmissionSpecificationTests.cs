@@ -35,7 +35,7 @@ public sealed class SubmissionSpecificationTests
         {
             ExtractorInfo = "Original title — source author",
         };
-        var album = await new SoulseekExtractor().GetTracks("slsk://ExactPeer/Share/Album/",
+        var album = await new SoulseekExtractor().ExtractAsync("slsk://ExactPeer/Share/Album/",
             new ExtractionSettings { RequestedMode = ExtractionMode.Album });
         album.ExtractorInfo = "Catalog entry: A12";
         var settings = SubmissionSpecification.CreateShallow(new SearchJob("settings"), new DownloadSettings());

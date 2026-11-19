@@ -18,13 +18,6 @@ public sealed class ExtractorContext
         SensitiveOutput = sensitiveOutput;
     }
 
-    public static ExtractorContext ForExtractJob(
-        ExtractJob job,
-        DownloadEvents events,
-        string source,
-        ISensitiveOutput? sensitiveOutput = null)
-        => ForJob(job, events, source, sensitiveOutput);
-
     public static ExtractorContext ForJob(
         Job job,
         DownloadEvents events,

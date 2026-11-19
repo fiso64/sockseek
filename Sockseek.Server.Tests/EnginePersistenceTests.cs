@@ -2,6 +2,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core;
 using Sockseek.Core.Events;
 using Sockseek.Core.Jobs;
+using Sockseek.Core.Snapshots;
 using Sockseek.Core.Planning;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
@@ -1123,6 +1124,7 @@ public sealed class EnginePersistenceTests
 
     private sealed class GenericTestJob(string text) : Job
     {
+        public override JobSnapshotKind Kind => JobSnapshotKind.Generic;
         protected override bool DefaultCanBeSkipped => false;
         public override SongQuery? QueryTrack => null;
         public override string ToString(bool noInfo) => text;

@@ -18,7 +18,7 @@ public class RealCaptureProjectionBenchmarks
 
     private List<(SearchResponse Response, SlFile File)> rawResults = null!;
     private List<List<(SearchResponse Response, SlFile File)>> cumulativeResultSnapshots = null!;
-    private List<List<(SearchResponse Response, SlFile File)>> resultBatches = null!;
+    private List<List<SearchProjectionInput>> resultBatches = null!;
     private List<AlbumFolder> albumFolders = null!;
     private List<AlbumFolder> albumFoldersForMaterialization = null!;
     private SearchJob albumSearchJobForProjection = null!;
@@ -51,7 +51,8 @@ public class RealCaptureProjectionBenchmarks
 
         rawResults = capture.Results.Select(Rehydrate).ToList();
         cumulativeResultSnapshots = BuildCumulativeSnapshots(rawResults, snapshotCount: 10);
-        resultBatches = BuildBatches(rawResults, batchCount: 10);
+        resultBatches = BuildBatches(rawResults.Select((pair, index) => SearchProjectionInput.FromLive(
+            index + 1L, 1, pair.Response, pair.File, DateTimeOffset.UnixEpoch)).ToList(), batchCount: 10);
         albumFolders = SearchResultProjector.AlbumFolders(rawResults, albumQuery, search);
         albumFolderBatches = BuildBatches(albumFolders, batchCount: 10);
     }
@@ -89,7 +90,7 @@ public class RealCaptureProjectionBenchmarks
         foreach (var batch in resultBatches)
         {
             sorter.AddRange(batch);
-            count += sorter.Snapshot().Count;
+            count += sorter.SnapshotInputs().Count;
         }
 
         return count;

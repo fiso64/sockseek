@@ -13,7 +13,7 @@ public sealed class DownloadSettingsPatchDtoMapperTests
     {
         var settings = new SearchSettings();
         var dto = EffectiveSettingsMapper.ToSearchSettings(settings);
-        foreach (var scalar in SettingsSchema.For(typeof(SearchSettings)).Leaves.Where(member => !member.Path.Contains('.')))
+        foreach (var scalar in SettingsSchema.For(typeof(SearchSettings)).Leaves.Values.Where(member => !member.Path.Contains('.')))
         {
             var property = typeof(SearchSettingsPatchDto).GetProperty(scalar.Path);
             Assert.IsNotNull(property, $"Search patch is missing {scalar.Path}.");

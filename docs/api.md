@@ -64,7 +64,7 @@ sockseek daemon --web-password-file /path/to/test-password --allow-http-auth \
 - `Sockseek.Api/Contracts/LiveState.cs` — versioned snapshot, typed delta,
   transfer, stream-position, and compact activity DTOs.
 - `Sockseek.Server/ServerHost.cs` — endpoint registration and OpenAPI metadata.
-- `Sockseek.Cli/Services/RemoteCliBackend.cs` — real remote client usage, including SignalR subscription behavior.
-- `Sockseek.Cli/ChatCommandRunner.cs` — scriptable remote chat client usage.
+- `Sockseek.Cli/Backends/RemoteCliBackend.cs` — real remote client usage, including SignalR subscription behavior.
+- `Sockseek.Cli/Commands/ChatCommands.cs` — scriptable remote chat client usage.
 - `Sockseek.Cli.Tests/RemoteCliBackendTests.cs` — executable examples of remote API flows.
 - `Sockseek.Server.Tests/ChatApiTests.cs` — executable chat API client flows.
