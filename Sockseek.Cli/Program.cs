@@ -1579,8 +1579,7 @@ internal static partial class Program
         CliExitCode exitCode,
         RemoteSettings? remoteSettings = null)
     {
-        CliLogMessages.SessionEnded(
-            logger,
+        logger.LogDebug("CLI session in {Mode} mode ended with exit code {ExitCode}",
             remoteSettings?.IsEnabled == true ? "remote" : "local",
             (int)exitCode);
         return exitCode;
@@ -1608,7 +1607,6 @@ internal static partial class Program
         CliLogMessages.DaemonStarting(logger, url);
         if (IsDaemonListenAddressNetworkExposed(daemonSettings))
             CliLogMessages.DaemonNetworkExposed(logger);
-        Console.WriteLine("Press Ctrl+C to stop.");
         try
         {
             await app.RunAsync();

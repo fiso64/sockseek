@@ -43,7 +43,7 @@ internal sealed class JobOrchestrator
     public async Task ProcessRootJob(Job rootJob, bool emitAutoProfileFinalSummary = true)
     {
         long startedAt = Stopwatch.GetTimestamp();
-        DownloadLogMessages.RootJobStarted(logger, rootJob.Id, rootJob.GetType().Name);
+        DownloadLogMessages.RootJobStarted(logger, rootJob.Id, rootJob.Kind);
         try
         {
             await ProcessJob(rootJob);
@@ -53,27 +53,7 @@ internal sealed class JobOrchestrator
             if (emitAutoProfileFinalSummary)
                 context.EmitAutoProfileFinalSummary(rootJob);
             long durationMilliseconds = (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
-            if (rootJob.TerminalOutcome == JobTerminalOutcome.Failed
-                || rootJob.LifecycleState == JobLifecycleState.Running)
-            {
-                DownloadLogMessages.RootJobUnsuccessful(
-                    logger,
-                    rootJob.Id,
-                    durationMilliseconds,
-                    rootJob.LifecycleState,
-                    rootJob.TerminalOutcome,
-                    rootJob.FailureReason);
-            }
-            else
-            {
-                DownloadLogMessages.RootJobCompleted(
-                    logger,
-                    rootJob.Id,
-                    durationMilliseconds,
-                    rootJob.LifecycleState,
-                    rootJob.TerminalOutcome,
-                    rootJob.FailureReason);
-            }
+            DownloadLogMessages.RootJobFinished(logger, rootJob, durationMilliseconds);
         }
     }
 
@@ -121,7 +101,6 @@ internal sealed class JobOrchestrator
             context.Events.RaiseJobExecutionCompleted(job);
         }
 
-        DownloadLogMessages.JobDecision(logger, job.Id, "execution-started", null);
         try
         {
             // ── ExtractJob: run extractor, set Result, recurse ───────────────────
@@ -143,7 +122,7 @@ internal sealed class JobOrchestrator
                 DownloadLogMessages.JobDecision(
                     logger,
                     job.Id,
-                    "processing-extracted-result",
+                    "processing extracted result",
                     1);
                 await ProcessJob(extractResult.Result, parentToken, parentJob);
 
@@ -153,10 +132,8 @@ internal sealed class JobOrchestrator
                 // For single extracted jobs with a source line (e.g. a lone AlbumJob from a CSV row),
                 // trigger removal now that processing is complete. Multi-item results use LineNumber=0
                 // (no source line of their own) and handle per-child removal inside ProcessJob.
-                DownloadLogMessages.JobDecision(logger, job.Id, "source-mutation-started", null);
                 await MaybeRemoveFromSource(extractResult.Result, ej.Config);
 
-                DownloadLogMessages.JobDecision(logger, job.Id, "extracted-result-completed", null);
                 return;
             }
 
@@ -178,7 +155,6 @@ internal sealed class JobOrchestrator
             if (job.Config != null)
                 await MaybeRemoveFromSource(job, job.Config);
 
-            DownloadLogMessages.JobDecision(logger, job.Id, "execution-completed", null);
             RaiseJobExecutionCompleted();
 
             if (job is SongJob or AlbumJob)

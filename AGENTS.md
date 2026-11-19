@@ -3,11 +3,9 @@
 Sockseek is a self-hosted homeserver. Remote peers are untrusted; the operator,
 configured storage, and ordinary local administration are trusted.
 
+* Code is a liability. Follow KISS and DRY principles. 
 * New features should usually be considered against local CLI, remote CLI and the
   UI. Do not let local vs remote CLI and CLI vs webui implementations diverge.
-* Keep plain user searches to raw collection, deduplication and cheap counters.
-  Run sorting/grouping for requested views or automatic execution, and stop
-  incremental projection work when readers stop requesting it.
 * Handle valid work best effort. Do not reject it because of estimated memory,
   aggregate size, queue depth, or other internal implementation limits. Bound resource
   use where it will be clearly desired, do not over-engineer ahead of time.
@@ -43,7 +41,11 @@ configured storage, and ordinary local administration are trusted.
   `Information` for operator-relevant lifecycle, `Debug` for routine decisions and
   rejections, rate-limited `Warning` for recoverable degradation, and `Error` for
   failed operations. Keep detailed timing breakdowns at `Debug`; `Information`
-  may include total duration.
+  may include total duration. Use inline structured `ILogger` calls for occasional
+  feature-local diagnostics. Prefer typed `[LoggerMessage]` events for hot paths,
+  shared events, or events consumed by ID. Local and remote clients present job
+  activity through the existing activity stream. Process diagnostics belong in
+  the process that performs the work.
 * Tests are a maintenance liability as well as an asset. Do not add tests automatically
   for every change. Prefer extending existing tests over new files. Test observable
   behavior and failure isolation rather than implementation details

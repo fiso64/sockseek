@@ -525,7 +525,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         // roots. Cancelling only the input leaves roots running indefinitely.
         using var cancellation = ct.UnsafeRegister(
             static state => ((DownloadRunScope)state!).Cancel(), _runtime);
-        DownloadLogMessages.EngineStage(logger, engineId, "reading-job-channel");
+        DownloadLogMessages.EngineStage(logger, engineId, "waiting for jobs");
         try
         {
             await BoundedAsync.ForEachAsync(
@@ -539,7 +539,6 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             await DrainManualCancellationsAsync().ConfigureAwait(false);
             await _runtime.CancelAsync().ConfigureAwait(false);
         }
-        DownloadLogMessages.EngineStage(logger, engineId, "root-jobs-completed");
 
         CleanupEmptyStagingDirectories();
 
@@ -591,10 +590,8 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
                     long startedAt = Stopwatch.GetTimestamp();
                     JobOutcomeCommitter.Commit(prepared.Job, outcome);
                     await _orchestrator.FlushManualSelectionTerminalEffectsAsync(prepared.Job);
-                    var state = prepared.Job.StateSnapshot;
-                    DownloadLogMessages.RootJobCompleted(logger, prepared.Job.Id,
-                        (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
-                        state.LifecycleState, state.TerminalOutcome, state.FailureReason);
+                    DownloadLogMessages.RootJobFinished(logger, prepared.Job,
+                        (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
                 }
             }
             else
@@ -632,11 +629,8 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             var settings = queuedJob.Settings;
             if (queuedJob.Lifetime != null)
                 await _workflowLifetime!.WaitUntilReadyAsync(queuedJob.Lifetime, cancellationToken);
-            DownloadLogMessages.JobDecision(
-                logger,
-                rootJob.Id,
-                queuedJob.IsResume ? "resume-dequeued" : "root-dequeued",
-                null);
+            if (queuedJob.IsResume)
+                logger.LogDebug("Resuming job {JobId}", rootJob.Id);
 
             Exception? preparationFailure = null;
             try
@@ -677,7 +671,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
                 queuedJob.IsResume, CompletionOutcome: null);
         }
 
-        DownloadLogMessages.EngineStage(logger, engineId, "waiting-for-root-jobs");
+        DownloadLogMessages.EngineStage(logger, engineId, "waiting for running jobs to finish");
     }
 
     private void RetireWorkflow(

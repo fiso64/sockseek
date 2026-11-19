@@ -89,7 +89,6 @@ internal sealed class DownloadExecutorCoordinator
                     break;
             }
 
-            DownloadLogMessages.JobDecision(logger, job.Id, "leaf-download-completed", null);
             return outcome;
         }
         catch (Exception ex)
@@ -111,11 +110,8 @@ internal sealed class DownloadExecutorCoordinator
             return JobOutcome.Cancelled(jobs.CancellationSourceFor(job, parentToken));
         }
 
-        DownloadLogMessages.ComponentFailed(
-            logger,
-            exception,
-            "leaf-download",
-            job.Id);
+        if (exception is not DownloadCancelledException)
+            DownloadLogMessages.ComponentFailed(logger, exception, "file download", job.Id);
         return JobOutcome.Failed(
             job is FileDownloadJob or DirectoryDownloadJob
                 ? JobFailureReason.AllDownloadsFailed

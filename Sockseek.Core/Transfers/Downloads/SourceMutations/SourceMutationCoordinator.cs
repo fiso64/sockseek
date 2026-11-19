@@ -30,7 +30,7 @@ internal sealed class SourceMutationCoordinator
             static _ => new(StringComparer.Ordinal));
         if (!applied.TryAdd(job.SourceMutation.Key, 0)) return;
 
-        DownloadLogMessages.JobDecision(logger, job.Id, "source-mutation", null);
+        DownloadLogMessages.JobDecision(logger, job.Id, "updating source file");
         try { await executor.ApplyAsync(job.SourceMutation, config); }
         catch (Exception ex)
         {

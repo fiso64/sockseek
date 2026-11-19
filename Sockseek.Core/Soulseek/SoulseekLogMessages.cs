@@ -28,23 +28,14 @@ internal static partial class SoulseekLogMessages
     [LoggerMessage(2003, LogLevel.Error, "Soulseek server kicked this client; stopping this run")]
     internal static partial void KickedStopping(ILogger logger);
 
-    [LoggerMessage(2004, LogLevel.Error, "Failed to establish the Soulseek session")]
-    internal static partial void SessionStartFailed(ILogger logger, Exception exception);
+    [LoggerMessage(2004, LogLevel.Debug, "Soulseek connection attempt failed: {Reason}")]
+    internal static partial void SessionStartFailed(ILogger logger, string reason);
 
-    [LoggerMessage(2005, LogLevel.Warning, "Soulseek connection lost; retrying in {RetryDelaySeconds} seconds (suppressed since previous warning: {SuppressedCount})")]
-    internal static partial void ConnectionLost(ILogger logger, int retryDelaySeconds, long suppressedCount);
+    [LoggerMessage(2005, LogLevel.Warning, "Could not connect to Soulseek: {Reason}. Retrying automatically ({SuppressedCount} other failed attempts since the last warning)")]
+    internal static partial void ConnectionLost(ILogger logger, string reason, long suppressedCount);
 
-    [LoggerMessage(2006, LogLevel.Information, "Soulseek session reconnected")]
-    internal static partial void Reconnected(ILogger logger);
-
-    [LoggerMessage(2007, LogLevel.Critical, "Permanent Soulseek session error; stopping reconnection attempts")]
+    [LoggerMessage(2007, LogLevel.Error, "Soulseek login failed. Automatic retries have stopped")]
     internal static partial void PermanentFailure(ILogger logger, Exception exception);
-
-    [LoggerMessage(2008, LogLevel.Debug, "Soulseek reconnection attempt failed")]
-    internal static partial void ReconnectAttemptFailed(ILogger logger, Exception exception);
-
-    [LoggerMessage(2009, LogLevel.Debug, "Creating Soulseek client instance")]
-    internal static partial void CreatingClient(ILogger logger);
 
     [LoggerMessage(2010, LogLevel.Information, "Using the local-files Soulseek client")]
     internal static partial void UsingLocalClient(ILogger logger);
@@ -52,7 +43,7 @@ internal static partial class SoulseekLogMessages
     [LoggerMessage(2011, LogLevel.Debug, "Configuring the network Soulseek client")]
     internal static partial void ConfiguringNetworkClient(ILogger logger);
 
-    [LoggerMessage(2012, LogLevel.Information, "Starting Soulseek login")]
+    [LoggerMessage(2012, LogLevel.Debug, "Starting Soulseek login")]
     internal static partial void LoginStarting(ILogger logger);
 
     [LoggerMessage(2013, LogLevel.Information, "Soulseek login completed")]
@@ -79,7 +70,7 @@ internal static partial class SoulseekLogMessages
     [LoggerMessage(2020, LogLevel.Information, "Built local-files Soulseek index with {FileCount} files")]
     internal static partial void LocalIndexCompleted(ILogger logger, int fileCount);
 
-    [LoggerMessage(2021, LogLevel.Information, "Starting Soulseek login (random account: True)")]
+    [LoggerMessage(2021, LogLevel.Debug, "Starting Soulseek login with a random account")]
     internal static partial void RandomLoginStarting(ILogger logger);
 
     [LoggerMessage(2022, LogLevel.Debug, "Ignored Soulseek search lock disposal failure after successful completion")]

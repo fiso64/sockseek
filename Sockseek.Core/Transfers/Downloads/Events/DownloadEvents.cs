@@ -750,6 +750,8 @@ public class DownloadEvents
             var completedAtUtc = facts.CompletedAtUtc = UtcNow();
             publish(facts, completedAtUtc.Value);
         }
+        if (facts.Metadata is { JobId: { } jobId } terminal)
+            DownloadLogMessages.TransferEnded(logger, transferId, jobId, terminal.TerminalOutcome, terminal.BytesTransferred);
     }
 
     private enum TransferLifecycleTransition

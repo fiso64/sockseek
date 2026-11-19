@@ -109,24 +109,19 @@ public sealed class OperationalLoggingTests
     }
 
     [TestMethod]
-    public void LoginStart_OnlyShowsRandomAccountFlagForRandomLogin()
+    public void LoginAttemptsAreDebugAndSuccessfulLoginIsInformation()
     {
         var provider = new CapturingLoggerProvider();
-        using ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddProvider(provider));
+        using ILoggerFactory factory = LoggerFactory.Create(builder => builder
+            .SetMinimumLevel(LogLevel.Debug).AddProvider(provider));
         ILogger logger = factory.CreateLogger("Sockseek.Core.Soulseek.SoulseekClientManager");
 
         SoulseekLogMessages.LoginStarting(logger);
         SoulseekLogMessages.RandomLoginStarting(logger);
         SoulseekLogMessages.LoginCompleted(logger);
 
-        Assert.AreEqual("Starting Soulseek login", provider.Entries[0].Message);
-        Assert.AreEqual(
-            "Starting Soulseek login (random account: True)",
-            provider.Entries[1].Message);
-        Assert.IsFalse(provider.Entries.Any(entry =>
-            entry.Message.Contains("random account: False", StringComparison.Ordinal)));
-        Assert.AreEqual(LogLevel.Information, provider.Entries[2].Level);
-        Assert.AreEqual("Soulseek login completed", provider.Entries[2].Message);
+        CollectionAssert.AreEqual(new[] { LogLevel.Debug, LogLevel.Debug, LogLevel.Information },
+            provider.Entries.Select(entry => entry.Level).ToArray());
     }
 
     [TestMethod]

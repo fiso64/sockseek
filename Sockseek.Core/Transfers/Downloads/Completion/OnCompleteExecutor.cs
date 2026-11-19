@@ -66,7 +66,10 @@ public static class OnCompleteExecutor
         public void Message(LogLevel level, string message)
             => Events?.RaiseJobMessage(Job, level, null, message);
 
-        public void Decision(string decision, int? count = null)
+        public void Decision(string decision)
+            => DownloadLogMessages.JobDecision(Logger, Job.Id, decision);
+
+        public void Decision(string decision, int count)
             => DownloadLogMessages.JobDecision(Logger, Job.Id, decision, count);
 
         public void Failure(Exception exception)
@@ -179,12 +182,12 @@ public static class OnCompleteExecutor
             {
                 if (config.UseLocking)
                 {
-                    reporter.Decision("waiting-for-on-complete-lock", i + 1);
+                    reporter.Decision("waiting for on-complete lock", i + 1);
                     await _lockingSemaphore.WaitAsync();
                     acquiredLock = true;
                 }
 
-                reporter.Decision("executing-on-complete", i + 1);
+                reporter.Decision("executing on-complete", i + 1);
                 currentResult = await ExecuteProcessAsync(startInfo, reporter);
             }
             finally
@@ -218,7 +221,7 @@ public static class OnCompleteExecutor
 
         if (needUpdateIndex)
         {
-            reporter.Decision("on-complete-updated-index", null);
+            reporter.Decision("on-complete updated index");
         }
 
         return currentOutcome;
@@ -712,7 +715,7 @@ public static class OnCompleteExecutor
                 var currentPath = nextOutcome.DownloadPath ?? GetDownloadPath(indexTarget);
                 if (currentPath != newPath)
                 {
-                    reporter.Decision("on-complete-index-path-updated");
+                    reporter.Decision("on-complete index path updated");
                     nextOutcome = WithDownloadPath(nextOutcome, newPath);
                     needsUpdate = true;
                 }

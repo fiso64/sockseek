@@ -27,7 +27,8 @@ public sealed class SoulseekSharingAdapterTests
         Assert.IsNull(await adapter.ResolveSearchAsync("alice", 1, new SearchQuery("track")));
         Assert.IsNull(await adapter.ResolveSearchAsync("alice", 2, new SearchQuery("track")));
         Assert.AreEqual(1, records.Count);
-        StringAssert.Contains(records[0].Message, "search response failed");
+        Assert.AreEqual(2025, records[0].EventId.Id);
+        Assert.AreSame(reader.SearchFailure, records[0].Exception);
         reader.SearchFailure = null;
         Assert.IsNotNull(await adapter.ResolveSearchAsync("alice", 3, new SearchQuery("track")));
     }

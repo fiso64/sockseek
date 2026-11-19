@@ -10,9 +10,6 @@ internal static partial class CliLogMessages
     [LoggerMessage(5001, LogLevel.Information, "CLI session started in {Mode} mode")]
     internal static partial void SessionStarted(ILogger logger, string mode);
 
-    [LoggerMessage(5002, LogLevel.Debug, "CLI session in {Mode} mode ended with exit code {ExitCode}")]
-    internal static partial void SessionEnded(ILogger logger, string mode, int exitCode);
-
     [LoggerMessage(5003, LogLevel.Information, "Sockseek daemon starting on {ListenUrl}")]
     internal static partial void DaemonStarting(ILogger logger, string listenUrl);
 

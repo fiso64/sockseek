@@ -6,6 +6,7 @@ using Sockseek.Core;
 using Sockseek.Core.Chat;
 using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Sharing;
+using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Persistence.Chat;
 using Soulseek;
@@ -69,7 +70,7 @@ public sealed class ChatRuntime : IAsyncDisposable
         this.soulseek = soulseek ?? throw new ArgumentNullException(nameof(soulseek));
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.logger = logger ?? NullLogger<ChatRuntime>.Instance;
-        healthLog = new FeatureHealthLogger(this.logger, "chat");
+        healthLog = new FeatureHealthLogger(this.logger, "Chat");
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ingressCapacity);
         Rooms = new ChatRooms(settings, soulseek, store, this.logger);
         Rooms.StateChanged += PublishCurrentSummary;
@@ -152,7 +153,8 @@ public sealed class ChatRuntime : IAsyncDisposable
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             SetHealth(DaemonFeatureState.Degraded, ChatLogMessages.CompactFailure(ex));
-            ChatLogMessages.StartupFailed(logger, ex);
+            if (ex is not SoulseekConnectionUnavailableException)
+                ChatLogMessages.StartupFailed(logger, ex);
         }
         finally
         {
@@ -793,6 +795,7 @@ public sealed class ChatRuntime : IAsyncDisposable
             return;
         }
 
+        ChatLogMessages.IncomingMessagesProcessed(logger, results.Count);
         var acknowledgements = new List<(PrivateMessage Message, ISoulseekClient Client)>();
         await summaryMutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -899,6 +902,7 @@ public sealed class ChatRuntime : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            ChatLogMessages.SendFailed(logger, ex, prepared.Message.TargetKind, prepared.Message.MessageId);
             ChatMessageRecord? failed = await TryRecordSendOutcomeAsync(
                 account,
                 prepared.Message,
@@ -918,6 +922,7 @@ public sealed class ChatRuntime : IAsyncDisposable
             var sent = await store.SetMessageStateAsync(
                 account, prepared.Message.MessageId, ChatMessageState.Sent, null, cancellationToken)
                 .ConfigureAwait(false);
+            ChatLogMessages.MessageSent(logger, sent.TargetKind, sent.MessageId);
             NotifyMessageCommitted(sent);
             ChatTelemetry.RecordSend(
                 sent.TargetKind == ChatTargetKind.Direct ? "private" : "room", "sent");
@@ -1231,11 +1236,20 @@ internal static partial class ChatLogMessages
     }
 
 
+    [LoggerMessage(4409, LogLevel.Debug, "Incoming chat messages processed: {Count}")]
+    internal static partial void IncomingMessagesProcessed(ILogger logger, int count);
+
+    [LoggerMessage(4410, LogLevel.Debug, "Chat message {MessageId} sent ({TargetKind})")]
+    internal static partial void MessageSent(ILogger logger, ChatTargetKind targetKind, Guid messageId);
+
+    [LoggerMessage(4411, LogLevel.Error, "Could not send {TargetKind} chat message {MessageId}")]
+    internal static partial void SendFailed(ILogger logger, Exception exception, ChatTargetKind targetKind, Guid messageId);
+
     [LoggerMessage(4400, LogLevel.Error, "Chat runtime could not start")]
     internal static partial void StartupFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(4401, LogLevel.Warning,
-        "Chat ingress capacity was exhausted; an inbound item could not be accepted (suppressed since previous warning: {SuppressedCount})")]
+        "The incoming chat queue is full. An update was dropped (suppressed since previous warning: {SuppressedCount})")]
     internal static partial void IngressFull(ILogger logger, long suppressedCount);
 
     [LoggerMessage(4402, LogLevel.Warning, "Chat callback failed during {Operation}")]

@@ -34,10 +34,17 @@ public static class CompactLogFormatter
 
     public static string LogicalCategory(string category) => category switch
     {
+        "Microsoft.Hosting.Lifetime" => "daemon",
+        _ when category.StartsWith("Sockseek.Server.Persistence.", StringComparison.Ordinal) => "persistence",
         _ when category.StartsWith("Sockseek.Server", StringComparison.Ordinal) => "daemon",
         _ when category.StartsWith("Sockseek.Cli", StringComparison.Ordinal) => "cli",
         _ when category.StartsWith("Sockseek.Persistence", StringComparison.Ordinal) => "persistence",
-        _ when category.StartsWith("Sockseek.Core.Soulseek", StringComparison.Ordinal) => "soulseek",
+        // Some core components predate the feature namespaces used by newer components.
+        "Sockseek.Core.Services.LocalFilesSoulseekClient" => "soulseek",
+        _ when category.StartsWith("Sockseek.Core.Soulseek", StringComparison.Ordinal)
+            || category.StartsWith("Sockseek.Core.Services.Soulseek", StringComparison.Ordinal) => "soulseek",
+        "Sockseek.Core.DownloadEngine" or "Sockseek.Core.Services.Searcher" => "jobs",
+        _ when category.StartsWith("Sockseek.Core.Transfers.Uploads.", StringComparison.Ordinal) => "daemon",
         _ when category.StartsWith("Sockseek.Core.Transfers.Downloads", StringComparison.Ordinal)
             || category.StartsWith("Sockseek.Core.Search", StringComparison.Ordinal)
             || category.StartsWith("Sockseek.Core.Extractors", StringComparison.Ordinal)

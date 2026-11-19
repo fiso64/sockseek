@@ -61,7 +61,7 @@ internal sealed class SongDownloadExecutor
             DownloadLogMessages.JobDecision(
                 logger,
                 song.Id,
-                "updating-output-indexes",
+                "updating output indexes",
                 (jobCtx.IndexEditor is null ? 0 : 1) + (jobCtx.PlaylistEditor is null ? 0 : 1));
             context.UpdateOutputs(song, jobCtx);
         }
@@ -214,7 +214,7 @@ internal sealed class SongDownloadExecutor
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
-            DownloadLogMessages.JobDecision(logger, song.Id, "cancelled", null);
+            DownloadLogMessages.JobDecision(logger, song.Id, "cancelled");
             return JobOutcome.Cancelled(cancellationSource());
         }
         catch (Exception ex)
@@ -282,8 +282,7 @@ internal sealed class SongDownloadExecutor
                         DownloadLogMessages.JobDecision(
                             logger,
                             song.Id,
-                            "fast-search-provisional-download-started",
-                            null);
+                            "fast search provisional download started");
                         async Task<ExactFileTransferOutcome?> DownloadCandidateAsync()
                         {
                             try
@@ -348,8 +347,7 @@ internal sealed class SongDownloadExecutor
                         DownloadLogMessages.JobDecision(
                             logger,
                             song.Id,
-                            "fast-search-provisional-download-succeeded",
-                            null);
+                            "fast search provisional download succeeded");
                         return JobOutcome.Done(result.OutputPath, started.Candidate, reused: result.Reused);
                     }
 
@@ -358,8 +356,7 @@ internal sealed class SongDownloadExecutor
                         DownloadLogMessages.JobDecision(
                             logger,
                             song.Id,
-                            "fast-search-provisional-download-skipped",
-                            null);
+                            "fast search provisional download skipped");
                     }
                     else if (fastDownload?.Status == ExactFileTransferStatus.AlreadyExists)
                     {
@@ -372,8 +369,7 @@ internal sealed class SongDownloadExecutor
                         DownloadLogMessages.JobDecision(
                             logger,
                             song.Id,
-                            "fast-search-provisional-download-failed",
-                            null);
+                            "fast search provisional download failed");
                     }
 
                     await searchTask;
@@ -396,7 +392,7 @@ internal sealed class SongDownloadExecutor
             if (fallbackOutcome != null)
                 return fallbackOutcome;
 
-            DownloadLogMessages.JobDecision(logger, song.Id, "no-suitable-candidates", 0);
+            DownloadLogMessages.JobDecision(logger, song.Id, "no suitable candidates", 0);
             return searched
                 ? DownloadOutcomes.NoMatchingDiscovery(song, "song candidates")
                 : DownloadOutcomes.NoMatchingCandidates();
@@ -447,7 +443,7 @@ internal sealed class SongDownloadExecutor
                 DownloadLogMessages.JobDecision(
                     logger,
                     song.Id,
-                    "candidate-download-failed",
+                    "candidate download failed",
                     tried);
                 if (tried >= candidates.Count || tried >= config.Transfer.MaxDownloadRetries)
                 {
@@ -468,7 +464,7 @@ internal sealed class SongDownloadExecutor
                 DownloadLogMessages.JobDecision(
                     logger,
                     song.Id,
-                    "candidate-manually-skipped",
+                    "candidate manually skipped",
                     tried);
                 tried--;
                 continue;
@@ -491,7 +487,7 @@ internal sealed class SongDownloadExecutor
             DownloadLogMessages.JobDecision(
                 logger,
                 song.Id,
-                "candidate-download-succeeded",
+                "candidate download succeeded",
                 tried);
             return JobOutcome.Done(result.OutputPath, candidate, reused: result.Reused);
         }

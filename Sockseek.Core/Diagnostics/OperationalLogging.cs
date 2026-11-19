@@ -151,10 +151,22 @@ public sealed class FeatureHealthLogger(ILogger logger, string feature)
             lastReason = reason;
         }
 
+        reason = reason switch
+        {
+            "NotConfigured" => "no shared folders configured",
+            "SoulseekDisconnected" or "SessionUnavailable" => "Soulseek is disconnected",
+            "RescanRequired" => "shared folders need a new scan",
+            "CatalogUnavailable" => "share catalog unavailable",
+            "LastScanFailed" => "the last share scan failed",
+            "BrowseUnavailable" => "peers cannot browse shares",
+            "PeerListenerUnavailable" => "the peer listening port is unavailable",
+            "QueueCapacity" => "the upload queue is full",
+            _ => reason,
+        };
         switch (state)
         {
             case "Ready":
-                OperationalLogMessages.FeatureReady(logger, feature, reason);
+                OperationalLogMessages.FeatureReady(logger, feature);
                 break;
             case "Degraded":
                 OperationalLogMessages.FeatureDegraded(logger, exception, feature, reason);
@@ -385,7 +397,7 @@ internal static partial class OperationalLogMessages
         EventId = SockseekEventIds.FeatureStarting,
         EventName = "daemon.feature.starting",
         Level = LogLevel.Information,
-        Message = "{Feature} health changed to {State} ({Reason})")]
+        Message = "{Feature}: {State} ({Reason})")]
     public static partial void FeatureStarting(
         ILogger logger, string feature, string state, string reason);
 
@@ -393,14 +405,14 @@ internal static partial class OperationalLogMessages
         EventId = SockseekEventIds.FeatureReady,
         EventName = "daemon.feature.ready",
         Level = LogLevel.Information,
-        Message = "{Feature} health changed to Ready ({Reason})")]
-    public static partial void FeatureReady(ILogger logger, string feature, string reason);
+        Message = "{Feature}: ready")]
+    public static partial void FeatureReady(ILogger logger, string feature);
 
     [LoggerMessage(
         EventId = SockseekEventIds.FeatureDegraded,
         EventName = "daemon.feature.degraded",
         Level = LogLevel.Warning,
-        Message = "{Feature} health changed to Degraded ({Reason})")]
+        Message = "{Feature}: limited ({Reason})")]
     public static partial void FeatureDegraded(
         ILogger logger, Exception? exception, string feature, string reason);
 
@@ -408,6 +420,6 @@ internal static partial class OperationalLogMessages
         EventId = SockseekEventIds.FeatureDisabled,
         EventName = "daemon.feature.disabled",
         Level = LogLevel.Information,
-        Message = "{Feature} health changed to Disabled ({Reason})")]
+        Message = "{Feature}: disabled ({Reason})")]
     public static partial void FeatureDisabled(ILogger logger, string feature, string reason);
 }

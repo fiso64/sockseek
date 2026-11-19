@@ -42,7 +42,6 @@ internal static class AuthenticationEndpoints
 
     private static SessionDto Session(HttpContext context, IOptions<ServerOptions> server, IAntiforgery antiforgery)
     {
-        context.Response.Headers.CacheControl = "no-store";
         // Anonymous bootstrap intentionally exposes only auth state, not daemon status.
         var tokens = antiforgery.GetAndStoreTokens(context);
         return new(server.Value.Authentication.Enabled, context.User.Identity?.IsAuthenticated == true,

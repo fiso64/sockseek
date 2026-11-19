@@ -230,7 +230,7 @@ internal sealed class OutputFinalizer
             DownloadLogMessages.JobDecision(
                 logger,
                 job.Id,
-                "incomplete-album-action-not-needed",
+                "incomplete album action not needed",
                 0);
             return;
         }

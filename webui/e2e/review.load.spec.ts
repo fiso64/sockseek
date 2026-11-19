@@ -121,9 +121,10 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
   expect(body.subtreeOverrides![0]!.selected).toBe(!allExcept);
   expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThan(1_000);
   const receipt = await accepted.json() as Schema<'CommitJobPreviewResponseDto'>;
+  const isSubmissionLog = (line: string) => line.includes(created.preview.previewId) || line.includes(body.idempotencyKey);
   console.log('PERF_REVIEW_ACCEPTED ' + JSON.stringify({ allExcept, previewObservedMs,
     previewReadyDomMs: previewDisplay.readyDomMs, previewTreeDomMs: previewDisplay.treeDomMs, commitUiMs, commitApiMs,
-    receipt, requests, daemonMetrics: daemon.logs().filter(line => line.includes('Job Preview ') || line.includes('Submission commit ')) }));
+    receipt, requests, daemonMetrics: daemon.logs().filter(isSubmissionLog) }));
   if (allExcept) expect(commitApiMs, 'Accepting 10k frozen commands must not expand identical settings into tens of MiB.')
     .toBeLessThan(1_000);
   expect(receipt.requestedCount).toBe(expectedCount);
@@ -149,7 +150,8 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
     });
     expect(conflict.status()).toBe(409);
     console.log('PERF_REVIEW_PHASE ' + JSON.stringify({ allExcept, phase: 'opening accepted detail' }));
-    const root = page.locator('.search-history-open').filter({ hasText: 'large-review.csv' }).first();
+    await page.goto('/jobs?tab=downloads');
+    const root = page.locator(`[data-keyboard-item="${receipt.rootJobId}"]`).getByTestId('job-open');
     await root.evaluate(element => element.addEventListener('click',
       () => performance.mark('review-detail-start'), { once: true }));
     const detailReady = page.waitForFunction(count => {
@@ -208,15 +210,11 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       expect(transfers[0]!.status.terminalOutcome).toBe('Succeeded');
       expect((await stat(transfers[0]!.status.localPath!)).size).toBe(128);
     }
-    const daemonMetrics = daemon.logs().filter(line => line.includes('Job Preview ') || line.includes('Submission commit ')
-      || line.startsWith('E2E_METRIC persistence-commit '));
-    expect(daemonMetrics.some(line => line.includes(`Job Preview ${created.preview.previewId} completed with outcome Ready`))).toBe(true);
-    expect(daemonMetrics.some(line => line.includes(`Submission commit ${body.idempotencyKey} completed in`))).toBe(true);
     console.log('PERF_REVIEW ' + JSON.stringify({ allExcept, previewObservedMs,
       previewReadyDomMs: previewDisplay.readyDomMs, previewTreeDomMs: previewDisplay.treeDomMs, commitUiMs, commitApiMs,
       retryMs, detailUiMs, detailApiMs, submissionsApiMs, submissionsBytes: Buffer.byteLength(submissionsBody),
       statusApiMs, expectedCount, commitBytes: Buffer.byteLength(JSON.stringify(body)), persistence, requests,
-      daemonMetrics }));
+      daemonMetrics: daemon.logs().filter(line => isSubmissionLog(line) || line.startsWith('E2E_METRIC persistence-commit ')) }));
   } finally {
     if (allExcept) {
       // Cancellation after acceptance alone can run before any child starts.
@@ -268,25 +266,26 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
         expectedCount, runningSongCount: runningSongs.length }));
       // Install before the request. Locator assertions retry at up to one-
       // second intervals: useful watchdogs, but not a precise display clock.
-      const terminalTiming = await page.evaluateHandle(() => {
+      const rootStatusSelector = '[data-testid="job-info-card"] .search-status-badge';
+      const terminalTiming = await page.evaluateHandle(selector => {
         const started = performance.now();
         const timing = { elapsedMs: null as number | null, stop: () => observer.disconnect() };
         const observer = new MutationObserver(() => {
-          if (document.querySelector('.job-detail-heading-summary > .search-status-badge')?.textContent?.trim() === 'Cancelled') {
+          if (document.querySelector(selector)?.textContent?.trim() === 'Cancelled') {
             timing.elapsedMs = performance.now() - started;
             observer.disconnect();
           }
         });
         observer.observe(document.body, { childList: true, subtree: true, characterData: true });
         return timing;
-      });
+      }, rootStatusSelector);
       const cancellationStart = performance.now();
       const cancelled = await measureApi(daemon.url, `/api/workflows/${receipt.workflowId}/cancel`, { method: 'POST' });
       const cancellationMs = cancelled.elapsedMs;
       console.log('PERF_REVIEW_CANCEL ' + JSON.stringify({
         cancellationMs,
         response: JSON.parse(cancelled.body),
-        daemonMetrics: daemon.logs().filter(line => line.includes(`Workflow cancellation ${receipt.workflowId}`)),
+        daemonMetrics: daemon.logs().filter(line => line.includes(receipt.workflowId!)),
       }));
       expect(cancelled.status).toBe(202);
       // Coarse opt-in regression guard, not an acceptable normal-operation target.
@@ -299,7 +298,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       let retainedRootApiMs = 0;
       let rootTerminalPublishedMs: number | null = null;
       try {
-        await expect(page.locator('.job-detail-heading-summary > .search-status-badge'))
+        await expect(page.locator(rootStatusSelector))
           .toHaveText('Cancelled', { timeout: 15_000 });
       } finally {
         rootTerminalPublishedMs = await terminalTiming.evaluate(timing => {

@@ -52,7 +52,9 @@ public static class ServerHost
             builder.Logging.AddProvider(new CompactFileLoggerProvider(
                 loggingSettings.LogFilePath,
                 LogLevel.Debug));
+        builder.Services.Configure<ConsoleLifetimeOptions>(lifetime => lifetime.SuppressStatusMessages = true);
         builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+        builder.Logging.AddFilter(typeof(ApiKeyAuthenticationHandler).FullName, LogLevel.Information);
 
         if (!string.IsNullOrWhiteSpace(url))
             builder.WebHost.UseUrls(url);
@@ -311,6 +313,7 @@ public static class ServerHost
 
         configureServices?.Invoke(builder.Services);
         var app = builder.Build();
+        app.Lifetime.ApplicationStopping.Register(() => ServerLogMessages.DaemonStopping(app.Logger));
 
         // Resolve the live contract before accepting requests. Lazy configuration
         // of these broad graphs otherwise blocks unrelated first responses on

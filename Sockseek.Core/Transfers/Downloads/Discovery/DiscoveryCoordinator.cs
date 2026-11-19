@@ -476,7 +476,7 @@ internal sealed class DiscoveryCoordinator
             DownloadLogMessages.JobDecision(
                 logger,
                 parentJob.Id,
-                "folder-already-retrieved",
+                "folder already retrieved",
                 folder.Files.Count);
             rfJob.Result = folder.Directory;
             rfJob.RetrievalOutcome = FolderRetrievalOutcome.Completed;
@@ -493,8 +493,7 @@ internal sealed class DiscoveryCoordinator
         DownloadLogMessages.JobDecision(
             logger,
             rfJob.Id,
-            "folder-retrieval-started",
-            null);
+            "folder retrieval started");
 
         int count = 0;
         try
@@ -517,7 +516,7 @@ internal sealed class DiscoveryCoordinator
             DownloadLogMessages.JobDecision(
                 logger,
                 rfJob.Id,
-                "folder-retrieval-completed",
+                "folder retrieval completed",
                 count);
             return rfJob;
         }

@@ -73,7 +73,6 @@ public sealed class JobActivityLogFormatter
             var displayKind = DisplayKind(summary);
             var level = displayKind is ActivityLogDisplayKind.Failed
                 or ActivityLogDisplayKind.Partial
-                or ActivityLogDisplayKind.Cancelled
                 ? LogLevel.Error
                 : LogLevel.Information;
             string status = StatusLabel(summary);

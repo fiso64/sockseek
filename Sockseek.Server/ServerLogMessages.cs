@@ -5,6 +5,9 @@ namespace Sockseek.Server;
 
 internal static partial class ServerLogMessages
 {
+    [LoggerMessage(4016, LogLevel.Information, "Daemon is shutting down")]
+    internal static partial void DaemonStopping(ILogger logger);
+
     [LoggerMessage(4000, LogLevel.Warning, "Live batch observer failed")]
     internal static partial void LiveBatchObserverFailed(ILogger logger, Exception exception);
 
@@ -32,8 +35,8 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4008, LogLevel.Error, "Persistence drain timed out; runtime {RuntimeId} remains unfinished for startup reconciliation")]
     internal static partial void PersistenceDrainTimedOut(ILogger logger, Guid? runtimeId);
 
-    [LoggerMessage(4009, LogLevel.Information, "Persistence retention pruned {PrunedJobs} jobs, {PrunedSearchResults} raw search results, {PrunedTransfers} transfers, and {PrunedChatMessages} chat messages in {DurationMilliseconds} ms")]
-    internal static partial void PersistenceRetentionCompleted(ILogger logger, int prunedJobs, int prunedSearchResults, int prunedTransfers, int prunedChatMessages, long durationMilliseconds);
+    [LoggerMessage(4009, LogLevel.Information, "Removed expired history in {DurationMilliseconds} ms: {PrunedJobs} jobs, {PrunedSearchResults} results from {SearchesMarkedPruned} searches, {PrunedTransfers} transfers, {PrunedTransferAttempts} attempts and {PrunedChatMessages} chat messages")]
+    internal static partial void PersistenceRetentionCompleted(ILogger logger, int prunedJobs, int prunedSearchResults, int searchesMarkedPruned, int prunedTransfers, int prunedTransferAttempts, int prunedChatMessages, long durationMilliseconds);
 
     [LoggerMessage(4010, LogLevel.Error, "Scheduled persistence retention failed")]
     internal static partial void PersistenceRetentionFailed(ILogger logger, Exception exception);
@@ -54,7 +57,7 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4500, LogLevel.Warning, "Input artifact storage is unavailable; browser file inputs are disabled while ordinary local inputs remain available")]
     internal static partial void InputArtifactUnavailable(ILogger logger, Exception? exception = null);
 
-    [LoggerMessage(4501, LogLevel.Information, "Input artifact {ArtifactId} uploaded in {DurationMs} ms; bytes={ByteCount}")]
+    [LoggerMessage(4501, LogLevel.Information, "Uploaded input file {ArtifactId} ({ByteCount} bytes) in {DurationMs} ms")]
     internal static partial void InputArtifactUploaded(ILogger logger, string artifactId, long durationMs, long byteCount);
 
     [LoggerMessage(4510, LogLevel.Warning, "Job Preview storage is unavailable; Review is disabled while direct Start remains available")]
@@ -63,16 +66,13 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4511, LogLevel.Warning, "Job Preview maintenance was degraded; Review remains available")]
     internal static partial void JobPreviewMaintenanceDegraded(ILogger logger, Exception exception);
 
-    [LoggerMessage(4512, LogLevel.Information, "Job Preview {PreviewId} expired with outcome Expired")]
+    [LoggerMessage(4512, LogLevel.Debug, "Job preview {PreviewId} expired")]
     internal static partial void JobPreviewExpired(ILogger logger, Guid previewId);
-
-    [LoggerMessage(4513, LogLevel.Information, "Job Preview {PreviewId} created with outcome Planning")]
-    internal static partial void JobPreviewCreated(ILogger logger, Guid previewId);
 
     [LoggerMessage(4514, LogLevel.Error, "Job Preview {PreviewId} planning worker failed to load its durable request")]
     internal static partial void JobPreviewWorkLoadFailed(ILogger logger, Exception exception, Guid previewId);
 
-    [LoggerMessage(4515, LogLevel.Information, "Job Preview {PreviewId} completed with outcome {Outcome} in {DurationMs} ms; nodes={NodeCount}, ready={ReadyCount}, failed={FailedCount}")]
+    [LoggerMessage(4515, LogLevel.Information, "Job preview {PreviewId}: {Outcome} in {DurationMs} ms ({NodeCount} entries, {ReadyCount} ready, {FailedCount} failed)")]
     internal static partial void JobPreviewCompleted(ILogger logger, Guid previewId, string outcome, long durationMs, int nodeCount, int readyCount, int failedCount);
 
     [LoggerMessage(4516, LogLevel.Error, "Job Preview {PreviewId} failed after {DurationMs} ms; nodes={NodeCount}")]
@@ -84,19 +84,19 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4518, LogLevel.Warning, "Job Preview {PreviewId} accepted submission {SubmissionId} but its committed state could not be published")]
     internal static partial void JobPreviewCommitPublicationFailed(ILogger logger, Guid previewId, Guid submissionId);
 
-    [LoggerMessage(4519, LogLevel.Information, "Job Preview {PreviewId} committed as submission {SubmissionId} in {DurationMs} ms; requested={RequestedCount}, submitted={SubmittedCount}, rejected={RejectedCount}")]
+    [LoggerMessage(4519, LogLevel.Information, "Submitted {SubmittedCount} of {RequestedCount} entries from job preview {PreviewId} in {DurationMs} ms ({RejectedCount} rejected, submission {SubmissionId})")]
     internal static partial void JobPreviewCommitted(ILogger logger, Guid previewId, Guid submissionId, long durationMs, int requestedCount, int submittedCount, int rejectedCount);
 
     [LoggerMessage(4520, LogLevel.Warning, "Job Preview {PreviewId} was released but artifact pin cleanup was degraded")]
     internal static partial void JobPreviewArtifactCleanupDegraded(ILogger logger, Exception exception, Guid previewId);
 
-    [LoggerMessage(4532, LogLevel.Information, "Search View {ViewId} for job {JobId} created with outcome Live")]
+    [LoggerMessage(4532, LogLevel.Debug, "Opened search results view {ViewId} for job {JobId}")]
     internal static partial void SearchViewCreated(ILogger logger, Guid viewId, Guid jobId);
 
-    [LoggerMessage(4533, LogLevel.Information, "Search View {ViewId} revision {ViewRevision} committed in {DurationMs} ms; requested={RequestedCount}, submitted={SubmittedCount}, rejected={RejectedCount}")]
+    [LoggerMessage(4533, LogLevel.Information, "Submitted {SubmittedCount} of {RequestedCount} selections from search view {ViewId} revision {ViewRevision} in {DurationMs} ms ({RejectedCount} rejected)")]
     internal static partial void SearchViewCommitted(ILogger logger, Guid viewId, long viewRevision, long durationMs, long requestedCount, long submittedCount, long rejectedCount);
 
-    [LoggerMessage(4534, LogLevel.Information, "Search View {ViewId} completed with outcome {Outcome}; activeRuntime={DurationMs} ms, revision={Revision}, public={PublicCount}, locked={LockedCount}, projected={ProjectedCount}")]
+    [LoggerMessage(4534, LogLevel.Debug, "Search results view {ViewId} revision {Revision}: {Outcome} after {DurationMs} ms ({PublicCount} public files, {LockedCount} locked files, {ProjectedCount} files in this view)")]
     internal static partial void SearchViewCompleted(ILogger logger, Guid viewId, string outcome, long durationMs, long revision, long publicCount, long lockedCount, long projectedCount);
 
     [LoggerMessage(4535, LogLevel.Error, "Search View {ViewId} completed with outcome Incomplete after projection failure")]

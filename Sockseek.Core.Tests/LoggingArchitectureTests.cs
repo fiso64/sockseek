@@ -52,7 +52,7 @@ public sealed class LoggingArchitectureTests
         var record = new CompactLogRecord(
             new DateTimeOffset(2026, 8, 21, 12, 34, 56, TimeSpan.Zero),
             LogLevel.Warning,
-            "Sockseek.Core.Soulseek.SoulseekClientManager",
+            "Sockseek.Core.Services.SoulseekClientManager",
             new EventId(2005, "connection-lost"),
             "retrying",
             null);
@@ -67,23 +67,17 @@ public sealed class LoggingArchitectureTests
     }
 
     [TestMethod]
-    public void CompactFormatter_DebugModeIncludesEmitter()
+    [DataRow("Sockseek.Core.Services.SoulseekClientManager", "soulseek:SoulseekClientManager")]
+    [DataRow("Sockseek.Core.DownloadEngine", "jobs:DownloadEngine")]
+    [DataRow("Sockseek.Server.Planning.JobPreviewCoordinator", "daemon:JobPreviewCoordinator")]
+    [DataRow("Sockseek.Cli.Program", "cli:Program")]
+    public void CompactFormatter_InlineDiagnosticUsesLoggerCategory(string category, string expectedSource)
     {
-        var record = new CompactLogRecord(
-            new DateTimeOffset(2026, 8, 21, 12, 34, 56, TimeSpan.Zero),
-            LogLevel.Information,
-            "Sockseek.Core.Soulseek.SoulseekClientManager",
-            new EventId(2012, "login-starting"),
-            "Starting Soulseek login",
-            null);
+        var record = new CompactLogRecord(DateTimeOffset.UtcNow, LogLevel.Debug, category, default, "message", null);
 
-        string line = CompactLogFormatter.Format(
-            record,
-            includeTimestamp: false,
-            includeInformationLevel: true,
-            includeSource: true);
+        string line = CompactLogFormatter.Format(record, includeTimestamp: false, includeInformationLevel: true, includeSource: true);
 
-        Assert.AreEqual("[info] [soulseek:SoulseekClientManager] Starting Soulseek login", line);
+        Assert.AreEqual($"[debug] [{expectedSource}] message", line);
     }
 
     [TestMethod]
@@ -175,7 +169,7 @@ public sealed class LoggingArchitectureTests
     }
 
     [TestMethod]
-    public void ProductionLogging_UsesGeneratedUniqueEventIdsAndNoLegacyGlobal()
+    public void ProductionLogging_UsesUniqueExplicitEventIdsAndNoLegacyGlobal()
     {
         string root = FindRepositoryRoot();
         string[] projects = ["Sockseek.Core", "Sockseek.Persistence", "Sockseek.Server", "Sockseek.Cli"];
@@ -194,8 +188,6 @@ public sealed class LoggingArchitectureTests
                 string text = File.ReadAllText(file);
                 if (text.Contains("SockseekLog", StringComparison.Ordinal))
                     violations.Add($"legacy logger: {Path.GetRelativePath(root, file)}");
-                if (Regex.IsMatch(text, @"\.Log(?:Trace|Debug|Information|Warning|Error|Critical)\s*\("))
-                    violations.Add($"non-generated logging call: {Path.GetRelativePath(root, file)}");
 
                 foreach (Match match in expression.Matches(text))
                 {

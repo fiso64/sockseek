@@ -323,13 +323,13 @@ public sealed class PersistenceDaemonTests
     [TestMethod]
     public void RetentionBatchCeiling_RequestsBoundedCatchUpWork()
     {
-        Assert.IsTrue(PersistenceMaintenanceHostedService.MayHaveMore(
+        Assert.IsTrue(PersistenceMaintenanceHostedService.ReachedBatchSize(
             new PersistenceRetentionResultDto(500, 0, 0, 1),
             batchSize: 500));
-        Assert.IsTrue(PersistenceMaintenanceHostedService.MayHaveMore(
+        Assert.IsTrue(PersistenceMaintenanceHostedService.ReachedBatchSize(
             new PersistenceRetentionResultDto(0, 0, 0, 1, PrunedTransfers: 500),
             batchSize: 500));
-        Assert.IsFalse(PersistenceMaintenanceHostedService.MayHaveMore(
+        Assert.IsFalse(PersistenceMaintenanceHostedService.ReachedBatchSize(
             new PersistenceRetentionResultDto(499, 499, 499, 1, 499, 500, 499),
             batchSize: 500));
     }

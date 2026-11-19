@@ -185,8 +185,7 @@ internal sealed class DownloadFileOperations : IDisposable
         DownloadLogMessages.JobDecision(
             logger,
             jobId,
-            "reusing-existing-transfer",
-            null);
+            "reusing existing transfer");
 
         if (!PathEquals(existingPath, outputPath))
         {
@@ -196,8 +195,7 @@ internal sealed class DownloadFileOperations : IDisposable
             DownloadLogMessages.JobDecision(
                 logger,
                 jobId,
-                "copying-reused-transfer",
-                null);
+                "copying reused transfer");
             cache.InvalidatePath(outputPath);
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             // Copy(overwrite: true) also ftruncates a fresh Unix destination.

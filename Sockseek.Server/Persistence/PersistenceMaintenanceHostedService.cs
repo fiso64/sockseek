@@ -35,7 +35,7 @@ public sealed class PersistenceMaintenanceHostedService(
                     {
                         var result = await coordinator.RunRetentionAsync(stoppingToken).ConfigureAwait(false);
                         group = Add(group, result);
-                        mayHaveMore = MayHaveMore(result, options.RetentionBatchSize);
+                        mayHaveMore = ReachedBatchSize(result, options.RetentionBatchSize);
                         if (mayHaveMore)
                             await Task.Yield();
                     }
@@ -48,13 +48,12 @@ public sealed class PersistenceMaintenanceHostedService(
                         timer.Period = TimeSpan.FromTicks(Math.Min(options.RetentionInterval.Ticks,
                             TimeSpan.FromMinutes(1).Ticks));
 
-                    ServerLogMessages.PersistenceRetentionCompleted(
-                        logger,
-                        group!.PrunedJobs,
-                        group.PrunedSearchResults,
-                        group.PrunedTransfers,
-                        group.PrunedChatMessages,
-                        group.DurationMilliseconds);
+                    if (ReachedBatchSize(group!, 1))
+                    {
+                        ServerLogMessages.PersistenceRetentionCompleted(logger, group!.PrunedJobs, group.PrunedSearchResults,
+                            group.SearchesMarkedPruned, group.PrunedTransfers, group.PrunedTransferAttempts,
+                            group.PrunedChatMessages, group.DurationMilliseconds);
+                    }
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -74,7 +73,7 @@ public sealed class PersistenceMaintenanceHostedService(
         }
     }
 
-    internal static bool MayHaveMore(
+    internal static bool ReachedBatchSize(
         PersistenceRetentionResultDto result,
         int batchSize)
         => result.PrunedJobs >= batchSize

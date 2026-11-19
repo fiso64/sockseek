@@ -14,6 +14,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Sockseek.Core.Services;
 
+internal sealed class DownloadCancelledException(OperationCanceledException cause)
+    : OperationCanceledException("The download was cancelled.", cause, cause.CancellationToken);
+
 
 public sealed record ExactFileTransferResult(
     string OutputPath,
@@ -346,12 +349,12 @@ public sealed class ExactPeerFileTransferRunner
                 return ExactFileTransferOutcome.ManuallySkipped(target);
             }
 
-            bool cancellationRequested = ex is OperationCanceledException
-                && (activeDownload?.Cts.IsCancellationRequested == true
-                    || ct?.IsCancellationRequested == true);
-            if (cancellationRequested)
+            if (ex is OperationCanceledException cancelled
+                && (activeDownload?.Cts.IsCancellationRequested == true || ct?.IsCancellationRequested == true))
             {
                 CancelTransfer(TransferCancellationReason.Requested);
+                if (ct?.IsCancellationRequested != true)
+                    throw new DownloadCancelledException(cancelled);
             }
             else
             {

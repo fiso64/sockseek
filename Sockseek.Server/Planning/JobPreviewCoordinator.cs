@@ -181,7 +181,7 @@ public sealed class JobPreviewCoordinator(
                 .ConfigureAwait(false);
             throw;
         }
-        ServerLogMessages.JobPreviewCreated(logger, preview.Id);
+        logger.LogDebug("Preparing job preview {PreviewId}", preview.Id);
         return new(ToDto(preview));
     }
 

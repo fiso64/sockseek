@@ -643,10 +643,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
                         or UserNotFoundException or System.Net.Sockets.SocketException or OperationCanceledException)
                     reason = UploadFailureReason.ConnectionFailed;
             }
-            UploadLogMessages.Failed(
-                logger, exception, item.Request.TransferId,
-                LogIdentity.PeerHash(item.Request.Username));
-            Terminalize(item, UploadTransferState.Failed, reason, exception.GetBaseException().Message);
+            Terminalize(item, UploadTransferState.Failed, reason, exception.GetBaseException().Message, exception);
         }
         finally
         {
@@ -757,7 +754,8 @@ public sealed class UploadCoordinator : IAsyncDisposable
         Work item,
         UploadTransferState state,
         UploadFailureReason failure,
-        string? failureMessage = null)
+        string? failureMessage = null,
+        Exception? exception = null)
     {
         lock (sync)
         {
@@ -777,14 +775,12 @@ public sealed class UploadCoordinator : IAsyncDisposable
         SharingTelemetry.RecordUploadTerminal(
             state,
             item.Attempt?.BytesTransferred ?? 0);
-        UploadLogMessages.Terminal(
-            logger,
-            item.Request.TransferId,
-            LogIdentity.PeerHash(item.Request.Username),
-            state,
-            failure,
-            item.BytesTransferred,
-            (long)((item.FinishedAtUtc ?? DateTimeOffset.UtcNow) - item.Request.RequestedAtUtc).TotalMilliseconds);
+        long durationMs = (long)(item.FinishedAtUtc.Value - item.Request.RequestedAtUtc).TotalMilliseconds;
+        string peerHash = LogIdentity.PeerHash(item.Request.Username);
+        if (state == UploadTransferState.Failed)
+            UploadLogMessages.Failed(logger, exception, item.Request.TransferId, peerHash, failure, item.BytesTransferred, durationMs);
+        else
+            UploadLogMessages.Terminal(logger, item.Request.TransferId, peerHash, state, item.BytesTransferred, durationMs);
         return true;
     }
 
@@ -1091,16 +1087,17 @@ internal static partial class UploadLogMessages
         EventId = 4313,
         EventName = "upload.terminal",
         Level = LogLevel.Information,
-        Message = "Upload {TransferId} for peer hash {PeerHash} ended as {State}/{FailureReason} after {DurationMs} ms with {BytesTransferred} bytes transferred")]
+        Message = "Upload {TransferId}: {State} ({BytesTransferred} bytes in {DurationMs} ms, peer hash {PeerHash})")]
     public static partial void Terminal(
         ILogger logger, Guid transferId, string peerHash, UploadTransferState state,
-        UploadFailureReason failureReason, long bytesTransferred, long durationMs);
+        long bytesTransferred, long durationMs);
 
     [LoggerMessage(
         EventId = 4314,
         EventName = "upload.failed",
         Level = LogLevel.Error,
-        Message = "Upload {TransferId} for peer hash {PeerHash} failed")]
+        Message = "Upload {TransferId} for peer hash {PeerHash} failed: {FailureReason} ({BytesTransferred} bytes transferred in {DurationMs} ms)")]
     public static partial void Failed(
-        ILogger logger, Exception exception, Guid transferId, string peerHash);
+        ILogger logger, Exception? exception, Guid transferId, string peerHash, UploadFailureReason failureReason,
+        long bytesTransferred, long durationMs);
 }

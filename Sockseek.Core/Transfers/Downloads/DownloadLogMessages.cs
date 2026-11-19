@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Logging;
+using Sockseek.Core.Jobs;
+using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Core;
 
@@ -10,11 +12,17 @@ internal static partial class DownloadLogMessages
     [LoggerMessage(3001, LogLevel.Error, "Search event observer {ObserverName} failed for job {JobId}")]
     internal static partial void SearchObserverFailed(ILogger logger, Exception exception, string observerName, Guid jobId);
 
-    [LoggerMessage(3002, LogLevel.Debug, "Download engine {EngineId} entered {Stage}")]
+    [LoggerMessage(3002, LogLevel.Debug, "Download engine {EngineId}: {Stage}")]
     internal static partial void EngineStage(ILogger logger, string engineId, string stage);
 
-    [LoggerMessage(3003, LogLevel.Debug, "Download job {JobId} decision: {Decision} (count={Count})")]
-    internal static partial void JobDecision(ILogger logger, Guid jobId, string decision, int? count);
+    [LoggerMessage(3003, LogLevel.Debug, "Job {JobId}: {Decision} (count: {Count})")]
+    internal static partial void JobDecision(ILogger logger, Guid jobId, string decision, int count);
+
+    [LoggerMessage(3020, LogLevel.Debug, "Job {JobId}: {Decision}")]
+    internal static partial void JobDecision(ILogger logger, Guid jobId, string decision);
+
+    [LoggerMessage(3021, LogLevel.Debug, "Download {TransferId} for job {JobId}: {Outcome} ({BytesTransferred} bytes)")]
+    internal static partial void TransferEnded(ILogger logger, Guid transferId, Guid jobId, TransferSnapshotTerminalOutcome outcome, long bytesTransferred);
 
     [LoggerMessage(3004, LogLevel.Error, "Download component {Component} failed for job {JobId}")]
     internal static partial void ComponentFailed(ILogger logger, Exception exception, string component, Guid? jobId);
@@ -40,26 +48,45 @@ internal static partial class DownloadLogMessages
     [LoggerMessage(3011, LogLevel.Debug, "Transfer {TransferId} attempt {AttemptCount}/{MaximumAttempts} failed for job {JobId}")]
     internal static partial void TransferAttemptFailed(ILogger logger, Exception exception, Guid transferId, int attemptCount, int maximumAttempts, Guid jobId);
 
-    [LoggerMessage(3012, LogLevel.Information, "Download root processing started for job {JobId} ({JobType})")]
-    internal static partial void RootJobStarted(ILogger logger, Guid jobId, string jobType);
+    [LoggerMessage(3012, LogLevel.Information, "Started job {JobId} ({JobType})")]
+    internal static partial void RootJobStarted(ILogger logger, Guid jobId, JobSnapshotKind jobType);
 
-    [LoggerMessage(3013, LogLevel.Information, "Download root processing ended for job {JobId} in {DurationMilliseconds} ms (lifecycle={LifecycleState}, outcome={TerminalOutcome}, failure={FailureReason})")]
-    internal static partial void RootJobCompleted(
-        ILogger logger,
-        Guid jobId,
-        long durationMilliseconds,
-        JobLifecycleState lifecycleState,
-        JobTerminalOutcome terminalOutcome,
-        JobFailureReason failureReason);
+    internal static void RootJobFinished(ILogger logger, Job job, long durationMilliseconds)
+    {
+        var state = job.StateSnapshot;
+        if (state.LifecycleState == JobLifecycleState.Running)
+            RootJobUnsuccessful(logger, job.Id, durationMilliseconds, "execution stopped while the job was still running");
+        else if (state.TerminalOutcome == JobTerminalOutcome.Failed)
+            RootJobUnsuccessful(logger, job.Id, durationMilliseconds, state.FailureReason switch
+            {
+                JobFailureReason.ChildJobsFailed => "one or more child jobs failed",
+                JobFailureReason.AllDownloadsFailed => "all downloads failed",
+                JobFailureReason.NoSearchResults => "no search results",
+                JobFailureReason.NoMatchingResults => "no matching results",
+                JobFailureReason.OutOfDownloadRetries => "download retries exhausted",
+                JobFailureReason.InvalidSearchString => "invalid search query",
+                JobFailureReason.ExtractionFailed => "input extraction failed",
+                _ => state.FailureReason.ToString(),
+            });
+        else if (job is SearchJob search && state.TerminalOutcome == JobTerminalOutcome.Succeeded)
+            SearchJobCompleted(logger, job.Id, durationMilliseconds, search.ResultCount, search.Session.LockedFileCount, search.Session.ObservedPeerCount);
+        else
+            RootJobCompleted(logger, job.Id, durationMilliseconds, state.LifecycleState switch
+            {
+                JobLifecycleState.Terminal => state.TerminalOutcome.ToString(),
+                JobLifecycleState.AwaitingSelection => "waiting for selection",
+                _ => state.LifecycleState.ToString(),
+            });
+    }
 
-    [LoggerMessage(3014, LogLevel.Error, "Download root processing ended unsuccessfully for job {JobId} in {DurationMilliseconds} ms (lifecycle={LifecycleState}, outcome={TerminalOutcome}, failure={FailureReason})")]
-    internal static partial void RootJobUnsuccessful(
-        ILogger logger,
-        Guid jobId,
-        long durationMilliseconds,
-        JobLifecycleState lifecycleState,
-        JobTerminalOutcome terminalOutcome,
-        JobFailureReason failureReason);
+    [LoggerMessage(3022, LogLevel.Information, "Search {JobId} finished in {DurationMilliseconds} ms: {PublicCount} public files, {LockedCount} locked files, {PeerCount} peers")]
+    private static partial void SearchJobCompleted(ILogger logger, Guid jobId, long durationMilliseconds, int publicCount, int lockedCount, int peerCount);
+
+    [LoggerMessage(3013, LogLevel.Information, "Job {JobId}: {Outcome} after {DurationMilliseconds} ms")]
+    private static partial void RootJobCompleted(ILogger logger, Guid jobId, long durationMilliseconds, string outcome);
+
+    [LoggerMessage(3014, LogLevel.Error, "Job {JobId} failed after {DurationMilliseconds} ms ({FailureReason})")]
+    private static partial void RootJobUnsuccessful(ILogger logger, Guid jobId, long durationMilliseconds, string failureReason);
 
     [LoggerMessage(3015, LogLevel.Debug, "Retired terminal download workflow {WorkflowId} ({JobCount} jobs)")]
     internal static partial void WorkflowRetired(ILogger logger, Guid workflowId, int jobCount);

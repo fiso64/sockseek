@@ -305,20 +305,24 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
             _readyTcs.TrySetResult();
             StartMonitoring();
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            var failure = CreateConnectionFailure(ex);
-
             if (IsTransient(ex))
             {
-                SoulseekLogMessages.SessionStartFailed(logger, ex);
+                string reason = ex.GetBaseException().Message;
+                if (reason.Length > 512) reason = reason[..512] + "…";
+                if (reconnectWarningGate.TryAcquire(out long suppressedCount))
+                    SoulseekLogMessages.ConnectionLost(logger, reason, suppressedCount);
+                else
+                    SoulseekLogMessages.SessionStartFailed(logger, reason);
                 StartMonitoring(); // Ensure monitoring starts even on transient failure so we can retry
-            }
-            else
-            {
-                MarkFatal(failure);
+                if (ex is OperationCanceledException) throw;
+                throw CreateConnectionFailure(ex);
             }
 
+            var failure = CreateConnectionFailure(ex);
+            if (!HasFatalError) SoulseekLogMessages.PermanentFailure(logger, failure);
+            MarkFatal(failure);
             throw failure;
         }
         finally
@@ -431,13 +435,10 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
                 if (HasFatalError)
                     break;
 
-                if (reconnectWarningGate.TryAcquire(out long suppressedCount))
-                    SoulseekLogMessages.ConnectionLost(logger, retryDelay, suppressedCount);
                 await monitorDelay(TimeSpan.FromSeconds(retryDelay), ct);
 
                 await EnsureConnectedAndLoggedInAsync(_initialSettings, ct);
                 retryDelay = 1;
-                SoulseekLogMessages.Reconnected(logger);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
@@ -445,11 +446,9 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
                 if (!IsTransient(ex))
                 {
                     MarkFatal(ex);
-                    SoulseekLogMessages.PermanentFailure(logger, ex);
                     break;
                 }
 
-                SoulseekLogMessages.ReconnectAttemptFailed(logger, ex);
                 retryDelay = Math.Min(retryDelay * 2, 8);
             }
         }
@@ -481,7 +480,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
 
     private ISoulseekClient CreateClientInstance(EngineSettings settings)
     {
-        SoulseekLogMessages.CreatingClient(logger);
+        logger.LogDebug("Creating Soulseek client instance");
         if (!string.IsNullOrEmpty(settings.MockFilesDir))
         {
             SoulseekLogMessages.UsingLocalClient(logger);

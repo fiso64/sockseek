@@ -115,15 +115,13 @@ internal sealed class SkipEvaluationCoordinator
         => DownloadLogMessages.JobDecision(
             logger,
             job.Id,
-            "skipped-existing-output",
-            null);
+            "skipped existing output");
 
     private void NotFoundPreviously(Job job)
         => DownloadLogMessages.JobDecision(
             logger,
             job.Id,
-            "skipped-not-found-in-prior-run",
-            null);
+            "skipped because a previous search found no results");
 
     private Match? FindExistingAlbum(Job job, AlbumJob album, JobContext ctx, TrackSkipperContext skipCtx)
     {

@@ -170,8 +170,7 @@ internal sealed class SongDownloadFallbackRunner
         DownloadLogMessages.JobDecision(
             logger,
             song.Id,
-            $"fallback-{outcome.TerminalOutcome.ToString().ToLowerInvariant()}",
-            null);
+            $"fallback download: {outcome.TerminalOutcome}");
         return outcome;
     }
 }

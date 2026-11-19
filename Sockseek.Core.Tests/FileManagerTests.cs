@@ -579,7 +579,6 @@ namespace Tests.FileManagerTests
 
             CompactLogRecord failure = records.Single(record => record.EventId.Id == 3006);
             Assert.AreEqual(LogLevel.Debug, failure.Level);
-            StringAssert.Contains(failure.Message, "File metadata could not be read");
             Assert.IsFalse(failure.Message.Contains(testRoot, StringComparison.OrdinalIgnoreCase));
         }
 

@@ -58,8 +58,8 @@ public sealed class SharingRuntime : IAsyncDisposable
         uploadSettings = settings.Uploads;
         this.soulseek = soulseek ?? throw new ArgumentNullException(nameof(soulseek));
         this.logger = logger ?? NullLogger<SharingRuntime>.Instance;
-        sharingHealthLog = new FeatureHealthLogger(this.logger, "sharing");
-        uploadHealthLog = new FeatureHealthLogger(this.logger, "uploads");
+        sharingHealthLog = new FeatureHealthLogger(this.logger, "File sharing");
+        uploadHealthLog = new FeatureHealthLogger(this.logger, "Uploads");
         string catalogDirectory = Path.Combine(
             Path.GetFullPath(dataDirectory),
             "sharing");
@@ -180,7 +180,8 @@ public sealed class SharingRuntime : IAsyncDisposable
             // The manager keeps retrying transient failures. Permanent session
             // failures remain visible through readiness without taking down the
             // daemon or preventing ordinary non-network API work.
-            SharingLogMessages.SessionStartupFailed(logger, ex);
+            if (ex is not SoulseekConnectionUnavailableException)
+                SharingLogMessages.SessionStartupFailed(logger, ex);
             PublishState();
         }
     }
@@ -282,6 +283,10 @@ public sealed class SharingRuntime : IAsyncDisposable
                 {
                     break;
                 }
+                catch (OperationCanceledException) when (scans.State.Phase == ShareScanPhase.Cancelled)
+                {
+                    // The operator cancelled this scan. Keep the periodic timer running.
+                }
                 catch (Exception ex)
                 {
                     SharingLogMessages.ScanFailed(logger, ex, "periodic");
@@ -333,7 +338,7 @@ public sealed class SharingRuntime : IAsyncDisposable
                 result.DirectoriesVisited,
                 result.FilesIndexed,
                 result.BytesIndexed,
-                result.Errors.Count);
+                result.EntriesSkipped, result.IoFailures, result.MetadataFailures);
         }
         else if (state.Phase == ShareScanPhase.Cancelled)
         {
@@ -725,10 +730,10 @@ internal static partial class SharingLogMessages
         EventId = 4304,
         EventName = "sharing.scan-completed",
         Level = LogLevel.Information,
-        Message = "Share scan {ScanId} completed in {DurationMs} ms with {DirectoryCount} directories, {FileCount} files, {TotalBytes} bytes, and {ErrorCount} isolated errors")]
+        Message = "Share scan {ScanId} completed in {DurationMs} ms with {DirectoryCount} directories, {FileCount} files, {TotalBytes} bytes ({SkippedCount} entries skipped, {IoFailures} read errors, {MetadataFailures} metadata errors)")]
     public static partial void ScanCompleted(
         ILogger logger, Guid scanId, long durationMs, long directoryCount,
-        long fileCount, long totalBytes, int errorCount);
+        long fileCount, long totalBytes, long skippedCount, long ioFailures, long metadataFailures);
 
     [LoggerMessage(
         EventId = 4305,

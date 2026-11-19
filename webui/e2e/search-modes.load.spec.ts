@@ -887,8 +887,7 @@ for (const mode of modes) {
       planCommitMs, planApiMs, folderPlan, fullFolderPlan, flexiblePlan, automaticPlan,
       updateReads: updateReads.length, health,
       daemonMetrics: daemon.logs().filter(line => line.startsWith('E2E_METRIC ')
-        || line.includes('Search View ') && (line.includes('completed with outcome')
-          || line.includes(' committed in '))
+        || line.includes('selections from search view ')
         || line.includes('Submission commit ') && line.includes(' completed in ')) }));
   });
 
