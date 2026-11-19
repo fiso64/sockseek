@@ -38,14 +38,11 @@ internal static class ConfiguredCommandDispatcher
                     ConfiguredCommandOptions.Remote | ConfiguredCommandOptions.DataDirectory
                     | ConfiguredCommandOptions.Authentication), cancellationToken).ConfigureAwait(false);
             if (command is "chat" or "room" or "notifications" or "notification")
-                return await RunRemoteCommandAsync(args, ChatCommands.PrintHelp,
-                    ChatCommands.RunAsync, cancellationToken).ConfigureAwait(false);
+                return await RunRemoteCommandAsync(args, ChatCommands.RunAsync, cancellationToken).ConfigureAwait(false);
             if (command is "share" or "transfers" or "transfer")
-                return await RunRemoteCommandAsync(args, SharingAndTransferCommands.PrintHelp,
-                    SharingAndTransferCommands.RunAsync, cancellationToken).ConfigureAwait(false);
+                return await RunRemoteCommandAsync(args, SharingAndTransferCommands.RunAsync, cancellationToken).ConfigureAwait(false);
             if (command == "user")
-                return await RunRemoteCommandAsync(args, UserCommands.PrintHelp,
-                    UserCommands.RunAsync, cancellationToken).ConfigureAwait(false);
+                return await RunRemoteCommandAsync(args, UserCommands.RunAsync, cancellationToken).ConfigureAwait(false);
 
             if (command == "database")
             {
@@ -77,13 +74,13 @@ internal static class ConfiguredCommandDispatcher
     }
 
     private static async Task<Program.CliExitCode> RunRemoteCommandAsync(
-        string[] args, Action printHelp,
+        string[] args,
         Func<SockseekApiClient, ConfiguredCommandInvocation, CancellationToken, Task<Program.CliExitCode>> run,
         CancellationToken cancellationToken)
     {
         if (HasHelp(args))
         {
-            printHelp();
+            Help.PrintHelp(args[0].ToLowerInvariant());
             return Program.CliExitCode.Success;
         }
 

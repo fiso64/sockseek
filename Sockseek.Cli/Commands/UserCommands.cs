@@ -619,6 +619,4 @@ internal static class UserCommands
     private static IReadOnlyDictionary<string, bool> Options(
         params (string Name, bool HasValue)[] options)
         => options.ToDictionary(option => option.Name, option => option.HasValue, StringComparer.OrdinalIgnoreCase);
-
-    internal static void PrintHelp() => Help.PrintHelp("user");
 }

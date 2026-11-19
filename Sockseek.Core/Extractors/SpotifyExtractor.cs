@@ -27,7 +27,6 @@ namespace Sockseek.Core.Extractors;
                 SourceKind.Artist => "Spotify artist",
                 _ => "Spotify",
             };
-            // TODO [v4]: Manual code like this is concerning. Maybe handle it more generally for extractors in presentation.
             if (ReferenceEquals(source, item))
             {
                 string? unit = null;

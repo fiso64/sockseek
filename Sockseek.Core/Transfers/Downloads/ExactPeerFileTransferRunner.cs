@@ -301,7 +301,7 @@ public sealed class ExactPeerFileTransferRunner
                         // Soulseek.NET throws before opening the stream, so this
                         // needs a new request. Allow one correction independently
                         // of network retries; a repeatedly changing file must fail.
-                        // TODO [V4]: Soulseek.NET also rejects malformed zero sizes
+                        // TODO: Soulseek.NET also rejects malformed zero sizes
                         // from some peers. Nicotine retains the known size in that
                         // case; we need upstream negotiation support to do so safely.
                         outputStream.SetLength(0);

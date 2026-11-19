@@ -388,26 +388,4 @@ internal static class SharingAndTransferCommands
 
     private static bool Equals(string? left, string right)
         => string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
-
-    internal static void PrintHelp()
-    {
-        Console.WriteLine(
-            """
-            Daemon sharing and transfer commands:
-              sockseek share status [--remote <url>] [--json]
-              sockseek share scan [--remote <url>] [--json]
-              sockseek share scan --cancel [--remote <url>] [--json]
-              sockseek transfers [--remote <url>] [--direction upload|download] [--state <state>]
-                                     [--username <name>] [--include-removed] [--limit N] [--cursor <cursor>] [--json]
-              sockseek transfers cancel --direction upload|download [--scope all|queued|in-progress]
-                                       [--username <name>] [--group-ref <ref>]
-              sockseek transfers remove [--direction upload|download] [--outcome <outcome>]
-                                        [--username <name>] [--group-ref <ref>]
-              sockseek transfer cancel <id> [--remote <url>] [--json]
-              sockseek transfer remove <id> [--remote <url>] [--json]
-
-            The remote URL can be set as `remote = <url>` in config; --remote overrides it.
-            --group-ref requires both --username and --direction.
-            """);
-    }
 }

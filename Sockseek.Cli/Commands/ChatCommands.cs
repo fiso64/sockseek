@@ -282,24 +282,4 @@ internal static class ChatCommands
         options.WriteIndented = true;
         Console.WriteLine(JsonSerializer.Serialize(value, value.GetType(), options));
     }
-
-    internal static void PrintHelp() => Console.WriteLine(
-        """
-        Remote chat commands:
-          sockseek chat status [--remote <url>] [--json]
-          sockseek chat conversations [--unread] [--remote <url>] [--json]
-          sockseek chat messages <username> [--limit N] [--remote <url>] [--json]
-          sockseek chat send <username> <message> [--remote <url>] [--json]
-          sockseek chat read <username> [--through <message-id>] [--remote <url>]
-          sockseek chat archive <username> [--remote <url>]
-          sockseek room available|joined [--remote <url>] [--json]
-          sockseek room join <name> [--no-remember] [--remote <url>]
-          sockseek room leave|messages|members <name> [--remote <url>] [--json]
-          sockseek room send <name> <message> [--remote <url>]
-          sockseek room member add <name> <username> [--remote <url>]
-          sockseek notifications [--unread] [--remote <url>] [--json]
-          sockseek notification read <id|all> [--remote <url>] [--json]
-
-        The remote URL can be set as `remote = <url>` in config; --remote overrides it.
-        """);
 }

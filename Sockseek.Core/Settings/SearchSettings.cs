@@ -56,7 +56,7 @@ public class SearchSettings
         LengthTolerance  = 3,
         StrictTitle      = true,
         StrictAlbum      = true,
-        // TODO [v4]: Revisit pref-strict-artist's default and priority in ResultSorter.
+        // TODO: Revisit pref-strict-artist's default and priority in ResultSorter.
         // Searches send artist + title/album; most peers require all whitespace-separated
         // terms somewhere in the path. Strict artist adds word contiguity/order with
         // space/symbol normalization, not performer detection; any semicolon-delimited artist suffices.

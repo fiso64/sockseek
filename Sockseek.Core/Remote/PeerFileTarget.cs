@@ -6,8 +6,6 @@ using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Core.Models;
 
-// TODO [v4]: ToDisplayText is part of the validator? Actually, why do we even need this validator..
-
 /// <summary>
 /// Validates exact outbound peer identity without trimming, case folding, or
 /// Unicode normalization.

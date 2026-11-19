@@ -7,6 +7,17 @@ namespace Tests.Cli;
 public class TerminalLiveRendererLifecycleTests
 {
     [TestMethod]
+    [DataRow("🎵abc", 4, true, "abc")]
+    [DataRow("🎵abc", 2, false, "…")]
+    [DataRow("ae\u0301bc", 2, false, "a…")]
+    [DataRow("abc界", 3, true, "c界")]
+    [DataRow("abc", 3, false, "abc")]
+    public void FitText_PreservesTextElementsWithinCellBudget(string input, int width, bool keepEnd, string expected)
+    {
+        Assert.AreEqual(expected, TerminalLiveRenderer.FitText(input, width, keepEnd));
+    }
+
+    [TestMethod]
     public async Task Pause_StopsRenderLoopBeforeReturning_AndResumeStartsFreshLoop()
     {
         using var started = new SemaphoreSlim(0);

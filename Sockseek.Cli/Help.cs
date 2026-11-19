@@ -19,9 +19,17 @@ public static partial class Help
             { "notes", notesAndTipsHelp },
             { "daemon", daemonHelp },
             { "user", userHelp },
+            { "chat", chatHelp },
+            { "share", shareHelp },
             { "database", databaseHelp },
         };
 
+        option = option switch
+        {
+            "room" or "notification" or "notifications" => "chat",
+            "transfer" or "transfers" => "share",
+            _ => option,
+        };
         if (option != null && dict.TryGetValue(option, out string? value))
             text = value;
         else if (option == "all")

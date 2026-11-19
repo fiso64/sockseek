@@ -431,7 +431,9 @@ public class RemoteCliBackendTests
     }
 
     [TestMethod]
-    public async Task RemoteCliBackend_SubmitExtract_UsesClientDownloadSettingsPatch()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RemoteCliBackend_SubmitExtract_CountsTwoFileFolderOnce(bool directLink)
     {
         string musicRoot = Path.Combine(Path.GetTempPath(), "Sockseek-remote-backend-album-test-" + Guid.NewGuid());
         string outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-remote-backend-album-out-" + Guid.NewGuid());
@@ -467,14 +469,12 @@ public class RemoteCliBackendTests
             await using var backend = new RemoteCliBackend(await global::Tests.TestServerHost.CreateHttpClientAsync(app));
             await backend.StartAsync();
 
-            var workflowId = Guid.NewGuid();
+            string[] args = directLink ? ["slsk://local/Artist/Album/", "--input-type", "soulseek-link"]
+                : ["Artist Album", "-a", "--no-browse-folder"];
+            var invocation = ConfigManager.ParseInvocation(args);
+            var (_, download, cli, _, _) = ConfigManager.BindAll(new ConfigFile("none", []), invocation);
             var summary = await backend.SubmitExtractJobAsync(
-                new SubmitExtractJobRequestDto(
-                    "Artist Album",
-                    "String",
-                    Options: new SubmissionOptionsDto(
-                        WorkflowId: workflowId,
-                        DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(["-a", "--no-browse-folder"])))));
+                Sockseek.Cli.Program.BuildRemoteExtractRequest(invocation, download, cli));
 
             await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
 
@@ -485,16 +485,8 @@ public class RemoteCliBackendTests
                 .ToArray();
             CollectionAssert.AreEqual(new[] { "01. Track One.mp3", "02. Track Two.mp3" }, downloaded);
 
-            using var output = new StringWriter();
-            await Sockseek.Cli.Program.PrintRemoteCompleteAsync(
-                backend,
-                summary.WorkflowId,
-                CancellationToken.None,
-                output);
-            Assert.AreEqual(
-                string.Empty,
-                output.ToString(),
-                "A single successful user-facing album completion is intentionally not summarized.");
+            var jobs = await backend.GetJobsAsync(new JobQuery(null, null, null, summary.WorkflowId, IncludeAll: true));
+            Assert.AreEqual(new DownloadRunSummary(1, 0, 0, Sockseek.Cli.Program.CliExitCode.Success), DownloadRunSummary.FromJobs(jobs));
         }
         finally
         {
@@ -946,18 +938,7 @@ public class RemoteCliBackendTests
                 && job.LifecycleState == ServerJobLifecycleState.Terminal
                 && job.TerminalOutcome == ServerJobTerminalOutcome.Cancelled));
 
-            using var output = new StringWriter();
-            await Sockseek.Cli.Program.PrintRemoteCompleteAsync(
-                backend,
-                downloadSummary.WorkflowId,
-                CancellationToken.None,
-                output);
-
-            string rendered = output.ToString();
-            StringAssert.Contains(
-                rendered,
-                "Completed: 0 succeeded, 1 failed.",
-                "Remote completion output should match the live renderer's user-facing job counts.");
+            Assert.AreEqual(new DownloadRunSummary(0, 1, 0, Sockseek.Cli.Program.CliExitCode.Cancelled), DownloadRunSummary.FromJobs(retained));
         }
         finally
         {

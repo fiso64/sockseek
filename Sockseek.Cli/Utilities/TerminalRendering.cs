@@ -390,7 +390,6 @@ internal sealed class TerminalLiveRenderer : IDisposable
         }
     }
 
-    // TODO: Lines wrap incorrectly when terminal size is different
     private void ReplayPrintedLogHistory()
     {
         lock (_sync)
@@ -632,7 +631,35 @@ internal sealed class TerminalLiveRenderer : IDisposable
         => Console.IsOutputRedirected ? "" : new string(' ', Math.Max(0, LogLineWidth() - visualLength));
 
     internal static int CellCount(string text)
-        => new Segment(text).CellCount();
+        => text.GetCellWidth();
+
+    internal static string FitText(string text, int maxWidth, bool keepEnd = false)
+    {
+        if (maxWidth <= 0) return "";
+        int width = CellCount(text);
+        if (width <= maxWidth) return text;
+
+        int offset = 0;
+        if (keepEnd)
+        {
+            foreach (string element in TextElements(text))
+            {
+                width -= CellCount(element);
+                offset += element.Length;
+                if (width <= maxWidth) break;
+            }
+            return text[offset..];
+        }
+
+        int remaining = maxWidth - CellCount("…");
+        foreach (string element in TextElements(text))
+        {
+            remaining -= CellCount(element);
+            if (remaining < 0) break;
+            offset += element.Length;
+        }
+        return string.Concat(text.AsSpan(0, offset), "…");
+    }
 
     private static IEnumerable<string> TextElements(string text)
     {
@@ -1239,7 +1266,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
 
             var firstSeparator = path.IndexOf('\\');
             if (firstSeparator < 0)
-                return TruncateEnd(path, maxWidth);
+                return FitText(path, maxWidth);
 
             var head = path[..(firstSeparator + 1)];
             var tail = path[(firstSeparator + 1)..];
@@ -1248,55 +1275,10 @@ internal sealed class TerminalLiveRenderer : IDisposable
             var headWithMarkerWidth = CellCount(headWithMarker);
 
             if (headWithMarkerWidth < maxWidth)
-                return headWithMarker + RightFit(tail, maxWidth - headWithMarkerWidth);
+                return headWithMarker + FitText(tail, maxWidth - headWithMarkerWidth, keepEnd: true);
 
-            return TruncateEnd(path, maxWidth);
+            return FitText(path, maxWidth);
         }
-
-        // TODO: Perf bottleneck. RightFit and TruncateEnd allocate new strings and Segments on every loop iteration,
-        // Instead of trial-and-error substrings, iterate through the string once, accumulate the cell width of each
-        // character/rune (spectre.console might have utilities for that), find the exact cutoff index, and perform
-        // Substring() exactly once.
-        private static string RightFit(string text, int maxWidth)
-        {
-            if (maxWidth <= 0)
-                return "";
-            if (CellCount(text) <= maxWidth)
-                return text;
-
-            for (var start = 1; start < text.Length; start++)
-            {
-                var candidate = text[start..];
-                if (CellCount(candidate) <= maxWidth)
-                    return candidate;
-            }
-
-            return "";
-        }
-
-        private static string TruncateEnd(string text, int maxWidth)
-        {
-            if (maxWidth <= 0)
-                return "";
-            if (CellCount(text) <= maxWidth)
-                return text;
-
-            var ellipsisWidth = CellCount("…");
-            if (maxWidth <= ellipsisWidth)
-                return "…";
-
-            for (var length = text.Length - 1; length >= 0; length--)
-            {
-                var candidate = text[..length] + "…";
-                if (CellCount(candidate) <= maxWidth)
-                    return candidate;
-            }
-
-            return "…";
-        }
-
-        private static int CellCount(string text)
-            => new Segment(text).CellCount();
 
         private static IEnumerable<Segment> ToSegments(IEnumerable<LiveCell> cells)
         {
@@ -1328,7 +1310,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
                 }
 
                 if (remaining > 0)
-                    result.AddRange(Segment.SplitOverflow(segment, Overflow.Ellipsis, remaining));
+                    result.Add(new Segment(FitText(segment.Text, remaining), segment.Style));
                 break;
             }
 

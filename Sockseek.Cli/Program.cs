@@ -201,7 +201,7 @@ internal static partial class Program
             try
             {
                 return await RunRemoteMonitorAsync(
-                    bindArgs,
+                    invocation,
                     engineSettings,
                     rootSettings,
                     cliSettings,
@@ -382,8 +382,10 @@ internal static partial class Program
             bool hasDownloadableJobs = PrintOutputRenderer.HasDownloadableJobs(engine.Queue);
             bool hasRequestedOutput = PrintOutputRenderer.HasRequestedOutput(engine.Queue);
 
+            var jobs = await backend.GetJobsAsync(new JobQuery(null, null, null, null, IncludeAll: true), cts.Token);
+            var summary = DownloadRunSummary.FromJobs(jobs);
             if (hasDownloadableJobs)
-                Printing.PrintComplete(engine.Queue);
+                summary.Print();
 
             if (hasRequestedOutput)
             {
@@ -394,7 +396,7 @@ internal static partial class Program
                     engine.GetPeerFailureCounts);
             }
 
-            var exitCode = LogCliSessionExit(logger, DetermineLocalExitCode(engine.Queue));
+            var exitCode = LogCliSessionExit(logger, summary.ExitCode);
             cliReporter?.Stop();
             cliReporter = null;
 
@@ -437,9 +439,9 @@ internal static partial class Program
         ILogger logger,
         CancellationTokenSource cts)
     {
-        var submissionOptions = BuildRemoteSubmissionOptions(invocation, cliSettings);
-        var extractRequest = BuildRemoteExtractRequest(rootSettings, submissionOptions);
-        if (string.IsNullOrWhiteSpace(extractRequest.Input) && submissionOptions.ProfileNames is not { Count: > 0 })
+        var workflowId = Guid.NewGuid();
+        var extractRequest = BuildRemoteExtractRequest(invocation, rootSettings, cliSettings, workflowId);
+        if (string.IsNullOrWhiteSpace(extractRequest.Input) && extractRequest.Options?.ProfileNames is not { Count: > 0 })
         {
             Write(output, LogLevel.Error, "Remote mode requires an input.");
             return CliExitCode.UsageError;
@@ -487,23 +489,19 @@ internal static partial class Program
 
         try
         {
-            Guid workflowId = Guid.NewGuid();
             await backend.SubscribeWorkflowAsync(workflowId, cts.Token);
             using var terminalUpdateObserver = new WorkflowTerminalUpdateObserver(backend, workflowId);
-
-            var options = submissionOptions with { WorkflowId = workflowId };
-            var request = extractRequest with { Options = options };
 
             InteractiveCliCoordinator? interactiveCoordinator = null;
             JobSummaryDto submission;
             if (cliSettings.InteractiveMode)
             {
                 interactiveCoordinator = new InteractiveCliCoordinator(backend, cliSettings, cts.Token);
-                submission = await interactiveCoordinator.StartAsync(request, cts.Token);
+                submission = await interactiveCoordinator.StartAsync(extractRequest, cts.Token);
             }
             else
             {
-                submission = await backend.SubmitExtractJobAsync(request, cts.Token);
+                submission = await backend.SubmitExtractJobAsync(extractRequest, cts.Token);
             }
 
             using var consoleControls = StartConsoleControls(
@@ -521,26 +519,13 @@ internal static partial class Program
             if (interactiveCoordinator != null)
                 await backend.AwaitLiveAsync(interactiveCoordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token));
 
-            await backend.AwaitLiveAsync(terminalUpdateObserver.WaitForTerminalUpdateAsync(cts.Token));
-            var observedCompletion = terminalUpdateObserver.Completion
-                ?? throw new InvalidOperationException("The terminal workflow update did not contain a completion snapshot.");
-
+            await backend.AwaitLiveAsync(terminalUpdateObserver.TerminalJobs.WaitAsync(cts.Token));
+            var jobs = await terminalUpdateObserver.TerminalJobs;
+            var summary = DownloadRunSummary.FromJobs(jobs);
             if (!rootSettings.DoNotDownload)
-                await PrintRemoteCompleteCoreAsync(
-                    backend,
-                    submission.WorkflowId,
-                    cts.Token,
-                    output: null,
-                    observedCompletion: observedCompletion);
+                summary.Print();
 
-            var exitCode = LogCliSessionExit(
-                logger,
-                await DetermineRemoteExitCodeAsync(
-                    backend,
-                    submission.WorkflowId,
-                    cts.Token,
-                    observedCompletion),
-                remoteSettings);
+            var exitCode = LogCliSessionExit(logger, summary.ExitCode, remoteSettings);
             cliReporter?.Stop();
             cliReporter = null;
 
@@ -551,7 +536,7 @@ internal static partial class Program
                     submission.WorkflowId,
                     rootSettings,
                     cts.Token,
-                    expectedJobIds: observedCompletion.Jobs.Select(job => job.JobId).ToArray());
+                    expectedJobIds: jobs.Select(job => job.JobId).ToArray());
             }
 
             return exitCode;
@@ -587,7 +572,7 @@ internal static partial class Program
     }
 
     private static async Task<CliExitCode> RunRemoteMonitorAsync(
-        string[] args,
+        ParsedInvocation invocation,
         EngineSettings engineSettings,
         DownloadSettings rootSettings,
         CliSettings cliSettings,
@@ -633,16 +618,8 @@ internal static partial class Program
 
             if (!string.IsNullOrWhiteSpace(rootSettings.Extraction.Input))
             {
-                var options = BuildRemoteSubmissionOptions(args, cliSettings) with
-                {
-                    WorkflowId = Guid.NewGuid(),
-                };
-                await backend.SubmitExtractJobAsync(
-                    new SubmitExtractJobRequestDto(
-                        rootSettings.Extraction.Input,
-                        rootSettings.Extraction.InputType.ToInputName(),
-                        Options: options),
-                    cts.Token);
+                var request = BuildRemoteExtractRequest(invocation, rootSettings, cliSettings);
+                await backend.SubmitExtractJobAsync(request, cts.Token);
             }
             await backend.AwaitLiveAsync(Task.Delay(Timeout.InfiniteTimeSpan, cts.Token));
             return CliExitCode.Success;
@@ -849,23 +826,15 @@ internal static partial class Program
     {
         private readonly ICliBackend backend;
         private readonly Guid workflowId;
-        private readonly TaskCompletionSource terminalUpdateSeen = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<IReadOnlyList<JobSummaryDto>> terminalUpdateSeen = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public ObservedWorkflowCompletion? Completion { get; private set; }
+        public Task<IReadOnlyList<JobSummaryDto>> TerminalJobs => terminalUpdateSeen.Task;
 
         public WorkflowTerminalUpdateObserver(ICliBackend backend, Guid workflowId)
         {
             this.backend = backend;
             this.workflowId = workflowId;
             backend.StateUpdated += OnStateUpdated;
-        }
-
-        public async Task WaitForTerminalUpdateAsync(CancellationToken ct)
-        {
-            if (terminalUpdateSeen.Task.IsCompleted)
-                return;
-
-            await terminalUpdateSeen.Task.WaitAsync(ct);
         }
 
         public void Dispose()
@@ -882,87 +851,8 @@ internal static partial class Program
             if (workflow == null)
                 return;
 
-            Completion = new ObservedWorkflowCompletion(
-                workflow,
-                backend.ClientStore.GetWorkflowJobs(workflowId).ToArray());
-            terminalUpdateSeen.TrySetResult();
+            terminalUpdateSeen.TrySetResult(backend.ClientStore.GetWorkflowJobs(workflowId));
         }
-    }
-
-    private sealed record ObservedWorkflowCompletion(
-        WorkflowSummaryDto Workflow,
-        IReadOnlyList<JobSummaryDto> Jobs);
-
-    internal static CliExitCode DetermineLocalExitCode(JobList queue)
-    {
-        var allJobs = queue.AllJobs().ToArray();
-        if (allJobs.Any(job => job.TerminalOutcome == JobTerminalOutcome.Cancelled))
-            return CliExitCode.Cancelled;
-
-        var (_, fails, _) = Printing.CountUserFacingCompletionsDetailed(queue);
-        if (fails > 0)
-            return CliExitCode.WorkFailed;
-
-        if (allJobs.Any(IsFailedPrintResultsJob))
-            return CliExitCode.WorkFailed;
-
-        return allJobs.Any(IsInfrastructureFailure)
-            ? CliExitCode.WorkFailed
-            : CliExitCode.Success;
-    }
-
-    private static bool IsFailedPrintResultsJob(Job job)
-        => job.Config?.PrintResults == true && job.IsUnsuccessfulTerminal;
-
-    private static bool IsInfrastructureFailure(Job job)
-        => job.IsUnsuccessfulTerminal
-            && job is ExtractJob or JobList;
-
-    private static async Task<CliExitCode> DetermineRemoteExitCodeAsync(
-        ICliBackend backend,
-        Guid workflowId,
-        CancellationToken ct,
-        ObservedWorkflowCompletion? observedCompletion = null)
-    {
-        WorkflowSummaryDto workflow;
-        JobSummaryDto[] summaries;
-        if (observedCompletion != null)
-        {
-            workflow = observedCompletion.Workflow;
-            summaries = observedCompletion.Jobs.OrderBy(job => job.DisplayId).ToArray();
-        }
-        else
-        {
-            var detail = await backend.GetWorkflowAsync(workflowId, ct);
-            if (detail == null)
-                return CliExitCode.WorkFailed;
-            workflow = detail.Summary;
-            summaries = (await backend.GetJobsAsync(
-                    new JobQuery(null, null, null, workflowId, IncludeAll: true),
-                    ct))
-                .OrderBy(job => job.DisplayId)
-                .ToArray();
-        }
-
-        if (summaries.Any(job => job.TerminalOutcome == ServerJobTerminalOutcome.Cancelled))
-            return CliExitCode.Cancelled;
-        var jobsById = summaries.ToDictionary(job => job.JobId);
-        var supersededSourceJobIds = summaries
-            .Select(job => job.SourceJobId)
-            .Where(id => id.HasValue)
-            .Select(id => id!.Value)
-            .ToHashSet();
-
-        int successes = 0;
-        int fails = 0;
-        int skipped = 0;
-        foreach (var summary in summaries)
-            CountRemoteUserFacingCompletion(summary, jobsById, supersededSourceJobIds, ref successes, ref fails, ref skipped);
-
-        if (fails > 0 || workflow.State == ServerWorkflowState.Failed)
-            return CliExitCode.WorkFailed;
-
-        return CliExitCode.Success;
     }
 
     private static void PrintCompactTrackBatchResolved(
@@ -1007,120 +897,6 @@ internal static partial class Program
 
     private static bool IsMachineReadablePrint(PrintOption printOption)
         => (printOption & (PrintOption.Json | PrintOption.Link | PrintOption.Index)) != 0;
-
-    internal static Task PrintRemoteCompleteAsync(
-        ICliBackend backend,
-        Guid workflowId,
-        CancellationToken ct,
-        TextWriter? output = null)
-        => PrintRemoteCompleteCoreAsync(backend, workflowId, ct, output, observedCompletion: null);
-
-    private static async Task PrintRemoteCompleteCoreAsync(
-        ICliBackend backend,
-        Guid workflowId,
-        CancellationToken ct,
-        TextWriter? output,
-        ObservedWorkflowCompletion? observedCompletion)
-    {
-        JobSummaryDto[] summaries;
-        if (observedCompletion != null)
-        {
-            summaries = observedCompletion.Jobs.OrderBy(job => job.DisplayId).ToArray();
-        }
-        else
-        {
-            var workflow = await backend.GetWorkflowAsync(workflowId, ct);
-            if (workflow == null)
-                return;
-            summaries = (await backend.GetJobsAsync(
-                    new JobQuery(null, null, null, workflowId, IncludeAll: true),
-                    ct))
-                .OrderBy(job => job.DisplayId)
-                .ToArray();
-        }
-        var jobsById = summaries.ToDictionary(job => job.JobId);
-        var supersededSourceJobIds = summaries
-            .Select(job => job.SourceJobId)
-            .Where(id => id.HasValue)
-            .Select(id => id!.Value)
-            .ToHashSet();
-
-        int successes = 0;
-        int fails = 0;
-        int skipped = 0;
-        foreach (var summary in summaries)
-            CountRemoteUserFacingCompletion(summary, jobsById, supersededSourceJobIds, ref successes, ref fails, ref skipped);
-
-        if (output is null)
-        {
-            Printing.PrintComplete(successes, fails, skipped);
-            return;
-        }
-
-        string? message = Printing.FormatComplete(successes, fails, skipped);
-        if (message is not null)
-        {
-            output.WriteLine();
-            output.WriteLine(message);
-        }
-    }
-
-    private static void CountRemoteUserFacingCompletion(
-        JobSummaryDto summary,
-        IReadOnlyDictionary<Guid, JobSummaryDto> jobsById,
-        IReadOnlySet<Guid> supersededSourceJobIds,
-        ref int successes,
-        ref int fails,
-        ref int skipped)
-    {
-        if (supersededSourceJobIds.Contains(summary.JobId))
-            return;
-
-        if (IsRemoteInfrastructureJobKind(summary.Kind))
-            return;
-
-        if (summary.Kind == ServerJobKind.Song
-            && summary.ParentJobId is Guid parentId
-            && jobsById.TryGetValue(parentId, out var parent)
-            && parent.Kind == ServerJobKind.Album)
-        {
-            return;
-        }
-
-        CountSummary(summary, ref successes, ref fails, ref skipped);
-    }
-
-    // TODO [ARCHITECTURE]: Move local and remote completion accounting onto one
-    // shared domain-level summary model. Manual skips, already-exists skips,
-    // partial success, cancellation, and infrastructure jobs should not be
-    // recounted independently by each CLI/API consumer.
-    private static bool IsRemoteInfrastructureJobKind(ServerJobKind kind)
-        => kind is ServerJobKind.Extract or ServerJobKind.JobList or ServerJobKind.RetrieveFolder
-            or ServerJobKind.SongGroups or ServerJobKind.AlbumGroups;
-
-    private static void CountSummary(JobSummaryDto summary, ref int successes, ref int fails, ref int skipped)
-    {
-        if (IsSuccessfulRemoteOutcome(summary.TerminalOutcome, summary.SkipReason))
-            successes++;
-        else if (IsManualSkipRemoteOutcome(summary.TerminalOutcome, summary.SkipReason))
-            skipped++;
-        else if (IsFailedRemoteOutcome(summary.TerminalOutcome, summary.SkipReason))
-            fails++;
-    }
-
-    private static bool IsSuccessfulRemoteOutcome(ServerJobTerminalOutcome outcome, ServerJobSkipReason skipReason)
-        => outcome == ServerJobTerminalOutcome.Succeeded
-            || (outcome == ServerJobTerminalOutcome.Skipped && skipReason == ServerJobSkipReason.AlreadyExists);
-
-    private static bool IsManualSkipRemoteOutcome(ServerJobTerminalOutcome outcome, ServerJobSkipReason skipReason)
-        => outcome == ServerJobTerminalOutcome.Skipped && skipReason == ServerJobSkipReason.Manual;
-
-    private static bool IsFailedRemoteOutcome(ServerJobTerminalOutcome outcome, ServerJobSkipReason skipReason)
-        => (outcome is ServerJobTerminalOutcome.Failed
-                or ServerJobTerminalOutcome.Cancelled
-                or ServerJobTerminalOutcome.PartialSuccess)
-            || (outcome == ServerJobTerminalOutcome.Skipped
-                && skipReason is not ServerJobSkipReason.AlreadyExists and not ServerJobSkipReason.Manual);
 
     internal static async Task PrintRemoteRequestedOutputAsync(
         ICliBackend backend,
@@ -1537,31 +1313,42 @@ internal static partial class Program
             .OrderBy(candidate => candidate.Summary.DisplayId)
             .ToList();
 
-    internal static SubmissionOptionsDto BuildRemoteSubmissionOptions(
-        string[] args,
-        CliSettings cliSettings)
-        => BuildRemoteSubmissionOptions(ConfigManager.ParseInvocation(args), cliSettings);
+    internal static SubmitExtractJobRequestDto BuildRemoteExtractRequest(
+        ParsedInvocation invocation, DownloadSettings rootSettings, CliSettings cliSettings, Guid? workflowId = null)
+    {
+        var profiles = SplitProfileNames(invocation.ProfileName);
+        // Named profile inputs come from the daemon unless the CLI supplied an override.
+        bool useClientInput = profiles is not { Length: > 0 };
+        string? input = useClientInput ? rootSettings.Extraction.Input : null;
+        string? inputType = useClientInput ? rootSettings.Extraction.InputType.ToInputName() : null;
+        var overrides = new List<SettingChange>();
+        foreach (var change in invocation.Profile.Profile.Download.Operations)
+        {
+            // Input identifies the job. Only the remaining settings apply to its downloads.
+            switch (change.Path)
+            {
+                case "Extraction.Input":
+                    input = rootSettings.Extraction.Input;
+                    break;
+                case "Extraction.InputType":
+                    inputType = rootSettings.Extraction.InputType.ToInputName();
+                    break;
+                default:
+                    overrides.Add(change);
+                    break;
+            }
+        }
 
-    private static SubmissionOptionsDto BuildRemoteSubmissionOptions(ParsedInvocation invocation, CliSettings cliSettings)
-        => new(
-            ProfileNames: SplitProfileNames(invocation.ProfileName),
+        return new(input, inputType, Options: new SubmissionOptionsDto(
+            WorkflowId: workflowId,
+            ProfileNames: profiles,
             ProfileContext: new Dictionary<string, bool>
             {
                 ["interactive"] = cliSettings.InteractiveMode,
                 ["progress-json"] = cliSettings.ProgressJson,
                 ["no-progress"] = cliSettings.NoProgress,
             },
-            DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings));
-
-    private static SubmitExtractJobRequestDto BuildRemoteExtractRequest(DownloadSettings rootSettings, SubmissionOptionsDto options)
-    {
-        if (options.ProfileNames is not { Count: > 0 })
-            return new(rootSettings.Extraction.Input, rootSettings.Extraction.InputType.ToInputName(), Options: options);
-
-        // Named remote profiles are resolved by the daemon. Forward only CLI input overrides.
-        var input = options.DownloadSettings?.Extraction?.Input;
-        var inputType = options.DownloadSettings?.Extraction?.InputType?.ToCore().ToInputName();
-        return new(input, inputType, Options: options);
+            DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(new SettingsPatch(overrides))));
     }
 
     private static string[]? SplitProfileNames(string? names)

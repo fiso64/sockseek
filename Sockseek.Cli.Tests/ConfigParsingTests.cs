@@ -907,9 +907,9 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void RemoteSubmissionOptions_DoNotOverrideServerPathByDefault()
         {
-            var options = Sockseek.Cli.Program.BuildRemoteSubmissionOptions(
-                ["some input", "--remote", "127.0.0.1"],
-                new CliSettings());
+            string[] args = ["some input", "--remote", "127.0.0.1"];
+            var (_, download, cli) = Bind(args);
+            var options = Sockseek.Cli.Program.BuildRemoteExtractRequest(ConfigManager.ParseInvocation(args), download, cli).Options!;
 
             Assert.IsNull(options.OutputParentDir);
             Assert.IsNull(options.DownloadSettings?.Output?.ParentDir);
@@ -918,9 +918,9 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void RemoteSubmissionOptions_SendExplicitOutputDirAsDownloadPatch()
         {
-            var options = Sockseek.Cli.Program.BuildRemoteSubmissionOptions(
-                ["some input", "--remote", "127.0.0.1", "-o", "C:\\Downloads"],
-                new CliSettings());
+            string[] args = ["some input", "--remote", "127.0.0.1", "-o", "C:\\Downloads"];
+            var (_, download, cli) = Bind(args);
+            var options = Sockseek.Cli.Program.BuildRemoteExtractRequest(ConfigManager.ParseInvocation(args), download, cli).Options!;
 
             Assert.IsNull(options.OutputParentDir);
             Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Output?.ParentDir);
@@ -929,9 +929,9 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void RemoteSubmissionOptions_SendBackcompatPathAsDownloadPatch()
         {
-            var options = Sockseek.Cli.Program.BuildRemoteSubmissionOptions(
-                ["some input", "--remote", "127.0.0.1", "-p", "C:\\Downloads"],
-                new CliSettings());
+            string[] args = ["some input", "--remote", "127.0.0.1", "-p", "C:\\Downloads"];
+            var (_, download, cli) = Bind(args);
+            var options = Sockseek.Cli.Program.BuildRemoteExtractRequest(ConfigManager.ParseInvocation(args), download, cli).Options!;
 
             Assert.IsNull(options.OutputParentDir);
             Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Output?.ParentDir);

@@ -1313,7 +1313,68 @@ sockseek user shares-cancel <browse-id>
 --json                            Emit JSON instead of pictures or interactive browsing
 ```
 <!-- sockseek-help-topic:end -->
-<!-- TODO [V4]: missing CLI documentation for sockseek chat, sockseek room, and others -->
+<!-- sockseek-help-topic:start(chat) -->
+#### Chat, Rooms and Notifications
+
+```text
+sockseek chat status                Show chat status
+sockseek chat conversations [--unread]
+                                    List private conversations
+sockseek chat messages <username>   Read a conversation
+sockseek chat send <username> <message>
+                                    Send a private message
+sockseek chat read <username> [--through <message-id>]
+                                    Mark a conversation as read
+sockseek chat archive <username>    Archive a conversation
+
+sockseek room available|joined      List available or joined rooms
+sockseek room join <name> [--no-remember]
+                                    Join a room
+sockseek room leave <name>          Leave a room
+sockseek room messages|members <name>
+                                    List messages or members
+sockseek room send <name> <message> Send a room message
+sockseek room member add <name> <username>
+                                    Add a private room member
+
+sockseek notifications [--unread]   List notifications
+sockseek notification read <id|all> Mark one or all notifications as read
+
+--limit <n>                         Maximum entries for list commands
+--remote <url>                      Daemon URL (required unless configured)
+--json                              Emit JSON
+```
+<!-- sockseek-help-topic:end -->
+<!-- sockseek-help-topic:start(share) -->
+#### Shares and Transfers
+
+```text
+sockseek share status               Show the state of the share catalog
+sockseek share scan [--cancel]      Start or cancel a scan
+
+sockseek transfers                  List transfers
+  --direction upload|download       Filter by transfer direction
+  --state <state>                   Filter by transfer state
+  --outcome <outcome>               Filter by terminal outcome
+  --username <name>                 Filter by peer
+  --include-removed                 Include transfers removed from history
+  --limit <n>                       Maximum entries per page
+  --cursor <cursor>                 Continue from an earlier page
+
+sockseek transfers cancel --direction upload|download
+  --scope all|queued|in-progress    Select transfers to cancel (default: all)
+sockseek transfers remove           Remove matching transfers from history
+  --direction upload|download       Filter by transfer direction
+  --outcome <outcome>               Filter by terminal outcome
+  --username <name>                 Filter either bulk action by peer
+  --group-ref <ref>                 Limit either bulk action to a group (requires --username and --direction)
+
+sockseek transfer cancel|remove <id>
+                                    Cancel one transfer or remove it from history
+--remote <url>                      Daemon URL (required unless configured)
+--json                              Emit JSON
+```
+<!-- sockseek-help-topic:end -->
 <!-- sockseek-help-topic:start(database) -->
 #### Sockseek Database
 ```

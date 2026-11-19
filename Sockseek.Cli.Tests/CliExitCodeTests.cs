@@ -213,16 +213,13 @@ public class CliExitCodeTests
     }
 
     [TestMethod]
-    public void DetermineLocalExitCode_ManualSkipsOnly_ReturnsSuccess()
+    public void Completion_ManualSkipsOnly_ReturnsSuccess()
     {
         var skipped = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
         skipped.SetSkipped(JobSkipReason.Manual);
-        var queue = new JobList("root", [skipped]);
-        queue.SetDone();
+        var job = Sockseek.Server.ServerSnapshotMapper.ToSubmittedJobSummary(skipped);
 
-        var exitCode = Sockseek.Cli.Program.DetermineLocalExitCode(queue);
-
-        Assert.AreEqual(Sockseek.Cli.Program.CliExitCode.Success, exitCode);
+        Assert.AreEqual(new DownloadRunSummary(0, 0, 1, Sockseek.Cli.Program.CliExitCode.Success), DownloadRunSummary.FromJobs([job]));
     }
 
     [TestMethod]

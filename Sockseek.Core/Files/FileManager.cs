@@ -119,10 +119,7 @@ public sealed class OutputScope
 public class FileManager
 {
     readonly Job job;
-    // TODO [PLACEMENT STATE]: Replace this organizer-local bookkeeping and the
-    // remainingOnly flag with explicit per-child placement state when Job state is
-    // moved to the planned immutable reducer. Progressive album-track placement must
-    // remain observable; this is not a request to defer all album files until the end.
+    // Final album organization skips files already placed as individual tracks finished.
     readonly HashSet<object> organized = new();
     readonly Lock sync = new();
     public string? remoteBaseDir { get; private set; }

@@ -799,6 +799,11 @@ public class CliBackendParityTests
                     Assert.AreEqual(notes.Filename, filePayload.Target.Filename, ctx.Name);
                     Assert.AreEqual(5L, filePayload.File.BytesTransferred, ctx.Name);
                 }
+
+                var jobs = await ctx.Backend.GetJobsAsync(new JobQuery(null, null, null, search.WorkflowId, IncludeAll: true), ctx.Token);
+                int requestedDownloads = exactSelectionWithOutputOverride && generalMode ? 2 : 1;
+                Assert.AreEqual(new DownloadRunSummary(requestedDownloads, 0, 0, Sockseek.Cli.Program.CliExitCode.Success),
+                    DownloadRunSummary.FromJobs(jobs), ctx.Name);
             });
     }
 

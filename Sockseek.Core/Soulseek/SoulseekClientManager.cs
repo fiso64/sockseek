@@ -515,8 +515,9 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         // connection wins while the indirect request is being written to the server,
         // cancellation can disconnect the whole session. Sockseek and slskd both
         // observed "Write error: A task was canceled." in Connection.WriteInternalAsync
-        // under peer load. Recheck search replies and queued uploads on library upgrades.
-        // TODO: Monitor upstream or maybe contribute?
+        // under peer load.
+        // TODO: Track the upstream fix for cancellation of indirect connection requests.
+        // Verify the server stays connected under search-reply and queued-upload load after upgrading.
         var serverConnectionOptions = new ConnectionOptions(
             connectTimeout: settings.ConnectTimeout,
             configureSocket: (socket) =>

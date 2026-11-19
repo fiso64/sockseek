@@ -30,7 +30,7 @@ const albumMatchHelp = [
   'Like the artist match option above, but for the album name.',
 ] as const;
 
-// TODO [v4]: Consider moving some matching and other options to an "advanced" (maybe collapsed) part of the search config panel.
+// TODO: Consider moving some matching and other options to an "advanced" (maybe collapsed) part of the search config panel.
 /** Filtering and ranking labels, help and mode coverage for the search configuration panel. */
 export const SEARCH_CONFIG_FIELDS = {
   formats: {

@@ -72,7 +72,7 @@ public class RemoteProfileTests
     {
         string[] args = ["--profile", "wishlist"];
         var (engine, download, cli, _, _) = ConfigManager.BindAll(ClientSettingsConfig(), args);
-        var options = Sockseek.Cli.Program.BuildRemoteSubmissionOptions(args, cli);
+        var options = Sockseek.Cli.Program.BuildRemoteExtractRequest(ConfigManager.ParseInvocation(args), download, cli).Options!;
 
         Assert.AreEqual(LogLevel.Debug, engine.LogLevel);
         Assert.IsTrue(cli.InteractiveMode);
@@ -93,7 +93,7 @@ public class RemoteProfileTests
         string[] args = ["--profile", "wishlist", "--interactive=false", "--progress",
             "--progress-json=false", "--trace", "--print", "none"];
         var (engine, download, cli, _, _) = ConfigManager.BindAll(ClientSettingsConfig(), args);
-        var options = Sockseek.Cli.Program.BuildRemoteSubmissionOptions(args, cli);
+        var options = Sockseek.Cli.Program.BuildRemoteExtractRequest(ConfigManager.ParseInvocation(args), download, cli).Options!;
 
         Assert.AreEqual(LogLevel.Trace, engine.LogLevel);
         Assert.IsFalse(cli.InteractiveMode);
