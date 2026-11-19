@@ -537,31 +537,27 @@ namespace Sockseek.Core.Services
         private static IEnumerable<(string LocalPath, string RemoteFilename)> EnumerateLocalFiles(string inputPath)
         {
             string fullPath = Path.GetFullPath(inputPath);
-            if (System.IO.Directory.Exists(fullPath))
+            bool isDirectory = System.IO.Directory.Exists(fullPath);
+            string root = isDirectory ? fullPath : Path.GetDirectoryName(fullPath)!;
+            string rootName = Path.GetFileName(Path.TrimEndingDirectorySeparator(root));
+            if (rootName.Length == 0) rootName = "Shared";
+
+            // Top-level directories are already share names. Give loose files a
+            // share of their own without merging them into a same-named directory.
+            string looseFileShare = rootName;
+            for (int suffix = 2; System.IO.Directory.Exists(Path.Combine(root, looseFileShare)); suffix++)
+                looseFileShare = $"{rootName} ({suffix})";
+
+            IEnumerable<string> files = isDirectory
+                ? System.IO.Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                : [fullPath];
+            foreach (string file in files)
             {
-                var files = System.IO.Directory.GetFiles(fullPath, "*.*", SearchOption.AllDirectories);
-                bool hasNestedFiles = files.Any(file =>
-                {
-                    var relative = Path.GetRelativePath(fullPath, file);
-                    return relative.Contains(Path.DirectorySeparatorChar) || relative.Contains(Path.AltDirectorySeparatorChar);
-                });
-
-                string rootName = Path.GetFileName(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-                foreach (var file in files)
-                {
-                    var relative = Path.GetRelativePath(fullPath, file);
-                    var remote = hasNestedFiles
-                        ? relative
-                        : Path.Combine(rootName, relative);
-                    yield return (file, remote);
-                }
-
-                yield break;
+                string relative = Path.GetRelativePath(root, file);
+                string remote = relative.Contains(Path.DirectorySeparatorChar)
+                    ? relative : Path.Combine(looseFileShare, relative);
+                yield return (file, remote);
             }
-
-            string parent = Path.GetDirectoryName(fullPath) ?? System.IO.Directory.GetCurrentDirectory();
-            string parentName = Path.GetFileName(parent.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            yield return (fullPath, Path.Combine(parentName, Path.GetFileName(fullPath)));
         }
 
         private static string ToSoulseekPath(string path)

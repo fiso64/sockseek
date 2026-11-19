@@ -53,11 +53,13 @@ public class LocalFilesSoulseekClientTests
     [TestMethod]
     public async Task FromLocalPaths_UsesSoulseekRelativeIdentityAndDownloadsFromLocalSource()
     {
-        string root = Path.Combine(Path.GetTempPath(), "Sockseek-local-files-identity-" + Guid.NewGuid());
+        var temp = Directory.CreateTempSubdirectory();
+        string root = Path.Combine(temp.FullName, "Artist");
         string albumDir = Path.Combine(root, "Artist", "Album");
-        string outputPath = Path.Combine(Path.GetTempPath(), "Sockseek-local-files-download-" + Guid.NewGuid() + ".mp3");
+        string outputPath = Path.Combine(temp.FullName, "download.mp3");
         Directory.CreateDirectory(albumDir);
         File.WriteAllBytes(Path.Combine(albumDir, "01. Artist - Track.mp3"), [1, 2, 3, 4]);
+        File.WriteAllBytes(Path.Combine(root, "Loose.mp3"), [5]);
 
         try
         {
@@ -71,13 +73,17 @@ public class LocalFilesSoulseekClientTests
 
             Assert.AreEqual(TransferStates.Completed, transfer.State);
             CollectionAssert.AreEqual(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(outputPath));
+
+            var loose = await client.SearchAsync(new SearchQuery("Loose"));
+            string loosePath = loose.Responses.Single().Files.Single().Filename;
+            Assert.AreEqual(@"Artist (2)\Loose.mp3", loosePath);
+            using var output = new MemoryStream();
+            await client.DownloadAsync("local", loosePath, () => Task.FromResult<Stream>(output));
+            CollectionAssert.AreEqual(new byte[] { 5 }, output.ToArray());
         }
         finally
         {
-            if (Directory.Exists(root))
-                Directory.Delete(root, true);
-            if (File.Exists(outputPath))
-                File.Delete(outputPath);
+            temp.Delete(recursive: true);
         }
     }
 

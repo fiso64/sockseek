@@ -367,6 +367,7 @@ public sealed class PeerBrowseArtifactStoreTests
         Directory.CreateDirectory(album);
         await File.WriteAllTextAsync(Path.Combine(album, "one.mp3"), "1");
         await File.WriteAllTextAsync(Path.Combine(album, "two.mp3"), "22");
+        await File.WriteAllTextAsync(Path.Combine(directory.Path, "loose.mp3"), "333");
         var localClient = LocalFilesSoulseekClient.FromLocalPaths(false, false, directory.Path);
         await using var manager = new SoulseekClientManager(
             new EngineSettings { Username = "local", Password = "unused" },
@@ -385,6 +386,9 @@ public sealed class PeerBrowseArtifactStoreTests
         CollectionAssert.AreEquivalent(
             new[] { @"Artist\Album\one.mp3", @"Artist\Album\two.mp3" },
             snapshot.Files.Select(static file => file.Filename).ToArray());
+        string rootName = Path.GetFileName(directory.Path);
+        var looseFiles = await store.ReadDirectoryAsync(resource.BrowseId, new PeerDirectoryIdentity("local", rootName));
+        Assert.AreEqual(rootName + @"\loose.mp3", looseFiles.Files.Single().Filename);
     }
 
     [TestMethod]
