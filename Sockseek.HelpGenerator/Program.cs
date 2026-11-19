@@ -5,16 +5,17 @@ using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
 var rootDir = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Parent?.Parent?.Parent?.FullName ?? ".";
-var readmePath = Path.Combine(rootDir, "README.md");
+var docsPath = Path.Combine(rootDir, "docs", "pages");
 var helpCsPath = Path.Combine(rootDir, "Sockseek.Cli", "Help.Content.cs");
 
-if (!File.Exists(readmePath))
+if (!Directory.Exists(docsPath))
 {
-    Console.WriteLine($"Error: README.md not found at {readmePath}");
+    Console.WriteLine($"Error: Manual not found at {docsPath}");
     return 1;
 }
 
-var markdown = File.ReadAllText(readmePath);
+var markdown = string.Join("\n", Directory.EnumerateFiles(docsPath, "*.md", SearchOption.AllDirectories)
+    .Order(StringComparer.Ordinal).Select(File.ReadAllText));
 // Disabled command references are omitted from both the main help and the topic index.
 markdown = Regex.Replace(markdown,
     @"<!-- sockseek-help-topic:start\([\w-]+\) disabled -->.*?<!-- sockseek-help-topic:end -->",
@@ -34,8 +35,8 @@ if (args.Contains("--check", StringComparer.Ordinal))
     var existingContent = File.ReadAllText(helpCsPath);
     if (!string.Equals(NormalizeNewlines(existingContent), generatedContent, StringComparison.Ordinal))
     {
-        Console.WriteLine("Error: Sockseek.Cli/Help.Content.cs is generated and does not match README.md.");
-        Console.WriteLine("Update README.md instead of editing Help.Content.cs directly, then rebuild or run:");
+        Console.WriteLine("Error: Sockseek.Cli/Help.Content.cs is generated and does not match the Markdown manual.");
+        Console.WriteLine("Update the Markdown in docs/pages/ instead of editing Help.Content.cs directly, then rebuild or run:");
         Console.WriteLine("  dotnet run --project Sockseek.HelpGenerator");
         return 1;
     }
@@ -211,7 +212,7 @@ static string GenerateHelpCs(Dictionary<string, string> topics, Dictionary<strin
 // </auto-generated>
 // ------------------------------------------------------------------------------
 
-// This file is generated from README.md. To update, run your build, or:
+// This file is generated from the Markdown manual in docs/pages/. To update, run your build, or:
 // dotnet run --project Sockseek.HelpGenerator
 
 namespace Sockseek.Cli;
@@ -252,7 +253,7 @@ __COMMAND_TOPICS__
 ";
 
     var content = template
-        .Replace("__HELP_TEXT_MAIN__", topics["main"] + "\n" + topics["cli-notes"])
+        .Replace("__HELP_TEXT_MAIN__", string.Join("\n", topics["main"], topics["daemon-cli"], topics["cli-notes"]))
         .Replace("__HELP_TEXT_INPUT__", topics["input"])
         .Replace("__HELP_TEXT_DOWNLOAD_MODES__", topics["download-modes"])
         .Replace("__HELP_TEXT_FILE_CONDITIONS__", topics["file-conditions"])

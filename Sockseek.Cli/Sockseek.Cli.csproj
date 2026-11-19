@@ -38,7 +38,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="../README.md" />
+    <ManualPage Include="../docs/pages/**/*.md" />
   </ItemGroup>
 
   <!-- Server's executable entry point exists only for build-time OpenAPI generation.
@@ -57,7 +57,15 @@
     <Exec WorkingDirectory="$(WebUiProjectDirectory)" Command="npm ci" />
     <Exec WorkingDirectory="$(WebUiProjectDirectory)" Command="npm run api:check" />
     <Exec WorkingDirectory="$(WebUiProjectDirectory)" Command="npm run build" />
+    <Exec WorkingDirectory="../docs" Command="npm ci" />
+    <Exec WorkingDirectory="../docs" Command="npm run build" />
     <ItemGroup>
+      <ManualPublishFile Include="../docs/.vitepress/dist/**" />
+      <ResolvedFileToPublish Include="@(ManualPublishFile->'%(FullPath)')">
+        <RelativePath>manual/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
       <WebUiPublishFile Include="$(WebUiProjectDirectory)/dist/**" />
       <ResolvedFileToPublish Include="@(WebUiPublishFile-&gt;'%(FullPath)')"
                              Exclude="@(ResolvedFileToPublish)">
@@ -82,16 +90,16 @@
     <MSBuild Projects="$(HelpGeneratorProject)"
              Targets="Restore;Build"
              Properties="Configuration=$(Configuration);TargetFramework=$(HelpGeneratorTargetFramework)"
-             RemoveProperties="RuntimeIdentifier;SelfContained;PublishSelfContained;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishAot" />
+             RemoveProperties="RuntimeIdentifier;UseCurrentRuntimeIdentifier;SelfContained;PublishSelfContained;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishAot" />
   </Target>
 
   <Target Name="GenerateHelpFile"
           Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipCompilerExecution)' != 'true'"
           BeforeTargets="CoreCompile"
           DependsOnTargets="BuildHelpGenerator"
-          Inputs="../README.md;../Sockseek.HelpGenerator/Program.cs"
+          Inputs="@(ManualPage);../Sockseek.HelpGenerator/Program.cs"
           Outputs="Help.Content.cs">
-    <Message Text="Help.Content.cs is out of date, regenerating from README.md..." Importance="high" />
+    <Message Text="Help.Content.cs is out of date, regenerating from the Markdown manual..." Importance="high" />
     <Exec Command="dotnet &quot;$(HelpGeneratorDll)&quot;" />
     <Touch Files="$(HelpValidationStamp)" AlwaysCreate="true" />
   </Target>
@@ -100,7 +108,7 @@
           Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipCompilerExecution)' != 'true'"
           BeforeTargets="CoreCompile"
           DependsOnTargets="BuildHelpGenerator;GenerateHelpFile"
-          Inputs="../README.md;../Sockseek.HelpGenerator/Program.cs;Help.Content.cs"
+          Inputs="@(ManualPage);../Sockseek.HelpGenerator/Program.cs;Help.Content.cs"
           Outputs="$(HelpValidationStamp)">
     <Exec Command="dotnet &quot;$(HelpGeneratorDll)&quot; --check" />
     <Touch Files="$(HelpValidationStamp)" AlwaysCreate="true" />

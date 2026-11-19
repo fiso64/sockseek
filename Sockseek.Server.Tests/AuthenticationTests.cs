@@ -31,6 +31,37 @@ public sealed class AuthenticationTests
     private static readonly string PasswordHash = AuthenticationOptions.HashPassword(Password);
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task BundledManual_IsAnonymousWhenEnabledAndNeverFallsBackToWebUi(bool enabled)
+    {
+        string root = Directory.CreateTempSubdirectory("sockseek-manual-").FullName;
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "manual"));
+            Directory.CreateDirectory(Path.Combine(root, "wwwroot"));
+            await File.WriteAllTextAsync(Path.Combine(root, "manual", "index.html"), "manual");
+            await File.WriteAllTextAsync(Path.Combine(root, "wwwroot", "index.html"), "<html >webui</html>");
+            var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = root });
+            builder.Logging.ClearProviders();
+            builder.Services.AddSingleton<IOptions<ServerOptions>>(Options.Create(new ServerOptions { ServeDocumentation = enabled }));
+            await using var app = builder.Build();
+            app.Urls.Add("http://127.0.0.1:0");
+            WebUiHosting.Map(app);
+            app.UseRouting();
+            await app.StartAsync();
+            using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            using var page = await client.GetAsync("/docs/");
+            Assert.AreEqual(enabled ? HttpStatusCode.OK : HttpStatusCode.NotFound, page.StatusCode);
+            Assert.AreEqual("noindex", page.Headers.GetValues("X-Robots-Tag").Single());
+            if (enabled) Assert.AreEqual("manual", await page.Content.ReadAsStringAsync());
+            Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync("/docs/missing")).StatusCode);
+            Assert.AreEqual(enabled, (await client.GetStringAsync("/")).Contains("data-docs"));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
     public async Task BrowserAndApiKeys_ProtectHttpAndLiveConnections_AndRevokeActualCredentials()
     {
         string directory = Directory.CreateTempSubdirectory("sockseek-auth-").FullName;

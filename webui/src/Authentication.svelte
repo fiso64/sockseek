@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DocumentationLink from './components/DocumentationLink.svelte';
   import { onMount } from 'svelte';
   import LazyView from './components/LazyView.svelte';
   import { ViewLoader } from './app/view-loader.svelte';
@@ -60,9 +61,12 @@
   <main class="session-screen login-screen">
     <section class="panel login-card" aria-label="Sockseek login">
       <header>
-        <div class="brand">
-          <img class="brand-mark" src="/sockseek-logo.svg" alt="" />
-          <div class="brand-copy"><strong>sockseek</strong></div>
+        <div class="login-heading">
+          <div class="brand">
+            <img class="brand-mark" src="/sockseek-logo.svg" alt="" />
+            <div class="brand-copy"><strong>sockseek</strong></div>
+          </div>
+          <DocumentationLink />
         </div>
         {#if !browserSession.data}<h1>Connection unavailable</h1>{/if}
       </header>
@@ -103,6 +107,7 @@
   }
   .login-card { position: relative; width: min(100%, 360px); display: grid; gap: 20px; padding: 24px; border-radius: 14px; }
   header { display: grid; gap: 20px; }
+  .login-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px; }
   .brand { padding: 0; }
   form { gap: 16px; }
   h1, p { margin: 0; }

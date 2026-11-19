@@ -1,0 +1,7 @@
+{
+  "name": "sockseek-manual",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "vitepress build", "dev": "vitepress dev" },
+  "devDependencies": { "vitepress": "1.6.4" }
+}

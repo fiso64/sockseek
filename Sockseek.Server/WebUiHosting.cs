@@ -1,5 +1,6 @@
 using System.Text.Encodings.Web;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.FileProviders;
 
 namespace Sockseek.Server;
 
@@ -7,11 +8,34 @@ internal static class WebUiHosting
 {
     public static bool Map(WebApplication app)
     {
+        var options = app.Services.GetRequiredService<IOptions<ServerOptions>>().Value;
+        string manual = Path.Combine(app.Environment.ContentRootPath, "manual");
+        bool serveDocs = options.ServeDocumentation && File.Exists(Path.Combine(manual, "index.html"));
+        app.Map("/docs", docs =>
+        {
+            docs.Use((context, next) =>
+            {
+                context.Response.Headers["X-Robots-Tag"] = "noindex";
+                return next(context);
+            });
+            if (serveDocs)
+            {
+                var files = new PhysicalFileProvider(manual);
+                app.Lifetime.ApplicationStopped.Register(files.Dispose);
+                docs.UseFileServer(new FileServerOptions { FileProvider = files });
+            }
+            docs.Run(context =>
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return Task.CompletedTask;
+            });
+        });
+
         string indexPath = Path.Combine(app.Environment.WebRootPath
             ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot"), "index.html");
         if (!File.Exists(indexPath)) return false;
         string template = File.ReadAllText(indexPath);
-        var options = app.Services.GetRequiredService<IOptions<ServerOptions>>().Value;
+        string docsAttribute = serveDocs ? "data-docs " : "";
 
         Task Shell(HttpContext context)
         {
@@ -24,7 +48,7 @@ internal static class WebUiHosting
             };
             // Include preferences in the initial document: no bootstrap request
             // or wrong-theme flash, and no credentials in the public shell.
-            string attributes = $"style=\"color-scheme:{HtmlEncoder.Default.Encode(scheme)}\" "
+            string attributes = $"{docsAttribute}style=\"color-scheme:{HtmlEncoder.Default.Encode(scheme)}\" "
                 + $"data-theme=\"{HtmlEncoder.Default.Encode(settings.Theme)}\" "
                 + $"data-search-mode=\"{HtmlEncoder.Default.Encode(settings.DefaultSearchMode)}\" ";
             context.Response.Headers.CacheControl = "no-cache";

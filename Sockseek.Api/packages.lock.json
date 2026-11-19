@@ -82,6 +82,7 @@
           "Microsoft.Extensions.DependencyInjection": "11.0.0"
         }
       }
-    }
+    },
+    "net11.0/linux-x64": {}
   }
 }

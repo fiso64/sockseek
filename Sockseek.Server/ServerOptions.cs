@@ -8,6 +8,7 @@ namespace Sockseek.Server;
 public sealed class ServerOptions
 {
     public WebUiOptions WebUi { get; set; } = new();
+    public bool ServeDocumentation { get; set; } = true;
     public string Name { get; set; } = "Sockseek";
     public Authentication.AuthenticationOptions Authentication { get; set; } = new();
     /// <summary>Maximum time allowed for graceful connection and service shutdown.</summary>

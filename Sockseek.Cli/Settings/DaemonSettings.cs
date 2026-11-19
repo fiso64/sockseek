@@ -20,6 +20,9 @@ public class DaemonSettings
     [Required, RegularExpression("^(generic|track|album|song-groups|album-groups)$")]
     public string WebDefaultSearchMode { get; set; } = Defaults.WebUi.DefaultSearchMode;
 
+    [SettingOption("--no-docs", Negate = true, DefaultProfileOnly = true)]
+    public bool ServeDocumentation { get; set; } = Defaults.ServeDocumentation;
+
     [SettingOption("--no-config-watch", DefaultProfileOnly = true)]
     public bool NoConfigWatch { get; set; }
 
@@ -88,6 +91,7 @@ public class DaemonSettings
         {
             Authentication = CreateAuthenticationOptions(),
             WebUi = CreateWebUiOptions(),
+            ServeDocumentation = ServeDocumentation,
             Engine = daemonEngine,
             LaunchDownloadSettings = DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings),
             LaunchProfileNames = invocation.ProfileName?

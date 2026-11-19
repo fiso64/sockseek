@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DocumentationLink from '../../components/DocumentationLink.svelte';
   import type { Schema } from '../../api/types';
   import type { DaemonLiveClient, LiveConnectionStatus } from '../../api/live';
   import { DaemonHttpClient } from '../../api/http';
@@ -73,6 +74,7 @@
         title={sharing?.state === 'Disabled' ? 'Configure shared folders before rescanning.' : undefined}>
         <Icon name="refresh" spin={scanning} />{scanning ? 'Scanning…' : 'Rescan shares'}
       </button>
+      <DocumentationLink />
       {#if browserSession.data?.authenticationEnabled}
         <button class="button auth-button" onclick={() => void logout()} disabled={pending}><Icon name="log-out" />Sign out</button>
       {/if}

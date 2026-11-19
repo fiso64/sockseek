@@ -370,3 +370,10 @@ install.bat
 **/launchSettings.json
 docs/temp/**
 temp/**
+
+/docs/.vitepress/cache/
+/docs/.vitepress/dist/
+
+# Local Compose configuration and daemon state
+/instance/
+/.env

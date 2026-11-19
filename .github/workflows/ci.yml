@@ -22,7 +22,7 @@ on:
       - '.editorconfig'
       - '**/global.json'
       - '**/nuget.config'
-      - 'docs/openapi.json'
+      - 'docs/**'
       - 'webui/**'
       - '.github/workflows/**.yml'
   push:
@@ -38,7 +38,7 @@ on:
       - '.editorconfig'
       - '**/global.json'
       - '**/nuget.config'
-      - 'docs/openapi.json'
+      - 'docs/**'
       - 'webui/**'
       - '.github/workflows/**.yml'
 
@@ -62,7 +62,9 @@ jobs:
       with:
         node-version: '24'
         cache: npm
-        cache-dependency-path: webui/package-lock.json
+        cache-dependency-path: |
+          webui/package-lock.json
+          docs/package-lock.json
     - name: Restore and build
       run: |
         dotnet restore --locked-mode
@@ -70,6 +72,7 @@ jobs:
     - name: Publish daemon with its production WebUI
       run: |
         dotnet publish Sockseek.Cli/Sockseek.Cli.csproj --no-build --no-restore --configuration Release --output artifacts/ci-publish -m:1 -p:OpenApiGenerateDocuments=false
+        test -s artifacts/ci-publish/manual/index.html
         test -s artifacts/ci-publish/wwwroot/index.html
         test -n "$(find artifacts/ci-publish/wwwroot/assets -maxdepth 1 -name '*.js' -print -quit)"
     - name: Check WebUI types and unit tests
