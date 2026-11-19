@@ -84,12 +84,13 @@ test('uses filtering and output settings for a direct Start download', async ({ 
     .toEqual([join('direct', 'Fixture song.flac')]);
 });
 
-test('Ctrl+Enter prepares music downloads with the current query and edited search conditions', async ({ page }) => {
+test('Ctrl+Enter opens New Job with the current query and edited search conditions', async ({ page }) => {
   let searches = 0;
   page.on('request', request => {
     if (request.method() === 'POST' && new URL(request.url()).pathname.startsWith('/api/jobs/search')) searches++;
   });
-  for (const mode of ['Album Search', 'Track Search']) {
+  for (const mode of ['File Search', 'Album Search', 'Track Search']) {
+    const format = mode === 'File Search' ? 'PDF' : 'FLAC';
     const origin = mode === 'Album Search' ? '/dashboard' : '/system';
     await page.goto(origin);
     await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
@@ -98,7 +99,7 @@ test('Ctrl+Enter prepares music downloads with the current query and edited sear
     await page.getByRole('button', { name: 'Search configuration', exact: true }).click();
     const panel = page.locator('.search-config-popover');
     await panel.getByRole('button', { name: 'Any', exact: true }).click();
-    await panel.getByRole('button', { name: 'FLAC', exact: true }).click();
+    await panel.getByRole('button', { name: format, exact: true }).click();
     const input = page.locator(mode === 'Album Search' ? '#global-search-title' : '#global-search-simple');
     await input.press('Control+Enter');
     const dialog = page.getByRole('dialog', { name: 'New job', exact: true });
@@ -110,7 +111,7 @@ test('Ctrl+Enter prepares music downloads with the current query and edited sear
     await expect(dialog.getByPlaceholder('Artist…', { exact: true })).toHaveValue(mode === 'Album Search' ? 'Fixture artist' : '');
     await dialog.locator('#new-job-options-filtering').click();
     const filtering = dialog.locator('#new-job-options-panel');
-    await expect(filtering.getByRole('button', { name: 'FLAC', exact: true })).toHaveClass(/active/);
+    await expect(filtering.getByRole('button', { name: format, exact: true })).toHaveClass(/active/);
     await expect(filtering.getByRole('button', { name: 'MP3', exact: true })).not.toHaveClass(/active/);
     // Further edits in the modal must override, not discard or resurrect, the copied settings.
     if (mode === 'Track Search') await filtering.getByRole('button', { name: 'MP3', exact: true }).click();
@@ -120,7 +121,7 @@ test('Ctrl+Enter prepares music downloads with the current query and edited sear
     const preview = (await request).postDataJSON() as Schema<'CreateJobPreviewRequestDto'>;
     expect(preview.job.kind).toBe(mode === 'Album Search' ? 'album' : 'song');
     expect(preview.options?.downloadSettings?.search?.necessaryCond?.formats?.replace)
-      .toEqual(mode === 'Album Search' ? ['flac'] : ['flac', 'mp3']);
+      .toEqual(mode === 'Track Search' ? ['flac', 'mp3'] : [format.toLowerCase()]);
     await dialog.getByRole('button', { name: 'Close new job', exact: true }).click();
     await expect(page.locator('.new-job-composer')).toHaveCount(0);
     await expect(page).toHaveURL(new RegExp(`${origin}$`));
@@ -249,7 +250,7 @@ test('edits source settings before upload and rebases them when the artifact arr
   await expect(filtering.getByLabel('Min tracks')).toBeVisible();
   await expect(filtering.getByLabel('Max tracks')).toBeVisible();
   await expect(filtering.getByRole('spinbutton', { name: /Expected length/i })).toHaveCount(0);
-  await expect(filtering.getByText('Required track title', { exact: true })).toHaveCount(0);
+  await expect(filtering.getByLabel('Required track title', { exact: true })).toHaveCount(0);
   const provisionalResponse = await provisional;
   expect(provisionalResponse.ok()).toBeTruthy();
   expect((await provisionalResponse.json()).isProvisional).toBe(true);

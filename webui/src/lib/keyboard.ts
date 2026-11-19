@@ -29,7 +29,7 @@ interface KeyboardListOptions {
   /** Capture the starting selection once so reversing direction can shrink a range. */
   beginRange?: (additive: boolean) => ApplyRange;
   retrieve?: () => void;
-  horizontal?: (direction: -1 | 1, key: string | null) => void;
+  horizontal?: (direction: -1 | 1) => void;
   loadPage?: (key: string) => void;
 }
 
@@ -107,7 +107,7 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
   function clickRow(event: MouseEvent): HTMLElement | null {
     if (!options.beginRange || options.enabled === false || !(event.target instanceof Element) || !root.contains(event.target)) return null;
     const control = event.target.closest('input, button, label, a, select, textarea, [role="button"]');
-    if (control && !control.matches('input[type="checkbox"], label, [data-range-toggle], [data-range-target]')) return null;
+    if (control && !control.matches('input[type="checkbox"], label, [data-range-toggle], [data-keyboard-disclosure]')) return null;
     const row = event.target.closest<HTMLElement>('[data-keyboard-item]');
     return row?.hasAttribute('data-range-disabled') ? null : row;
   }
@@ -206,7 +206,13 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
     } else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && options.horizontal) {
       pending = null;
       event.preventDefault();
-      options.horizontal(event.key === 'ArrowRight' ? 1 : -1, current?.dataset.keyboardItem ?? null);
+      options.horizontal(event.key === 'ArrowRight' ? 1 : -1);
+    } else if (!event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Enter')) {
+      const disclosure = current?.querySelector<HTMLButtonElement>('button[data-keyboard-disclosure]');
+      if (!disclosure) return;
+      event.preventDefault();
+      pending = null;
+      if (!event.repeat) disclosure.click();
     } else if (event.key === 'Tab' && !event.shiftKey && event.target === current) {
       const control = current?.querySelector<HTMLElement>('button:not([disabled]), input:not([disabled]), a[href], [tabindex="0"]');
       if (control) { event.preventDefault(); control.focus(); }

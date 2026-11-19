@@ -53,6 +53,7 @@
     loadDefaults,
   }: Props = $props();
 
+  const panelId = $props.id();
   let family = $derived(configurationFamily ?? searchModeFamily(mode));
   let genericMode = $derived(family === 'generic');
   let groupMode = $derived(isGroupSearchMode(mode));
@@ -280,11 +281,11 @@
             </div>
 
             {#if singleItem}
-            <div class="config-label config-label-spaced">{fields.requiredTrackTitle.conditions.label}</div>
+            <label class="config-label config-label-spaced" for={`${panelId}-required-track-title`}>{fields.requiredTrackTitle.conditions.label}</label>
             <div class="required-track-row">
-              <input class="field"
+              <input class="field" id={`${panelId}-required-track-title`}
                 value={requiredTrackTitle}
-                placeholder="e.g. Music Is Math"
+                placeholder="Song Name"
                 oninput={(event) => (requiredTrackTitle = (event.currentTarget as HTMLInputElement).value)}
                 onkeydown={(event) => {
                   if (event.key === 'Enter') {

@@ -95,6 +95,24 @@ namespace Tests.ConfigTests
         }
 
         [TestMethod]
+        [DataRow(false)]
+        [DataRow(true)]
+        public void ManualSearchProfileLeavesAutomaticAlbumSettingsAlone(bool interactive)
+        {
+            var (file, root, cli, args) = Bind("""
+                search-time = 3200
+                [manual]
+                profile-cond = input-type == "manual-search"
+                search-time = 1500
+                """, "--album", interactive ? "--interactive" : "--interactive=false");
+            var album = new AlbumQuery { Artist = "Fixture", Album = "Album" };
+
+            Assert.AreEqual(interactive, cli.InteractiveMode);
+            Assert.AreEqual(3200, Resolve(file, root, cli, args, new AlbumJob(album)).Search.SearchTimeout);
+            Assert.AreEqual(1500, Resolve(file, root, cli, args, new SearchJob(album)).Search.SearchTimeout);
+        }
+
+        [TestMethod]
         public void Resolver_WithInteractiveAndAlbum_AppliesCorrectStaleTime()
         {
             string content =

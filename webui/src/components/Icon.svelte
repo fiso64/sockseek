@@ -114,16 +114,14 @@
     <circle cx="10.5" cy="12.5" r="3.3" />
     <path d="M7 3.5h11a2.5 2.5 0 0 1 2.5 2.5v11" />
     <path d="M18 3v4M16 5h4" />
-  {:else if name === 'extract'}
-    <path d="M5 5h6l2 2h6v12H5z" />
-    <path d="M12 10v6M9.5 13.5 12 16l2.5-2.5" />
   {:else if name === 'job-list'}
     <rect x="5" y="4" width="14" height="16" rx="2" />
     <path d="M9 8h6M9 12h6M9 16h6" />
     <path d="M7 8h.01M7 12h.01M7 16h.01" />
   {:else if name === 'retrieve-folder'}
-    <path d="M3.5 7h6l1.8 2h9.2v8.5A2.5 2.5 0 0 1 18 20H6a2.5 2.5 0 0 1-2.5-2.5z" />
-    <path d="M12 12a3.5 3.5 0 1 0 3.1 1.9M16 11v3h-3" />
+    <path d="M9 19H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v2" />
+    <circle cx="15" cy="15" r="3.5" />
+    <path d="m17.5 17.5 3.5 3.5" />
   {:else if name === 'spotify'}
     <circle cx="12" cy="12" r="9" />
     <path d="M7.2 9.2c3.5-1 7.6-.7 10.2.8" />

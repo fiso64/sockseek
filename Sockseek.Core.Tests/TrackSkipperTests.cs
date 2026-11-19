@@ -850,6 +850,7 @@ namespace Tests.TrackSkipperTests
         public void RequiredTrackTitleMissing_ReturnsFalse()
         {
             File.WriteAllBytes(Path.Combine(_tempDir, "01. Artist - Track One.mp3"), TestHelpers.EmptyMp3Bytes);
+            File.WriteAllBytes(Path.Combine(_tempDir, "Track Two.jpg"), []);
 
             Assert.IsFalse(ConditionSatisfactionPolicy.LocalAlbumDirectorySatisfies(
                 new FolderConditions { RequiredTrackTitles = ["Track Two"] },

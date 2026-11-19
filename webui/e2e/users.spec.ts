@@ -246,8 +246,27 @@ test('filters shared files through the daemon and restores the tree when cleared
   expect(lifecycleReads).toEqual([]);
   const tree = page.locator('.share-tree');
   await expect(tree.locator('.share-tree-name')).toHaveText(['Fixture', 'Selected.txt', 'Unselected.txt', 'Nested']);
-  await page.getByRole('button', { name: 'Expand Nested', exact: true }).click();
+  let releaseFiles!: () => void;
+  const heldFiles = new Promise<void>(resolve => { releaseFiles = resolve; });
+  await page.route('**/api/user-browses/*/directories/*/files?*', async route => {
+    await heldFiles;
+    await route.continue();
+  }, { times: 1 });
+  const spinner = tree.getByRole('status', { name: 'Loading directory' });
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+  try {
+    await page.getByRole('button', { name: 'Expand Nested', exact: true }).press('Enter');
+    await expect(tree.locator('[data-loading=true]')).toHaveCount(1);
+    await page.clock.runFor(100);
+    await expect(spinner).toHaveCount(0);
+    await page.clock.runFor(200);
+    await expect(spinner).toBeVisible();
+  } finally {
+    releaseFiles();
+    await page.clock.resume();
+  }
   await expect(tree.locator('.share-tree-name')).toHaveText(['Fixture', 'Selected.txt', 'Unselected.txt', 'Nested', 'Nested.txt', 'Deep']);
+  await expect(spinner).toHaveCount(0);
   await page.getByRole('button', { name: 'Collapse Nested', exact: true }).click();
   await expect(page.getByText('Nested.txt', { exact: true })).toHaveCount(0);
   const filter = page.getByRole('textbox', { name: 'Filter user shares', exact: true });
@@ -300,10 +319,12 @@ test('filters shared files through the daemon and restores the tree when cleared
   await folderRow.getByRole('button', { name: 'Expand Fixture', exact: true }).click();
   await expect(fileRow).toHaveCount(1);
   await folderRow.focus();
-  await page.keyboard.press('ArrowLeft');
-  await expect(fileRow).toHaveCount(0);
-  await page.keyboard.press('ArrowRight');
-  await expect(fileRow).toHaveCount(1);
+  for (const key of ['ArrowLeft', 'ArrowRight', 'Enter']) {
+    await page.keyboard.press(key);
+    await expect(fileRow).toHaveCount(0);
+    await page.keyboard.press(key);
+    await expect(fileRow).toHaveCount(1);
+  }
   expect(filterQueries).toEqual(previousQueries);
   expect(browseSnapshots).toHaveLength(1);
   await page.locator('.share-tree-row.file').getByRole('checkbox').check();
@@ -349,7 +370,12 @@ test('filters Unicode share names without changing the selected download identit
   await expect(page.locator('.shares-filter-count')).toHaveText('2 matching files');
   await expect(page.locator('.share-tree-row.file .share-tree-name')).toHaveText(['აbc.txt', 'Აbc.txt']);
   const matches = page.locator('.share-tree-row.file');
-  await matches.last().click();
+  await matches.first().locator('.share-tree-name').click();
+  await matches.last().locator('.share-tree-name').click();
+  await expect(matches.locator('input:checked')).toHaveCount(2);
+  await matches.first().locator('.share-tree-name').click();
+  await expect(matches.last().getByRole('checkbox')).toBeChecked();
+  await matches.last().focus();
   await matches.first().click({ modifiers: ['Shift'] });
   await expect(matches.locator('input:checked')).toHaveCount(2);
   await page.keyboard.press('Shift+ArrowDown');
@@ -434,6 +460,10 @@ test('excludes an unloaded subfolder and restores a deeper branch with a file ex
   await expect(page.locator('.share-tree-row.file').filter({ hasText: 'Unselected.txt' })).toBeFocused();
   const files = page.locator('.share-tree-row.file');
   const folderRow = page.locator('.share-tree-row.folder').last();
+  await files.first().locator('.share-tree-name').click();
+  await files.last().locator('.share-tree-name').click();
+  await expect(files.locator('input:checked')).toHaveCount(2);
+  await page.locator('.floating-deselect-action').click();
   await folderRow.getByRole('checkbox').check();
   await files.first().click({ modifiers: ['Control'] });
   await files.last().getByRole('checkbox').click({ modifiers: ['Shift'] });
@@ -446,7 +476,9 @@ test('excludes an unloaded subfolder and restores a deeper branch with a file ex
   await expect(files.locator('input:checked')).toHaveCount(2);
   await expect(folderRow.getByRole('checkbox')).toBeChecked();
   await files.last().click();
-  await expect(files.locator('input:checked')).toHaveCount(1);
+  await expect(files.first().getByRole('checkbox')).toBeChecked();
+  await expect(files.last().getByRole('checkbox')).not.toBeChecked();
+  await expect(folderRow.getByRole('checkbox')).toBeChecked();
   await page.locator('.floating-deselect-action').click();
   await files.last().focus();
   await page.keyboard.press('ArrowUp');

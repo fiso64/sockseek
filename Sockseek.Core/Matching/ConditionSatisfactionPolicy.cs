@@ -73,9 +73,9 @@ internal static class ConditionSatisfactionPolicy
     internal static bool LocalAlbumFolderSatisfies(
         FolderConditions? conditions,
         int audioFileCount,
-        IEnumerable<string> audioFilenames)
+        IEnumerable<string> filenames)
         => conditions == null
-            || AlbumFolderSatisfies(conditions, audioFileCount, audioFilenames, enforceMinimum: true);
+            || AlbumFolderSatisfies(conditions, audioFileCount, filenames, enforceMinimum: true);
 
     internal static bool HasAlbumFolderConditions(FolderConditions conditions)
         => HasAlbumTrackCountConditions(conditions)
@@ -112,11 +112,8 @@ internal static class ConditionSatisfactionPolicy
         if (string.IsNullOrEmpty(directory) || !System.IO.Directory.Exists(directory))
             return false;
 
-        var audioFilenames = System.IO.Directory
-            .GetFiles(directory, "*", System.IO.SearchOption.AllDirectories)
-            .Where(Utils.IsMusicFile)
-            .ToList();
-        return LocalAlbumFolderSatisfies(conditions, audioFilenames.Count, audioFilenames);
+        var filenames = System.IO.Directory.GetFiles(directory, "*", System.IO.SearchOption.AllDirectories);
+        return LocalAlbumFolderSatisfies(conditions, filenames.Count(Utils.IsMusicFile), filenames);
     }
 
     internal readonly struct AlbumSearchFilter
@@ -250,12 +247,12 @@ internal static class ConditionSatisfactionPolicy
         if (requiredTrackTitles.Count == 0)
             return true;
 
-        var fileList = filenames.ToList();
+        var audioFilenames = filenames.Where(Utils.IsMusicFile).ToList();
         var cond = new FileConditions { StrictTitle = true };
         foreach (string title in requiredTrackTitles)
         {
             bool found = false;
-            foreach (string filename in fileList)
+            foreach (string filename in audioFilenames)
             {
                 if (cond.StrictTitleSatisfies(filename, title))
                 {

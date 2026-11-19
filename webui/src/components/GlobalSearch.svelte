@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import type { SearchDraft, SearchResultMode } from '../domains/search/model';
-  import { editableSearchDraft, searchDelimiter, searchModeFamily as family } from '../domains/search/model';
+  import { editableSearchDraft, isGroupSearchMode, searchDelimiter, searchModeFamily as family } from '../domains/search/model';
   import ModeIconToggle from './ModeIconToggle.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -68,6 +68,7 @@
     configurationPending = false;
     searchEngaged = false;
     settingsOpen = false;
+    modeMenuOpen = false;
     if (document.activeElement instanceof HTMLElement && searchRoot?.contains(document.activeElement)) document.activeElement.blur();
   }
 
@@ -132,10 +133,10 @@
   function placeholder(): string {
     return {
       generic: 'Search files…',
-      track: 'Search songs…',
-      album: 'Search albums…',
-      'song-groups': 'Search songs by artist…',
-      'album-groups': 'Search albums by artist…',
+      track: 'Track title…',
+      album: 'Album title…',
+      'song-groups': 'Artist…',
+      'album-groups': 'Artist…',
     }[value.resultMode];
   }
 
@@ -147,23 +148,30 @@
       if (!delimiter) suppressAutoSplit = false;
       return setSimple(query);
     }
-    setSplit(query.slice(0, delimiter.index), query.slice(delimiter.index + delimiter.length));
-    focusTitleAfterUpdate();
+    splitQuery(query, delimiter);
   }
 
-  function focusTitleAfterUpdate(): void {
+  function splitQuery(query: string, delimiter = searchDelimiter(query)): void {
+    const loneTitle = !delimiter && !isGroupSearchMode(value.resultMode);
+    if (delimiter) setSplit(query.slice(0, delimiter.index), query.slice(delimiter.index + delimiter.length));
+    else if (loneTitle) setSplit('', query);
+    else setSplit(query, '');
+
+    const field = loneTitle && query.trim() ? 'artist' : 'title';
     // The inputs only need the DOM update, not a later paint. A queued frame
     // could steal focus after the user has already chosen the artist field.
-    void tick().then(() => searchRoot?.querySelector<HTMLInputElement>('#global-search-title')?.focus());
+    void tick().then(() => searchRoot?.querySelector<HTMLInputElement>(`#global-search-${field}`)?.focus());
   }
 
-  function split(): void {
-    const delimiter = searchDelimiter(value.query);
-    setSplit(delimiter ? value.query.slice(0, delimiter.index) : value.query, delimiter ? value.query.slice(delimiter.index + delimiter.length) : '');
-    focusTitleAfterUpdate();
+  function focusSearch(): void {
+    void tick().then(() => {
+      const bar = searchRoot?.querySelector('.search-bar');
+      if (!(document.activeElement instanceof HTMLInputElement && bar?.contains(document.activeElement)))
+        bar?.querySelector<HTMLInputElement>('input')?.focus();
+    });
   }
 
-  let canMerge = $derived(!((value.resultMode === 'song-groups' || value.resultMode === 'album-groups')
+  let canMerge = $derived(!(isGroupSearchMode(value.resultMode)
     && !value.artist.trim() && value.title.trim()));
 
   function merge(): void {
@@ -192,14 +200,14 @@
       const wasSplit = value.mode === 'split';
       setMode(modes[next]!.value);
       if (wasSplit && modes[next]!.value === 'generic') {
-        void tick().then(() => searchRoot?.querySelector<HTMLInputElement>('#global-search-simple')?.focus());
+        focusSearch();
       }
       return;
     }
     if (event.key === 'Enter') {
       event.preventDefault();
       if (busy) return;
-      const download = event.ctrlKey && family(value.resultMode) !== 'generic';
+      const download = event.ctrlKey;
       if (configurationPending) {
         queuedDownload = download;
         queuedSubmitKey = submissionKey();
@@ -233,14 +241,14 @@
 
   function windowKeydown(event: KeyboardEvent): void {
     const target = event.target as HTMLElement | null;
-    if (event.key === 'Escape' && searchRoot?.contains(target)) {
+    if (event.key === 'Escape' && (modeMenuOpen || searchRoot?.contains(target))) {
       event.preventDefault();
       dismissSearch();
       return;
     }
     if (event.key === '/' && !target?.matches('input, textarea, select, [contenteditable="true"]')) {
       event.preventDefault();
-      document.querySelector<HTMLInputElement>(variant === 'user' ? '#global-user-search' : value.mode === 'split' ? '#global-search-artist' : '#global-search-simple')?.focus();
+      focusSearch();
     }
   }
 </script>
@@ -251,7 +259,7 @@
   <div class="search-controls-row">
     {#if variant === 'user'}
       <div class="search-entry">
-        <ModeIconToggle value={userValue.mode} options={userModes} ariaLabel="User browse mode" onchange={(mode) => { if (mode === 'user' || mode === 'shares') onuserchange({ ...userValue, mode }); }} onopenchange={(open) => modeMenuOpen = open} />
+        <ModeIconToggle value={userValue.mode} options={userModes} ariaLabel="User browse mode" onchange={(mode) => { if (mode === 'user' || mode === 'shares') onuserchange({ ...userValue, mode }); }} bind:open={modeMenuOpen} onfocussearch={focusSearch} />
         <div class="field-group search-bar simple has-mode-picker user-browser-global-search">
           <input id="global-user-search" value={userValue.query} placeholder={userValue.mode === 'shares' ? 'Search user shares…' : 'Search users…'} autocomplete="off" spellcheck="false" aria-label={userValue.mode === 'shares' ? 'Search user shares' : 'Search users'} oninput={(event) => onuserchange({ ...userValue, query: (event.currentTarget as HTMLInputElement).value })} onkeydown={userKeydown} />
           <span class="search-shortcut" aria-hidden="true">/</span>
@@ -260,12 +268,12 @@
       <span class="search-settings-spacer" aria-hidden="true"></span>
     {:else}
     <div class="search-entry">
-      <ModeIconToggle value={value.resultMode} options={modes} ariaLabel="Search result mode" onchange={setMode} onhelp={() => { settingsOpen = false; modeHelpOpen = true; }} onopenchange={(open) => modeMenuOpen = open} />
+      <ModeIconToggle value={value.resultMode} options={modes} ariaLabel="Search result mode" onchange={setMode} onhelp={() => { settingsOpen = false; modeHelpOpen = true; }} bind:open={modeMenuOpen} onfocussearch={focusSearch} />
       <div class="field-group search-bar has-mode-picker" class:simple={value.mode === 'simple'} class:split={value.mode === 'split'}>
         {#if value.mode === 'simple'}
           <input id="global-search-simple" value={value.query} disabled={busy} placeholder={placeholder()} autocomplete="off" spellcheck="false" aria-label={placeholder().replace('…', '')} oninput={handleInput} onkeydown={keydown} />
           <span class="search-shortcut" aria-hidden="true">/</span>
-          {#if value.resultMode !== 'generic'}<button type="button" class="search-mode-button" aria-label="split" title="Split search fields" onclick={split}><Icon name="search-split" /></button>{/if}
+          {#if value.resultMode !== 'generic'}<button type="button" class="search-mode-button" aria-label="split" title="Split search fields" onclick={() => splitQuery(value.query)}><Icon name="search-split" /></button>{/if}
         {:else}
           <label class="search-field"><span>artist</span><input id="global-search-artist" value={value.artist} placeholder="artist…" autocomplete="off" spellcheck="false" oninput={(event) => setSplit((event.currentTarget as HTMLInputElement).value, value.title)} onkeydown={(event) => splitKeydown(event, 'artist')} /></label>
           <span class="search-divider" aria-hidden="true"></span>
@@ -297,7 +305,7 @@
     <div class="search-mode-help-cards">
       {#each modes as mode}
         <button type="button" class="surface-card selectable search-mode-help-card" aria-label={`Use ${mode.label}`} aria-describedby={`search-mode-help-${mode.value}`} aria-pressed={value.resultMode === mode.value}
-          onclick={() => { setMode(mode.value); modeHelpOpen = false; }}>
+          onclick={() => { setMode(mode.value); modeHelpOpen = false; focusSearch(); }}>
           <span class="search-mode-help-icon"><Icon name={mode.icon} /></span>
           <span class="search-mode-help-copy"><strong>{mode.label}</strong><span id={`search-mode-help-${mode.value}`}>{mode.description}</span></span>
           <span class="search-mode-help-check">{#if value.resultMode === mode.value}<Icon name="check" />{/if}</span>
@@ -308,7 +316,6 @@
       <h3 id="search-mode-notes-title">Notes</h3>
       <ul>
         <li>For better ranking and grouping, separate the artist from the album/song title with a hyphen, like <code>Artist - Title</code>. Without a separator, your query will be implicitly treated as a title in track and album modes, and as artist in group modes.</li>
-        <li>While the search bar is focused, switch between search modes using the up and down arrow keys. Press Control+Enter to create an automatic job.</li>
         <li>To change the default search mode, set <code>web-default-search-mode</code> in the config.</li>
       </ul>
     </section>

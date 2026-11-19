@@ -552,6 +552,12 @@ public class RemoteCliBackendTests
                         Name = "interactive-context",
                         Condition = "interactive",
                     },
+                    new SettingsProfile
+                    {
+                        Name = "manual-flac-only",
+                        Condition = "input-type == \"manual-search\"",
+                        Download = new SettingsPatch([new("Search.NecessaryCond.Formats", new[] { "flac" })]),
+                    },
                 ],
             },
         }, url);

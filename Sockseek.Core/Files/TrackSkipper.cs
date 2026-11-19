@@ -455,7 +455,7 @@ namespace Sockseek.Core.Services;
             if (!ConditionSatisfactionPolicy.LocalAlbumFolderSatisfies(
                     context.folderConditions,
                     audioFilePaths.Count,
-                    audioFilePaths))
+                    files))
                 return false;
 
             var audioFiles = new List<SimpleFile>();

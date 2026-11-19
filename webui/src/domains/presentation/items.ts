@@ -23,13 +23,6 @@ export interface AudioAttributes {
   lengthSeconds?: number;
 }
 
-export interface ItemPeerInfo {
-  username: string;
-  uploadSpeedMbps?: number;
-  freeUploadSlot?: boolean;
-  queueLength?: number;
-}
-
 export function basename(path: string): string {
   return path.split(/[\\/]/).at(-1) ?? path;
 }

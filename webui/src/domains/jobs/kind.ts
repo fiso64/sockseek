@@ -32,7 +32,7 @@ export function jobKindIcon(kind: Schema<'ServerJobKind'> | undefined): AppIconN
     case 'album': return 'album';
     case 'song-groups': return 'group-job';
     case 'album-groups': return 'album-groups-job';
-    case 'extract': return 'extract';
+    case 'extract':
     case 'job-list': return 'job-list';
     case 'remote-file': return 'file';
     case 'remote-directory': return 'folder';

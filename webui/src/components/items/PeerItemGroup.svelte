@@ -1,13 +1,13 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import type { ItemPeerInfo } from '../../domains/presentation/items';
+  import type { Schema } from '../../api/types';
   import type { UserLinkActions } from '../../app/navigation';
   import UsernameLink from '../UsernameLink.svelte';
-  import PeerSlot from './PeerSlot.svelte';
+  import PeerStats from './PeerStats.svelte';
 
   interface Props {
     highlight?: RegExp;
-    peer: ItemPeerInfo;
+    peer: Schema<'PeerInfoDto'>;
     itemNoun?: string;
     itemNounPlural?: string;
     userActions: UserLinkActions;
@@ -25,9 +25,7 @@
 
   let collapsed = $state(false);
   let hasPeerStats = $derived(
-    peer.freeUploadSlot !== undefined ||
-    peer.uploadSpeedMbps !== undefined ||
-    peer.queueLength !== undefined,
+    peer.hasFreeUploadSlot != null || peer.uploadSpeed != null || peer.queueLength != null,
   );
 </script>
 
@@ -46,9 +44,7 @@
     </span>
     {#if hasPeerStats}
     <span class="peer-metadata" aria-label={`${peer.username} result metadata`}>
-      <PeerSlot available={peer.freeUploadSlot} class="peer-stat" />
-      {#if peer.uploadSpeedMbps !== undefined}<span class="peer-stat peer-upload-stat" title="Upload speed"><b>{peer.uploadSpeedMbps.toFixed(1)} MB/s</b></span>{/if}
-      {#if peer.queueLength !== undefined}<span class="peer-stat peer-queue-stat" title={`Queue: ${peer.queueLength}`}>Queue: <b>{peer.queueLength}</b></span>{/if}
+      <PeerStats {peer} />
     </span>
     {/if}
   </div>
@@ -81,10 +77,8 @@
     margin-left: 8px;
     font-size: .76rem;
   }
-  .peer-stat { display: inline-flex; }
-  .peer-upload-stat { grid-area: 1 / 2; min-width: 0; }
-  .peer-queue-stat { grid-area: 1 / 3; font-variant-numeric: tabular-nums; }
-  .peer-stat b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .peer-metadata :global(.peer-upload-stat) { grid-area: 1 / 2; justify-content: flex-end; }
+  .peer-metadata :global(.peer-queue-stat) { grid-area: 1 / 3; }
   .peer-metadata :global(.peer-slot) { grid-area: 1 / 1; display: inline-flex; font-weight: 600; }
   .result-peer-items { padding-left: 26px; }
 
@@ -93,8 +87,8 @@
     .result-peer-header.compact { width: 100%; max-width: 100%; grid-template-columns: 18px minmax(0, 1fr); row-gap: 2px; }
     .peer-identity :global(.username-link) { white-space: normal; overflow-wrap: anywhere; }
     .peer-metadata { grid-area: 2 / 2; display: flex; flex-wrap: wrap; gap: 6px 12px; margin-left: 0; }
-    .peer-metadata :global(.peer-slot) { width: 8ch; }
-    .peer-upload-stat { width: 10ch; }
+    .peer-metadata :global(.peer-slot) { width: 8ch; order: -1; }
+    .peer-metadata :global(.peer-upload-stat) { width: 10ch; }
     .result-peer-items { padding-left: 0; }
   }
 </style>

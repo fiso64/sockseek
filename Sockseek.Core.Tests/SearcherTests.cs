@@ -1013,6 +1013,7 @@ namespace Tests.Unit
                 ]),
                 new("User2", 1, true, 100, 0,
                 [
+                    TestHelpers.CreateSlFile(@"ELO\Time\Twilight.jpg"),
                     TestHelpers.CreateSlFile(@"ELO\Time\01. Prologue.mp3", length: 60),
                     TestHelpers.CreateSlFile(@"ELO\Time\03. Yours Truly 2095.mp3", length: 201),
                 ]),

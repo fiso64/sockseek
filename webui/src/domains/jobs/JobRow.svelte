@@ -23,6 +23,7 @@
   const identity = $derived(root ?? job);
   const title = $derived(identity.itemName ?? identity.queryText ?? `${jobKindLabel(job.kind)} #${identity.displayId ?? '?'}`);
   const searchMode = $derived(searchJobMode(job));
+  const icon = $derived(searchMode ?? jobKindIcon(job.kind));
   const typeLabel = $derived(identity.kind === 'extract' ? identity.sourceDetail ?? 'Import'
     : searchMode ? searchModeLabel(searchMode) : jobKindLabel(job.kind));
   const statusLabel = $derived(resultState === 'unavailable' ? 'Result unavailable'
@@ -40,7 +41,7 @@
   class="search-history-row" class:automatic-history-row={job.kind !== 'search'}>
   <button type="button" data-testid="job-open" data-keyboard-focus class="search-history-open"
     class:automatic-history-open={job.kind !== 'search'} onclick={() => onopen(job)}>
-    <span class="search-history-icon" data-job-type={searchMode ?? job.kind} role="img" aria-label={typeLabel} title={typeLabel}><Icon name={searchMode ?? jobKindIcon(job.kind)} /></span>
+    <span class="search-history-icon" data-job-icon={icon} role="img" aria-label={typeLabel} title={typeLabel}><Icon name={icon} /></span>
     <span class="search-history-copy"><span class="search-history-query">{title}</span><small>{typeLabel}</small></span>
     {#if job.kind === 'search' && statusLabel !== 'Complete'}
       <span class={`status-label search-status-badge ${resultState ? 'pending' : jobStatusClass(job)}`}>{statusLabel}</span>
@@ -57,7 +58,10 @@
       </span>
     {/if}
     {#if job.kind !== 'search'}
-      <span class={`status-label search-status-badge ${resultState ? 'pending' : jobStatusClass(job)}`}>{statusLabel}</span>
+      <span class="job-row-status">
+        <span class="status-label job-row-status-minimum" aria-hidden="true">Complete</span>
+        <span class={`status-label search-status-badge ${resultState ? 'pending' : jobStatusClass(job)}`}>{statusLabel}</span>
+      </span>
     {/if}
   </button>
   {#if !resultState && oncancel && job.availableActions?.some(action => action.kind === 'cancel')}

@@ -14,7 +14,7 @@
   import Icon from '../../components/Icon.svelte';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import PeerItemGroup from '../../components/items/PeerItemGroup.svelte';
-  import PeerSlot from '../../components/items/PeerSlot.svelte';
+  import PeerStats from '../../components/items/PeerStats.svelte';
   import UsernameLink from '../../components/UsernameLink.svelte';
   import ProfilePicker from '../../components/ProfilePicker.svelte';
   import { rebaseOptions } from '../jobs/download-options';
@@ -613,11 +613,10 @@
 
 <svelte:window onkeydown={windowKeydown} onpointerdown={windowPointerDown} />
 
-{#snippet groupPeerSummary(peer: Schema<'SearchViewFileDto'>['peer'], pattern: RegExp | undefined)}
+{#snippet groupPeerSummary(peer: Schema<'PeerInfoDto'>, pattern: RegExp | undefined)}
   <div class="group-peer-summary">
     <span class="group-peer-username"><UsernameLink highlight={pattern} username={peer.username} actions={userActions} /></span>
-    {#if peer.uploadSpeed != null}<span class="group-peer-speed"><strong>{(Number(peer.uploadSpeed) / 1_000_000).toFixed(1)} MB/s</strong></span>{/if}
-    <PeerSlot available={peer.hasFreeUploadSlot} />
+    <PeerStats {peer} />
   </div>
 {/snippet}
 
@@ -638,8 +637,9 @@
     {@const representative = trackRepresentative(row.ref, row.value.representative)}
     <section class:selected={isselected(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} data-range-disabled={representative.visibility === 'Locked' || undefined} tabindex="-1">
       <header class="group-result-header">
-        <button type="button" class="group-header-select-button" data-range-toggle disabled={selectionReadOnly || representative.visibility === 'Locked'} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}></button>
-        <div class="group-result-identity"><strong>{@render matchedText(row.value.query.title ?? 'Untitled track', highlight)}</strong>{#if row.value.query.artist}<small>{@render matchedText(row.value.query.artist, highlight)}</small>{/if}</div>
+        <button type="button" class="group-header-select-button group-result-identity" data-range-toggle disabled={selectionReadOnly || representative.visibility === 'Locked'} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}>
+          <strong>{@render matchedText(row.value.query.title ?? 'Untitled track', highlight)}</strong>{#if row.value.query.artist}<small>{@render matchedText(row.value.query.artist, highlight)}</small>{/if}
+        </button>
         <div class="group-result-source">{@render groupPeerSummary(representative.peer, highlight)}</div>
         {@render groupOptionControls(row.ref, row.value.optionCount)}
       </header>
@@ -666,8 +666,9 @@
     {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
     <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} data-range-disabled={directory.visibility === 'Locked' || undefined} tabindex="-1">
       <header class="group-result-header">
-        <button type="button" class="group-header-select-button" data-range-toggle disabled={selectionReadOnly || directory.visibility === 'Locked'} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}></button>
-        <div class="group-result-identity"><strong>{@render matchedText(row.value.query.album ?? 'Untitled album', highlight)}</strong>{#if row.value.query.artist}<small>{@render matchedText(row.value.query.artist, highlight)}</small>{/if}</div>
+        <button type="button" class="group-header-select-button group-result-identity" data-range-toggle disabled={selectionReadOnly || directory.visibility === 'Locked'} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}>
+          <strong>{@render matchedText(row.value.query.album ?? 'Untitled album', highlight)}</strong>{#if row.value.query.artist}<small>{@render matchedText(row.value.query.artist, highlight)}</small>{/if}
+        </button>
         <div class="group-result-source">{@render groupPeerSummary(directory.peer, highlight)}</div>
         {@render groupOptionControls(row.ref, row.value.optionCount)}
       </header>
@@ -852,13 +853,14 @@
   <SelectionToolbar
     {selectedCount}
     visible={selectedCount > 0 || viewState.selectionNeedsReview || viewState.canRetryPendingCommit}
-    floatingLabel={viewState.committing ? 'Requesting…' : viewState.canRetryPendingCommit ? 'Retry download request' : viewState.selectionCounts
+    countPending={viewState.selectionCountsLoading && !viewState.canRetryPendingCommit}
+    floatingLabel={viewState.committing ? 'Requesting…' : viewState.canRetryPendingCommit ? 'Retry download request'
+      : viewState.selectionCountsLoading ? 'Counting files…' : viewState.selectionCounts
       && BigInt(viewState.selectionCounts.publicFileCount) > 0n
       ? `Download ${formatCount(viewState.selectionCounts.publicFileCount)}` : 'Download selected'}
-    detail={viewState.selectionCountsLoading ? 'Counting selected files…'
-      : viewState.selectionCountsError ? viewState.selectionCountsError.message : undefined}
+    detail={viewState.selectionCountsError?.message}
     actionDisabled={downloadOptionsLoading || Boolean(downloadOptionsError) || viewState.committing || (!viewState.canRetryPendingCommit && (refinementPending
-      || viewState.selectionCountsLoading || hasUnreadySelectedChoice()
+      || hasUnreadySelectedChoice()
       || Boolean(viewState.selectionCountsError) || selectedCount === 0))}
     optionsOpen={downloadOptionsOpen}
     optionsCustomized={downloadCustomized}
@@ -957,13 +959,7 @@
             {@const first = group.rows[0]}
             {@const peer = first.value.peer}
             {@const noun = genericMode ? (group.rows.some(row => row.kind === 'directory' && !row.value.ref.folderPath) ? 'group' : 'directory') : 'result'}
-            <PeerItemGroup {highlight}
-              peer={{
-                username: peer.username,
-                freeUploadSlot: peer.hasFreeUploadSlot ?? undefined,
-                uploadSpeedMbps: peer.uploadSpeed == null ? undefined : Number(peer.uploadSpeed) / 1_000_000,
-                queueLength: peer.queueLength == null ? undefined : Number(peer.queueLength),
-              }}
+            <PeerItemGroup {highlight} {peer}
               itemNoun={noun}
               itemNounPlural={noun === 'directory' ? 'directories' : `${noun}s`}
               {userActions}
@@ -1033,9 +1029,7 @@
       <header class="group-options-header">
         <div class="group-options-heading">
           <strong>{panel.title}</strong>
-          <small>{panel.artist ? `${panel.artist} · ` : ''}{formatCountWithNoun(panel.shareCount, 'share')} · {panel.filterText ? `${formatCount(panel.items.length)}${panel.nextCursor ? '+' : ''} matching of ${formatCountWithNoun(panel.optionCount, 'option')}` : panel.items.length === panel.optionCount && !panel.nextCursor
-            ? formatCountWithNoun(panel.optionCount, 'option')
-            : `${formatCount(panel.items.length)} of ${formatCountWithNoun(panel.optionCount, 'option')}`}</small>
+          <small>{panel.artist ? `${panel.artist} · ` : ''}{formatCountWithNoun(panel.shareCount, 'user')} · {formatCountWithNoun(panel.optionCount, panel.kind === 'album' ? 'folder' : 'file')}</small>
         </div>
         <ResultFilterControl collapsible bind:value={optionFilter} placeholder="Filter by peer or path…" ariaLabel="Filter group options" />
         <button type="button" class="button group-options-close" aria-label="Close options" onclick={oncloseoptions}>×</button>

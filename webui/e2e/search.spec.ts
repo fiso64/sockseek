@@ -7,15 +7,14 @@ import { performance } from 'node:perf_hooks';
 import type { Schema } from '../src/api/types';
 
 for (const mode of [
-  { label: 'Song Groups', placeholder: 'Search songs by artist…', endpoint: '/api/jobs/search/tracks', field: 'songQuery', title: 'title' },
-  { label: 'Album Groups', placeholder: 'Search albums by artist…', endpoint: '/api/jobs/search/albums', field: 'albumQuery', title: 'album' },
+  { label: 'Song Groups', endpoint: '/api/jobs/search/tracks', field: 'songQuery', title: 'title' },
+  { label: 'Album Groups', endpoint: '/api/jobs/search/albums', field: 'albumQuery', title: 'album' },
 ] as const) {
   test(`${mode.label} keeps the artist meaning when switching input layouts`, async ({ page }) => {
     await page.goto('/dashboard');
     await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
     await page.getByRole('menuitemradio', { name: mode.label, exact: true }).click();
     const input = page.locator('#global-search-simple');
-    await expect(input).toHaveAttribute('placeholder', mode.placeholder);
     await input.fill('Casiopea');
     await page.getByRole('button', { name: 'split', exact: true }).click();
     await expect(page.locator('#global-search-artist')).toHaveValue('Casiopea');
@@ -596,6 +595,8 @@ test('keeps a grouped track choice and all-except plan through live group reorde
   const dialog = page.getByRole('dialog');
   const filter = dialog.getByRole('textbox', { name: 'Filter group options' });
   await expect(dialog.locator('.group-option')).toHaveCount(2);
+  await expect(alpha.locator('.peer-queue-stat')).toHaveText('Queue: 0');
+  await expect(dialog.locator('.peer-queue-stat')).toHaveText(['Queue: 0', 'Queue: 0']);
   const dialogBounds = await dialog.boundingBox();
   const expandFilter = dialog.locator('header').getByTestId('expand-result-filter');
   await expect(filter).toHaveCount(0);
@@ -691,6 +692,7 @@ test('keeps a grouped track choice and all-except plan through live group reorde
 });
 
 test('downloads only checked public files from a mixed chosen group album folder', async ({ page, daemon }) => {
+  await page.clock.install();
   const searchSubmissions: string[] = [];
   page.on('request', request => {
     if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/jobs/search/albums')
@@ -719,10 +721,12 @@ test('downloads only checked public files from a mixed chosen group album folder
   await dialog.getByTestId('expand-result-filter').click();
   await dialog.getByRole('textbox', { name: 'Filter group options' }).fill('INTRO.');
   await expect(dialog.locator('.folder-file-row mark')).toHaveText(['Intro.', 'Intro.']);
-  await dialog.locator('.group-option').filter({ hasText: 'second-peer' })
-    .locator('.group-option-card-picker').click();
+  const secondPeer = dialog.locator('.group-option').filter({ hasText: 'second-peer' });
+  await expect(secondPeer.locator('.peer-queue-stat')).toHaveText('Queue: 7');
+  await secondPeer.locator('.group-option-card-picker').click();
   await expect(dialog).toHaveCount(0);
   const album = page.locator('.group-result-group');
+  await expect(album.locator('.peer-queue-stat')).toHaveText('Queue: 7');
   await expect(album.locator('.folder-file-row')).toHaveCount(3);
   await album.focus();
   await page.keyboard.press('Space');
@@ -746,7 +750,30 @@ test('downloads only checked public files from a mixed chosen group album folder
     && new URL(response.url()).pathname.endsWith('/selection-counts')
     && Object.values((response.request().postDataJSON() as Schema<'CountSearchViewSelectionRequestDto'>).albumFileSelections ?? {})
       .some(selection => selection.mode === 'AllExcept' && selection.refs.length === 1));
-  await finale.uncheck();
+  const toolbar = page.getByLabel('Selection actions');
+  const download = toolbar.locator('.floating-download-action');
+  const settledLabel = await download.innerText();
+  const settledBounds = await toolbar.boundingBox();
+  let releaseCount!: () => void;
+  const recount = new Promise<void>(resolve => { releaseCount = resolve; });
+  await page.route('**/selection-counts', async route => {
+    await recount;
+    await route.continue();
+  }, { times: 1 });
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+  try {
+    await finale.uncheck();
+    await expect(download).toBeDisabled();
+    expect(await download.innerText()).toBe(settledLabel);
+    expect(await toolbar.boundingBox()).toEqual(settledBounds);
+    await expect(download).toHaveCSS('opacity', '1');
+    await page.clock.fastForward(1_000);
+    expect(await download.innerText()).not.toBe(settledLabel);
+    await expect(download).toBeDisabled();
+  } finally {
+    releaseCount();
+    await page.clock.resume();
+  }
   await expect(album).toHaveClass(/partial/);
   const excludedCount = await (await allExceptCount).json() as Schema<'CountSearchViewSelectionResponseDto'>;
   expect(Number(excludedCount.publicFileCount)).toBe(1);
@@ -956,7 +983,7 @@ test('explains search modes in selectable cards without submitting a search', as
   const help = page.getByRole('dialog', { name: 'Search modes', exact: true });
   async function openHelp() {
     await chooser.click();
-    await page.getByRole('menuitem', { name: 'About search modes', exact: true }).click();
+    await page.getByRole('button', { name: 'About search modes', exact: true }).click();
     await expect(help).toBeVisible();
     await expect(page.getByRole('menu', { name: 'Search result mode', exact: true })).toHaveCount(0);
   }
@@ -967,6 +994,7 @@ test('explains search modes in selectable cards without submitting a search', as
     await expect(help).toHaveCount(0);
     await expect(chooser).toHaveAttribute('aria-label', `Search result mode: ${mode}. Choose mode.`);
     await expect(page.locator('#global-search-simple')).toHaveValue('Fixture');
+    await expect(page.locator('#global-search-simple')).toBeFocused();
   }
   await openHelp();
   await help.getByRole('button', { name: 'Close search modes', exact: true }).click();
@@ -991,9 +1019,14 @@ test('cycles search modes from focused inputs', async ({ page }) => {
   await chooseFileSearch(page);
   const simple = page.locator('#global-search-simple');
   const mode = page.getByRole('button', { name: /Search result mode:.*Choose mode/ });
-  await simple.focus();
-  await simple.press('ArrowUp');
+  await simple.blur();
+  await mode.click();
+  await expect(simple).toBeFocused();
+  await expect(page.getByLabel('Search bar shortcuts')).toBeVisible();
+  await page.keyboard.press('ArrowUp');
   await expect(mode).toHaveAttribute('aria-label', /Album Groups/);
+  await page.getByRole('menuitemradio', { name: 'Album Groups', exact: true }).click();
+  await expect(simple).toBeFocused();
   await simple.press('ArrowDown');
   await expect(mode).toHaveAttribute('aria-label', /File Search/);
   await simple.press('ArrowDown');
@@ -1001,6 +1034,9 @@ test('cycles search modes from focused inputs', async ({ page }) => {
   await simple.fill('Artist - Title');
   const title = page.locator('#global-search-title');
   await expect(title).toBeFocused();
+  await mode.click();
+  await expect(title).toBeFocused();
+  await mode.click();
   await title.press('ArrowUp');
   await expect(mode).toHaveAttribute('aria-label', /File Search/);
   await expect(simple).toBeFocused();
@@ -1015,15 +1051,19 @@ test('cycles search modes from focused inputs', async ({ page }) => {
 });
 
 for (const mode of ['Track Search', 'Song Groups'] as const) {
-  test(`Backspace merges an empty second field in ${mode}`, async ({ page }) => {
+  test(`Backspace merges the empty field after splitting in ${mode}`, async ({ page }) => {
     await page.goto('/jobs');
     await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
     await page.getByRole('menuitemradio', { name: mode, exact: true }).click();
     const input = page.locator('#global-search-simple');
     await input.fill('Casiopea');
     await page.getByRole('button', { name: 'split', exact: true }).click();
-    await expect(page.locator('#global-search-title')).toHaveValue('');
-    await page.locator('#global-search-title').press('Backspace');
+    const group = mode === 'Song Groups';
+    const filled = page.locator(group ? '#global-search-artist' : '#global-search-title');
+    const empty = page.locator(group ? '#global-search-title' : '#global-search-artist');
+    await expect(filled).toHaveValue('Casiopea');
+    await expect(empty).toBeFocused();
+    await empty.press('Backspace');
     await expect(input).toHaveValue('Casiopea');
     await expect(input).toBeFocused();
     expect(await input.evaluate((element: HTMLInputElement) => element.selectionStart)).toBe('Casiopea'.length);
@@ -1039,13 +1079,45 @@ test('keeps the search highlight steady while splitting and merging', async ({ p
   await bar.evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
   const highlight = await bar.evaluate(element => ({ border: getComputedStyle(element).borderColor, shadow: getComputedStyle(element).boxShadow }));
   await page.getByRole('button', { name: 'split', exact: true }).click();
-  await expect(page.locator('#global-search-title')).toBeFocused();
+  await expect(page.locator('#global-search-artist')).toBeFocused();
   expect(await bar.evaluate(element => element === document.querySelector('.search-bar'))).toBe(true);
   expect(await bar.evaluate(element => ({ border: getComputedStyle(element).borderColor, shadow: getComputedStyle(element).boxShadow }))).toEqual(highlight);
-  await page.locator('#global-search-title').press('Backspace');
+  await page.locator('#global-search-artist').press('Backspace');
   await expect(input).toBeFocused();
   expect(await bar.evaluate(element => element === document.querySelector('.search-bar'))).toBe(true);
   expect(await bar.evaluate(element => ({ border: getComputedStyle(element).borderColor, shadow: getComputedStyle(element).boxShadow }))).toEqual(highlight);
+});
+
+test('manual-search auto-profiles set per-mode search defaults and leave automatic jobs at their configured defaults', async ({ page, daemon }) => {
+  await daemon.command('manual-search-profiles');
+  await page.goto('/jobs');
+  const modePicker = page.getByRole('button', { name: /Search result mode:.*Choose mode/ });
+  const config = page.getByTestId('search-config-toggle');
+  const panel = page.locator('.search-config-popover');
+  for (const [mode, maxBitrate] of [
+    ['Track Search', '768'], ['Album Search', '320'], ['Song Groups', '768'],
+    ['Album Groups', '320'], ['File Search', '768'],
+  ] as const) {
+    await modePicker.click();
+    await page.getByRole('menuitemradio', { name: mode, exact: true }).click();
+    await config.click();
+    await expect(panel.getByLabel('Min bitrate kbps'), mode).toHaveValue('192');
+    await expect(panel.getByLabel('Max bitrate kbps'), mode).toHaveValue(maxBitrate);
+    await config.click();
+  }
+
+  await page.getByRole('button', { name: 'New job', exact: false }).click();
+  const dialog = page.getByRole('dialog', { name: 'New job', exact: true });
+  for (const type of ['song', 'album']) {
+    await dialog.getByTestId(`job-type-${type}`).click();
+    await dialog.locator('#new-job-options-filtering').click();
+    await expect(dialog.getByLabel('Max bitrate kbps'), type).toHaveValue('768');
+    await expect(dialog.getByLabel('Min bitrate kbps'), type).toHaveValue('');
+  }
+  await dialog.getByPlaceholder('Album title…').fill('Fixture album');
+  await dialog.locator('.new-job-start-button').click();
+  await daemon.command('wait-search-started');
+  expect(daemon.logs()).toContain('E2E_METRIC search-timeout-ms=3200');
 });
 
 test('applies named profiles to a search and refines its results independently', async ({ page, daemon }) => {
@@ -1139,7 +1211,7 @@ test('merges empty album and artist fields without losing input or focus', async
   await input.type(' more');
   await expect(input).toHaveValue('Artist - Title more');
   await expect(page.locator('#global-search-artist')).toHaveCount(0);
-  await input.fill('Original artist');
+  await input.fill('Original title');
   // Model choosing a field before an already-queued animation frame runs.
   // Delayed autofocus must not move subsequent typing into another field.
   const frames = await page.evaluateHandle(() => {
@@ -1163,15 +1235,15 @@ test('merges empty album and artist fields without losing input or focus', async
   });
   try {
     await page.getByRole('button', { name: 'split', exact: true }).click();
-    await page.locator('#global-search-artist').selectText();
+    await page.locator('#global-search-title').selectText();
   } finally { await frames.evaluate(controller => controller.release()); await frames.dispose(); }
-  await page.keyboard.insertText('Correct artist');
-  await expect(page.locator('#global-search-artist')).toHaveValue('Correct artist');
-  await expect(page.locator('#global-search-title')).toHaveValue('');
-  await page.locator('#global-search-title').press('Backspace');
-  await expect(input).toHaveValue('Correct artist');
+  await page.keyboard.insertText('Correct title');
+  await expect(page.locator('#global-search-title')).toHaveValue('Correct title');
+  await expect(page.locator('#global-search-artist')).toHaveValue('');
+  await page.locator('#global-search-artist').press('Backspace');
+  await expect(input).toHaveValue('Correct title');
   await expect(input).toBeFocused();
-  expect(await input.evaluate((element: HTMLInputElement) => element.selectionStart)).toBe('Correct artist'.length);
+  expect(await input.evaluate((element: HTMLInputElement) => element.selectionStart)).toBe('Correct title'.length);
   await page.getByRole('button', { name: 'split', exact: true }).click();
   await page.locator('#global-search-title').fill('Retained album');
   await page.locator('#global-search-artist').fill('');

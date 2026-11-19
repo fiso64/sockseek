@@ -479,7 +479,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                  new Soulseek.File(1, @"First\Fixture Album\02 - Finale.flac", 128, ".flac", [])],
                     lockedFileList: mixedAlbumGroupSearch
                         ? [new Soulseek.File(1, @"First\Fixture Album\03 - Locked.flac", 256, ".flac", [])] : []));
-                receive(new Soulseek.SearchResponse("second-peer", 2, true, 1_000_000, 0,
+                receive(new Soulseek.SearchResponse("second-peer", 2, true, 1_000_000, 7,
                     [new Soulseek.File(1, @"Second\Fixture Album\01 - Intro.flac", 128, ".flac", []),
                  new Soulseek.File(1, @"Second\Fixture Album\02 - Finale.flac", 128, ".flac", [])],
                     lockedFileList: mixedAlbumGroupSearch
@@ -743,6 +743,37 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     };
                     break;
                 }
+                case "manual-search-profiles":
+                    app.Services.GetRequiredService<EngineSupervisor>().Submissions.ReloadProfiles(new ProfileCatalog
+                    {
+                        DefaultProfile = new SettingsProfile
+                        {
+                            Name = "defaults",
+                            Download = new SettingsPatch([
+                                new("Search.NecessaryCond.MaxBitrate", 768),
+                                new("Search.SearchTimeout", 3200),
+                            ]),
+                        },
+                        AutoProfiles =
+                        [
+                            new SettingsProfile
+                            {
+                                Name = "manual",
+                                Condition = "input-type == \"manual-search\"",
+                                Download = new SettingsPatch([
+                                    new("Search.NecessaryCond.MinBitrate", 192),
+                                    new("Search.SearchTimeout", 1500),
+                                ]),
+                            },
+                            new SettingsProfile
+                            {
+                                Name = "manual-albums",
+                                Condition = "input-type == \"manual-search\" && album",
+                                Download = new SettingsPatch([new("Search.NecessaryCond.MaxBitrate", 320)]),
+                            },
+                        ],
+                    });
+                    break;
                 case "presence-away": peer.RaiseUserStatus("Presence Peer", Soulseek.UserPresence.Away); break;
                 case "profile-peer-online": peer.RaiseUserStatus("offline-info-peer", Soulseek.UserPresence.Online); break;
                 case "terminal-transfer-committed":
