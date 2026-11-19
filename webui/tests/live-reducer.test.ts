@@ -96,7 +96,7 @@ it('delivers every accepted chat observation while keeping the replicated tail b
     failureReason: null,
   }));
   const update = batch({ scope, state: { ...batch().state,
-    chatTargets: [{ kind: 'Direct', targetId: jobId, messages, replaceMessages: false }],
+    chatTargets: [{ kind: 'Direct', targetId: jobId, messages, replaceMessages: false, removed: false }],
   } });
   const observed: string[] = [];
   const observe = (items: ChatMessageDto[]) => { observed.push(...items.map(item => item.messageId)); };

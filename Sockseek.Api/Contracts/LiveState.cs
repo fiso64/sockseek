@@ -565,7 +565,8 @@ public sealed record ChatTargetDeltaDto(
     ChatRoomSummaryDto? Room = null,
     IReadOnlyList<ChatMessageDto>? Messages = null,
     bool ReplaceMessages = false,
-    bool? HasEarlierMessages = null);
+    bool? HasEarlierMessages = null,
+    bool Removed = false);
 
 public sealed record ChatTargetSnapshotDto(
     ServerChatTargetKind Kind,

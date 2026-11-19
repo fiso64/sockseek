@@ -214,7 +214,6 @@ public sealed class ChatPersistenceStore(
                     context.ChatMessages.Add(message);
                     knownPrivateMessages.Add(replayKey, message);
                     conversation.DisplayUsername = direct.DisplayUsername;
-                    conversation.ArchivedAtUtc = null;
                     conversation.LastMessageSequence = messageSequence;
                     conversation.UpdatedAtUtc = now;
                     conversation.Revision++;
@@ -314,14 +313,15 @@ public sealed class ChatPersistenceStore(
         string username,
         Guid messageId,
         string body,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? expectedConversationId = null)
     {
         string accountKey = ChatIdentity.ValidateAccount(localAccount);
         string peerKey = ChatIdentity.ValidateUsername(username);
         body = ChatIdentity.ValidateMessage(body);
         return await PrepareOutgoingAsync(
             accountKey, ChatTargetKind.Direct, peerKey, username.Trim(), messageId, body,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken, expectedConversationId).ConfigureAwait(false);
     }
 
     public async Task<OutgoingChatPreparationResult> PrepareOutgoingRoomMessageAsync(
@@ -350,7 +350,8 @@ public sealed class ChatPersistenceStore(
         string displayTarget,
         Guid messageId,
         string body,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? expectedConversationId = null)
     {
         if (messageId == Guid.Empty)
             throw new ArgumentException("MessageId cannot be empty.", nameof(messageId));
@@ -364,6 +365,7 @@ public sealed class ChatPersistenceStore(
                 bool same = existing.LocalAccountKey == accountKey
                             && existing.TargetKind == targetKind.ToString()
                             && existing.TargetKey == targetKey
+                            && (expectedConversationId == null || existing.TargetId == expectedConversationId)
                             && existing.Direction == nameof(ChatMessageDirection.Outgoing)
                             && existing.Body == body;
                 return new OutgoingCommandResult(
@@ -377,6 +379,8 @@ public sealed class ChatPersistenceStore(
             {
                 var conversation = await context.ChatConversations.FirstOrDefaultAsync(
                     item => item.LocalAccountKey == accountKey && item.PeerKey == targetKey, ct).ConfigureAwait(false);
+                if (expectedConversationId.HasValue && conversation?.Id != expectedConversationId)
+                    throw new KeyNotFoundException("The conversation was not found.");
                 if (conversation is null)
                 {
                     conversation = new ChatConversationEntity
@@ -391,7 +395,6 @@ public sealed class ChatPersistenceStore(
                     context.ChatConversations.Add(conversation);
                 }
                 targetId = conversation.Id;
-                conversation.ArchivedAtUtc = null;
                 conversation.DisplayUsername = displayTarget;
                 conversation.UpdatedAtUtc = now;
                 conversation.Revision++;
@@ -511,7 +514,6 @@ public sealed class ChatPersistenceStore(
     public async Task<ChatPage<ConversationRecord>> GetConversationsAsync(
         string localAccount,
         bool? unread,
-        bool? archived,
         string? cursor,
         int limit,
         CancellationToken cancellationToken = default)
@@ -522,8 +524,6 @@ public sealed class ChatPersistenceStore(
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         IQueryable<ChatConversationEntity> query = context.ChatConversations.AsNoTracking()
             .Where(item => item.LocalAccountKey == accountKey);
-        if (archived is not null)
-            query = archived.Value ? query.Where(item => item.ArchivedAtUtc != null) : query.Where(item => item.ArchivedAtUtc == null);
         if (unread is not null)
             query = query.Where(item => unread.Value == context.ChatMessages.Any(message =>
                 message.LocalAccountKey == accountKey
@@ -771,56 +771,42 @@ public sealed class ChatPersistenceStore(
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task ArchiveConversationAsync(
-        string localAccount, Guid conversationId, bool archived, CancellationToken cancellationToken = default)
+    public Task DeleteConversationAsync(string localAccount, Guid conversationId, CancellationToken cancellationToken = default)
     {
         string accountKey = ChatIdentity.ValidateAccount(localAccount);
-        await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
+        return inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
-            var conversation = await context.ChatConversations.SingleOrDefaultAsync(
-                item => item.Id == conversationId && item.LocalAccountKey == accountKey, ct).ConfigureAwait(false)
-                ?? throw new KeyNotFoundException("The conversation was not found.");
-            conversation.ArchivedAtUtc = archived ? ToUnixMilliseconds(clock.GetUtcNow()) : null;
-            conversation.UpdatedAtUtc = ToUnixMilliseconds(clock.GetUtcNow());
-            conversation.Revision++;
-            return true;
-        }, cancellationToken).ConfigureAwait(false);
+            int deleted = await context.ChatConversations
+                .Where(item => item.Id == conversationId && item.LocalAccountKey == accountKey)
+                .ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            if (deleted == 0) throw new KeyNotFoundException("The conversation was not found.");
+            return await DeleteMessagesAsync(context, accountKey, conversationId, ChatTargetKind.Direct, ct).ConfigureAwait(false);
+        }, cancellationToken);
     }
 
-    public async Task DeleteHistoryAsync(
-        string localAccount,
-        Guid targetId,
-        ChatTargetKind kind,
-        CancellationToken cancellationToken = default)
+    public Task DeleteRoomHistoryAsync(string localAccount, Guid roomId, CancellationToken cancellationToken = default)
     {
         string accountKey = ChatIdentity.ValidateAccount(localAccount);
-        await inbox.CommitOnceAdmittedAsync(async (context, ct) =>
+        return inbox.CommitOnceAdmittedAsync(async (context, ct) =>
         {
-            int removed = await context.ChatMessages
-                .Where(item => item.LocalAccountKey == accountKey && item.TargetId == targetId)
-                .ExecuteDeleteAsync(ct).ConfigureAwait(false);
-            if (kind == ChatTargetKind.Direct)
-            {
-                var target = await context.ChatConversations.SingleOrDefaultAsync(
-                    item => item.Id == targetId && item.LocalAccountKey == accountKey, ct).ConfigureAwait(false)
-                    ?? throw new KeyNotFoundException("The conversation was not found.");
-                target.LastMessageSequence = 0;
-                target.LastReadSequence = 0;
-                target.Revision++;
-                target.UpdatedAtUtc = ToUnixMilliseconds(clock.GetUtcNow());
-            }
-            else
-            {
-                var target = await context.ChatRoomSubscriptions.SingleOrDefaultAsync(
-                    item => item.Id == targetId && item.LocalAccountKey == accountKey, ct).ConfigureAwait(false)
-                    ?? throw new KeyNotFoundException("The room was not found.");
-                target.LastMessageSequence = 0;
-                target.LastReadSequence = 0;
-                target.Revision++;
-                target.UpdatedAtUtc = ToUnixMilliseconds(clock.GetUtcNow());
-            }
-            return removed;
-        }, cancellationToken).ConfigureAwait(false);
+            var room = await context.ChatRoomSubscriptions.SingleOrDefaultAsync(
+                item => item.Id == roomId && item.LocalAccountKey == accountKey, ct).ConfigureAwait(false)
+                ?? throw new KeyNotFoundException("The room was not found.");
+            room.LastMessageSequence = 0;
+            room.LastReadSequence = 0;
+            room.Revision++;
+            room.UpdatedAtUtc = ToUnixMilliseconds(clock.GetUtcNow());
+            return await DeleteMessagesAsync(context, accountKey, roomId, ChatTargetKind.Room, ct).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    private static Task<int> DeleteMessagesAsync(
+        SockseekDbContext context, string accountKey, Guid targetId, ChatTargetKind kind, CancellationToken ct)
+    {
+        string targetKind = kind.ToString();
+        return context.ChatMessages
+            .Where(item => item.LocalAccountKey == accountKey && item.TargetId == targetId && item.TargetKind == targetKind)
+            .ExecuteDeleteAsync(ct);
     }
 
     public async Task<ChatPage<UserNotificationRecord>> GetNotificationsAsync(
@@ -1132,7 +1118,6 @@ public sealed class ChatPersistenceStore(
         ChatMessageEntity? last)
         => new(
             entity.Id, entity.LocalAccountKey, entity.PeerKey, entity.DisplayUsername,
-            entity.ArchivedAtUtc is { } archived ? FromUnixMilliseconds(archived) : null,
             entity.LastReadSequence, entity.LastMessageSequence, entity.Revision,
             FromUnixMilliseconds(entity.CreatedAtUtc), FromUnixMilliseconds(entity.UpdatedAtUtc),
             unread, last is null ? null : MapMessage(last));

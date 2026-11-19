@@ -176,11 +176,14 @@ public sealed class ChatPersistenceStoreTests
         var first = await database.Store.AcceptPrivateMessageAsync(
             "local", "Alice", "first", 1, DateTimeOffset.Parse("2026-08-06T20:00:00Z"));
 
-        await database.Store.DeleteHistoryAsync(
-            "local", first.Message.TargetId, ChatTargetKind.Direct);
+        await database.Store.DeleteConversationAsync(
+            "local", first.Message.TargetId);
         var second = await database.Store.AcceptPrivateMessageAsync(
             "local", "Alice", "second", 2, DateTimeOffset.Parse("2026-08-06T20:00:01Z"));
 
+        await Assert.ThrowsExactlyAsync<KeyNotFoundException>(() => database.Store.PrepareOutgoingPrivateMessageAsync(
+            "local", "Alice", Guid.NewGuid(), "stale tab", expectedConversationId: first.Message.TargetId));
+        Assert.AreNotEqual(first.Message.TargetId, second.Message.TargetId);
         Assert.IsTrue(second.Message.Sequence > first.Message.Sequence);
         Assert.IsNotNull(first.Notification);
         Assert.IsNotNull(second.Notification);
@@ -451,7 +454,7 @@ public sealed class ChatPersistenceStoreTests
 
         database.CommandCounter!.Reset();
         ChatPage<ConversationRecord> page = await database.Store.GetConversationsAsync(
-            "local", unread: null, archived: null, cursor: null, limit: 20);
+            "local", unread: null, cursor: null, limit: 20);
 
         Assert.AreEqual(20, page.Items.Count);
         Assert.IsTrue(database.CommandCounter.Executed <= 3,
@@ -469,7 +472,7 @@ public sealed class ChatPersistenceStoreTests
         Guid targetId = accepted[0].Message.TargetId;
 
         database.CommandCounter!.Reset();
-        await database.Store.DeleteHistoryAsync("local", targetId, ChatTargetKind.Direct);
+        await database.Store.DeleteConversationAsync("local", targetId);
 
         Assert.IsTrue(database.CommandCounter.Executed <= 4,
             $"History deletion executed {database.CommandCounter.Executed} database commands.");

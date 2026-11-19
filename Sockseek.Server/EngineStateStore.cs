@@ -639,8 +639,10 @@ public sealed class EngineStateStore
             long previous = chatStreamSequences.GetValueOrDefault(scope);
             long sequence = previous + 1;
             chatStreamSequences[scope] = sequence;
-            stateUpdates.Begin(scope, streamEpoch, previous, sequence, DateTimeOffset.UtcNow)
-                .Merge(StateDelta.Empty with { ChatTargets = [delta] }, []);
+            var change = StateDelta.Empty with { ChatTargets = [delta] };
+            var now = DateTimeOffset.UtcNow;
+            stateUpdates.Begin(scope, streamEpoch, previous, sequence, now).Merge(change, []);
+            if (delta.Removed) AppendDaemonChanges(change, now);
         }
         PublishStateChanges();
     }

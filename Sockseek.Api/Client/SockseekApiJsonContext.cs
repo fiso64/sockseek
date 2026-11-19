@@ -146,7 +146,6 @@ namespace Sockseek.Api;
 [JsonSerializable(typeof(SendPrivateMessageRequestDto))]
 [JsonSerializable(typeof(SendChatMessageRequestDto))]
 [JsonSerializable(typeof(MarkChatReadRequestDto))]
-[JsonSerializable(typeof(ArchiveConversationRequestDto))]
 [JsonSerializable(typeof(JoinRoomRequestDto))]
 [JsonSerializable(typeof(AddRoomMemberRequestDto))]
 [JsonSerializable(typeof(MarkNotificationsReadRequestDto))]

@@ -296,7 +296,7 @@ public sealed class ChatLiveStateTests
 
     private static ConversationSummaryDto Conversation(
         Guid id, long revision, ChatMessageDto last)
-        => new(id, "Alice", false, false, 1, 0, revision, last);
+        => new(id, "Alice", false, 1, 0, revision, last);
 
     private static UserNotificationDto Notification(Guid conversationId, long sequence)
     {

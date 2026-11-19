@@ -28,7 +28,6 @@ internal static class ChatDtoMapper
             value.ConversationId,
             value.DisplayUsername,
             privateMessagesBlocked,
-            value.ArchivedAtUtc is not null,
             value.UnreadCount,
             value.LastReadSequence,
             value.Revision,

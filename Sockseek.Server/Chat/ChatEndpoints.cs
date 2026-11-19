@@ -66,7 +66,6 @@ internal static class ChatEndpoints
 
         app.MapGet("/api/chat/conversations", async (
             bool? unread,
-            bool? archived,
             string? cursor,
             int? limit,
             DaemonRuntime runtime,
@@ -75,7 +74,7 @@ internal static class ChatEndpoints
             return await WithChatAsync(runtime, async chat =>
             {
                 var page = await chat.GetConversationsAsync(
-                    unread, archived, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
+                    unread, cursor, limit ?? ServerProtocol.DefaultPageSize, cancellationToken);
                 return Results.Ok(new ConversationPageDto(
                     page.Items.Select(chat.MapConversation).ToArray(), page.NextCursor));
             });
@@ -196,38 +195,19 @@ internal static class ChatEndpoints
             .Produces<ConversationSummaryDto>()
             .WithChatErrors();
 
-        app.MapPost("/api/chat/conversations/{conversationId:guid}/archive", async (
-            Guid conversationId,
-            ArchiveConversationRequestDto request,
-            DaemonRuntime runtime,
-            CancellationToken cancellationToken) =>
-        {
-            return await WithChatAsync(runtime, async chat =>
-            {
-                await chat.ArchiveConversationAsync(conversationId, request.Archived, cancellationToken);
-                return Results.Ok(chat.MapConversation(
-                    await chat.GetConversationAsync(conversationId, cancellationToken)
-                    ?? throw new KeyNotFoundException("The conversation was not found.")));
-            });
-        })
-            .WithTags("Chat")
-            .WithSummary("Archives or reactivates a conversation.")
-            .Produces<ConversationSummaryDto>()
-            .WithChatErrors();
-
-        app.MapDelete("/api/chat/conversations/{conversationId:guid}/history", async (
+        app.MapDelete("/api/chat/conversations/{conversationId:guid}", async (
             Guid conversationId,
             DaemonRuntime runtime,
             CancellationToken cancellationToken) =>
         {
             return await WithChatAsync(runtime, async chat =>
             {
-                await chat.DeleteConversationHistoryAsync(conversationId, cancellationToken);
+                await chat.DeleteConversationAsync(conversationId, cancellationToken);
                 return Results.NoContent();
             });
         })
             .WithTags("Chat")
-            .WithSummary("Permanently deletes conversation history.")
+            .WithSummary("Permanently deletes the conversation, its messages, and their notifications.")
             .Produces(StatusCodes.Status204NoContent)
             .WithChatErrors();
 

@@ -168,7 +168,7 @@ public sealed class ChatRuntimeTests
     }
 
     [TestMethod]
-    public async Task DeletingHistoryPublishesAReplacementWindow()
+    public async Task DeletingConversationPublishesRemoval()
     {
         await using var database = await ChatDatabase.CreateAsync();
         var fake = SoulseekClientProxy.Create();
@@ -186,13 +186,12 @@ public sealed class ChatRuntimeTests
             message.TargetId, message.MessageId, CancellationToken.None);
         Assert.IsFalse(logger.Messages.Any(text => text.StartsWith("Deleted ", StringComparison.Ordinal)));
 
-        await chat.DeleteConversationHistoryAsync(
+        await chat.DeleteConversationAsync(
             message.TargetId, CancellationToken.None);
 
         ChatTargetDeltaDto replacement = changes.Last(change => change.TargetId == message.TargetId);
-        Assert.IsTrue(replacement.ReplaceMessages);
-        Assert.AreEqual(0, replacement.Messages?.Count);
-        Assert.AreEqual(false, replacement.HasEarlierMessages);
+        Assert.IsTrue(replacement.Removed);
+        Assert.IsNull(await chat.GetConversationAsync(message.TargetId, CancellationToken.None));
         Assert.IsTrue(logger.Messages.Any(text => text.StartsWith(
             "Deleted direct chat history", StringComparison.Ordinal)));
     }

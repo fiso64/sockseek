@@ -39,6 +39,7 @@ interface RowChange<T> { previous: T | undefined; current: T | undefined; }
 export interface DaemonStateChanges {
   snapshot: boolean;
   initialSnapshot: boolean;
+  removedConversationIds: readonly string[];
   jobHistoryPosition: Schema<'StateStreamPositionDto'> | null;
   previousDaemon: DaemonStateDto | null;
   jobs: ReadonlyMap<string, RowChange<JobStateDto>>;
@@ -143,6 +144,7 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
   private transfersByJob: Membership = new Map();
   private changedJobs = new Map<string, RowChange<JobStateDto>>();
   private changedTransfers = new Map<string, RowChange<TransferStateDto>>();
+  private removedConversationIds: string[] = [];
   private snapshotApplied = false;
   private initialSnapshot = false;
   private jobHistoryPosition: Schema<'StateStreamPositionDto'> | null = null;
@@ -167,8 +169,10 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
     const changes = {
       snapshot: this.snapshotApplied, initialSnapshot: this.initialSnapshot,
       jobHistoryPosition: this.jobHistoryPosition,
+      removedConversationIds: this.removedConversationIds,
       previousDaemon: this.previousDaemon, jobs: this.changedJobs, transfers: this.changedTransfers,
     };
+    this.removedConversationIds = [];
     this.changedJobs = new Map();
     this.changedTransfers = new Map();
     this.snapshotApplied = this.initialSnapshot = false;
@@ -200,6 +204,8 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
     if (!newer(batch.sequence, this.currentSequence)) return 'stale';
     if (wireInteger(batch.previousSequence) > wireInteger(this.currentSequence)) return 'recovery-required';
     const state = batch.state;
+    for (const target of state.chatTargets ?? [])
+      if (target.removed && target.kind === 'Direct') this.removedConversationIds.push(target.targetId);
     if (state.activitySummary) this.counts = activitySummary(state.activitySummary);
     if (state.daemon && (!this.currentDaemon || newer(state.daemon.revision, this.currentDaemon.revision)))
       this.currentDaemon = state.daemon;

@@ -15,7 +15,7 @@ partial class SockseekDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261119113556_InitialPersistence";
+    public override string LastMigrationId => "20261119173000_RemoveChatArchive";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -55,10 +55,6 @@ partial class SockseekDbContextModelSnapshot : ModelSnapshot
                     .ValueGeneratedOnAdd()
                     .HasColumnType("TEXT")
                     .HasColumnName("conversation_id");
-
-                b.Property<long?>("ArchivedAtUtc")
-                    .HasColumnType("INTEGER")
-                    .HasColumnName("archived_at_utc");
 
                 b.Property<long>("CreatedAtUtc")
                     .HasColumnType("INTEGER")

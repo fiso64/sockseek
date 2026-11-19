@@ -1008,14 +1008,12 @@ public sealed class SockseekApiClient
 
     public async Task<ConversationPageDto> GetConversationsAsync(
         bool? unread = null,
-        bool? archived = null,
         string? cursor = null,
         int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
     {
         string url = "api/chat/conversations?limit=" + limit.ToString(System.Globalization.CultureInfo.InvariantCulture)
             + QueryPart("unread", unread?.ToString().ToLowerInvariant())
-            + QueryPart("archived", archived?.ToString().ToLowerInvariant())
             + QueryPart("cursor", cursor);
         return await GetRequiredAsync<ConversationPageDto>(url, ct);
     }
@@ -1052,14 +1050,8 @@ public sealed class SockseekApiClient
             $"api/chat/conversations/{conversationId}/read",
             new MarkChatReadRequestDto(throughMessageId), ct);
 
-    public Task<ConversationSummaryDto> ArchiveConversationAsync(
-        Guid conversationId, bool archived = true, CancellationToken ct = default)
-        => PostRequiredAsync<ConversationSummaryDto, ArchiveConversationRequestDto>(
-            $"api/chat/conversations/{conversationId}/archive",
-            new ArchiveConversationRequestDto(archived), ct);
-
-    public Task DeleteConversationHistoryAsync(Guid conversationId, CancellationToken ct = default)
-        => DeleteRequiredAsync($"api/chat/conversations/{conversationId}/history", ct);
+    public Task DeleteConversationAsync(Guid conversationId, CancellationToken ct = default)
+        => DeleteRequiredAsync($"api/chat/conversations/{conversationId}", ct);
 
     public async Task<AvailableRoomPageDto> GetAvailableRoomsAsync(
         ServerChatRoomKind? kind = null,

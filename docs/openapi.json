@@ -4005,13 +4005,6 @@
             }
           },
           {
-            "name": "archived",
-            "in": "query",
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
             "name": "cursor",
             "in": "query",
             "schema": {
@@ -4418,6 +4411,99 @@
             "Browser": [ ]
           }
         ]
+      },
+      "delete": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Permanently deletes the conversation, its messages, and their notifications.",
+        "parameters": [
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
       }
     },
     "/api/chat/conversations/{conversationId}/messages": {
@@ -4688,213 +4774,6 @@
                 }
               }
             }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required or credential expired/revoked."
-          }
-        },
-        "security": [
-          {
-            "ApiKey": [ ]
-          },
-          {
-            "Browser": [ ]
-          }
-        ]
-      }
-    },
-    "/api/chat/conversations/{conversationId}/archive": {
-      "post": {
-        "tags": [
-          "Chat"
-        ],
-        "summary": "Archives or reactivates a conversation.",
-        "parameters": [
-          {
-            "name": "conversationId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ArchiveConversationRequestDto"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationSummaryDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Service Unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required or credential expired/revoked."
-          }
-        },
-        "security": [
-          {
-            "ApiKey": [ ]
-          },
-          {
-            "Browser": [ ]
-          }
-        ]
-      }
-    },
-    "/api/chat/conversations/{conversationId}/history": {
-      "delete": {
-        "tags": [
-          "Chat"
-        ],
-        "summary": "Permanently deletes conversation history.",
-        "parameters": [
-          {
-            "name": "conversationId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
           },
           "400": {
             "description": "Bad Request",
@@ -11509,15 +11388,6 @@
           }
         }
       },
-      "ArchiveConversationRequestDto": {
-        "type": "object",
-        "properties": {
-          "archived": {
-            "type": "boolean",
-            "default": true
-          }
-        }
-      },
       "AttemptedSongFileDto": {
         "required": [
           "target",
@@ -12474,7 +12344,6 @@
               "conversationId",
               "username",
               "privateMessagesBlocked",
-              "archived",
               "unreadCount",
               "lastReadSequence",
               "revision"
@@ -12489,9 +12358,6 @@
                 "type": "string"
               },
               "privateMessagesBlocked": {
-                "type": "boolean"
-              },
-              "archived": {
                 "type": "boolean"
               },
               "unreadCount": {
@@ -12866,6 +12732,10 @@
               "null",
               "boolean"
             ]
+          },
+          "removed": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -13328,7 +13198,6 @@
           "conversationId",
           "username",
           "privateMessagesBlocked",
-          "archived",
           "unreadCount",
           "lastReadSequence",
           "revision"
@@ -13343,9 +13212,6 @@
             "type": "string"
           },
           "privateMessagesBlocked": {
-            "type": "boolean"
-          },
-          "archived": {
             "type": "boolean"
           },
           "unreadCount": {
@@ -19227,7 +19093,6 @@
                         "conversationId",
                         "username",
                         "privateMessagesBlocked",
-                        "archived",
                         "unreadCount",
                         "lastReadSequence",
                         "revision"
@@ -19242,9 +19107,6 @@
                           "type": "string"
                         },
                         "privateMessagesBlocked": {
-                          "type": "boolean"
-                        },
-                        "archived": {
                           "type": "boolean"
                         },
                         "unreadCount": {
@@ -19619,6 +19481,10 @@
                         "null",
                         "boolean"
                       ]
+                    },
+                    "removed": {
+                      "type": "boolean",
+                      "default": false
                     }
                   }
                 }
@@ -27690,7 +27556,6 @@
                     "conversationId",
                     "username",
                     "privateMessagesBlocked",
-                    "archived",
                     "unreadCount",
                     "lastReadSequence",
                     "revision"
@@ -27705,9 +27570,6 @@
                       "type": "string"
                     },
                     "privateMessagesBlocked": {
-                      "type": "boolean"
-                    },
-                    "archived": {
                       "type": "boolean"
                     },
                     "unreadCount": {
@@ -28082,6 +27944,10 @@
                     "null",
                     "boolean"
                   ]
+                },
+                "removed": {
+                  "type": "boolean",
+                  "default": false
                 }
               }
             }
@@ -30839,7 +30705,6 @@
                         "conversationId",
                         "username",
                         "privateMessagesBlocked",
-                        "archived",
                         "unreadCount",
                         "lastReadSequence",
                         "revision"
@@ -30854,9 +30719,6 @@
                           "type": "string"
                         },
                         "privateMessagesBlocked": {
-                          "type": "boolean"
-                        },
-                        "archived": {
                           "type": "boolean"
                         },
                         "unreadCount": {
@@ -31231,6 +31093,10 @@
                         "null",
                         "boolean"
                       ]
+                    },
+                    "removed": {
+                      "type": "boolean",
+                      "default": false
                     }
                   }
                 }

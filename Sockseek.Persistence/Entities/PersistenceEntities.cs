@@ -216,7 +216,6 @@ internal sealed class ChatConversationEntity
     public string LocalAccountKey { get; set; } = "";
     public string PeerKey { get; set; } = "";
     public string DisplayUsername { get; set; } = "";
-    public long? ArchivedAtUtc { get; set; }
     public long LastReadSequence { get; set; }
     public long LastMessageSequence { get; set; }
     public long Revision { get; set; }

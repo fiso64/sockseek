@@ -206,6 +206,8 @@ internal sealed class StateUpdateCoalescer
 
     private static ChatTargetDeltaDto MergeChatTarget(ChatTargetDeltaDto current, ChatTargetDeltaDto next)
     {
+        if (next.Removed) return next;
+        if (current.Removed) return current;
         IEnumerable<ChatMessageDto> messageSource = next.ReplaceMessages
             ? next.Messages ?? []
             : (current.Messages ?? []).Concat(next.Messages ?? []);

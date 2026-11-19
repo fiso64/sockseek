@@ -55,7 +55,9 @@ export class ChatStateReducer {
     if (!newer(batch.sequence, this.sequence)) return 'stale';
     if (wireInteger(batch.previousSequence) > wireInteger(this.sequence)) return 'recovery-required';
     const delta = batch.state.chatTargets?.find((item) => item.targetId === this.target?.targetId);
-    if (delta) {
+    if (delta?.removed) {
+      this.target = null;
+    } else if (delta) {
       const messages = new Map<string, ChatTargetSnapshotDto['messages'][number]>();
       if (!delta.replaceMessages) for (const message of this.target.messages) messages.set(message.messageId, message);
       for (const message of delta.messages ?? []) messages.set(message.messageId, message);

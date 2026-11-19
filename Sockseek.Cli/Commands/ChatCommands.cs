@@ -34,7 +34,6 @@ internal static class ChatCommands
             {
                 var page = await api.GetConversationsAsync(
                     unread: Flag(args, "--unread") ? true : null,
-                    archived: null,
                     limit: Limit(args),
                     ct: ct);
                 if (Json(args)) Write(page, true);
@@ -45,7 +44,7 @@ internal static class ChatCommands
             case "messages":
             {
                 string username = RequiredArgument(args, 2, "username");
-                var conversation = await FindConversationAsync(api, username, ct)
+                var conversation = await api.GetConversationByPeerAsync(username, ct)
                     ?? throw new ArgumentException("Conversation not found.");
                 var page = await api.GetConversationMessagesAsync(conversation.ConversationId, limit: Limit(args), ct: ct);
                 WriteMessages(page.Items, args);
@@ -62,7 +61,7 @@ internal static class ChatCommands
             case "read":
             {
                 string username = RequiredArgument(args, 2, "username");
-                var conversation = await FindConversationAsync(api, username, ct)
+                var conversation = await api.GetConversationByPeerAsync(username, ct)
                     ?? throw new ArgumentException("Conversation not found.");
                 Guid through = ParseGuid(Option(args, "--through"))
                     ?? conversation.LastMessage?.MessageId
@@ -70,16 +69,16 @@ internal static class ChatCommands
                 Write(await api.MarkConversationReadAsync(conversation.ConversationId, through, ct), Json(args));
                 return Program.CliExitCode.Success;
             }
-            case "archive":
+            case "delete":
             {
                 string username = RequiredArgument(args, 2, "username");
-                var conversation = await FindConversationAsync(api, username, ct)
+                var conversation = await api.GetConversationByPeerAsync(username, ct)
                     ?? throw new ArgumentException("Conversation not found.");
-                Write(await api.ArchiveConversationAsync(conversation.ConversationId, true, ct), Json(args));
+                await api.DeleteConversationAsync(conversation.ConversationId, ct);
                 return Program.CliExitCode.Success;
             }
             default:
-                return ConfiguredCommandDispatcher.Usage("Expected chat status, conversations, messages, send, read, or archive.");
+                return ConfiguredCommandDispatcher.Usage("Expected chat status, conversations, messages, send, read, or delete.");
         }
     }
 
@@ -190,22 +189,6 @@ internal static class ChatCommands
             return ConfiguredCommandDispatcher.Usage("Notification id must be a UUID or 'all'.");
         Write(await api.MarkNotificationReadAsync(id, ct), Json(args));
         return Program.CliExitCode.Success;
-    }
-
-    private static async Task<ConversationSummaryDto?> FindConversationAsync(
-        SockseekApiClient api, string username, CancellationToken ct)
-    {
-        string? cursor = null;
-        do
-        {
-            var page = await api.GetConversationsAsync(cursor: cursor, limit: 200, ct: ct);
-            var match = page.Items.FirstOrDefault(item =>
-                string.Equals(item.Username, username, StringComparison.Ordinal));
-            if (match is not null)
-                return match;
-            cursor = page.NextCursor;
-        } while (cursor is not null);
-        return null;
     }
 
     private static async Task<ChatRoomSummaryDto?> FindRoomAsync(

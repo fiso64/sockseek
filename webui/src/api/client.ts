@@ -332,7 +332,7 @@ export class DaemonApiClient {
   }
 
   getConversations(cursor?: string | null, limit = defaultPageSize, signal?: AbortSignal): Promise<Schema<'ConversationPageDto'>> {
-    return this.http.get(`/chat/conversations${queryString({ archived: false, cursor, limit })}`, signal);
+    return this.http.get(`/chat/conversations${queryString({ cursor, limit })}`, signal);
   }
 
   getChatRooms(cursor?: string | null, limit = defaultPageSize, signal?: AbortSignal): Promise<Schema<'ChatRoomPageDto'>> {
@@ -398,13 +398,8 @@ export class DaemonApiClient {
     return this.http.delete(`/chat/rooms/${encodeURIComponent(roomId)}`, signal);
   }
 
-  archiveConversation(conversationId: string, archived = true, signal?: AbortSignal): Promise<Schema<'ConversationSummaryDto'>> {
-    const request: Schema<'ArchiveConversationRequestDto'> = { archived };
-    return this.http.post(`/chat/conversations/${encodeURIComponent(conversationId)}/archive`, request, signal);
-  }
-
-  deleteConversationHistory(conversationId: string, signal?: AbortSignal): Promise<void> {
-    return this.http.delete(`/chat/conversations/${encodeURIComponent(conversationId)}/history`, signal);
+  deleteConversation(conversationId: string, signal?: AbortSignal): Promise<void> {
+    return this.http.delete(`/chat/conversations/${encodeURIComponent(conversationId)}`, signal);
   }
 
   getSearchViewUpdate(viewId: string, afterRevision: number | string, signal?: AbortSignal,

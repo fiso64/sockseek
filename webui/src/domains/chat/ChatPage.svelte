@@ -9,6 +9,7 @@
   import type { UserLinkActions } from '../../app/navigation';
   import { formatCount, userInitials } from '../../app/format';
   import { daemonApi } from '../../api/client';
+  import { DaemonApiError } from '../../api/http';
   import Icon from '../../components/Icon.svelte';
   import LinkifiedText from '../../components/LinkifiedText.svelte';
   import UsernameLink from '../../components/UsernameLink.svelte';
@@ -84,7 +85,11 @@
 
   onMount(() => {
     void loadLists(true);
+    const unsubscribe = liveClient.onState((_, changes) => {
+      if (changes.removedConversationIds.length) removeConversations(changes.removedConversationIds);
+    });
     return () => {
+      unsubscribe();
       disposed = true;
       if (unreadRefreshTimer) clearTimeout(unreadRefreshTimer);
       selectionRevision++; activation++; void activeSubscription?.();
@@ -323,7 +328,11 @@
         else activeSubscription = unsubscribe;
       }
     } catch (cause) {
-      if (request === activation) targetError = asError(cause);
+      if (request === activation) {
+        if (next.kind === 'conversation' && cause instanceof DaemonApiError && cause.status === 404)
+          removeConversations([next.id]);
+        else targetError = asError(cause);
+      }
     } finally {
       if (request === activation) messagesLoading = false;
     }
@@ -365,7 +374,7 @@
     }
   }
 
-  function selectTarget(next: Target): void {
+  function selectTarget(next: Target | null): void {
     selectionRevision++;
     void activeSubscription?.();
     activeSubscription = null;
@@ -493,20 +502,22 @@
     else if (adding === 'user') { openOrCreateConversation(addDraft); addDraft = ''; adding = null; }
   }
 
+  function removeConversations(ids: readonly string[]): void {
+    const selected = target?.kind === 'conversation' && ids.includes(target.id);
+    if (!selected && !listLoading.conversations && !conversations.some(item => ids.includes(item.conversationId))) return;
+    conversations = conversations.filter(item => !ids.includes(item.conversationId));
+    if (selected) selectTarget(null);
+    void loadLists(true, ['conversations']);
+  }
+
   async function deleteActiveConversation(): Promise<void> {
     if (!activeConversation || mutation.phase === 'pending') return;
     const id = activeConversation.conversationId;
     const revision = selectionRevision;
     mutation = { phase: 'pending', label: 'Deleting chat…' };
     try {
-      await daemonApi.deleteConversationHistory(id);
-      await daemonApi.archiveConversation(id);
-      conversations = conversations.filter((item) => item.conversationId !== id);
-      if (revision !== selectionRevision) return;
-      target = null;
-      mutation = { phase: 'succeeded', label: 'Chat deleted' };
-      menuOpen = false;
-      await loadLists(true, ['conversations']);
+      await daemonApi.deleteConversation(id);
+      removeConversations([id]);
     } catch (cause) { if (revision === selectionRevision) mutation = { phase: 'rejected', label: 'Delete failed', detail: asError(cause).message }; }
   }
 

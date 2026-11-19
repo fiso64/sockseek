@@ -369,7 +369,6 @@ internal sealed class ChatConversationConfiguration : IEntityTypeConfiguration<C
         builder.Property(x => x.LocalAccountKey).HasColumnName("local_account_key").HasMaxLength(1024);
         builder.Property(x => x.PeerKey).HasColumnName("peer_key").HasMaxLength(1024);
         builder.Property(x => x.DisplayUsername).HasColumnName("display_username").HasMaxLength(1024);
-        builder.Property(x => x.ArchivedAtUtc).HasColumnName("archived_at_utc");
         builder.Property(x => x.LastReadSequence).HasColumnName("last_read_sequence");
         builder.Property(x => x.LastMessageSequence).HasColumnName("last_message_sequence");
         builder.Property(x => x.Revision).HasColumnName("revision");

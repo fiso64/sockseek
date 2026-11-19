@@ -149,8 +149,6 @@ public sealed class ChatApiTests
             await api.MarkConversationReadAsync(
                 conversation.ConversationId, messages.Items[^1].MessageId);
             Assert.AreEqual(0, (await api.GetNotificationsAsync(unread: true)).Items.Count);
-            await api.ArchiveConversationAsync(conversation.ConversationId);
-            Assert.IsTrue((await api.GetConversationAsync(conversation.ConversationId))!.Archived);
 
             foreach (string invalidRoom in new[] { "caf\u00e9", "two  spaces", new string('a', 25) })
             {
@@ -185,6 +183,11 @@ public sealed class ChatApiTests
                         conversation.ConversationId, new string('a', 257)));
             Assert.AreEqual(HttpStatusCode.BadRequest, invalidCursor.StatusCode);
             Assert.AreEqual("InvalidRequest", invalidCursor.Code);
+
+            await api.DeleteConversationAsync(conversation.ConversationId);
+            Assert.IsNull(await api.GetConversationAsync(conversation.ConversationId));
+            Assert.IsNull(await api.GetConversationByPeerAsync("Alice"));
+            Assert.IsEmpty((await api.GetNotificationsAsync()).Items);
         }
         finally
         {

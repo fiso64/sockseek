@@ -93,7 +93,6 @@ public sealed record ConversationRecord(
     string LocalAccountKey,
     string PeerKey,
     string DisplayUsername,
-    DateTimeOffset? ArchivedAtUtc,
     long LastReadSequence,
     long LastMessageSequence,
     long Revision,

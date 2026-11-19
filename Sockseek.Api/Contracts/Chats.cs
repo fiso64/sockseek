@@ -22,7 +22,6 @@ public sealed record ConversationSummaryDto(
     Guid ConversationId,
     string Username,
     bool PrivateMessagesBlocked,
-    bool Archived,
     int UnreadCount,
     long LastReadSequence,
     long Revision,
@@ -118,8 +117,6 @@ public sealed record SendChatMessageRequestDto(
     string Text);
 
 public sealed record MarkChatReadRequestDto(Guid ThroughMessageId);
-
-public sealed record ArchiveConversationRequestDto(bool Archived = true);
 
 public sealed record JoinRoomRequestDto(string RoomName, bool Remember = true);
 

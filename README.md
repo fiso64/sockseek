@@ -1417,7 +1417,7 @@ sockseek chat send <username> <message>
                                     Send a private message
 sockseek chat read <username> [--through <message-id>]
                                     Mark a conversation as read
-sockseek chat archive <username>    Archive a conversation
+sockseek chat delete <username>     Permanently delete a conversation and its messages
 
 sockseek room available|joined      List available or joined rooms
 sockseek room join <name> [--no-remember]

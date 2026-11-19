@@ -3747,7 +3747,6 @@ export interface paths {
             parameters: {
                 query?: {
                     unread?: boolean;
-                    archived?: boolean;
                     cursor?: string;
                     limit?: number | string;
                 };
@@ -4130,7 +4129,88 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
+        /** Permanently deletes the conversation, its messages, and their notifications. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    conversationId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -4423,206 +4503,6 @@ export interface paths {
             };
         };
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/chat/conversations/{conversationId}/archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Archives or reactivates a conversation. */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    conversationId: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["ArchiveConversationRequestDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ConversationSummaryDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Authentication required or credential expired/revoked. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Conflict */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Too Many Requests */
-                429: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Service Unavailable */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/chat/conversations/{conversationId}/history": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Permanently deletes conversation history. */
-        delete: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    conversationId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description No Content */
-                204: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Authentication required or credential expired/revoked. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Forbidden */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Not Found */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Conflict */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Too Many Requests */
-                429: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-                /** @description Service Unavailable */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ApiErrorDto"];
-                    };
-                };
-            };
-        };
         options?: never;
         head?: never;
         patch?: never;
@@ -10375,10 +10255,6 @@ export interface components {
             name: string;
             source: string;
         };
-        ArchiveConversationRequestDto: {
-            /** @default true */
-            archived: boolean;
-        };
         AttemptedSongFileDto: {
             target: {
                 username: string;
@@ -10607,7 +10483,6 @@ export interface components {
                 conversationId: string;
                 username: string;
                 privateMessagesBlocked: boolean;
-                archived: boolean;
                 /** Format: int32 */
                 unreadCount: number | string;
                 /** Format: int64 */
@@ -10707,6 +10582,8 @@ export interface components {
             /** @default false */
             replaceMessages: boolean;
             hasEarlierMessages?: null | boolean;
+            /** @default false */
+            removed: boolean;
         };
         ChatTargetSnapshotDto: {
             kind: components["schemas"]["ServerChatTargetKind"];
@@ -10815,7 +10692,6 @@ export interface components {
             conversationId: string;
             username: string;
             privateMessagesBlocked: boolean;
-            archived: boolean;
             /** Format: int32 */
             unreadCount: number | string;
             /** Format: int64 */
@@ -12106,7 +11982,6 @@ export interface components {
                         conversationId: string;
                         username: string;
                         privateMessagesBlocked: boolean;
-                        archived: boolean;
                         /** Format: int32 */
                         unreadCount: number | string;
                         /** Format: int64 */
@@ -12206,6 +12081,8 @@ export interface components {
                     /** @default false */
                     replaceMessages: boolean;
                     hasEarlierMessages?: null | boolean;
+                    /** @default false */
+                    removed: boolean;
                 }[];
                 userBrowse?: components["schemas"]["UserBrowseDto"] | null;
                 activitySummary?: {
@@ -14111,7 +13988,6 @@ export interface components {
                     conversationId: string;
                     username: string;
                     privateMessagesBlocked: boolean;
-                    archived: boolean;
                     /** Format: int32 */
                     unreadCount: number | string;
                     /** Format: int64 */
@@ -14211,6 +14087,8 @@ export interface components {
                 /** @default false */
                 replaceMessages: boolean;
                 hasEarlierMessages?: null | boolean;
+                /** @default false */
+                removed: boolean;
             }[];
             userBrowse?: components["schemas"]["UserBrowseDto"] | null;
             activitySummary?: {
@@ -14869,7 +14747,6 @@ export interface components {
                         conversationId: string;
                         username: string;
                         privateMessagesBlocked: boolean;
-                        archived: boolean;
                         /** Format: int32 */
                         unreadCount: number | string;
                         /** Format: int64 */
@@ -14969,6 +14846,8 @@ export interface components {
                     /** @default false */
                     replaceMessages: boolean;
                     hasEarlierMessages?: null | boolean;
+                    /** @default false */
+                    removed: boolean;
                 }[];
                 userBrowse?: components["schemas"]["UserBrowseDto"] | null;
                 activitySummary?: {
