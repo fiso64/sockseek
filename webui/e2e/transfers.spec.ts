@@ -614,8 +614,9 @@ test('keeps a loaded folder member page when another member finishes', async ({ 
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
   failGroupRefresh = true;
   await daemon.command('release-download');
-  await expect(folder).toContainText('1 complete · 1 cancelled');
-  await expect(folder.locator('.folder-file-row')).toHaveCount(2);
+  const members = folder.locator('.folder-file-row');
+  await expect(members.filter({ hasText: 'Active.txt' }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
+  await expect(members.filter({ hasText: 'Cancelled.txt' }).getByRole('button', { name: 'Cancelled', exact: true })).toBeVisible();
   await expect(folder.getByRole('button', { name: 'Retry loading folder files' })).toBeVisible();
   failGroupRefresh = false;
   await folder.getByRole('button', { name: 'Retry loading folder files' }).click();

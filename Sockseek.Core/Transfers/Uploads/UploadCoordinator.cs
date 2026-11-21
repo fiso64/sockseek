@@ -1061,7 +1061,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
 
 internal static partial class UploadLogMessages
 {
-    [LoggerMessage(4317, LogLevel.Debug, "Upload {TransferId}: all file bytes reported; awaiting transfer completion")]
+    [LoggerMessage(4318, LogLevel.Debug, "Upload {TransferId}: all file bytes reported; awaiting transfer completion")]
     public static partial void AllBytesReported(ILogger logger, Guid transferId);
 
     [LoggerMessage(4316, LogLevel.Debug, "Could not report measured upload speed to the Soulseek server")]

@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- Avoid compiling Minimal API bindings on the first request. -->
     <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
+    <!-- Callers use Server as a library. Its executable entry point is only for OpenAPI generation. -->
+    <ShouldBeValidatedAsExecutableReference>false</ShouldBeValidatedAsExecutableReference>
     <AssemblyName>Sockseek.Server</AssemblyName>
     <RootNamespace>Sockseek.Server</RootNamespace>
   </PropertyGroup>
