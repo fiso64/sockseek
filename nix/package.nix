@@ -5,9 +5,15 @@
   buildNpmPackage,
   nodejs_24,
   yt-dlp,
+  sourceRevision ? null,
 }:
 let
-  version = "4.0.0-preview";
+  props = builtins.readFile ../Directory.Build.props;
+  versionProperty = name: builtins.match ".*<${name}>([^<]+)</${name}>.*" props;
+  prefix = lib.trim (builtins.head (versionProperty "VersionPrefix"));
+  suffixMatch = versionProperty "VersionSuffix";
+  suffix = if suffixMatch == null then "" else lib.trim (builtins.head suffixMatch);
+  version = prefix + lib.optionalString (suffix != "") "-${suffix}";
   source =
     paths:
     lib.fileset.toSource {
@@ -85,7 +91,7 @@ buildDotnetModule {
     "-p:DeterministicSourcePaths=false"
     "-p:SkipWebUiBuild=true"
     "-p:OpenApiGenerateDocuments=false"
-  ];
+  ] ++ lib.optional (sourceRevision != null) "-p:SourceRevisionId=${sourceRevision}";
   # The CLI builds its help generator through an MSBuild target. Include that
   # project's dependencies when nixpkgs runs the restore-only fetch-deps helper.
   postConfigure = ''

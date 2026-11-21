@@ -780,9 +780,7 @@ public class OpenApiContractTests
             var info = await new SockseekApiClient(http).GetServerInfoAsync();
 
             Assert.AreEqual(LiveProtocol.Version, info.LiveProtocolVersion);
-            string productVersion = typeof(ServerHost).Assembly
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion.Split('+')[0];
-            Assert.AreEqual(productVersion, info.Version);
+            Assert.AreEqual(ProductVersion.Display, info.Version);
             using var noRedirect = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
             {
                 BaseAddress = new Uri(url),

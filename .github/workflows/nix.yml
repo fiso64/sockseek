@@ -7,6 +7,7 @@ on:
       - 'flake.*'
       - 'nix/**'
       - 'global.json'
+      - 'Directory.Build.props'
       - '**.csproj'
       - '**/packages.lock.json'
       - '**/package-lock.json'

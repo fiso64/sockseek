@@ -244,7 +244,7 @@ public sealed class EngineSupervisor : IDisposable
 
     public ServerInfoDto GetInfo()
     {
-        string version = ServerHost.GetVersion();
+        string version = ProductVersion.Display;
         return new ServerInfoDto(options.Name, version, StartedAtUtc, LiveProtocol.Version);
     }
 

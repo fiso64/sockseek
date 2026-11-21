@@ -111,7 +111,7 @@ public sealed class PersistenceCoordinator(
             TransferProgressFlushInterval = options.Persistence.TransferProgressFlushInterval,
         };
         writerOptions.Validate();
-        string version = ServerHost.GetVersion();
+        string version = ProductVersion.Display;
         // SQLite can otherwise remain in its own five-second lock wait after the
         // configured persistence drain deadline has elapsed.
         int busyTimeoutMilliseconds = (int)Math.Clamp(

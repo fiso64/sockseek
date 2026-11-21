@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Sockseek.Api;
+using Sockseek.Core;
 using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Settings;
 using Sockseek.Server.Persistence;
@@ -219,7 +220,7 @@ public static class ServerHost
                 document.Info = new()
                 {
                     Title = "Sockseek daemon API",
-                    Version = GetVersion(),
+                    Version = ProductVersion.Release,
                     Description = "HTTP API for the Sockseek daemon."
                 };
 
@@ -373,17 +374,6 @@ public static class ServerHost
                 .ExcludeFromDescription();
         app.Map("/api/{**unmatched}", () => Results.NotFound());
         return app;
-    }
-
-    internal static string GetVersion()
-    {
-        var assembly = typeof(ServerHost).Assembly;
-        var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
-            ?? assembly.GetName().Version?.ToString()
-            ?? "0.0.0";
-
-        var metadataIndex = version.IndexOf('+', StringComparison.Ordinal);
-        return metadataIndex >= 0 ? version[..metadataIndex] : version;
     }
 
     private static void MapEndpoints(WebApplication app)

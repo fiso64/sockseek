@@ -23,24 +23,10 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
     <PackagerDll>$(RepoRoot)/Sockseek.Packager/bin/$(Configuration)/$(PackagerTargetFramework)/Sockseek.Packager.dll</PackagerDll>
   </PropertyGroup>
 
-  <Target Name="SetSnapshotVersionSuffix"
-          Condition="'$(SnapshotBuild)' == 'true' and '$(VersionSuffix)' == ''">
-    <Exec Command="git -C &quot;$(RepoRoot)&quot; rev-parse --short HEAD"
-          ConsoleToMSBuild="true"
-          StandardOutputImportance="Low">
-      <Output TaskParameter="ConsoleOutput" ItemName="_GitShortShaOutput" />
-    </Exec>
-
-    <PropertyGroup>
-      <GitShortSha>@(_GitShortShaOutput->'%(Identity)')</GitShortSha>
-      <SnapshotLabel Condition="'$(SnapshotLabel)' == ''">preview</SnapshotLabel>
-      <VersionSuffix>$(SnapshotLabel).g$(GitShortSha)</VersionSuffix>
+  <Target Name="SetPackageVersion">
+    <PropertyGroup Condition="'$(SnapshotBuild)' == 'true' and '$(SnapshotLabel)' != ''">
+      <VersionSuffix>$(SnapshotLabel)</VersionSuffix>
     </PropertyGroup>
-
-    <Message Importance="High" Text="Using snapshot version suffix '$(VersionSuffix)'." />
-  </Target>
-
-  <Target Name="SetPackageVersion" DependsOnTargets="SetSnapshotVersionSuffix">
     <Error Condition="'$(VersionPrefix)' == ''"
            Text="VersionPrefix is empty. Set -p:VersionPrefix=... or define it in Directory.Build.props." />
 

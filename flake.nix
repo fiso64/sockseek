@@ -13,7 +13,9 @@
     in
     {
       packages = forLinux (system: rec {
-        sockseek = nixpkgs.legacyPackages.${system}.callPackage ./nix/package.nix { };
+        sockseek = nixpkgs.legacyPackages.${system}.callPackage ./nix/package.nix {
+          sourceRevision = self.rev or (self.dirtyRev or null);
+        };
         default = sockseek;
       });
 

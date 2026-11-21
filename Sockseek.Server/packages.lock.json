@@ -308,7 +308,7 @@
         "dependencies": {
           "Microsoft.EntityFrameworkCore.Sqlite": "[11.0.0, )",
           "SQLitePCLRaw.lib.e_sqlite3": "[3.53.3, )",
-          "Sockseek.Core": "[4.0.0-preview, )"
+          "Sockseek.Core": "[4.0.0-alpha.1, )"
         }
       }
     }

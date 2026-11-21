@@ -656,10 +656,10 @@
           "Microsoft.AspNetCore.SignalR.Protocols.Json": "[11.0.0, )",
           "Microsoft.EntityFrameworkCore.Sqlite": "[11.0.0, )",
           "SQLitePCLRaw.lib.e_sqlite3": "[3.53.3, )",
-          "Sockseek.Api": "[4.0.0-preview, )",
-          "Sockseek.Core": "[4.0.0-preview, )",
-          "Sockseek.Persistence": "[4.0.0-preview, )",
-          "Sockseek.Server": "[4.0.0-preview, )",
+          "Sockseek.Api": "[4.0.0-alpha.1, )",
+          "Sockseek.Core": "[4.0.0-alpha.1, )",
+          "Sockseek.Persistence": "[4.0.0-alpha.1, )",
+          "Sockseek.Server": "[4.0.0-alpha.1, )",
           "Spectre.Console": "[0.57.2, )"
         }
       },
@@ -692,7 +692,7 @@
         "dependencies": {
           "Microsoft.EntityFrameworkCore.Sqlite": "[11.0.0, )",
           "SQLitePCLRaw.lib.e_sqlite3": "[3.53.3, )",
-          "Sockseek.Core": "[4.0.0-preview, )"
+          "Sockseek.Core": "[4.0.0-alpha.1, )"
         }
       },
       "sockseek.server": {
@@ -700,9 +700,9 @@
         "dependencies": {
           "Microsoft.AspNetCore.OpenApi": "[11.0.0, )",
           "Microsoft.OpenApi": "[3.11.0, )",
-          "Sockseek.Api": "[4.0.0-preview, )",
-          "Sockseek.Core": "[4.0.0-preview, )",
-          "Sockseek.Persistence": "[4.0.0-preview, )"
+          "Sockseek.Api": "[4.0.0-alpha.1, )",
+          "Sockseek.Core": "[4.0.0-alpha.1, )",
+          "Sockseek.Persistence": "[4.0.0-alpha.1, )"
         }
       }
     }

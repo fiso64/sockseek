@@ -1,3 +1,5 @@
+using Sockseek.Core;
+
 namespace Sockseek.Cli;
 
 public static partial class Help
@@ -46,14 +48,7 @@ public static partial class Help
             Console.WriteLine("\nSee sockseek --help remote for shared remote CLI options.");
     }
 
-    public static void PrintVersion()
-    {
-        var asm = System.Reflection.Assembly.GetExecutingAssembly();
-        var attr = (System.Reflection.AssemblyInformationalVersionAttribute?)
-            System.Attribute.GetCustomAttribute(asm, typeof(System.Reflection.AssemblyInformationalVersionAttribute));
-        var v = attr?.InformationalVersion ?? "";
-        Console.WriteLine(v.Split('+')[0]);
-    }
+    public static void PrintVersion() => Console.WriteLine(ProductVersion.Display);
 
     public static bool PrintAndExitIfNeeded(string[] args)
     {

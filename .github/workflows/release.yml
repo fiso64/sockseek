@@ -37,7 +37,7 @@ jobs:
           RID: ${{ matrix.rid }}
           TARGETS: ${{ matrix.deb && 'PublishPackage;PublishDeb' || 'PublishPackage' }}
         run: |
-          version=(-p:VersionSuffix="preview.g${GITHUB_SHA:0:8}")
+          version=(-p:VersionSuffix="alpha.${GITHUB_RUN_NUMBER}")
           if [[ $GITHUB_EVENT_NAME == push ]]; then
             [[ $GITHUB_REF_NAME =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)(-([0-9A-Za-z.-]+))?$ ]] || { echo "Invalid release tag: $GITHUB_REF_NAME"; exit 1; }
             version=(-p:VersionPrefix="${BASH_REMATCH[1]}" -p:VersionSuffix="${BASH_REMATCH[3]}")
@@ -107,4 +107,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: SOCKSEEK_VERSION=${{ steps.meta.outputs.version }}
+          build-args: |
+            SOCKSEEK_VERSION=${{ steps.meta.outputs.version }}
+            SOURCE_REVISION=${{ github.sha }}
