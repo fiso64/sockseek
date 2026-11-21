@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmptyState from '../../components/EmptyState.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onDestroy, untrack } from 'svelte';
   import { runTransferCommands } from './commands';
@@ -479,7 +480,7 @@
   {:else if error && !groups.length}
     <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Transfers unavailable'}</strong><small>{daemonOffline ? direction === 'download' ? 'Current download state cannot be loaded while the daemon is offline.' : 'Current upload state cannot be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button class="button" type="button" onclick={() => void onchanged()}>Retry</button>{/if}</div>
   {:else if !groups.length && !error && coverage?.state === 'Available'}
-    <div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>No {direction}s</strong></span></div>
+    <EmptyState icon={direction} title={`No ${direction}s`} />
   {:else if groups.length}
     <div class="transfer-peer-list">
       {#each groups as group (group.key)}

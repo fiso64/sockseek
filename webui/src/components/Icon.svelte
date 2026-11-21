@@ -16,6 +16,8 @@
     {#if name === 'search-split'}<path d="M12 6.5v11" />{/if}
   {:else if name === 'refresh'}
     <path d="M3 12a9 9 0 0 1 9-9c2.5 0 4.9 1 6.7 2.8L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9c-2.5 0-4.9-1-6.7-2.8L3 16M8 16H3v5" />
+  {:else if name === 'book'}
+    <path d="M12 6c-3-2-6-2.5-9-2v14c3-.5 6 0 9 2 3-2 6-2.5 9-2V4c-3-.5-6 0-9 2Zm0 0v14" />
   {:else if name === 'help'}
     <circle cx="12" cy="12" r="9" />
     <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.8-2.5 2-2.5 4" />

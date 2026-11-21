@@ -3,6 +3,7 @@
   import PageTabs from '../../components/PageTabs.svelte';
   import { keyboardList } from '../../lib/keyboard';
   import type { JobsTab } from './job-list.svelte';
+  import EmptyState from '../../components/EmptyState.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onMount, untrack, tick } from 'svelte';
   import type { JobSummaryDto, Schema } from '../../api/types';
@@ -155,7 +156,7 @@
   {:else if error && !ordered.length}
     <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Jobs unavailable'}</strong><small>{daemonOffline ? 'This resource cannot be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button class="button" type="button" onclick={onretry}>Retry</button>{/if}</div>
   {:else if !ordered.length && !error && !hasMore}
-    <div class="resource-state-notice empty blocking" role="status"><span class="resource-state-dot" aria-hidden="true"></span><span class="resource-state-copy"><strong>{tab === 'searches' ? 'No searches yet' : 'No download jobs yet'}</strong></span></div>
+    <EmptyState icon={tab === 'searches' ? 'search' : 'jobs'} title={tab === 'searches' ? 'No searches yet' : 'No download jobs yet'} />
   {:else}
     <div class="panel inset search-history-list">
       {#each ordered as entry (entry.root.jobId)}

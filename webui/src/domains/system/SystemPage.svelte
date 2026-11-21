@@ -1,5 +1,6 @@
 <script lang="ts">
   import DocumentationLink from '../../components/DocumentationLink.svelte';
+  import EmptyState from '../../components/EmptyState.svelte';
   import type { Schema } from '../../api/types';
   import type { DaemonLiveClient, LiveConnectionStatus } from '../../api/live';
   import { DaemonHttpClient } from '../../api/http';
@@ -74,10 +75,10 @@
         title={sharing?.state === 'Disabled' ? 'Configure shared folders before rescanning.' : undefined}>
         <Icon name="refresh" spin={scanning} />{scanning ? 'Scanning…' : 'Rescan shares'}
       </button>
-      <DocumentationLink />
       {#if browserSession.data?.authenticationEnabled}
         <button class="button auth-button" onclick={() => void logout()} disabled={pending}><Icon name="log-out" />Sign out</button>
       {/if}
+      <DocumentationLink />
     </div>
   </header>
   <div role="tabpanel" id="system-tab-panel" aria-labelledby={`system-tab-${tab}`}>
@@ -117,7 +118,8 @@
     {:else if !sharing}
       <LoadingIndicator />
     {:else}
-      <Notice>{sharing.state === 'Disabled' ? 'Configure shared folders in the daemon configuration to start sharing.' : 'No share catalog has been published yet. Scan your shares to build one.'}</Notice>
+      <EmptyState icon="folder" title={sharing.state === 'Disabled' ? 'Sharing disabled' : 'No share catalog has been published yet.'}
+        detail={sharing.state === 'Disabled' ? 'Configure shared folders in the daemon configuration to start sharing.' : 'Scan your shares to build one.'} />
     {/if}
   {:else if tab === 'management'}
     <ManagementTab />
@@ -130,10 +132,10 @@
 <style>
   .page-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
   .settings-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .settings-actions button { display: inline-flex; align-items: center; gap: 7px; --app-icon-size: 16px; }
+  .settings-actions > :global(.button) { display: inline-flex; align-items: center; gap: 7px; --app-icon-size: 16px; }
   @media (max-width: 600px) {
     .system-page { --content-gutter: 18px; }
     .settings-actions { gap: 6px; }
-    .settings-actions button { padding-inline: 6px; gap: 5px; }
+    .settings-actions > :global(.button) { padding-inline: 6px; gap: 5px; }
   }
 </style>

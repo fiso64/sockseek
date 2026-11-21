@@ -2,6 +2,7 @@
   import HelpPopover from '../../components/HelpPopover.svelte';
   import { tick, untrack } from 'svelte';
   import { keyboardList } from '../../lib/keyboard';
+  import EmptyState from '../../components/EmptyState.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import type { JobSummaryDto, Schema, SearchViewRequest } from '../../api/types';
   import { searchViewUnavailable } from './controller';
@@ -1024,7 +1025,8 @@
         <LoadingIndicator label={searching ? 'Searching' : 'Loading search results'} blocking />
       {/if}
     {:else}
-      <div class="search-results-empty"><strong>{emptyResultsHeading()}</strong>{#if retentionNotice || searching || (viewState.summary?.isComplete && !viewState.refining)}<span>{emptyResultsDetail()}</span>{/if}</div>
+      <EmptyState class="search-results-empty" icon="search" title={emptyResultsHeading()}
+        detail={retentionNotice || searching || (viewState.summary?.isComplete && !viewState.refining) ? emptyResultsDetail() : undefined} />
     {/if}
   {:else if viewState.draft?.resultMode === 'song-groups' || viewState.draft?.resultMode === 'album-groups'}
     {#if libraryStatus}
@@ -1171,7 +1173,7 @@
       </header>
       <div class="group-options-list">
         {#if panel.filterText && !panel.items.length && !panel.loading && !panel.error}
-          <p class="search-results-empty">No matching options.</p>
+          <EmptyState class="search-results-empty" icon="search" title="No matching options." />
         {/if}
         {#each panel.items as option (option.ref)}
           {@const peer = option.value.peer}

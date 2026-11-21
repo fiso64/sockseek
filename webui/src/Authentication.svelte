@@ -66,7 +66,7 @@
             <img class="brand-mark" src="sockseek-logo.svg" alt="" />
             <div class="brand-copy"><strong>sockseek</strong></div>
           </div>
-          <DocumentationLink />
+          <DocumentationLink quiet />
         </div>
         {#if !browserSession.data}<h1>Connection unavailable</h1>{/if}
       </header>

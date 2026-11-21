@@ -3,6 +3,7 @@
   import { DaemonHttpClient } from '../../api/http';
   import type { Schema } from '../../api/types';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
+  import EmptyState from '../../components/EmptyState.svelte';
   import Modal from '../../components/Modal.svelte';
 
   const http = new DaemonHttpClient();
@@ -72,7 +73,7 @@
             <button class="button auth-button" disabled={pending} aria-label={`Revoke ${key.name}`} onclick={() => { error = null; revoking = key; }}>Revoke</button></li>
         {/each}
       </ul>
-    {:else if !error}<p class="keys-empty">No API keys yet.</p>{/if}
+    {:else if !error}<EmptyState class="inline-empty-state" icon="lock" title="No API keys yet." />{/if}
   </section>
 
 {#if creating}
@@ -116,7 +117,6 @@
   li:last-child { padding-bottom: 0; }
   strong { font-weight: 550; }
   small { display: block; margin-top: 4px; color: var(--muted); font-size: .72rem; }
-  .keys-empty { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
   form, .key-secret { display: grid; gap: 14px; font-size: .8125rem; }
   .key-secret p { margin: 0; }
   form > button, .key-secret > button { justify-self: end; }

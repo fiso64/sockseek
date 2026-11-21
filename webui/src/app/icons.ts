@@ -1,4 +1,4 @@
-export type AppIconName = 'search-split' | 'search-merge' | 'refresh' | 'help' | 'info' | 'dashboard' | 'jobs' | 'search' | 'user' | 'folder' | 'file' | 'lock' | 'download' | 'upload' | 'chat' | 'settings' | 'log-out' | 'sliders' | 'trash' | 'check' | 'clock' | 'x' | 'more' | 'generic' | 'track' | 'album' | 'song-groups' | 'album-groups' | 'group-job' | 'album-groups-job' | 'job-list' | 'retrieve-folder' | 'link' | 'upload-file' | 'spotify' | 'youtube' | 'soundcloud' | 'bandcamp' | 'musicbrainz' | 'soulseek';
+export type AppIconName = 'search-split' | 'search-merge' | 'refresh' | 'book' | 'help' | 'info' | 'dashboard' | 'jobs' | 'search' | 'user' | 'folder' | 'file' | 'lock' | 'download' | 'upload' | 'chat' | 'settings' | 'log-out' | 'sliders' | 'trash' | 'check' | 'clock' | 'x' | 'more' | 'generic' | 'track' | 'album' | 'song-groups' | 'album-groups' | 'group-job' | 'album-groups-job' | 'job-list' | 'retrieve-folder' | 'link' | 'upload-file' | 'spotify' | 'youtube' | 'soundcloud' | 'bandcamp' | 'musicbrainz' | 'soulseek';
 
 // Single paths let folder cards clone each decorative icon as one static SVG template.
 export const folderItemIconPaths = {

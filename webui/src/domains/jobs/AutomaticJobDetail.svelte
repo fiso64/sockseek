@@ -1,6 +1,7 @@
 <script lang="ts">
   import JobRow from './JobRow.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
+  import EmptyState from '../../components/EmptyState.svelte';
   import { untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import TransferStateLabel from '../../components/items/TransferStateLabel.svelte';
@@ -750,7 +751,7 @@
           {/if}
         {:else}
           {#if !sourceJobId && !loading && !cursor && !childError}
-            <div class="job-detail-empty"><strong>No child jobs</strong></div>
+            <EmptyState class="inline-empty-state" icon="jobs" title="No child jobs" />
           {/if}
         {/each}
       </div>

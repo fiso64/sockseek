@@ -6,6 +6,7 @@
   import { daemonApi } from '../../api/client';
   import { downloadOptionsFromResolved, buildDownloadOptionsPatch, rebaseOptions, type DownloadOptions } from '../jobs/download-options';
   import { keyboardList } from '../../lib/keyboard';
+  import EmptyState from '../../components/EmptyState.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onDestroy, untrack, type Snippet } from 'svelte';
   import type { BrowseDirectoryEntryDto, BrowseFileEntryDto, BrowseSearchPageDto, Schema } from '../../api/types';
@@ -663,7 +664,7 @@
             </div>
           {/if}
           {#if filterPage && !filterLoading && !filterError && !filterItems.length}
-            <div class="search-results-empty"><strong>No matching files</strong></div>
+            <EmptyState class="search-results-empty" icon="search" title="No matching files" />
           {/if}
           {#if filterPage?.nextCursor}<div data-keyboard-page="filter" data-loading={filterLoading} data-failed={Boolean(filterError)}><LoadMoreButton loading={filterLoading} onclick={() => browse && void loadFilter(browse.browseId, filterText.trim(), filterPage?.nextCursor ?? null, false)}/></div>{/if}
         {:else if treeRows.length}
@@ -723,10 +724,7 @@
             {/each}
           </div>
         {:else if pageStates.get('root')?.loaded && !pageStates.get('root')?.error}
-          <div class="search-results-empty">
-            <strong>No shared files</strong>
-            <span>This browse contains no visible entries.</span>
-          </div>
+          <EmptyState class="search-results-empty" icon="folder" title="No shared files" detail="This browse contains no visible entries." />
         {/if}
 
       </div>

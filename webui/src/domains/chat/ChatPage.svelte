@@ -1,5 +1,6 @@
 <script lang="ts">
   import { userPresence } from '../users/presence.svelte';
+  import EmptyState from '../../components/EmptyState.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { randomUUID } from '../../app/uuid';
   import { onMount, tick, untrack } from 'svelte';
@@ -807,9 +808,12 @@
         {:else if listsLoading && !target && !listsError}
           <LoadingIndicator label="Loading chat" />
         {:else if activeMessages.length === 0}
-          <div class="chat-empty-thread">
-            <strong>{targetError || (listsError && !target) ? 'Messages unavailable' : target?.kind === 'draft' ? 'New chat' : target ? 'No messages yet' : 'Choose a room or user'}</strong>
-          </div>
+          {#if targetError || (listsError && !target)}
+            <div class="chat-empty-thread"><strong>Messages unavailable</strong></div>
+          {:else}
+            <EmptyState class="chat-empty-thread" icon="chat"
+              title={target?.kind === 'draft' ? 'New chat' : target ? 'No messages yet' : 'Choose a room or user'} />
+          {/if}
         {:else if activeRoom}
           {#each activeMessages as message (message.messageId)}
             <div class:mine={message.direction === 'Outgoing'}
