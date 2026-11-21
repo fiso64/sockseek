@@ -1,3 +1,4 @@
+using Sockseek.Core;
 using Sockseek.Core.Settings;
 
 namespace Sockseek.Cli;
@@ -19,7 +20,7 @@ public class RemoteSettings
     {
         if (ApiKey is not null && ApiKeyFile is not null)
             throw new ArgumentException("Configure one remote API key or key file, not both.");
-        var secret = ApiKeyFile is null ? ApiKey : Server.Authentication.AuthenticationOptions.ReadSecretFile(ApiKeyFile);
+        var secret = ApiKeyFile is null ? ApiKey : Utils.ReadSecretFile(ApiKeyFile);
         return Api.SockseekApiClient.CreateHttpClient(ServerUrl
             ?? throw new ArgumentException("A remote server URL is required."), secret);
     }

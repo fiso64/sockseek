@@ -44,6 +44,16 @@ public static partial class Utils
             || str.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
     }
 
+    public static string ReadSecretFile(string path)
+    {
+        // Permit the one line terminator produced by shell/secret-file tools, preserving all other whitespace.
+        string secret = File.ReadAllText(path);
+        if (secret.EndsWith("\r\n", StringComparison.Ordinal)) secret = secret[..^2];
+        else if (secret.EndsWith('\n')) secret = secret[..^1];
+        if (secret.Length == 0) throw new ArgumentException($"The credential file '{path}' is empty.");
+        return secret;
+    }
+
     public static string GetFullPath(string path)
     {
         if (string.IsNullOrEmpty(path))

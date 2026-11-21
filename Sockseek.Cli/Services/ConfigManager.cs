@@ -31,9 +31,12 @@ public static partial class ConfigManager
     public static string ExtractConfigPath(IReadOnlyList<string> args) => GetConfigPath(ParseInvocation(args));
 
     public static string GetConfigPath(ParsedInvocation invocation)
+        => GetConfigPath(invocation.ConfigPath);
+
+    private static string GetConfigPath(string? configuredPath)
     {
-        if (invocation.ConfigPath == "none") return "none";
-        if (invocation.ConfigPath is { } requested)
+        if (configuredPath == "none") return "none";
+        if (configuredPath is { } requested)
         {
             var path = Utils.ExpandVariables(requested);
             var adjacent = Path.Join(AppDomain.CurrentDomain.BaseDirectory, path);
@@ -54,7 +57,7 @@ public static partial class ConfigManager
 
     public static (EngineSettings Engine, DownloadSettings Download, CliSettings Cli, DaemonSettings Daemon, RemoteSettings Remote)
         BindAll(ConfigFile file, IReadOnlyList<string> cliArgs, string? profileName = null)
-        => BindAll(file, ParseInvocation(cliArgs), profileName);
+        => BindAll(file, ParseInvocation(cliArgs, file.Path), profileName);
 
     public static (EngineSettings Engine, DownloadSettings Download, CliSettings Cli, DaemonSettings Daemon, RemoteSettings Remote)
         BindAll(ConfigFile file, ParsedInvocation invocation, string? profileName = null)
@@ -94,7 +97,7 @@ public static partial class ConfigManager
         string? profileName = null,
         EngineSettings? engine = null)
     {
-        return CreateJobSettingsResolver(file, ParseInvocation(cliArgs), cli, profileName, engine);
+        return CreateJobSettingsResolver(file, ParseInvocation(cliArgs, file.Path), cli, profileName, engine);
     }
 
     public static IJobSettingsResolver CreateJobSettingsResolver(
@@ -282,11 +285,15 @@ public static partial class ConfigManager
     }
 
     public static ParsedInvocation ParseInvocation(IReadOnlyList<string> args)
+        => ParseInvocation(args, null);
+
+    private static ParsedInvocation ParseInvocation(IReadOnlyList<string> args, string? loadedConfigPath)
     {
         var builder = new ProfileBuilder("<cli>");
         string? configPath = null;
         string? profileName = null;
         bool noConfig = false;
+        Func<string?> configDirectory = () => ConfigFile.DirectoryOf(loadedConfigPath ?? GetConfigPath(noConfig ? "none" : configPath));
         var tokens = NormalizeArgs(args);
         for (int i = 0; i < tokens.Count; i++)
         {
@@ -315,7 +322,7 @@ public static partial class ConfigManager
             else if (option.ValueKind == OptionValueKind.Boolean && i + 1 < tokens.Count
                      && (tokens[i + 1].IsAttachedValue || IsBoolLiteral(tokens[i + 1].Value)))
                 value = tokens[++i].Value;
-            option.Bind(builder.For(option.RootType), value, flag);
+            option.Bind(builder.For(option.RootType), value, flag, configDirectory);
         }
         return new ParsedInvocation(builder.Build(), noConfig ? "none" : configPath, profileName);
     }
@@ -419,6 +426,7 @@ public static partial class ConfigManager
     internal static ConfigFile ParseConfigText(string path, string text)
     {
         var profiles = new Dictionary<string, ProfileBuilder>();
+        Func<string?> configDirectory = () => ConfigFile.DirectoryOf(path);
         var curProfile = "default";
         bool hasAutoProfiles = false;
         using var lines = ConfigLines(text).GetEnumerator();
@@ -488,7 +496,7 @@ public static partial class ConfigManager
                 var changes = profile.For(option.RootType);
                 if (value.Length == 0 || (option.IsList && value == "+"))
                     option.BindList(changes, ListItems(), flag, append: value == "+");
-                else option.Bind(changes, Unquote(value), flag);
+                else option.Bind(changes, Unquote(value), flag, configDirectory);
             }
             catch (Exception exception)
             {

@@ -4,8 +4,9 @@ namespace Sockseek.Cli;
 
 public record ConfigFile(string Path, Dictionary<string, ProfileEntry> Profiles, bool HasAutoProfiles = false)
 {
-    public string? ConfigDir => string.IsNullOrWhiteSpace(Path) || Path == "none"
-        ? null : System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(Path));
+    public string? ConfigDir => DirectoryOf(Path);
+    internal static string? DirectoryOf(string? path) => string.IsNullOrWhiteSpace(path) || path == "none"
+        ? null : System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path));
 }
 
 public record ProfileEntry(SettingsProfile Profile, SettingsPatch Cli, SettingsPatch Daemon, SettingsPatch Remote)

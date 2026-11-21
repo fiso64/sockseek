@@ -1,3 +1,4 @@
+using Sockseek.Core;
 using System.Buffers.Binary;
 using Microsoft.AspNetCore.Identity;
 
@@ -24,7 +25,7 @@ public sealed class AuthenticationOptions
         if ((PasswordFile is null) == (PasswordHash is null))
             throw new ArgumentException("Configure exactly one WebUI password file or password hash, or explicitly disable authentication.");
         if (PasswordFile is not null)
-            return HashPassword(ReadSecretFile(PasswordFile));
+            return HashPassword(Utils.ReadSecretFile(PasswordFile));
         try
         {
             byte[] bytes = Convert.FromBase64String(PasswordHash!);
@@ -49,15 +50,5 @@ public sealed class AuthenticationOptions
         if (string.IsNullOrEmpty(password) || password.Length > 4096)
             throw new ArgumentException("The WebUI password must contain between 1 and 4096 characters.");
         return new PasswordHasher<string>().HashPassword("operator", password);
-    }
-
-    public static string ReadSecretFile(string path)
-    {
-        // Permit the one line terminator produced by shell/secret-file tools, preserving all other whitespace.
-        string secret = File.ReadAllText(path);
-        if (secret.EndsWith("\r\n", StringComparison.Ordinal)) secret = secret[..^2];
-        else if (secret.EndsWith('\n')) secret = secret[..^1];
-        if (secret.Length == 0) throw new ArgumentException("The credential file is empty.");
-        return secret;
     }
 }

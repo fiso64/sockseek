@@ -5,7 +5,10 @@ namespace Sockseek.Core.Settings;
 [JsonConverter(typeof(JsonStringEnumConverter<SettingOperation>))]
 public enum SettingOperation { Set, Append, AppendDistinct }
 
-public sealed record SettingChange(string Path, object? Value, SettingOperation Operation = SettingOperation.Set);
+public sealed record SettingChange(string Path, object? Value, SettingOperation Operation = SettingOperation.Set)
+{
+    public object? Value { get => field is Lazy<string> credential ? credential.Value : field; init; } = Value;
+}
 
 /// A sparse, ordered description of supplied settings. An explicit Set with null clears a value.
 public sealed class SettingsPatch

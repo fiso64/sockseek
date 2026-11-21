@@ -28,6 +28,7 @@ public sealed class SettingOptionAttribute(params string[] names) : Attribute
     public bool Negate { get; init; }
     public bool AllowMultiple { get; init; } = true;
     public bool DefaultProfileOnly { get; init; }
+    public bool CredentialFile { get; init; }
     public OptionValueKind ValueKind { get; init; }
     public OptionListSyntax ListSyntax { get; init; }
 }
@@ -71,8 +72,16 @@ public sealed class SettingOption
     public IReadOnlyList<string> Names => declaration.Names;
     public OptionValueKind ValueKind { get; }
 
-    public void Bind(SettingsPatchBuilder changes, string text, string flag)
+    public void Bind(SettingsPatchBuilder changes, string text, string flag, Func<string?>? configDirectory = null)
     {
+        if (declaration.CredentialFile)
+        {
+            // An unused profile does not need its credentials. Read once when applied
+            // or sent by the remote CLI, into the same field as an inline credential.
+            changes.Set(member!.Path, FileCredential(text, configDirectory));
+            return;
+        }
+
         if (IsList)
         {
             string trimmed = text.TrimStart();
@@ -96,6 +105,10 @@ public sealed class SettingOption
         if (member != null) BindMember(changes, value, flag, SettingOperation.Set);
         else Invoke(method!, [new SettingWriter(changes, prefix, flag), value]);
     }
+
+    private static Lazy<string> FileCredential(string path, Func<string?>? configDirectory)
+        => new(() => Utils.ReadSecretFile(Utils.ExpandVariables(path, new(ConfigDir: configDirectory?.Invoke()))),
+            LazyThreadSafetyMode.PublicationOnly);
 
     /// Bind literal items as one edit, including when the profile is applied repeatedly.
     public void BindList(SettingsPatchBuilder changes, IEnumerable<string> items, string flag, bool append)

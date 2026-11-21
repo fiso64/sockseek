@@ -111,6 +111,7 @@ public class SpotifySettings
     public string? ClientId { get; set; }
 
     [SettingOption("--ss", "--spotify-secret")]
+    [SettingOption("--spotify-secret-file", CredentialFile = true)]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
     public string? ClientSecret { get; set; }
 
@@ -127,6 +128,7 @@ public class SpotifySettings
 public class YouTubeSettings
 {
     [SettingOption("--yk", "--youtube-key")]
+    [SettingOption("--youtube-key-file", CredentialFile = true)]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
     public string? ApiKey { get; set; }
 

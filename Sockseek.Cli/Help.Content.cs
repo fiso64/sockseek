@@ -26,6 +26,7 @@ Required Arguments
                                   Can also be passed with -i, --input <input>
   --user <username>               Soulseek username
   --pass <password>               Soulseek password
+  --password-file <path>          Read the Soulseek password from a file
 
 General Options
 
@@ -135,6 +136,7 @@ Spotify Options
 
   --spotify-id <id>               Spotify client ID
   --spotify-secret <secret>       Spotify client secret
+  --spotify-secret-file <path>    Read the Spotify client secret from a file
   --spotify-token <token>         Spotify access token
   --spotify-refresh <token>       Spotify refresh token
   --remove-from-source            Remove downloaded tracks from source playlist
@@ -142,6 +144,7 @@ Spotify Options
 YouTube Options
 
   --youtube-key <key>             YouTube Data API key
+  --youtube-key-file <path>       Read the YouTube Data API key from a file
   --get-deleted                   Attempt to retrieve titles of deleted videos from wayback
                                   machine. Requires yt-dlp.
   --deleted-only                  Only retrieve & download deleted music.

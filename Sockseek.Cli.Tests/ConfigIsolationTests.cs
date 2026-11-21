@@ -1,11 +1,48 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Cli;
+using Sockseek.Server;
 
 namespace Tests.Cli;
 
 [TestClass]
 public class ConfigIsolationTests
 {
+    [TestMethod]
+    public void FileCredentialsUseTheExistingSettingsAndRemotePatch()
+    {
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            string configPath = Path.Join(dir.FullName, "sockseek.conf");
+            File.WriteAllText(configPath, """
+                password-file = {configdir}/soulseek
+                [music]
+                spotify-secret-file = {configdir}/spotify
+                [unused]
+                youtube-key-file = {configdir}/missing
+                """);
+            File.WriteAllText(Path.Join(dir.FullName, "soulseek"), " password \r\n");
+            File.WriteAllText(Path.Join(dir.FullName, "spotify"), "client-secret\n");
+            string keyPath = Path.Join(dir.FullName, "youtube");
+            File.WriteAllText(keyPath, "api-key");
+
+            var file = ConfigManager.Load(configPath);
+            var (engine, download, _) = ConfigManager.Bind(file, [], "music");
+            Assert.AreEqual(" password ", engine.Password);
+            Assert.AreEqual("client-secret", download.Spotify.ClientSecret);
+            var invocation = ConfigManager.ParseInvocation(["--youtube-key", "previous",
+                "--youtube-key-file", "{configdir}/youtube", "--config", configPath]);
+            var patch = DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings);
+            Assert.AreEqual("api-key", patch?.YouTube?.ApiKey);
+            Assert.Throws<FileNotFoundException>(() => ConfigManager.Bind(file, [], "unused"));
+            File.WriteAllText(Path.Join(dir.FullName, "missing"), "restored");
+            Assert.AreEqual("restored", ConfigManager.Bind(file, [], "unused").Download.YouTube.ApiKey);
+            File.WriteAllText(keyPath, "\n");
+            Assert.Throws<ArgumentException>(() => ConfigManager.Bind(file, ["--youtube-key-file", "{configdir}/youtube"]));
+        }
+        finally { dir.Delete(recursive: true); }
+    }
+
     [TestMethod]
     [DoNotParallelize] // Exercise command output without leaking the generated secret to test logs.
     public async Task AuthenticationCommands_CreateListRevokeAndHashUsingOfflineConfiguration()
@@ -73,7 +110,6 @@ public class ConfigIsolationTests
             Assert.AreEqual("operator", bound.Daemon.WebUsername);
             Assert.AreEqual(TimeSpan.FromDays(3), bound.Daemon.WebSessionLifetime);
             CollectionAssert.AreEqual(new[] { "127.0.0.2", "::1" }, bound.Daemon.TrustedProxies);
-            Assert.AreEqual("  private password  ", Sockseek.Server.Authentication.AuthenticationOptions.ReadSecretFile(password));
             Assert.AreEqual("operator", host.Authentication.Username);
             Assert.AreEqual(TimeSpan.FromDays(3), host.Authentication.SessionLifetime);
             CollectionAssert.AreEqual(new[] { "127.0.0.2", "::1" }, host.Authentication.TrustedProxies);

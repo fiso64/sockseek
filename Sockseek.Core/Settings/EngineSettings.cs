@@ -13,6 +13,7 @@ public class EngineSettings
     public string? Username { get; set; }
 
     [SettingOption("--pass", "--password")]
+    [SettingOption("--password-file", CredentialFile = true)]
     public string? Password { get; set; }
 
     [SettingOption("-l", "--login")]

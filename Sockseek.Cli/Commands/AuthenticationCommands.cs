@@ -1,3 +1,4 @@
+using Sockseek.Core;
 using Sockseek.Api;
 using Sockseek.Persistence.Authentication;
 using Sockseek.Server;
@@ -18,7 +19,7 @@ internal static class AuthenticationCommands
         if (args is ["hash-password"])
         {
             string password = invocation.Daemon.WebPasswordFile is { } file
-                ? AuthenticationOptions.ReadSecretFile(file) : ReadPassword();
+                ? Utils.ReadSecretFile(file) : ReadPassword();
             Console.WriteLine(AuthenticationOptions.HashPassword(password));
             return Program.CliExitCode.Success;
         }
