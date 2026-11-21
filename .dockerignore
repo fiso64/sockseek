@@ -16,6 +16,7 @@
 !webui/
 !webui/package*.json
 !webui/*.config.*
+!webui/api-defaults.ts
 !webui/tsconfig.json
 !webui/index.html
 !webui/src/

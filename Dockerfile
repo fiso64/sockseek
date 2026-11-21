@@ -14,10 +14,12 @@ RUN npm run api:check && npm run build
 
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 ARG TARGETARCH
+ARG SOCKSEEK_VERSION
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/root/.nuget/packages \
     dotnet publish Sockseek.Cli -c Release -a "$TARGETARCH" --no-self-contained \
+    ${SOCKSEEK_VERSION:+-p:Version="$SOCKSEEK_VERSION"} \
     -p:OpenApiGenerateDocuments=false -p:SkipWebUiBuild=true -o /out
 
 FROM mcr.microsoft.com/dotnet/aspnet:11.0

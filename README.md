@@ -13,3 +13,9 @@ sockseek "Artist - Album Title" -t
 See [one-shot downloads](docs/pages/using-sockseek/one-shot.md), [configuration](docs/pages/using-sockseek/configuration.md), or the [CLI options](docs/pages/reference/download-options.md). Run `sockseek --help` for terminal help.
 
 This project was formerly named `sldl` (and `slsk-batchdl` before that). See [the release notes](https://github.com/fiso64/sockseek/releases/tag/v3.0.4) for why it was renamed to something dumb.
+
+## Making a release
+
+Push a version tag such as `v4.0.0` or `v4.0.0-rc.1`. GitHub builds the six portable archives, checks both Debian packages, and attaches all eight files to a draft release. Review the notes and publish the draft to start the versioned Docker image build.
+
+For a preview from a branch, run `gh workflow run release.yml --ref v4`, substituting your branch name. Download the packages from the Actions run.

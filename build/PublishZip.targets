@@ -58,7 +58,7 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
           Inputs="$(RepoRoot)/Sockseek.Packager/Program.cs;$(PackagerProject)"
           Outputs="$(PackagerDll)">
     <MSBuild Projects="$(PackagerProject)"
-             Targets="Build"
+             Targets="Restore;Build"
              Properties="Configuration=$(Configuration);TargetFramework=$(PackagerTargetFramework)"
              RemoveProperties="RuntimeIdentifier;SelfContained;PublishSelfContained;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishAot" />
   </Target>
@@ -81,7 +81,7 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
     <RemoveDir Directories="$(PublishDir)" Condition="Exists('$(PublishDir)')" />
     <MakeDir Directories="$(PublishDir);$(PackageDir)" />
 
-    <Exec Command="dotnet publish &quot;$(CliProject)&quot; -c Release -f $(Framework) -r $(RID) -o &quot;$(PublishDir)&quot; $(VersionProperties) -p:PublishSingleFile=true -p:PublishTrimmed=false -p:DebugType=embedded -p:DebugSymbols=true -p:IncludeSymbolsInSingleFile=false -p:OpenApiGenerateDocuments=false -p:PathMap=&quot;$(RepoRoot)=/_/&quot; --self-contained=$(SelfContained)" />
+    <Exec Command="dotnet publish &quot;$(CliProject)&quot; -c Release -f $(Framework) -r $(RID) -o &quot;$(PublishDir)&quot; $(VersionProperties) -p:PublishSingleFile=true -p:PublishTrimmed=false -p:DebugType=embedded -p:DebugSymbols=true -p:IncludeSymbolsInSingleFile=false -p:OpenApiGenerateDocuments=false -p:SkipNixSettingsGeneration=true -p:PathMap=&quot;$(RepoRoot)=/_/&quot; --self-contained=$(SelfContained)" />
 
     <Copy SourceFiles="$(RepoRoot)/LICENSE"
           DestinationFolder="$(PublishDir)"
@@ -115,7 +115,8 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
       <DebArchitecture Condition="'$(RID)' == 'linux-arm64'">arm64</DebArchitecture>
     </PropertyGroup>
     <Error Condition="'$(DebArchitecture)' == '' or '$(SelfContained)' != 'true'" Text="Debian packages require a self-contained linux-x64 or linux-arm64 publish." />
-    <Exec Command="&quot;$(RepoRoot)/build/build-deb.sh&quot; &quot;$(PublishDir)&quot; &quot;$(PackageVersion)&quot; &quot;$(DebArchitecture)&quot; &quot;$(PackageDir)&quot;" />
+    <!-- dpkg reports failures via its exit status and also emits nonfatal linker warnings. -->
+    <Exec IgnoreStandardErrorWarningFormat="true" Command="&quot;$(RepoRoot)/build/build-deb.sh&quot; &quot;$(PublishDir)&quot; &quot;$(PackageVersion)&quot; &quot;$(DebArchitecture)&quot; &quot;$(PackageDir)&quot;" />
   </Target>
 
   <Target Name="PublishZip" DependsOnTargets="PublishPackage" />
