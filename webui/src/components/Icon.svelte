@@ -20,6 +20,9 @@
     <circle cx="12" cy="12" r="9" />
     <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.8-2.5 2-2.5 4" />
     <path d="M12 16.5h.01" />
+  {:else if name === 'info'}
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5M12 8h.01" />
   {:else if name === 'lock'}
     <rect x="5.5" y="10" width="13" height="10" rx="2" />
     <path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2" />

@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte';
   import { daemonApi } from '../../api/client';
   import AppliedProfiles from '../AppliedProfiles.svelte';
+  import Icon from '../Icon.svelte';
   import Modal from '../Modal.svelte';
   import { jobSkipExplanation } from '../../domains/jobs/status';
   import { folderSources, type FolderItemFile, type TransferPresentation } from '../../domains/presentation/items';
@@ -104,6 +105,7 @@
 <button type="button" class={classes} onclick={() => { open = true; }}
   aria-label={circular ? transfer.state : undefined} aria-haspopup="dialog" title={transfer.tone === 'failed' && message ? message : 'Show transfer details'}>
   {#if children}{@render children()}{:else}{transfer.state}{/if}
+  {#if !circular}<Icon name="info" class="status-details-icon" />{/if}
 </button>
 {#if open}
   <Modal title="Transfer details" closeLabel="Close transfer details" onclose={() => { open = false; expanded = false; }}>

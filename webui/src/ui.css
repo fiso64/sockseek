@@ -219,6 +219,7 @@ input[type="checkbox"]:indeterminate {
 }
 .status-label-icon { width: 18px; height: 18px; min-height: 18px; padding: 0; }
 .status-label-icon .app-icon { --app-icon-size: 11px; }
+.status-details-icon { --app-icon-size: 14px; }
 button.status-label { cursor: pointer; }
 button.status-label:hover { background-color: light-dark(color-mix(in srgb, currentColor 14%, var(--surface)), color-mix(in srgb, currentColor 25%, var(--surface))); box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent); }
 button.status-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
