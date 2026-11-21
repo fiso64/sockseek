@@ -36,7 +36,12 @@ testers.runNixOSTest {
     };
     specialisation.live.configuration.services.sockseek = {
       settings.user-description = lib.mkForce "Updated without disconnecting";
-      profiles = [ { name = "after-reload"; } ];
+      profiles = [
+        {
+          name = "after-reload";
+          settings.input = "Fixture Artist - Fixture Song";
+        }
+      ];
     };
     specialisation.new-port.configuration.services.sockseek.settings.server-port = 5031;
 
@@ -57,8 +62,8 @@ testers.runNixOSTest {
     from shlex import quote
 
     machine.start()
-    machine.wait_for_unit("sockseek.service")
-    machine.wait_for_open_port(5030)
+    machine.wait_for_unit("sockseek.service", timeout=60)
+    machine.wait_for_open_port(5030, timeout=30)
     url = "http://127.0.0.1:5030"
     assert "data-docs" in machine.succeed(f"curl -fsS {url}/")
     assert "<title>Install on NixOS" in machine.succeed(f"curl -fsS {url}/docs/installation/nixos.html")
@@ -87,12 +92,12 @@ testers.runNixOSTest {
     pid = machine.succeed(pid_command).strip()
     switch = "/run/booted-system/specialisation"
     machine.succeed(f"{switch}/live/bin/switch-to-configuration test")
-    machine.wait_until_succeeds(f"curl -fsS -b /tmp/cookies {url}/api/profiles | grep -q after-reload")
+    machine.wait_until_succeeds(f"curl -fsS -b /tmp/cookies {url}/api/profiles | grep -q after-reload", timeout=30)
     assert machine.succeed(pid_command).strip() == pid
     assert not json.loads(request("/api/server/status"))["configuration"]["restartRequired"]
 
     machine.succeed(f"{switch}/new-port/bin/switch-to-configuration test")
-    machine.wait_for_open_port(5031)
+    machine.wait_for_open_port(5031, timeout=30)
     assert machine.succeed(pid_command).strip() != pid
     url = "http://127.0.0.1:5031"
     login()
