@@ -1,0 +1,16 @@
+Source: sockseek
+Section: net
+Priority: optional
+Maintainer: fiso64 <64778819+fiso64@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Rules-Requires-Root: no
+Homepage: https://github.com/fiso64/sockseek
+
+Package: sockseek
+Architecture: amd64 arm64
+Depends: ${misc:Depends}, ${shlibs:Depends}, adduser, ca-certificates,
+ libgssapi-krb5-2, libicu76 | libicu74, libssl3t64, procps, tzdata
+Suggests: yt-dlp, ffmpeg
+Description: Soulseek download client and self-hosted server
+ Run downloads from the command line or manage downloads, uploads and shares
+ through the daemon's bundled WebUI. Includes the .NET runtime.

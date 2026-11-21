@@ -18,7 +18,7 @@ public sealed class SqliteDatabaseOwner : IDisposable
     {
         ArgumentNullException.ThrowIfNull(options);
         string databasePath = options.GetFullDatabasePath();
-        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)
+        PersistenceFilePrivacy.CreateDatabaseDirectory(Path.GetDirectoryName(databasePath)
             ?? throw new InvalidOperationException("The database path has no parent directory."));
         string lockPath = databasePath + ".lock";
 

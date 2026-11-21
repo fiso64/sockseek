@@ -1,0 +1,17 @@
+[Unit]
+Description=Sockseek daemon and WebUI
+After=network.target
+
+[Service]
+User=sockseek
+Group=sockseek
+StateDirectory=sockseek sockseek/downloads
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/sockseek/downloads
+ExecStart=/usr/bin/sockseek daemon --config /etc/sockseek/sockseek.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

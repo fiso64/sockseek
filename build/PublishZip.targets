@@ -63,7 +63,7 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
              RemoveProperties="RuntimeIdentifier;SelfContained;PublishSelfContained;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishAot" />
   </Target>
 
-  <Target Name="PublishPackage" DependsOnTargets="SetPackageVersion;BuildPackager">
+  <Target Name="PublishBinary" DependsOnTargets="SetPackageVersion">
     <Error Condition="'$(RID)' == ''" Text="Set RID, e.g. -p:RID=linux-x64" />
 
     <PropertyGroup>
@@ -75,7 +75,7 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
       <PackageName Condition="'$(PackageName)' == '' and '$(IsWindowsRid)' != 'True'">sockseek_$(PackageVersion)_$(PublishLabel).tar.gz</PackageName>
       <PackagePath>$(PackageDir)/$(PackageName)</PackagePath>
       <VersionProperties Condition="'$(VersionPrefix)' != ''">-p:VersionPrefix=&quot;$(VersionPrefix)&quot;</VersionProperties>
-      <VersionProperties Condition="'$(VersionSuffix)' != ''">$(VersionProperties) -p:VersionSuffix=&quot;$(VersionSuffix)&quot;</VersionProperties>
+      <VersionProperties>$(VersionProperties) -p:VersionSuffix=&quot;$(VersionSuffix)&quot;</VersionProperties>
     </PropertyGroup>
 
     <RemoveDir Directories="$(PublishDir)" Condition="Exists('$(PublishDir)')" />
@@ -94,6 +94,9 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
     </ItemGroup>
 
     <Delete Files="@(PublishSidecarsToDelete)" />
+  </Target>
+
+  <Target Name="PublishPackage" DependsOnTargets="PublishBinary;BuildPackager">
     <Delete Files="$(PackagePath)" Condition="Exists('$(PackagePath)')" />
 
     <ZipDirectory Condition="'$(IsWindowsRid)' == 'True'"
@@ -105,6 +108,16 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
           Command="dotnet &quot;$(PackagerDll)&quot; tar-gz &quot;$(PublishDir)&quot; &quot;$(PackagePath)&quot; sockseek" />
   </Target>
 
+  <!-- Run on a Debian-family build host with debhelper installed. -->
+  <Target Name="PublishDeb" DependsOnTargets="PublishBinary">
+    <PropertyGroup>
+      <DebArchitecture Condition="'$(RID)' == 'linux-x64'">amd64</DebArchitecture>
+      <DebArchitecture Condition="'$(RID)' == 'linux-arm64'">arm64</DebArchitecture>
+    </PropertyGroup>
+    <Error Condition="'$(DebArchitecture)' == '' or '$(SelfContained)' != 'true'" Text="Debian packages require a self-contained linux-x64 or linux-arm64 publish." />
+    <Exec Command="&quot;$(RepoRoot)/build/build-deb.sh&quot; &quot;$(PublishDir)&quot; &quot;$(PackageVersion)&quot; &quot;$(DebArchitecture)&quot; &quot;$(PackageDir)&quot;" />
+  </Target>
+
   <Target Name="PublishZip" DependsOnTargets="PublishPackage" />
 
   <Target Name="PublishAll" DependsOnTargets="SetPackageVersion">
@@ -112,6 +125,8 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
              Properties="RID=win-x64;PublishLabel=win-x64;VersionPrefix=$(VersionPrefix);VersionSuffix=$(VersionSuffix)" />
     <MSBuild Projects="$(MSBuildThisFileFullPath)" Targets="PublishPackage"
              Properties="RID=linux-x64;PublishLabel=linux-x64;VersionPrefix=$(VersionPrefix);VersionSuffix=$(VersionSuffix)" />
+    <MSBuild Projects="$(MSBuildThisFileFullPath)" Targets="PublishPackage"
+             Properties="RID=linux-arm64;PublishLabel=linux-arm64;VersionPrefix=$(VersionPrefix);VersionSuffix=$(VersionSuffix)" />
     <MSBuild Projects="$(MSBuildThisFileFullPath)" Targets="PublishPackage"
              Properties="RID=linux-arm;PublishLabel=linux-arm;VersionPrefix=$(VersionPrefix);VersionSuffix=$(VersionSuffix)" />
     <MSBuild Projects="$(MSBuildThisFileFullPath)" Targets="PublishPackage"
@@ -123,6 +138,7 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
       <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_win-x64.zip" />
       <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_linux-x64.tar.gz" />
       <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_linux-arm.tar.gz" />
+      <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_linux-arm64.tar.gz" />
       <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_osx-x64.tar.gz" />
       <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_osx-arm64.tar.gz" />
     </ItemGroup>

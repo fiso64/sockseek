@@ -629,8 +629,15 @@ public sealed class SqliteInitializationTests
     public async Task Backup_OpensIndependently_AndPassesIntegrityCheck()
     {
         await using var database = new TemporaryDatabase();
+        string directory = Path.GetDirectoryName(database.Options.DatabasePath)!;
+        const UnixFileMode privateFile = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        const UnixFileMode privateDirectory = privateFile | UnixFileMode.UserExecute;
+        const UnixFileMode sharedDirectory = privateDirectory | UnixFileMode.GroupRead | UnixFileMode.GroupExecute;
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(directory, sharedDirectory);
         await database.Initializer.InitializeAsync();
-        string backupPath = Path.Combine(Path.GetDirectoryName(database.Options.DatabasePath)!, "backup", "sockseek-backup.db");
+        string backupDirectory = Path.Combine(directory, "backup");
+        string backupPath = Path.Combine(backupDirectory, "sockseek-backup.db");
         var maintenance = new SqliteMaintenanceService(database.Factory, database.Options);
 
         var result = await maintenance.BackupAsync(backupPath);
@@ -655,6 +662,15 @@ public sealed class SqliteInitializationTests
             """;
         Assert.AreEqual(3L, Convert.ToInt64(await command.ExecuteScalarAsync()));
 
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.AreEqual(sharedDirectory, File.GetUnixFileMode(directory));
+            Assert.AreEqual(privateDirectory, File.GetUnixFileMode(backupDirectory));
+            Assert.AreEqual(privateFile, File.GetUnixFileMode(database.Options.DatabasePath));
+            Assert.AreEqual(privateFile, File.GetUnixFileMode(backupPath));
+            File.SetUnixFileMode(backupDirectory, sharedDirectory);
+        }
+
         // A copied backup must include the rotated contents without any sidecars.
         using var previousGeneration = OperatingSystem.IsWindows() ? null : connection.BeginTransaction(deferred: true);
         if (previousGeneration is null)
@@ -668,6 +684,8 @@ public sealed class SqliteInitializationTests
         await using (var context = await database.Factory.CreateDbContextAsync())
             await context.Database.ExecuteSqlRawAsync("CREATE TABLE rotation_marker(value INTEGER)");
         await maintenance.BackupAsync(backupPath);
+        if (!OperatingSystem.IsWindows())
+            Assert.AreEqual(sharedDirectory, File.GetUnixFileMode(backupDirectory));
         string copiedPath = backupPath + ".copy";
         File.Copy(backupPath, copiedPath);
         if (previousGeneration is not null)

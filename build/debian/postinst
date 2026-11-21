@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = configure ]; then
+    adduser --system --group --home /var/lib/sockseek --no-create-home sockseek
+    conf=/etc/sockseek/sockseek.conf
+    if [ -e "$conf" ] && ! dpkg-statoverride --list "$conf" >/dev/null; then
+        chgrp sockseek "$conf"
+    fi
+fi
+
+#DEBHELPER#

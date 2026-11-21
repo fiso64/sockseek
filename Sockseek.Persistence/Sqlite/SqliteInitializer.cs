@@ -14,15 +14,11 @@ public sealed class SqliteInitializer(
         var databasePath = options.GetFullDatabasePath();
         if (!string.Equals(databasePath, owner.DatabasePath, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("The database ownership lease does not match the configured database path.");
-        string databaseDirectory = Path.GetDirectoryName(databasePath)
-            ?? throw new InvalidOperationException("The database path has no parent directory.");
-        Directory.CreateDirectory(databaseDirectory);
-        PersistenceFilePrivacy.RestrictDirectory(databaseDirectory);
+        PersistenceFilePrivacy.PrepareDatabaseFile(databasePath);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await ValidateMigrationHistoryAsync(context, allowEmpty: true, cancellationToken).ConfigureAwait(false);
         await context.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
-        PersistenceFilePrivacy.RestrictFile(databasePath);
         await context.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         var connection = context.Database.GetDbConnection();

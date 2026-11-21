@@ -69,16 +69,15 @@ public sealed class SqliteMaintenanceService(
         SqliteConnection source, string path, CancellationToken cancellationToken)
     {
         string directory = Path.GetDirectoryName(path)!;
-        Directory.CreateDirectory(directory);
-        PersistenceFilePrivacy.RestrictDirectory(directory);
+        PersistenceFilePrivacy.CreateDatabaseDirectory(directory);
         string temporary = Path.Combine(directory, $".sockseek-{Guid.NewGuid():N}.db");
         try
         {
+            PersistenceFilePrivacy.PrepareDatabaseFile(temporary);
             DatabaseIntegrityResult integrity;
             await using (var snapshot = OpenIndependent(temporary, SqliteOpenMode.ReadWriteCreate))
             {
                 await snapshot.OpenAsync(cancellationToken).ConfigureAwait(false);
-                PersistenceFilePrivacy.RestrictFile(temporary);
                 source.BackupDatabase(snapshot);
                 await UseSingleFileJournalAsync(snapshot, cancellationToken).ConfigureAwait(false);
                 integrity = await CheckIntegrityAsync(snapshot, cancellationToken).ConfigureAwait(false);
