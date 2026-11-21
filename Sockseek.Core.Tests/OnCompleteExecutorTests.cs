@@ -1,5 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Extensions.Logging;
+using Sockseek.Core.Events;
 using Sockseek.Core.Models;
 using Sockseek.Core;
 using System.Reflection;
@@ -9,6 +10,51 @@ namespace Tests.OnCompleteExecutorTests
 {
     // OnCompleteExecutor has private methods tested via reflection,
     // following the established pattern in this test suite.
+
+    [TestClass]
+    public class RemoteJobContextTests
+    {
+        [TestMethod]
+        public void RemoteFileContext_ExposesCommonPathAndExactTargetWithoutTagSource()
+        {
+            var target = new PeerFileTarget(
+                new PeerFileIdentity("Peer", @"Share\Documents\notes.txt"),
+                size: 12,
+                extension: ".txt");
+            var job = new RemoteFileJob(target)
+            {
+                DownloadPath = Path.GetFullPath("notes.txt"),
+            };
+
+            var (variables, tagSourcePath) = BuildJobContext(job);
+
+            Assert.AreSame(job, variables.Job);
+            Assert.AreSame(target, variables.PeerTarget);
+            Assert.AreEqual(job.DownloadPath, variables.DownloadPath);
+            Assert.IsNull(tagSourcePath);
+
+            Assert.IsTrue(FileManager.TryResolveNameFormatVariable("path", variables, () => null, out var path));
+            Assert.IsTrue(FileManager.TryResolveNameFormatVariable("path-noext", variables, () => null, out var pathNoExt));
+            Assert.IsTrue(FileManager.TryResolveNameFormatVariable("is-audio", variables, () => null, out var isAudio));
+            Assert.AreEqual(Path.GetFullPath(job.DownloadPath), path.Value);
+            Assert.AreEqual(Path.Combine(
+                Path.GetDirectoryName(Path.GetFullPath(job.DownloadPath)) ?? "",
+                Path.GetFileNameWithoutExtension(job.DownloadPath)), pathNoExt.Value);
+            Assert.AreEqual("false", isAudio.Value);
+        }
+
+        private static (FileManagerContext Variables, string? TagSourcePath) BuildJobContext(Job job)
+        {
+            var method = typeof(OnCompleteExecutor).GetMethod(
+                "BuildJobOnCompleteContext",
+                BindingFlags.NonPublic | BindingFlags.Static)!;
+            var context = method.Invoke(null, [job])!;
+            var type = context.GetType();
+            return (
+                (FileManagerContext)type.GetProperty("Variables")!.GetValue(context)!,
+                (string?)type.GetProperty("TagSourcePath")!.GetValue(context));
+        }
+    }
 
     [TestClass]
     public class ParseCommandSyntaxTests
@@ -46,26 +92,26 @@ namespace Tests.OnCompleteExecutorTests
         }
 
         [TestMethod]
-        public void ParseCommand_TrackScope_SetsScope()
+        public void ParseCommand_FileScope_SetsScope()
         {
-            var result = InvokeParseCommand("scope=track -- mycommand");
-            Assert.AreEqual("Track", Get<object>(result, "Scope").ToString());
+            var result = InvokeParseCommand("scope=file -- mycommand");
+            Assert.AreEqual("File", Get<object>(result, "Scope").ToString());
         }
 
         [TestMethod]
-        public void ParseCommand_AlbumScope_SetsScope()
+        public void ParseCommand_FolderScope_SetsScope()
         {
-            var result = InvokeParseCommand("scope=album -- mycommand");
-            Assert.AreEqual("Album", Get<object>(result, "Scope").ToString());
+            var result = InvokeParseCommand("scope=folder -- mycommand");
+            Assert.AreEqual("Folder", Get<object>(result, "Scope").ToString());
         }
 
         [TestMethod]
         public void ParseCommand_MultipleOptions_AreParsed()
         {
-            var result = InvokeParseCommand("when=success scope=album shell hidden -- mycommand");
+            var result = InvokeParseCommand("when=success scope=folder shell hidden -- mycommand");
             Assert.IsTrue(Get<bool>(result, "UseShellExecute"));
             Assert.IsTrue(Get<bool>(result, "CreateNoWindow"));
-            Assert.AreEqual("Album", Get<object>(result, "Scope").ToString());
+            Assert.AreEqual("Folder", Get<object>(result, "Scope").ToString());
             Assert.AreEqual("Success", Get<object>(result, "When").ToString());
             Assert.AreEqual("mycommand", Get<string>(result, "Command"));
         }
@@ -117,92 +163,40 @@ namespace Tests.OnCompleteExecutorTests
     public class ProcessCommandResultTests
     {
         [TestMethod]
-        public void ProcessCommandResult_NonZeroExit_LogsVisibleBoundedWarning()
+        [DataRow("success;unfinished.opus")]
+        [DataRow("failed")]
+        public void ProcessCommandResult_NonZeroExitIgnoresIndexDirective(string stdout)
         {
-            SockseekLog.RemoveNonFileOutputs();
-            SockseekLog.RemoveFileOutputs();
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 1, Stdout = stdout };
+            var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
+            var downloaded = JobOutcome.Done("original.flac");
 
-            var entries = new List<SockseekLog.StructuredLogEntry>();
-            SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry), LogLevel.Information);
+            var processed = Process(result, null, job, downloaded);
 
-            try
-            {
-                var result = CreateProcessResult(
-                    exitCode: 1,
-                    stdout: new string('o', 900),
-                    stderr: "'win-notify-send.wrong.cmd' is not recognized\r\n" + new string('e', 900));
-                var config = CreateCommandConfig();
-                var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
-                var displayId = job.EnsureDisplayId();
-
-                var processed = InvokeProcessCommandResult(result, config, null, job);
-
-                Assert.IsFalse(processed.NeedsIndexUpdate);
-                var warning = entries.Single(entry => entry.Level == LogLevel.Warning);
-                Assert.AreEqual(SockseekLog.Categories.Jobs, warning.CategoryName);
-                StringAssert.Contains(warning.Message, $"[{displayId}] AlbumJob: on-complete command exited with code 1.");
-                StringAssert.Contains(warning.Message, "Stdout:");
-                StringAssert.Contains(warning.Message, "Stderr:");
-                StringAssert.Contains(warning.Message, "\n    Stderr:\n");
-                StringAssert.Contains(warning.Message, "\n      'win-notify-send.wrong.cmd' is not recognized\n");
-                StringAssert.Contains(warning.Message, "truncated");
-                Assert.IsFalse(warning.Message.Contains('\r'));
-                Assert.IsFalse(warning.Message.Contains("\\n"));
-                Assert.IsTrue(warning.Message.Length < 1600, warning.Message);
-            }
-            finally
-            {
-                SockseekLog.RemoveNonFileOutputs();
-                SockseekLog.RemoveFileOutputs();
-            }
+            Assert.IsFalse(processed.NeedsIndexUpdate);
+            Assert.AreEqual(downloaded, processed.Outcome);
         }
 
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithTruncatedStdout_DoesNotMutateSongPath()
         {
-            SockseekLog.RemoveNonFileOutputs();
-            SockseekLog.RemoveFileOutputs();
-
-            var entries = new List<SockseekLog.StructuredLogEntry>();
-            SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry), LogLevel.Information);
-
-            try
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "ignored;C:/partial/path", StdoutTruncated = true };
+            var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
-                var result = CreateProcessResult(
-                    exitCode: 0,
-                    stdout: "ignored;C:/partial/path",
-                    stderr: null,
-                    stdoutTruncated: true,
-                    stdoutCharsRead: 70000);
-                var config = CreateCommandConfig(useOutputToUpdateIndex: true);
-                var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
-                {
-                    DownloadPath = "C:/old/path.flac",
-                };
-                var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
+                DownloadPath = "C:/old/path.flac",
+            };
+            var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-                var processed = InvokeProcessCommandResult(result, config, song, job);
+            var processed = Process(result, song, job);
 
-                Assert.IsFalse(processed.NeedsIndexUpdate);
-                Assert.AreEqual("C:/old/path.flac", song.DownloadPath);
-                var warning = entries.Single(entry => entry.Level == LogLevel.Warning);
-                StringAssert.Contains(warning.Message, "ignored on-complete stdout for index update because command output exceeded the capture limit");
-            }
-            finally
-            {
-                SockseekLog.RemoveNonFileOutputs();
-                SockseekLog.RemoveFileOutputs();
-            }
+            Assert.IsFalse(processed.NeedsIndexUpdate);
+            Assert.AreEqual("C:/old/path.flac", song.DownloadPath);
         }
 
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithSuccessStateAndPath_ReturnsOutcomeWithoutMutatingSong()
         {
-            var result = CreateProcessResult(
-                exitCode: 0,
-                stdout: "success;C:/new/path.mp3",
-                stderr: null);
-            var config = CreateCommandConfig(useOutputToUpdateIndex: true);
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "success;C:/new/path.mp3" };
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
                 DownloadPath = "C:/old/path.flac",
@@ -210,7 +204,7 @@ namespace Tests.OnCompleteExecutorTests
             song.Fail(JobFailureReason.AllDownloadsFailed);
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-            var processed = InvokeProcessCommandResult(result, config, song, job, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: song.DownloadPath));
+            var processed = Process(result, song, job, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: song.DownloadPath));
 
             Assert.IsTrue(processed.NeedsIndexUpdate);
             Assert.AreEqual(JobTerminalOutcome.Failed, song.TerminalOutcome);
@@ -229,11 +223,7 @@ namespace Tests.OnCompleteExecutorTests
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithFailedState_ReturnsFailureOutcomeThatClearsPath()
         {
-            var result = CreateProcessResult(
-                exitCode: 0,
-                stdout: "failed",
-                stderr: null);
-            var config = CreateCommandConfig(useOutputToUpdateIndex: true);
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "failed" };
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
                 DownloadPath = "C:/old/path.flac",
@@ -241,7 +231,7 @@ namespace Tests.OnCompleteExecutorTests
             song.SetDone(song.DownloadPath);
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-            var processed = InvokeProcessCommandResult(result, config, song, job, JobOutcome.Done(song.DownloadPath));
+            var processed = Process(result, song, job, JobOutcome.Done(song.DownloadPath));
 
             Assert.IsTrue(processed.NeedsIndexUpdate);
             Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome);
@@ -261,59 +251,33 @@ namespace Tests.OnCompleteExecutorTests
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithFailedStateAndPath_IgnoresPathAndClearsStoredPath()
         {
-            SockseekLog.RemoveNonFileOutputs();
-            SockseekLog.RemoveFileOutputs();
-
-            var entries = new List<SockseekLog.StructuredLogEntry>();
-            SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry), LogLevel.Information);
-
-            try
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "failed;C:/new/path.mp3" };
+            var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
-                var result = CreateProcessResult(
-                    exitCode: 0,
-                    stdout: "failed;C:/new/path.mp3",
-                    stderr: null);
-                var config = CreateCommandConfig(useOutputToUpdateIndex: true);
-                var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
-                {
-                    DownloadPath = "C:/old/path.flac",
-                };
-                song.SetDone(song.DownloadPath);
-                var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
+                DownloadPath = "C:/old/path.flac",
+            };
+            song.SetDone(song.DownloadPath);
+            var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-                var processed = InvokeProcessCommandResult(result, config, song, job, JobOutcome.Done(song.DownloadPath));
+            var processed = Process(result, song, job, JobOutcome.Done(song.DownloadPath));
 
-                Assert.IsTrue(processed.NeedsIndexUpdate);
-                Assert.AreEqual(JobTerminalOutcome.Failed, processed.Outcome.TerminalOutcome);
-                Assert.AreEqual(JobFailureReason.Other, processed.Outcome.FailureReason);
-                Assert.IsTrue(processed.Outcome.ShouldUpdateDownloadPath);
-                Assert.IsNull(processed.Outcome.DownloadPath);
-                Assert.AreEqual("C:/old/path.flac", song.DownloadPath);
+            Assert.IsTrue(processed.NeedsIndexUpdate);
+            Assert.AreEqual(JobTerminalOutcome.Failed, processed.Outcome.TerminalOutcome);
+            Assert.AreEqual(JobFailureReason.Other, processed.Outcome.FailureReason);
+            Assert.IsTrue(processed.Outcome.ShouldUpdateDownloadPath);
+            Assert.IsNull(processed.Outcome.DownloadPath);
+            Assert.AreEqual("C:/old/path.flac", song.DownloadPath);
 
-                JobOutcomeCommitter.Commit(song, processed.Outcome);
+            JobOutcomeCommitter.Commit(song, processed.Outcome);
 
-                Assert.AreEqual(JobTerminalOutcome.Failed, song.TerminalOutcome);
-                Assert.IsNull(song.DownloadPath);
-
-                var warning = entries.Single(entry => entry.Level == LogLevel.Warning);
-                StringAssert.Contains(warning.Message, "ignored path after failed on-complete index state");
-                StringAssert.Contains(warning.Message, "failed index entries clear their stored path");
-            }
-            finally
-            {
-                SockseekLog.RemoveNonFileOutputs();
-                SockseekLog.RemoveFileOutputs();
-            }
+            Assert.AreEqual(JobTerminalOutcome.Failed, song.TerminalOutcome);
+            Assert.IsNull(song.DownloadPath);
         }
 
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithIgnoredState_ReturnsPathOnlyOutcome()
         {
-            var result = CreateProcessResult(
-                exitCode: 0,
-                stdout: "ignored;C:/new/path.mp3",
-                stderr: null);
-            var config = CreateCommandConfig(useOutputToUpdateIndex: true);
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "ignored;C:/new/path.mp3" };
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
                 DownloadPath = "C:/old/path.flac",
@@ -321,7 +285,7 @@ namespace Tests.OnCompleteExecutorTests
             song.Fail(JobFailureReason.AllDownloadsFailed);
             var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
 
-            var processed = InvokeProcessCommandResult(result, config, song, job, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: song.DownloadPath));
+            var processed = Process(result, song, job, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: song.DownloadPath));
 
             Assert.IsTrue(processed.NeedsIndexUpdate);
             Assert.AreEqual(JobTerminalOutcome.Failed, song.TerminalOutcome);
@@ -341,90 +305,31 @@ namespace Tests.OnCompleteExecutorTests
         [TestMethod]
         public void ProcessCommandResult_UpdateIndexWithUnsupportedState_DoesNotApplyStateOrPath()
         {
-            SockseekLog.RemoveNonFileOutputs();
-            SockseekLog.RemoveFileOutputs();
-
-            var entries = new List<SockseekLog.StructuredLogEntry>();
-            SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry), LogLevel.Information);
-
-            try
+            var result = new OnCompleteExecutor.ProcessResult { ExitCode = 0, Stdout = "already-exists;C:/new/path.mp3" };
+            var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
             {
-                var result = CreateProcessResult(
-                    exitCode: 0,
-                    stdout: "already-exists;C:/new/path.mp3",
-                    stderr: null);
-                var config = CreateCommandConfig(useOutputToUpdateIndex: true);
-                var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
-                {
-                    DownloadPath = "C:/old/path.flac",
-                };
-                song.Fail(JobFailureReason.AllDownloadsFailed);
-                var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
-                var failed = JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: song.DownloadPath);
+                DownloadPath = "C:/old/path.flac",
+            };
+            song.Fail(JobFailureReason.AllDownloadsFailed);
+            var job = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" });
+            var failed = JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: song.DownloadPath);
 
-                var processed = InvokeProcessCommandResult(result, config, song, job, failed);
+            var processed = Process(result, song, job, failed);
 
-                Assert.IsFalse(processed.NeedsIndexUpdate);
-                Assert.AreEqual(JobTerminalOutcome.Failed, processed.Outcome.TerminalOutcome);
-                Assert.AreEqual(JobFailureReason.AllDownloadsFailed, processed.Outcome.FailureReason);
-                Assert.AreEqual("C:/old/path.flac", processed.Outcome.DownloadPath);
-                Assert.AreEqual(JobTerminalOutcome.Failed, song.TerminalOutcome);
-                Assert.AreEqual("C:/old/path.flac", song.DownloadPath);
-
-                var warning = entries.Single(entry => entry.Level == LogLevel.Warning);
-                StringAssert.Contains(warning.Message, "ignored unknown on-complete index state 'already-exists'");
-                StringAssert.Contains(warning.Message, "Use success, failed, or ignored");
-            }
-            finally
-            {
-                SockseekLog.RemoveNonFileOutputs();
-                SockseekLog.RemoveFileOutputs();
-            }
+            Assert.IsFalse(processed.NeedsIndexUpdate);
+            Assert.AreEqual(JobTerminalOutcome.Failed, processed.Outcome.TerminalOutcome);
+            Assert.AreEqual(JobFailureReason.AllDownloadsFailed, processed.Outcome.FailureReason);
+            Assert.AreEqual("C:/old/path.flac", processed.Outcome.DownloadPath);
+            Assert.AreEqual(JobTerminalOutcome.Failed, song.TerminalOutcome);
+            Assert.AreEqual("C:/old/path.flac", song.DownloadPath);
         }
 
-        private static object CreateProcessResult(
-            int exitCode,
-            string? stdout,
-            string? stderr,
-            int stdoutCharsRead = 0,
-            bool stdoutTruncated = false,
-            int stderrCharsRead = 0,
-            bool stderrTruncated = false)
-        {
-            var type = typeof(OnCompleteExecutor).GetNestedType("ProcessResult", BindingFlags.NonPublic)!;
-            var result = Activator.CreateInstance(type)!;
-            type.GetProperty("ExitCode")!.SetValue(result, exitCode);
-            type.GetProperty("Stdout")!.SetValue(result, stdout);
-            type.GetProperty("Stderr")!.SetValue(result, stderr);
-            type.GetProperty("StdoutCharsRead")!.SetValue(result, stdoutCharsRead);
-            type.GetProperty("StdoutTruncated")!.SetValue(result, stdoutTruncated);
-            type.GetProperty("StderrCharsRead")!.SetValue(result, stderrCharsRead);
-            type.GetProperty("StderrTruncated")!.SetValue(result, stderrTruncated);
-            return result;
-        }
-
-        private static object CreateCommandConfig(bool useOutputToUpdateIndex = false)
-        {
-            var type = typeof(OnCompleteExecutor).GetNestedType("CommandConfig", BindingFlags.NonPublic)!;
-            var config = Activator.CreateInstance(type)!;
-            type.GetProperty("UseOutputToUpdateIndex")!.SetValue(config, useOutputToUpdateIndex);
-            return config;
-        }
-
-        private static (bool NeedsIndexUpdate, JobOutcome Outcome) InvokeProcessCommandResult(
-            object result,
-            object config,
-            SongJob? song,
-            Job job,
-            JobOutcome? currentOutcome = null)
-        {
-            var method = typeof(OnCompleteExecutor).GetMethod("ProcessCommandResult", BindingFlags.NonPublic | BindingFlags.Static)!;
-            var processed = method.Invoke(null, new object?[] { result, config, song, job, currentOutcome ?? JobOutcome.Done(song?.DownloadPath) })!;
-            var type = processed.GetType();
-            return (
-                (bool)type.GetProperty("NeedsIndexUpdate")!.GetValue(processed)!,
-                (JobOutcome)type.GetProperty("Outcome")!.GetValue(processed)!);
-        }
+        private static OnCompleteExecutor.CommandProcessingResult Process(
+            OnCompleteExecutor.ProcessResult result, SongJob? song, Job job, JobOutcome? outcome = null,
+            bool updateIndex = true)
+            => OnCompleteExecutor.ProcessCommandResult(result, updateIndex, song, job,
+                outcome ?? JobOutcome.Done(song?.DownloadPath),
+                new(song ?? job, null, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance));
     }
 
     [TestClass]
@@ -432,14 +337,10 @@ namespace Tests.OnCompleteExecutorTests
     {
         private static bool InvokeShouldExecute(
             string command,
-            bool isTrack,
-            bool isAlbum,
+            bool folder,
             JobTerminalOutcome terminalOutcome = JobTerminalOutcome.Succeeded,
             JobSkipReason skipReason = JobSkipReason.None)
         {
-            var parseMethod = typeof(OnCompleteExecutor).GetMethod("ParseCommand", BindingFlags.NonPublic | BindingFlags.Static)!;
-            var config = parseMethod.Invoke(null, new object[] { command })!;
-
             var outcome = terminalOutcome switch
             {
                 JobTerminalOutcome.Succeeded => JobOutcome.Done(),
@@ -450,84 +351,112 @@ namespace Tests.OnCompleteExecutorTests
                 _ => JobOutcome.NoChange(),
             };
 
-            var method = typeof(OnCompleteExecutor).GetMethod("ShouldExecuteCommand", BindingFlags.NonPublic | BindingFlags.Static)!;
-            return (bool)method.Invoke(null, new object[] { config, outcome, isTrack, isAlbum })!;
+            Job job = folder ? new AlbumJob(new AlbumQuery()) : new SongJob(new SongQuery());
+            job.Config = new DownloadSettings { Output = { OnComplete = [command] } };
+            return OnCompleteExecutor.HasApplicableCommand(job, job as SongJob, outcome);
         }
 
         [TestMethod]
         public void ShouldExecute_Default_RunsForNonSkippedOutcomes()
         {
-            Assert.IsTrue(InvokeShouldExecute("-- cmd", isTrack: true, isAlbum: false));
-            Assert.IsTrue(InvokeShouldExecute("-- cmd", isTrack: false, isAlbum: true, terminalOutcome: JobTerminalOutcome.Failed));
-            Assert.IsFalse(InvokeShouldExecute("-- cmd", isTrack: true, isAlbum: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.AlreadyExists));
+            Assert.IsTrue(InvokeShouldExecute("-- cmd", folder: false));
+            Assert.IsTrue(InvokeShouldExecute("-- cmd", folder: true, terminalOutcome: JobTerminalOutcome.Failed));
+            Assert.IsFalse(InvokeShouldExecute("-- cmd", folder: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.AlreadyExists));
         }
 
         [TestMethod]
-        public void ShouldExecute_TrackScope_OnlyRunsForTrackContext()
+        public void ShouldExecute_FileScope_OnlyRunsForFileContext()
         {
-            Assert.IsTrue(InvokeShouldExecute("scope=track -- cmd", isTrack: true, isAlbum: false));
-            Assert.IsFalse(InvokeShouldExecute("scope=track -- cmd", isTrack: false, isAlbum: true));
+            Assert.IsTrue(InvokeShouldExecute("scope=file -- cmd", folder: false));
+            Assert.IsFalse(InvokeShouldExecute("scope=file -- cmd", folder: true));
         }
 
         [TestMethod]
-        public void ShouldExecute_AlbumScope_OnlyRunsForAlbumContext()
+        public void ShouldExecute_FolderScope_OnlyRunsForFolderContext()
         {
-            Assert.IsTrue(InvokeShouldExecute("scope=album -- cmd", isTrack: false, isAlbum: true));
-            Assert.IsFalse(InvokeShouldExecute("scope=album -- cmd", isTrack: true, isAlbum: false));
+            Assert.IsTrue(InvokeShouldExecute("scope=folder -- cmd", folder: true));
+            Assert.IsFalse(InvokeShouldExecute("scope=folder -- cmd", folder: false));
         }
 
         [TestMethod]
         public void ShouldExecute_SuccessWhen_OnlyRunsForSucceeded()
         {
-            Assert.IsTrue(InvokeShouldExecute("when=success -- cmd", isTrack: true, isAlbum: false));
-            Assert.IsFalse(InvokeShouldExecute("when=success -- cmd", isTrack: true, isAlbum: false, terminalOutcome: JobTerminalOutcome.Failed));
+            Assert.IsTrue(InvokeShouldExecute("when=success -- cmd", folder: false));
+            Assert.IsFalse(InvokeShouldExecute("when=success -- cmd", folder: false, terminalOutcome: JobTerminalOutcome.Failed));
         }
 
         [TestMethod]
         public void ShouldExecute_FailureWhen_RunsForFailedAndPartialSuccess()
         {
-            Assert.IsTrue(InvokeShouldExecute("when=failure -- cmd", isTrack: true, isAlbum: false, terminalOutcome: JobTerminalOutcome.Failed));
-            Assert.IsTrue(InvokeShouldExecute("when=failure -- cmd", isTrack: false, isAlbum: true, terminalOutcome: JobTerminalOutcome.PartialSuccess));
-            Assert.IsFalse(InvokeShouldExecute("when=failure -- cmd", isTrack: true, isAlbum: false));
+            Assert.IsTrue(InvokeShouldExecute("when=failure -- cmd", folder: false, terminalOutcome: JobTerminalOutcome.Failed));
+            Assert.IsTrue(InvokeShouldExecute("when=failure -- cmd", folder: true, terminalOutcome: JobTerminalOutcome.PartialSuccess));
+            Assert.IsFalse(InvokeShouldExecute("when=failure -- cmd", folder: false));
         }
 
         [TestMethod]
         public void ShouldExecute_SkippedWhen_RunsForAnySkippedOutcome()
         {
-            Assert.IsTrue(InvokeShouldExecute("when=skipped -- cmd", isTrack: true, isAlbum: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.AlreadyExists));
+            Assert.IsTrue(InvokeShouldExecute("when=skipped -- cmd", folder: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.AlreadyExists));
         }
 
         [TestMethod]
         public void ShouldExecute_AlreadyExistsWhen_RunsOnlyForAlreadyExistsSkippedOutcome()
         {
-            Assert.IsTrue(InvokeShouldExecute("when=already-exists -- cmd", isTrack: true, isAlbum: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.AlreadyExists));
-            Assert.IsFalse(InvokeShouldExecute("when=already-exists -- cmd", isTrack: true, isAlbum: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.NotFoundLastTime));
+            Assert.IsTrue(InvokeShouldExecute("when=already-exists -- cmd", folder: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.AlreadyExists));
+            Assert.IsFalse(InvokeShouldExecute("when=already-exists -- cmd", folder: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.NotFoundLastTime));
         }
 
         [TestMethod]
         public void ShouldExecute_NotFoundLastTimeWhen_RunsOnlyForNotFoundLastTimeSkippedOutcome()
         {
-            Assert.IsTrue(InvokeShouldExecute("when=not-found-last-time -- cmd", isTrack: true, isAlbum: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.NotFoundLastTime));
-            Assert.IsFalse(InvokeShouldExecute("when=not-found-last-time -- cmd", isTrack: true, isAlbum: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.AlreadyExists));
+            Assert.IsTrue(InvokeShouldExecute("when=not-found-last-time -- cmd", folder: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.NotFoundLastTime));
+            Assert.IsFalse(InvokeShouldExecute("when=not-found-last-time -- cmd", folder: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.AlreadyExists));
         }
 
         [TestMethod]
         public void ShouldExecute_CancelledWhen_RunsOnlyForCancelled()
         {
-            Assert.IsTrue(InvokeShouldExecute("when=cancelled -- cmd", isTrack: true, isAlbum: false, terminalOutcome: JobTerminalOutcome.Cancelled));
-            Assert.IsFalse(InvokeShouldExecute("when=cancelled -- cmd", isTrack: true, isAlbum: false, terminalOutcome: JobTerminalOutcome.Failed));
+            Assert.IsTrue(InvokeShouldExecute("when=cancelled -- cmd", folder: false, terminalOutcome: JobTerminalOutcome.Cancelled));
+            Assert.IsFalse(InvokeShouldExecute("when=cancelled -- cmd", folder: false, terminalOutcome: JobTerminalOutcome.Failed));
         }
 
         [TestMethod]
         public void ShouldExecute_AnyWhen_RunsForSkippedToo()
         {
-            Assert.IsTrue(InvokeShouldExecute("when=any -- cmd", isTrack: true, isAlbum: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.AlreadyExists));
+            Assert.IsTrue(InvokeShouldExecute("when=any -- cmd", folder: false, terminalOutcome: JobTerminalOutcome.Skipped, skipReason: JobSkipReason.AlreadyExists));
         }
     }
 
     [TestClass]
     public class ExecuteAsyncTests
     {
+        [TestMethod]
+        public async Task ExecuteAsync_NonZeroExitPublishesBoundedActivityWithoutProcessOutput()
+        {
+            var settings = new DownloadSettings();
+            settings.Output.OnComplete = [$"hidden -- {FailingOutputCommand()}"];
+            var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
+            {
+                Config = settings,
+            };
+            var events = new DownloadEvents();
+            var messages = new List<JobMessageChange>();
+            events.JobMessage += messages.Add;
+
+            await OnCompleteExecutor.ExecuteAsync(
+                album,
+                null,
+                new JobContext(),
+                JobOutcome.Done(),
+                events);
+
+            JobMessageChange warning = messages.Single();
+            Assert.AreEqual(LogLevel.Warning, warning.Level);
+            Assert.AreEqual("on-complete command exited with code 7", warning.Message);
+            Assert.IsFalse(warning.Message.Contains("PRIVATE-STDOUT", StringComparison.Ordinal));
+            Assert.IsFalse(warning.Message.Contains("PRIVATE-STDERR", StringComparison.Ordinal));
+        }
+
         [TestMethod]
         public async Task ExecuteAsync_AlbumOnlySuccess_RunsOnceForAlbumCompletion_NotForAlbumTracks()
         {
@@ -540,9 +469,9 @@ namespace Tests.OnCompleteExecutorTests
                 settings.Output.ParentDir = tempDir;
                 settings.Output.OnComplete =
                 [
-                    $"when=success scope=album hidden -- {AppendMarkerCommand(markerPath, "album")}",
-                    $"when=success scope=track hidden -- {AppendMarkerCommand(markerPath, "track")}",
-                    $"when=failure scope=album hidden -- {AppendMarkerCommand(markerPath, "failed")}",
+                    $"when=success scope=folder hidden -- {AppendMarkerCommand(markerPath, "album")}",
+                    $"when=success scope=file hidden -- {AppendMarkerCommand(markerPath, "track")}",
+                    $"when=failure scope=folder hidden -- {AppendMarkerCommand(markerPath, "failed")}",
                 ];
 
                 var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
@@ -570,7 +499,9 @@ namespace Tests.OnCompleteExecutorTests
         }
 
         [TestMethod]
-        public async Task Engine_AlbumOnlySuccessCommand_RunsOnceAfterAlbumCompletion()
+        [DataRow(false)]
+        [DataRow(true)]
+        public async Task Engine_FolderCompletionRespectsExplicitAndOmittedScope(bool genericFolder)
         {
             var musicRoot = Path.Combine(Path.GetTempPath(), "sockseek-oncomplete-music-" + Guid.NewGuid());
             var albumDir = Path.Combine(musicRoot, "Main", "TestArtist", "TestAlbum");
@@ -586,31 +517,35 @@ namespace Tests.OnCompleteExecutorTests
                 var markerPath = Path.Combine(outputDir, "marker.txt");
                 var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
                 var settings = new DownloadSettings();
-                settings.Extraction.Input = "TestArtist TestAlbum";
-                settings.Extraction.IsAlbum = true;
+                settings.Extraction.Input = genericFolder ? "slsk://local/Main/TestArtist/TestAlbum/" : "TestArtist TestAlbum";
+                if (!genericFolder) settings.Extraction.RequestedMode = ExtractionMode.Album;
                 settings.Output.ParentDir = outputDir;
+                string scope = genericFolder ? "" : "scope=folder";
                 settings.Output.OnComplete =
                 [
-                    $"when=success scope=album hidden -- {AppendMarkerCommand(markerPath, "album")}",
+                    $"when=success {scope} lock hidden -- {AppendMarkerCommand(markerPath, "{path}")}",
                 ];
 
-                var client = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, albumDir);
+                var client = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, musicRoot);
                 var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
                 var albumActivityPhases = new List<JobActivityPhase>();
-                app.Events.JobActivityChanged += (job, phase, _) =>
+                app.Events.JobActivityChanged += change =>
                 {
-                    if (job is AlbumJob)
-                        albumActivityPhases.Add(phase);
+                    if (change.Job.Kind is Sockseek.Core.Snapshots.JobSnapshotKind.Album or Sockseek.Core.Snapshots.JobSnapshotKind.RemoteDirectory)
+                        albumActivityPhases.Add(change.Phase);
                 };
                 app.Enqueue(new ExtractJob(settings.Extraction.Input, settings.Extraction.InputType), settings);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
-                var album = app.Queue.AllJobs().OfType<AlbumJob>().Single();
-                Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome);
+                var folder = app.Queue.AllJobs().OfType<DirectoryDownloadJob>().Single();
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, folder.TerminalOutcome);
                 CollectionAssert.Contains(albumActivityPhases, JobActivityPhase.RunningOnComplete);
-                CollectionAssert.AreEqual(new[] { "album" }, File.ReadAllLines(markerPath));
+                var calls = File.ReadAllLines(markerPath);
+                Assert.AreEqual(folder.DownloadPath, calls[^1]);
+                var files = genericFolder ? folder.FileJobs.Select(file => file.DownloadPath).ToArray() : [];
+                CollectionAssert.AreEquivalent(files, calls[..^1]);
             }
             finally
             {
@@ -619,6 +554,65 @@ namespace Tests.OnCompleteExecutorTests
                 if (Directory.Exists(outputDir))
                     Directory.Delete(outputDir, recursive: true);
             }
+        }
+
+        [TestMethod]
+        [DataRow(false, false)]
+        [DataRow(true, false)]
+        [DataRow(false, true)]
+        public async Task AlbumRetryPreservesNestedPlacementAndRunsOnlyNewCompletionHooks(bool finishFolder, bool lastFile)
+        {
+            var output = Directory.CreateTempSubdirectory().FullName;
+            try
+            {
+                var names = new[] { @"PeerRoot\Album\Disc 1\one.mp3", @"PeerRoot\Album\Disc 2\two.mp3", @"PeerRoot\Album\Disc 2\three.mp3" };
+                var files = names.Select(name => TestHelpers.CreateSlFile(name, length: 180)).ToList();
+                var response = new Soulseek.SearchResponse("alice", 1, true, 100_000, 0, files);
+                var folder = new AlbumFolder("alice", @"PeerRoot\Album", files.Select(f => TestHelpers.CreateAlbumFile(response, f)).ToList());
+                var kept = Path.Join(output, "exported-one.mp3");
+                File.WriteAllText(kept, "already exported");
+                var marker = Path.Join(output, "calls.txt");
+                var previousOutput = Path.Join(output, "failed", "Album", "three.mp3");
+                var restoredOutput = Path.Join(output, "Album", "three.mp3");
+                if (lastFile)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(previousOutput)!);
+                    File.WriteAllText(previousOutput, "retained audio");
+                }
+                var album = new AlbumJob(new AlbumQuery { Album = "Album" })
+                {
+                    ResolvedTarget = folder,
+                    ValidationRequirement = AlbumValidationRequirement.UserAccepted,
+                    InheritedFolders = ["My list"],
+                    Retry = new(Guid.NewGuid(), 1, finishFolder ? null : new HashSet<string> { names[1] },
+                        new Dictionary<string, string> { [names[0]] = kept, [names[2]] = previousOutput },
+                        new Dictionary<string, string> { [names[2]] = restoredOutput }),
+                };
+                var settings = new DownloadSettings();
+                settings.Output.ParentDir = output;
+                settings.Output.NameFormat = "{default-folder}/{foldername}/{filename}";
+                settings.Skip.SkipExisting = false;
+                settings.Output.OnComplete = [
+                    $"when=success scope=file lock hidden -- {AppendMarkerCommand(marker, "{path}")}",
+                    $"when=success scope=folder hidden -- {AppendMarkerCommand(marker, "folder")}",
+                ];
+                var engine = new EngineSettings { Username = "test", Password = "test" };
+                var client = new ClientTests.MockSoulseekClient([response]);
+                var app = new DownloadEngine(engine, TestHelpers.CreateMockClientManager(client, engine));
+                app.Enqueue(album, settings);
+                app.CompleteEnqueue();
+                await app.RunAsync(CancellationToken.None);
+
+                var two = Path.Join(output, "My list", "Album", "Disc 2", "two.mp3");
+                var three = Path.Join(Path.GetDirectoryName(two), "three.mp3");
+                Assert.AreEqual(finishFolder || lastFile ? JobTerminalOutcome.Succeeded : JobTerminalOutcome.PartialSuccess, album.TerminalOutcome, album.FailureMessage);
+                Assert.AreEqual("already exported", File.ReadAllText(kept));
+                Assert.IsTrue(File.Exists(two), two);
+                Assert.AreEqual(finishFolder, File.Exists(three));
+                if (lastFile) Assert.AreEqual("retained audio", File.ReadAllText(restoredOutput));
+                CollectionAssert.AreEquivalent(finishFolder ? new[] { two, three, "folder" } : lastFile ? [two, "folder"] : [two], File.ReadAllLines(marker));
+            }
+            finally { Directory.Delete(output, true); }
         }
 
         [TestMethod]
@@ -637,7 +631,7 @@ namespace Tests.OnCompleteExecutorTests
                 settings.Output.ParentDir = outputDir;
                 settings.Output.OnComplete =
                 [
-                    $"when=already-exists scope=track hidden -- {AppendMarkerCommand(markerPath, "already-exists")}",
+                    $"when=already-exists scope=file hidden -- {AppendMarkerCommand(markerPath, "already-exists")}",
                 ];
                 settings.Skip.SkipExisting = true;
                 settings.Skip.SkipMode = SkipMode.Name;
@@ -664,7 +658,7 @@ namespace Tests.OnCompleteExecutorTests
         public void HasApplicableCommand_AlbumOnlyCommand_DoesNotApplyToAlbumTrackCompletion()
         {
             var settings = new DownloadSettings();
-            settings.Output.OnComplete = ["when=success scope=album -- notify"];
+            settings.Output.OnComplete = ["when=success scope=folder -- notify"];
 
             var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
             {
@@ -692,8 +686,8 @@ namespace Tests.OnCompleteExecutorTests
                 settings.Output.OnComplete =
                 [
                     $"hidden -- {AppendMarkerCommand(markerPath, "ran")}",
-                    $"scope=album hidden -- {AppendMarkerCommand(markerPath, "album")}",
-                    $"scope=track hidden -- {AppendMarkerCommand(markerPath, "track")}",
+                    $"scope=folder hidden -- {AppendMarkerCommand(markerPath, "album")}",
+                    $"scope=file hidden -- {AppendMarkerCommand(markerPath, "track")}",
                 ];
 
                 var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
@@ -764,6 +758,51 @@ namespace Tests.OnCompleteExecutorTests
         }
 
         [TestMethod]
+        public async Task ExecuteAsync_ChainedConditionsAndVariablesSeePriorUpdateIndexOutcome()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), "sockseek-oncomplete-" + Guid.NewGuid());
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string markerPath = Path.Combine(tempDir, "marker.txt");
+                string oldPath = Path.Combine(tempDir, "old.flac").Replace('\\', '/');
+                string newPath = Path.Combine(tempDir, "new.mp3").Replace('\\', '/');
+                var settings = new DownloadSettings();
+                settings.Output.ParentDir = tempDir;
+                settings.Output.OnComplete =
+                [
+                    $"when=failure update-index hidden -- {WriteStdoutCommand($"success;{newPath}")}",
+                    $"when=success hidden -- {AppendMarkerCommand(markerPath, "{terminal-outcome}|{path}")}",
+                ];
+                var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
+                {
+                    Config = settings,
+                };
+                var track = new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Track" })
+                {
+                    Config = settings,
+                    DownloadPath = oldPath,
+                };
+
+                JobOutcome outcome = await OnCompleteExecutor.ExecuteAsync(
+                    album,
+                    track,
+                    new JobContext(),
+                    JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, downloadPath: oldPath));
+
+                Assert.AreEqual(JobTerminalOutcome.Succeeded, outcome.TerminalOutcome);
+                Assert.AreEqual(newPath, outcome.DownloadPath);
+                Assert.AreEqual(
+                    $"Succeeded|{Path.GetFullPath(newPath)}",
+                    File.ReadAllText(markerPath).Trim());
+            }
+            finally
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [TestMethod]
         public async Task ExecuteAsync_UpdateIndexStateAndPath_ReturnsAdjustedAlbumOutcome()
         {
             var tempDir = Path.Combine(Path.GetTempPath(), "sockseek-oncomplete-" + Guid.NewGuid());
@@ -776,7 +815,7 @@ namespace Tests.OnCompleteExecutorTests
                 settings.Output.ParentDir = tempDir;
                 settings.Output.OnComplete =
                 [
-                    $"when=failure scope=album update-index hidden -- {WriteStdoutCommand($"success;{newPath}")}",
+                    $"when=failure scope=folder update-index hidden -- {WriteStdoutCommand($"success;{newPath}")}",
                 ];
 
                 var album = new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" })
@@ -862,7 +901,7 @@ namespace Tests.OnCompleteExecutorTests
                 settings.Output.ParentDir = tempDir;
                 settings.Output.OnComplete =
                 [
-                    $"when=success scope=album hidden -- {AppendMarkerCommand(markerPath, "{title}|{artist}|{album}|{sartist}|{salbum}|{path}")}",
+                    $"when=success scope=folder hidden -- {AppendMarkerCommand(markerPath, "{title}|{artist}|{album}|{sartist}|{salbum}|{path}")}",
                 ];
 
                 var album = new AlbumJob(new AlbumQuery { Artist = "AlbumSourceArtist", Album = "AlbumSourceAlbum" })
@@ -872,7 +911,7 @@ namespace Tests.OnCompleteExecutorTests
                 album.SetDone(albumPath);
 
                 var response = new Soulseek.SearchResponse("user", 1, true, 100, 0, []);
-                var candidate = new FileCandidate(response, new Soulseek.File(1, @"remote\Artist\Album\01.mp3", 100, ".mp3"));
+                var candidate = SoulseekSearchAdapter.ToFileCandidate(response, new Soulseek.File(1, @"remote\Artist\Album\01.mp3", 100, ".mp3"));
                 var firstAudio = new SongJob(new SongQuery { Artist = "TrackSourceArtist", Album = "TrackSourceAlbum", Title = "TrackSourceTitle" })
                 {
                     Config = settings,
@@ -913,6 +952,11 @@ namespace Tests.OnCompleteExecutorTests
             return $"/bin/sh -c \"printf '%s\\n' '{shellValue}'\"";
         }
 
+        private static string FailingOutputCommand()
+            => OperatingSystem.IsWindows()
+                ? "cmd /d /c \"echo PRIVATE-STDOUT & echo PRIVATE-STDERR 1>&2 & exit /b 7\""
+                : "/bin/sh -c \"echo PRIVATE-STDOUT; echo PRIVATE-STDERR >&2; exit 7\"";
+
         private static string AppendMarkerCommand(string markerPath, string marker)
         {
             if (OperatingSystem.IsWindows())
@@ -950,12 +994,6 @@ namespace Tests.OnCompleteExecutorTests
 
             var method = typeof(OnCompleteExecutor).GetMethod("ConfigureProcessStartInfo", BindingFlags.NonPublic | BindingFlags.Static)!;
             return (ProcessStartInfo)method.Invoke(null, new[] { file, args, config })!;
-        }
-
-        private static string InvokeFormatProcessArgumentsForLog(ProcessStartInfo startInfo)
-        {
-            var method = typeof(OnCompleteExecutor).GetMethod("FormatProcessArgumentsForLog", BindingFlags.NonPublic | BindingFlags.Static)!;
-            return (string)method.Invoke(null, new object[] { startInfo })!;
         }
 
         [TestMethod]
@@ -1005,34 +1043,5 @@ namespace Tests.OnCompleteExecutorTests
             Assert.AreEqual("", args);
         }
 
-        [TestMethod]
-        public void FormatProcessArgumentsForLog_NonShellExecute_UsesArgumentsString()
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "cmd",
-                Arguments = "/d /c win-notify-send.cmd \"Downloaded: Sonic Youth C:/Music\"",
-                UseShellExecute = false,
-            };
-
-            Assert.AreEqual(
-                "Arguments='/d /c win-notify-send.cmd \"Downloaded: Sonic Youth C:/Music\"'",
-                InvokeFormatProcessArgumentsForLog(startInfo));
-        }
-
-        [TestMethod]
-        public void FormatProcessArgumentsForLog_ShellExecute_UsesArgumentsString()
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "win-notify-send.cmd",
-                Arguments = "\"Downloaded: Sonic Youth\"",
-                UseShellExecute = true,
-            };
-
-            Assert.AreEqual(
-                "Arguments='\"Downloaded: Sonic Youth\"'",
-                InvokeFormatProcessArgumentsForLog(startInfo));
-        }
     }
 }

@@ -4,7 +4,7 @@ namespace Sockseek.Cli;
 
 public record ConfigFile(string Path, Dictionary<string, ProfileEntry> Profiles, bool HasAutoProfiles = false)
 {
-    public string? ConfigDir => string.IsNullOrWhiteSpace(Path) || Path == "none" || !File.Exists(Path)
+    public string? ConfigDir => string.IsNullOrWhiteSpace(Path) || Path == "none"
         ? null : System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(Path));
 }
 
@@ -25,6 +25,7 @@ public sealed record ParsedInvocation(ProfileEntry Profile, string? ConfigPath, 
 
 internal sealed class ProfileBuilder(string name)
 {
+    public string Name => name;
     public string? Condition { get; set; }
     private readonly SettingsPatchBuilder engine = new();
     private readonly SettingsPatchBuilder download = new();

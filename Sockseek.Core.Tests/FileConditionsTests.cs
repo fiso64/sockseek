@@ -410,6 +410,19 @@ namespace Tests.FileConditionsTests
             string result = FileConditions.StrictStringPreprocess(input);
 
             Assert.AreEqual("A B C D E F G H I/J\\K A", result);
+            Assert.AreEqual("A B C D E F G H I J K A",
+                FileConditions.StrictStringPreprocess(input, removeSlash: true));
+            Assert.AreEqual("Ä", FileConditions.StrictStringPreprocess(" Ä ", diacrRemove: false));
+            Assert.AreEqual("", FileConditions.StrictStringPreprocess("\t  \r\n"));
+            Assert.AreEqual("A\tB", FileConditions.StrictStringPreprocess("  A\tB  "));
+            Assert.AreEqual(@"Music\Artist\Album\01 - Track.flac",
+                FileConditions.StrictStringPreprocess(@"Music\Artist\Album\01 - Track.flac"));
+            foreach (int length in new[] { 512, 513, 2048 })
+            {
+                string longName = new('a', length);
+                Assert.AreEqual(longName, FileConditions.StrictStringPreprocess(longName));
+                Assert.AreEqual(longName, FileConditions.StrictStringPreprocess("_" + longName + "_"));
+            }
         }
     }
 
@@ -634,24 +647,15 @@ namespace Tests.FileConditionsTests
         }
 
         [TestMethod]
-        public void AddConditions_ReturnsUndoModifier()
+        public void AddConditions_ChangesOnlySuppliedFields()
         {
             var fc = new FileConditions { MinBitrate = 128, MaxBitrate = 320 };
             var mod = new FileConditionPatch { MinBitrate = 256 };
 
-            var undo = fc.AddConditions(mod);
+            fc.AddConditions(mod);
 
-            // fc was modified in place
             Assert.AreEqual(256, fc.MinBitrate);
             Assert.AreEqual(320, fc.MaxBitrate);
-
-            // undo holds the old value
-            Assert.AreEqual(128, undo.MinBitrate);
-            Assert.IsNull(undo.MaxBitrate); // MaxBitrate was not in mod, so not in undo
-
-            // Apply undo to restore
-            fc.AddConditions(undo);
-            Assert.AreEqual(128, fc.MinBitrate);
         }
     }
 }

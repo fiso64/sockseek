@@ -16,12 +16,12 @@ public class SearchDownloadIntegrationTests
     [TestMethod]
     [DataRow("song", false)]
     [DataRow("album", false)]
-    [DataRow("aggregate", false)]
-    [DataRow("album-aggregate", false)]
+    [DataRow("song-groups", false)]
+    [DataRow("album-groups", false)]
     [DataRow("song", true)]
     [DataRow("album", true)]
-    [DataRow("aggregate", true)]
-    [DataRow("album-aggregate", true)]
+    [DataRow("song-groups", true)]
+    [DataRow("album-groups", true)]
     public async Task MultiItemSearch_LibraryCleanupFailure_PreservesResultsAndDownloads(string mode, bool printOnly)
     {
         var outputDir = Path.Combine(Path.GetTempPath(), "sockseek-search-modes-" + Guid.NewGuid());
@@ -102,8 +102,8 @@ public class SearchDownloadIntegrationTests
     {
         "song" => new SongJob(new SongQuery { Artist = artist, Title = "Album1 Track1" }),
         "album" => new AlbumJob(new AlbumQuery { Artist = artist, Album = "Album1" }),
-        "aggregate" => new AggregateJob(new SongQuery { Artist = artist }),
-        "album-aggregate" => new AlbumAggregateJob(new AlbumQuery { Artist = artist }),
+        "song-groups" => new SongGroupsJob(new SongQuery { Artist = artist }),
+        "album-groups" => new AlbumGroupsJob(new AlbumQuery { Artist = artist }),
         _ => throw new ArgumentOutOfRangeException(nameof(mode)),
     };
 
@@ -111,8 +111,8 @@ public class SearchDownloadIntegrationTests
     {
         SongJob song => song.Candidates?.Count > 0 ? 1 : 0,
         AlbumJob album => album.Results.First().Files.Count,
-        AggregateJob aggregate => aggregate.Songs.Count,
-        AlbumAggregateJob aggregate => aggregate.Albums.Sum(album => album.Results.First().Files.Count),
+        SongGroupsJob group => group.Songs.Count,
+        AlbumGroupsJob group => group.Albums.Sum(album => album.Results.First().Files.Count),
         _ => throw new ArgumentOutOfRangeException(nameof(job)),
     };
 }

@@ -21,7 +21,7 @@ internal static class QueryMatching
             : [title];
     }
 
-    public static bool AggregateIdentityMatches(SongQuery candidate, SongQuery query)
+    public static bool GroupIdentityMatches(SongQuery candidate, SongQuery query)
     {
         if (query.Title.Length > 0 && !FileConditions.StrictStringAny(candidate.Title, Titles(query.Title)))
             return false;

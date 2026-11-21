@@ -32,7 +32,7 @@ internal sealed class DownloadCommandTargetResolver
     {
         var targetIds = CommandTargetIds(job);
         return activeDownloads.ActiveDownloads
-            .Where(download => targetIds.Contains(download.Song.Id))
+            .Where(download => targetIds.Contains(download.Owner.Id))
             .ToList();
     }
 
@@ -44,34 +44,8 @@ internal sealed class DownloadCommandTargetResolver
 
         void Add(Job current)
         {
-            ids.Add(current.Id);
-
-            switch (current)
-            {
-                case JobList list:
-                    foreach (var child in list.Jobs)
-                        Add(child);
-                    break;
-
-                case ExtractJob { Result: { } result }:
-                    Add(result);
-                    break;
-
-                case AlbumJob album:
-                    foreach (var song in album.TrackJobs)
-                        Add(song);
-                    break;
-
-                case AggregateJob aggregate:
-                    foreach (var song in aggregate.Songs)
-                        Add(song);
-                    break;
-
-                case AlbumAggregateJob aggregate:
-                    foreach (var album in aggregate.Albums)
-                        Add(album);
-                    break;
-            }
+            if (!ids.Add(current.Id)) return;
+            foreach (var child in current.Children) Add(child);
         }
     }
 }

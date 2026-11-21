@@ -10,15 +10,7 @@ namespace Tests.ClientTests
     {
         // Irrelevant stuff starts here
 
-        public string Address => throw new NotImplementedException();
-
         public DistributedNetworkInfo DistributedNetwork => throw new NotImplementedException();
-
-        public IPAddress IPAddress => throw new NotImplementedException();
-
-        public IPEndPoint IPEndPoint => throw new NotImplementedException();
-
-        public int? Port => throw new NotImplementedException();
 
         public ServerInfo ServerInfo => throw new NotImplementedException();
 
@@ -94,11 +86,6 @@ namespace Tests.ClientTests
             throw new NotImplementedException();
         }
 
-        public Task<UserData> AddUserAsync(string username, CancellationToken? cancellationToken = null)
-        {
-            throw new NotImplementedException();
-        }
-
         public Task ChangePasswordAsync(string password, CancellationToken? cancellationToken = null)
         {
             throw new NotImplementedException();
@@ -145,11 +132,6 @@ namespace Tests.ClientTests
         }
 
         public Task<IReadOnlyCollection<Soulseek.Directory>> GetDirectoryContentsAsync(string username, string directoryName, int? token = null, CancellationToken? cancellationToken = null)
-        {
-            throw new NotImplementedException();
-        }
-
-        public Task<int> GetDownloadPlaceInQueueAsync(string username, string filename, CancellationToken? cancellationToken = null)
         {
             throw new NotImplementedException();
         }
@@ -214,9 +196,12 @@ namespace Tests.ClientTests
             throw new NotImplementedException();
         }
 
+        public SoulseekClientOptionsPatch? LastOptionsPatch { get; private set; }
+
         public Task<bool> ReconfigureOptionsAsync(SoulseekClientOptionsPatch patch, CancellationToken? cancellationToken = null)
         {
-            throw new NotImplementedException();
+            LastOptionsPatch = patch;
+            return Task.FromResult(false);
         }
 
         public Task RemovePrivateRoomMemberAsync(string roomName, string username, CancellationToken? cancellationToken = null)

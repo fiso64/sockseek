@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 
@@ -22,7 +23,20 @@ public class OutputSettings
     }
 
     [SettingOption("--nf", "--name-format")]
-    public string NameFormat { get; set; } = "";
+    public string NameFormat
+    {
+        get;
+        set
+        {
+            field = value;
+            PreserveSelectionConflicts = false;
+        }
+    } = "";
+
+    // An explicitly configured template can have the same spelling as the
+    // selection default. Retain its collision behavior across saved job replay.
+    [SettingIgnore, JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault), JsonPropertyOrder(1)]
+    public bool PreserveSelectionConflicts { get; internal set; }
 
     [SettingOption("--irs", "--invalid-replace-str")]
     public string InvalidReplaceStr { get; set; } = " ";
@@ -71,20 +85,9 @@ public class OutputSettings
         return action;
     }
 
-    /// --on-complete replaces the commands, or appends with the "+ " prefix.
+    [SettingOption("--oc", "--on-complete", ListSyntax = OptionListSyntax.SingleItem)]
     [SettingValidation(typeof(OnCompleteExecutor), nameof(OnCompleteExecutor.ValidateCommands))]
     public List<string>? OnComplete { get; set; }
-
-    [SettingOption("--oc", "--on-complete")]
-    private static void ConfigureOnComplete(SettingWriter changes, string value)
-    {
-        var trimmed = value.TrimStart();
-        bool append = trimmed.StartsWith("+ ", StringComparison.Ordinal);
-        var command = append ? trimmed[2..] : value.Trim();
-        OnCompleteExecutor.ValidateCommand(command);
-        if (append) changes.Append(nameof(OnComplete), new List<string> { command });
-        else changes.Set(nameof(OnComplete), new List<string> { command });
-    }
 
     [SettingOption("--aa", "--album-art", Parser = nameof(ParseAlbumArt))]
     public AlbumArtOption AlbumArtOption { get; set; } = AlbumArtOption.Default;

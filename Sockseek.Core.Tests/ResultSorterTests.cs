@@ -10,7 +10,7 @@ namespace Tests.ResultSorterTests
     public class SortKeyTests
     {
         private static ResultSorter.SortKey Key(
-            bool userSuccessAboveDownrank = false,
+            bool peerBelowFailureThreshold = false,
             bool necessaryConditionsMet = false,
             bool preferredUserConditionsMet = false,
             bool hasValidLength = false,
@@ -32,12 +32,11 @@ namespace Tests.ResultSorterTests
             bool nonAlbumModeStrictString = false,
             bool albumModeStrictString = false,
             bool strictArtistString = false,
-            int inferredTrackCount = 0,
             int uploadSpeedMedium = 0,
             int bitRate = 0,
             int randomTiebreaker = 0)
             => new(
-                userSuccessAboveDownrank,
+                peerBelowFailureThreshold,
                 necessaryConditionsMet,
                 preferredUserConditionsMet,
                 hasValidLength,
@@ -53,16 +52,17 @@ namespace Tests.ResultSorterTests
                 bitrateMatch,
                 sampleRateMatch,
                 bitDepthMatch,
+                true, // These sort-key tests do not configure locked preferences.
                 fileSatisfies,
                 hasFreeUploadSlot,
                 uploadSpeedFast,
                 nonAlbumModeStrictString,
                 albumModeStrictString,
                 strictArtistString,
-                inferredTrackCount,
                 uploadSpeedMedium,
                 bitRate,
-                randomTiebreaker);
+                randomTiebreaker,
+                new SearchConditionFacts(necessaryConditionsMet, fileSatisfies));
 
         [TestMethod]
         public void CompareTo_NecessaryConditions_TrumpLowerCriteria()
@@ -78,9 +78,9 @@ namespace Tests.ResultSorterTests
         }
 
         [TestMethod]
-        public void CompareTo_UserSuccessAboveDownrank_IsHighestPriority()
+        public void CompareTo_PeerBelowFailureThreshold_IsHighestPriority()
         {
-            var better = Key(userSuccessAboveDownrank: true);
+            var better = Key(peerBelowFailureThreshold: true);
             var worse = Key(necessaryConditionsMet: true, hasFreeUploadSlot: true);
 
             Assert.IsTrue(better.CompareTo(worse) > 0);
@@ -115,30 +115,12 @@ namespace Tests.ResultSorterTests
         }
 
         [TestMethod]
-        public void CompareTo_InferredTrackCount_IsLateTiebreaker()
-        {
-            var better = Key(inferredTrackCount: 2);
-            var worse = Key(inferredTrackCount: 1);
-
-            Assert.IsTrue(better.CompareTo(worse) > 0);
-        }
-
-        [TestMethod]
-        public void CompareTo_DoesNotUseInferredTrackCount_WhenHigherPriorityFieldDiffers()
-        {
-            var better = Key(necessaryConditionsMet: true, inferredTrackCount: 1);
-            var worse = Key(necessaryConditionsMet: false, inferredTrackCount: 100);
-
-            Assert.IsTrue(better.CompareTo(worse) > 0);
-        }
-
-        [TestMethod]
         public void CompareTo_FullPriorityChain_EachLevelWins()
         {
             // Test that each successive criterion can win when all above are equal
             var fields = new (string name, Func<ResultSorter.SortKey> better)[]
             {
-                ("UserSuccessAboveDownrank", () => Key(userSuccessAboveDownrank: true)),
+                ("PeerBelowFailureThreshold", () => Key(peerBelowFailureThreshold: true)),
                 ("NecessaryConditionsMet", () => Key(necessaryConditionsMet: true)),
                 ("PreferredUserConditionsMet", () => Key(preferredUserConditionsMet: true)),
                 ("HasValidLength", () => Key(hasValidLength: true)),
@@ -160,7 +142,6 @@ namespace Tests.ResultSorterTests
                 ("NonAlbumModeStrictString", () => Key(nonAlbumModeStrictString: true)),
                 ("AlbumModeStrictString", () => Key(albumModeStrictString: true)),
                 ("StrictArtistString", () => Key(strictArtistString: true)),
-                ("InferredTrackCount", () => Key(inferredTrackCount: 1)),
                 ("UploadSpeedMedium", () => Key(uploadSpeedMedium: 1)),
                 ("BitRate", () => Key(bitRate: 1)),
                 ("RandomTiebreaker", () => Key(randomTiebreaker: 1)),
@@ -193,7 +174,7 @@ namespace Tests.ResultSorterTests
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "A", title: "T");
 
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(0, ordered.Count);
         }
@@ -208,14 +189,14 @@ namespace Tests.ResultSorterTests
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
 
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(1, ordered.Count);
-            Assert.AreEqual("user1", ordered[0].response.Username);
+            Assert.AreEqual("user1", ordered[0].Username);
         }
 
         [TestMethod]
-        public void OrderedResults_PrefersUserWithSuccessHistory()
+        public void OrderedResults_DownranksPeersAtFailureThreshold()
         {
             var file1 = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);
             var file2 = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);
@@ -224,16 +205,14 @@ namespace Tests.ResultSorterTests
             var results = new List<(SearchResponse, File)> { (response1, file1), (response2, file2) };
 
             var config = TestHelpers.CreateDefaultSettings().Download;
-            config.Search.DownrankOn = 0;
             var counts = new ConcurrentDictionary<string, int>();
-            counts["winner"] = 5;  // Above downrankOn
-            // "loser" has 0, which is not > 0
+            counts["loser"] = config.Search.DownrankOn;
 
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(2, ordered.Count);
-            Assert.AreEqual("winner", ordered[0].response.Username);
+            Assert.AreEqual("winner", ordered[0].Username);
         }
 
         [TestMethod]
@@ -245,12 +224,12 @@ namespace Tests.ResultSorterTests
 
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Search.DownrankOn = 0;
-            config.Search.IgnoreOn = 0;  // Need > 0 to be included
+            config.Search.IgnoreOn = 0;  // No peer is below this threshold
             var counts = new ConcurrentDictionary<string, int>();
-            // "baduser" has 0 which is not > 0
+            // "baduser" has 0 failures and therefore meets the exclusion threshold.
 
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(0, ordered.Count);
         }
@@ -268,10 +247,10 @@ namespace Tests.ResultSorterTests
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
 
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(2, ordered.Count);
-            Assert.AreEqual("freeslot", ordered[0].response.Username);
+            Assert.AreEqual("freeslot", ordered[0].Username);
         }
 
         [TestMethod]
@@ -287,14 +266,13 @@ namespace Tests.ResultSorterTests
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
 
-            var ordered = ResultSorter.OrderedResults(
+            var ordered = TestHelpers.OrderResults(
                 results,
                 track,
                 config.Search,
-                counts,
-                useInfer: false).ToList();
+                counts).ToList();
 
-            Assert.AreEqual("clean", ordered[0].response.Username);
+            Assert.AreEqual("clean", ordered[0].Username);
         }
 
         [TestMethod]
@@ -347,15 +325,14 @@ namespace Tests.ResultSorterTests
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
 
-            var ordered = ResultSorter.OrderedResults(
+            var ordered = TestHelpers.OrderResults(
                 results,
                 track,
                 config.Search,
-                counts,
-                useInfer: true).ToList();
+                counts).ToList();
 
             CollectionAssert.DoesNotContain(
-                ordered.Take(cheapWinnerCount).Select(x => x.response.Username).ToList(),
+                ordered.Take(cheapWinnerCount).Select(x => x.Username).ToList(),
                 "outside-0");
         }
 
@@ -373,10 +350,10 @@ namespace Tests.ResultSorterTests
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
 
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(2, ordered.Count);
-            Assert.AreEqual("flacuser", ordered[0].response.Username);
+            Assert.AreEqual("flacuser", ordered[0].Username);
         }
 
         [TestMethod]
@@ -394,10 +371,10 @@ namespace Tests.ResultSorterTests
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
 
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(2, ordered.Count);
-            Assert.AreEqual("flacuser", ordered[0].response.Username);
+            Assert.AreEqual("flacuser", ordered[0].Username);
         }
 
         [TestMethod]
@@ -414,10 +391,10 @@ namespace Tests.ResultSorterTests
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "Right Artist", title: "Track", album: "Missing Album");
 
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(2, ordered.Count);
-            Assert.AreEqual("artist-match", ordered[0].response.Username);
+            Assert.AreEqual("artist-match", ordered[0].Username);
         }
 
         [TestMethod]
@@ -432,11 +409,19 @@ namespace Tests.ResultSorterTests
             var config = TestHelpers.CreateDefaultSettings().Download;
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "AC/DC", title: "Highway to Hell");
+            config.Search.PreferredCond.StrictArtist = true;
 
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(2, ordered.Count);
-            Assert.AreEqual("artist-match", ordered[0].response.Username);
+            Assert.AreEqual("artist-match", ordered[0].Username);
+            var inputs = TestHelpers.ProjectionInputs(results);
+            var incremental = new IncrementalResultSorter(track, config.Search, counts);
+            var projected = incremental.AddRangeAndGetProjected(inputs);
+            Assert.IsTrue(projected.Single(row => row.Input.Username == "artist-match")
+                .ConditionFacts.SatisfiedPreferredConditions!.Contains(SearchPreferenceCondition.Artist));
+            Assert.IsTrue(projected.Single(row => row.Input.Username == "fuzzy-artist")
+                .ConditionFacts.UnsatisfiedPreferredConditions.Contains(SearchPreferenceCondition.Artist));
         }
 
         // Matching the requested album is more important than matching a preferred quality.
@@ -455,10 +440,10 @@ namespace Tests.ResultSorterTests
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track", album: "AD:PIANO X");
 
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(2, ordered.Count);
-            Assert.AreEqual("album-match", ordered[0].response.Username);
+            Assert.AreEqual("album-match", ordered[0].Username);
         }
 
         [TestMethod]
@@ -475,10 +460,10 @@ namespace Tests.ResultSorterTests
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
 
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(2, ordered.Count);
-            Assert.AreEqual("allowed", ordered[0].response.Username);
+            Assert.AreEqual("allowed", ordered[0].Username);
         }
 
         [TestMethod]
@@ -495,10 +480,10 @@ namespace Tests.ResultSorterTests
             var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
 
-            var ordered = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
 
             Assert.AreEqual(2, ordered.Count);
-            Assert.AreEqual("preferred", ordered[0].response.Username);
+            Assert.AreEqual("preferred", ordered[0].Username);
         }
 
         [TestMethod]
@@ -523,20 +508,123 @@ namespace Tests.ResultSorterTests
             config.Search.PreferredCond = new FileConditions { Formats = ["flac"], StrictTitle = true };
             var counts = new ConcurrentDictionary<string, int>();
             counts["user-3"] = 4;
-            config.Search.IgnoreOn = -1;
+            config.Search.IgnoreOn = 3;
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
 
-            var expected = ResultSorter.OrderedResults(results, track, config.Search, counts).ToList();
+            var expected = TestHelpers.OrderResults(results, track, config.Search, counts).ToList();
             var incremental = new IncrementalResultSorter(track, config.Search, counts);
 
             foreach (var chunk in results.Chunk(7))
-                incremental.AddRange(chunk);
+                incremental.AddRange(TestHelpers.ProjectionInputs(chunk));
 
-            var actual = incremental.Snapshot();
+            var actual = incremental.SnapshotInputs();
 
             CollectionAssert.AreEqual(
-                expected.Select(x => x.response.Username + "\\" + x.file.Filename).ToList(),
-                actual.Select(x => x.Response.Username + "\\" + x.File.Filename).ToList());
+                expected.Select(x => x.Username + "\\" + x.Filename).ToList(),
+                actual.Select(x => x.Username + "\\" + x.Filename).ToList());
+        }
+
+        [TestMethod]
+        [TestCategory("Load")]
+        public void IncrementalResultSorter_CollectsTenThousandSingleArrivalsWithoutCopyingTheirPrefixes()
+        {
+            var results = Enumerable.Range(0, 10_000).Select(i =>
+            {
+                var file = TestHelpers.CreateSlFile($@"Music\Artist - Track {i:D5}.mp3",
+                    bitrate: i % 3 == 0 ? 192 : 320, length: 180 + i % 10);
+                return (Response: CreateResponse($"user-{i}", uploadSpeed: (100 + i % 100) * 1024, files: file), File: file);
+            }).ToArray();
+            var settings = TestHelpers.CreateDefaultSettings().Download.Search;
+            var counts = new ConcurrentDictionary<string, int>();
+            var query = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
+            var expected = TestHelpers.OrderResults(results, query, settings, counts)
+                .Select(item => item.Username + "\\" + item.Filename).ToArray();
+            var inputs = TestHelpers.ProjectionInputs(results).ToArray();
+            var sorter = new IncrementalResultSorter(query, settings, counts);
+
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            foreach (var result in inputs.Take(500)) sorter.Add(result);
+            var prefix = sorter.SnapshotInputs();
+            var prefixNames = prefix.Select(item => item.Filename).ToArray();
+            foreach (var result in inputs.Skip(500)) sorter.Add(result);
+            var final = sorter.SnapshotInputs();
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.AreEqual(results.Length, sorter.Count);
+            CollectionAssert.AreEqual(expected,
+                final.Select(item => item.Username + "\\" + item.Filename).ToArray());
+            CollectionAssert.AreEqual(prefixNames, prefix.Select(item => item.Filename).ToArray());
+            Assert.IsLessThan(100_000_000L, allocated,
+                $"Single arrivals allocated {allocated:N0} bytes; collection must not repeatedly copy the ordered prefix.");
+
+            sorter.Clear();
+            sorter.Add(inputs[^1]);
+            Assert.AreEqual(1, sorter.Count);
+            Assert.AreEqual(results[^1].File.Filename, sorter.SnapshotInputs().Single().Filename);
+        }
+
+        [TestMethod]
+        [DataRow(true)]
+        [DataRow(false)]
+        public void IncrementalResultSorter_SingleAndBatchAdmissionPreserveConditionsAndOrdering(bool retain)
+        {
+            var settings = TestHelpers.CreateDefaultSettings().Download.Search;
+            settings.NecessaryCond.MinBitrate = 192;
+            var counts = new ConcurrentDictionary<string, int>();
+            counts["ignored"] = settings.IgnoreOn;
+            var query = new SongQuery { Artist = "Artist", Title = "Track", Length = 180 };
+            SearchProjectionInput Input(long sequence, string user, string path, int bitrate = 320,
+                SearchResultVisibility visibility = SearchResultVisibility.Public) => new(
+                    sequence, 1, user, 10, path, 1000, bitrate, null, null, 180, ".mp3",
+                    1000, true, null, DateTimeOffset.UnixEpoch, Visibility: visibility);
+            SearchProjectionInput[] inputs =
+            [
+                Input(1, "good", @"Music\Artist - Track.mp3"),
+                Input(2, "good", @"Music\Artist - Track.mp3"),
+                Input(3, "ignored", @"Music\Artist - Track.mp3"),
+                Input(4, "good", @"Other\Artist - Track.mp3", 128),
+                Input(5, "good", @"Music\Artist - Track.mp3", visibility: SearchResultVisibility.Locked),
+                Input(6, "other", @"Music\Artist - Track.mp3", 256),
+            ];
+            var batch = new IncrementalResultSorter(query, settings, counts,
+                requireFileSatisfies: true, retainProjectedRows: retain);
+            var single = new IncrementalResultSorter(query, settings, counts,
+                requireFileSatisfies: true, retainProjectedRows: retain);
+            var expected = batch.AddRangeAndGetProjected(inputs);
+            var actual = inputs.Select(single.Add).OfType<ProjectedFileCandidate>().ToArray();
+            CollectionAssert.AreEqual(new long[] { 1, 5, 6 }, actual.Select(row => row.Input.Sequence).ToArray());
+            Assert.AreEqual(expected.Count, actual.Length);
+            for (int i = 0; i < actual.Length; i++)
+            {
+                Assert.AreEqual(expected[i].SortKey, actual[i].SortKey);
+                Assert.AreEqual(expected[i].ConditionFacts.PreferenceTier, actual[i].ConditionFacts.PreferenceTier);
+                CollectionAssert.AreEqual(expected[i].ConditionFacts.SatisfiedPreferredConditions!.ToArray(),
+                    actual[i].ConditionFacts.SatisfiedPreferredConditions!.ToArray());
+                CollectionAssert.AreEqual(expected[i].ConditionFacts.ConfiguredPreferredConditions!.ToArray(),
+                    actual[i].ConditionFacts.ConfiguredPreferredConditions!.ToArray());
+            }
+            Assert.AreEqual(retain ? 3 : 0, single.Count);
+            if (retain)
+                CollectionAssert.AreEqual(batch.SnapshotInputs().Select(row => row.Sequence).ToArray(),
+                    single.SnapshotInputs().Select(row => row.Sequence).ToArray());
+        }
+
+        [TestMethod]
+        public void IncrementalResultSorter_DistinguishesSeparatorBearingIdentityComponents()
+        {
+            var firstFile = TestHelpers.CreateSlFile(@"beta\Artist - Track.mp3", length: 180);
+            var secondFile = TestHelpers.CreateSlFile("Artist - Track.mp3", length: 181);
+            var first = CreateResponse("alpha", files: firstFile);
+            var second = CreateResponse(@"alpha\beta", files: secondFile);
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            var sorter = new IncrementalResultSorter(
+                TestHelpers.CreateQuery(artist: "Artist", title: "Track"),
+                config.Search,
+                new ConcurrentDictionary<string, int>());
+
+            sorter.AddRange(TestHelpers.ProjectionInputs([(first, firstFile), (second, secondFile)]));
+
+            Assert.AreEqual(2, sorter.Count);
         }
     }
 }

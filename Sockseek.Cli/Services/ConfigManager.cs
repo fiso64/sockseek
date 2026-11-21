@@ -42,8 +42,6 @@ public static partial class ConfigManager
         return DefaultConfigPaths().FirstOrDefault(File.Exists) ?? "";
     }
 
-    public static string? ExtractProfileName(IReadOnlyList<string> args) => ParseInvocation(args).ProfileName;
-
     /// Creates fresh settings, applies the config file's [default] profile,
     /// any named profile, and finally cliArgs — in that order.
     /// Returns the top-level settings objects.
@@ -77,6 +75,14 @@ public static partial class ConfigManager
         ApplyProfile(invocation.Profile, engine, dl, cli, daemon, remote);
 
         PostProcess(engine, dl, file.ConfigDir);
+        if (!string.IsNullOrWhiteSpace(daemon.DataDirectory))
+            daemon.DataDirectory = Utils.GetFullPath(Utils.ExpandVariables(
+                daemon.DataDirectory, new PathVariableContext(ConfigDir: file.ConfigDir)));
+
+        if (daemon.WebPasswordFile is not null) daemon.WebPasswordFile = ResolveSecretPath(daemon.WebPasswordFile);
+        if (remote.ApiKeyFile is not null) remote.ApiKeyFile = ResolveSecretPath(remote.ApiKeyFile);
+        string ResolveSecretPath(string path) => Utils.GetFullPath(Utils.ExpandVariables(
+            path, new PathVariableContext(ConfigDir: file.ConfigDir)));
 
         return (engine, dl, cli, daemon, remote);
     }
@@ -103,13 +109,17 @@ public static partial class ConfigManager
         var cliProfile = invocation.Profile.Profile;
 
         return new ProfileJobSettingsResolver(
-            new DownloadSettings { DefaultMinSharesAggregate = engine?.DefaultMinSharesAggregate ?? SearchSettings.DefaultMinShares },
+            null,
             catalog.DefaultProfile,
             catalog.AutoProfiles,
             namedProfiles,
             cliProfile,
             context,
-            normalize: settings => PostProcessDownload(settings, new PathVariableContext(ConfigDir: file.ConfigDir)));
+            normalize: settings =>
+            {
+                settings.DefaultMinGroupShares = engine?.DefaultMinGroupShares ?? SearchSettings.DefaultMinShares;
+                PostProcessDownload(settings, new PathVariableContext(ConfigDir: file.ConfigDir));
+            });
     }
 
     public static DownloadSettings BindCliDownloadTokens(IReadOnlyList<string> cliArgs)
@@ -172,7 +182,7 @@ public static partial class ConfigManager
                 return;
         }
 
-        SockseekLog.Warn("Warning: Client profile settings did not stabilize after repeated auto-profile passes");
+        Console.Error.WriteLine("Warning: Client profile settings did not stabilize after repeated auto-profile passes");
     }
 
     public static IReadOnlyList<string> GetProfileNames(ConfigFile file)
@@ -221,7 +231,7 @@ public static partial class ConfigManager
     private static void PostProcess(EngineSettings engine, DownloadSettings dl, string? configDir)
     {
         var pathContext = new PathVariableContext(ConfigDir: configDir);
-        dl.DefaultMinSharesAggregate = engine.DefaultMinSharesAggregate;
+        dl.DefaultMinGroupShares = engine.DefaultMinGroupShares;
         PostProcessDownload(dl, pathContext);
         SettingsNormalizer.NormalizeEnginePaths(engine, pathContext);
     }
@@ -283,7 +293,8 @@ public static partial class ConfigManager
             string flag = tokens[i].Value;
             if (!flag.StartsWith('-'))
             {
-                BindOption(builder, "--input", flag);
+                var input = OptionCatalog.ByName["--input"];
+                input.Bind(builder.For(input.RootType), flag, "--input");
                 continue;
             }
             switch (flag)
@@ -310,13 +321,6 @@ public static partial class ConfigManager
     }
 
     internal static ProfileEntry ParseProfileTokens(IReadOnlyList<string> tokens) => ParseInvocation(tokens).Profile;
-
-    private static void BindOption(ProfileBuilder builder, string flag, string value)
-    {
-        if (flag is "-c" or "--config" or "--nc" or "--no-config" or "--profile") return;
-        if (!OptionCatalog.ByName.TryGetValue(flag, out var option)) throw UnknownArgument(flag);
-        option.Bind(builder.For(option.RootType), value, flag);
-    }
 
     private static Exception UnknownArgument(string flag) => new Exception($"Input error: Unknown argument: {flag}");
 
@@ -392,50 +396,111 @@ public static partial class ConfigManager
     }
 
     private static ConfigFile ParseConfigFile(string path)
+        => ParseConfigText(path, File.ReadAllText(path));
+
+    private readonly record struct ConfigLine(int Number, int Indent, string Text)
+    {
+        public bool IsItem => Text[0] == '-' && (Text.Length == 1 || char.IsWhiteSpace(Text[1]));
+    }
+
+    private static IEnumerable<ConfigLine> ConfigLines(string text)
+    {
+        using var reader = new StringReader(text);
+        int number = 0;
+        while (reader.ReadLine() is { } raw)
+        {
+            number++;
+            string line = raw.TrimStart();
+            if (line.Length == 0 || line[0] == '#') continue;
+            yield return new(number, raw.Length - line.Length, line.TrimEnd());
+        }
+    }
+
+    internal static ConfigFile ParseConfigText(string path, string text)
     {
         var profiles = new Dictionary<string, ProfileBuilder>();
         var curProfile = "default";
         bool hasAutoProfiles = false;
-
-        foreach (var (line, lineNum) in File.ReadAllLines(path).Select((l, n) => (l.Trim(), n)))
+        using var lines = ConfigLines(text).GetEnumerator();
+        bool more = lines.MoveNext();
+        while (more)
         {
-            if (line.Length == 0 || line.StartsWith('#')) continue;
-
-            if (line.StartsWith('[') && line.EndsWith(']'))
+            var header = lines.Current;
+            more = lines.MoveNext();
+            string line = header.Text;
+            int lineNum = header.Number;
+            Exception SyntaxError(string message) => new FormatException($"Input error: Error parsing config '{path}' at line {lineNum}: {message}");
+            IEnumerable<string> ListItems()
             {
-                curProfile = line[1..^1];
-                continue;
-            }
-
-            int eq = line.IndexOf('=');
-            if (eq <= 0 || eq == line.Length - 1)
-                throw new Exception($"Input error: Error parsing config '{path}' at line {lineNum}");
-
-            var parts = line.Split('=', 2, StringSplitOptions.TrimEntries);
-            string key = parts[0];
-            string val = parts[1];
-            if (val.Length >= 2 && val[0] == '"' && val[^1] == '"')
-                val = val[1..^1];
-
-            if (!profiles.ContainsKey(curProfile))
-                profiles[curProfile] = new ProfileBuilder(curProfile);
-
-            if (key == "profile-cond")
-            {
-                if (curProfile != "default")
+                bool HasItem() => more && lines.Current.Indent > header.Indent && lines.Current.IsItem;
+                if (!HasItem()) throw SyntaxError("expected an indented list item.");
+                do
                 {
-                    profiles[curProfile].Condition = val;
-                    hasAutoProfiles = true;
-                }
+                    var item = lines.Current;
+                    lineNum = item.Number;
+                    if (item.Text.Length == 1) throw SyntaxError("expected a value after '-'.");
+                    yield return item.Text[1..].TrimStart();
+                    more = lines.MoveNext();
+                } while (HasItem());
+                lineNum = header.Number;
             }
-            else
+
+            try
             {
+                if (header.IsItem) throw SyntaxError("list items must be indented under a list setting.");
+                if (line.StartsWith('[') && line.EndsWith(']'))
+                {
+                    curProfile = line[1..^1];
+                    continue;
+                }
+
+                int eq = line.IndexOf('=');
+                if (eq <= 0) throw SyntaxError("expected a setting and value separated by '='.");
+                string key = line[..eq].TrimEnd();
+                string value = line[(eq + 1)..].TrimStart();
+
+                if (!profiles.TryGetValue(curProfile, out var profile))
+                    profiles[curProfile] = profile = new ProfileBuilder(curProfile);
+
+                if (key == "profile-cond")
+                {
+                    if (value.Length == 0) throw SyntaxError("profile-cond requires a condition.");
+                    if (curProfile != "default")
+                    {
+                        string condition = Unquote(value);
+                        ProfileConditionEvaluator.Validate(condition);
+                        profile.Condition = condition;
+                        hasAutoProfiles = true;
+                    }
+                    continue;
+                }
+
                 string flag = key.Length == 1 ? $"-{key}" : $"--{key}";
-                BindOption(profiles[curProfile], flag, val);
+                if (flag is "-c" or "--config" or "--nc" or "--no-config" or "--profile")
+                {
+                    if (value.Length == 0) throw SyntaxError($"'{key}' requires a value.");
+                    continue;
+                }
+                if (!OptionCatalog.ByName.TryGetValue(flag, out var option)) throw UnknownArgument(flag);
+                if (option.DefaultProfileOnly && curProfile != "default")
+                    throw new ArgumentException($"Input error: Daemon setting '{flag}' is not allowed in named or automatic profile '{curProfile}'.");
+
+                var changes = profile.For(option.RootType);
+                if (value.Length == 0 || (option.IsList && value == "+"))
+                    option.BindList(changes, ListItems(), flag, append: value == "+");
+                else option.Bind(changes, Unquote(value), flag);
+            }
+            catch (Exception exception)
+            {
+                // Preserve the exception and its location for reload diagnostics.
+                exception.Data["ConfigLine"] = lineNum;
+                throw;
             }
         }
 
         return new ConfigFile(path, profiles.ToDictionary(pair => pair.Key, pair => pair.Value.Build()), hasAutoProfiles);
-    }
 
+        static string Unquote(string value)
+            => value.Length >= 2 && value[0] == '"' && value[^1] == '"' ? value[1..^1] : value;
+    }
 }

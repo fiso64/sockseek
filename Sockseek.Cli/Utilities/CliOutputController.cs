@@ -1,28 +1,29 @@
 using Microsoft.Extensions.Logging;
-using Sockseek.Core;
+using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Settings;
 
 namespace Sockseek.Cli;
 
 internal sealed class CliOutputController : IDisposable
 {
-    private readonly bool _installedConsoleSink;
-    private readonly bool _forceHumanLogsToError;
+    private bool _forceHumanLogsToError;
+    private readonly Action<CliOutputEvent>? _eventSink;
     private readonly object _liveGate = new();
     private TerminalLiveRenderer? _live;
     private bool _canUseLiveRendering;
-    private LogLevel _liveLogMinimumLevel = LogLevel.Information;
-    private bool _liveLogSinkAttached;
-    private IDisposable? _consoleSink;
     private volatile bool _disposed;
 
-    private CliOutputController(bool installedConsoleSink, bool forceHumanLogsToError)
+    private CliOutputController(
+        bool forceHumanLogsToError,
+        Action<CliOutputEvent>? eventSink = null)
     {
-        _installedConsoleSink = installedConsoleSink;
         _forceHumanLogsToError = forceHumanLogsToError;
+        _eventSink = eventSink;
     }
 
     public bool UsesLiveRendering => _live != null;
+
+    public bool WillUseLiveRendering => _canUseLiveRendering;
 
     public bool IsPaused
     {
@@ -38,20 +39,18 @@ internal sealed class CliOutputController : IDisposable
 
     public static CliOutputController Install(IReadOnlyList<string> args)
     {
-        var controller = new CliOutputController(
-            installedConsoleSink: true,
+        return new CliOutputController(
             forceHumanLogsToError: ArgsRequestProgressJson(args) || ArgsRequestFlag(args, "--detach"));
-        controller.AttachConsoleSink();
-        return controller;
     }
 
     public static CliOutputController CreateDetached(
         CliSettings? cliSettings = null,
-        LogLevel liveLogMinimumLevel = LogLevel.Information)
+        LogLevel liveLogMinimumLevel = LogLevel.Information,
+        Action<CliOutputEvent>? eventSink = null)
     {
         var controller = new CliOutputController(
-            installedConsoleSink: false,
-            forceHumanLogsToError: false);
+            forceHumanLogsToError: false,
+            eventSink);
 
         if (cliSettings != null)
             controller.ConfigureLiveRendering(cliSettings, liveLogMinimumLevel);
@@ -77,6 +76,8 @@ internal sealed class CliOutputController : IDisposable
         return false;
     }
 
+    public void RouteLogsToError(bool enabled) => _forceHumanLogsToError = enabled;
+
     public static bool WouldUseLiveRendering(CliSettings cliSettings)
         => !cliSettings.NoProgress
             && !cliSettings.ProgressJson
@@ -87,8 +88,7 @@ internal sealed class CliOutputController : IDisposable
         lock (_liveGate)
         {
             _canUseLiveRendering = WouldUseLiveRendering(cliSettings);
-            _liveLogMinimumLevel = minimumLevel;
-            AttachLiveLogSinkIfReady();
+            _ = minimumLevel;
         }
     }
 
@@ -104,7 +104,6 @@ internal sealed class CliOutputController : IDisposable
 
             _live = new TerminalLiveRenderer();
             Printing.LiveWriteLine = (line, _) => Publish(new CliOutputEvent.RawLine(line));
-            AttachLiveLogSinkIfReady();
         }
     }
 
@@ -116,20 +115,55 @@ internal sealed class CliOutputController : IDisposable
         _live?.Publish(outputEvent);
     }
 
-    public void UpsertJob(JobView job)
-        => Publish(new CliOutputEvent.UpsertJobView(job));
+    private void Write(CompactLogRecord record, bool includeDiagnosticDetails)
+        => WriteOutput(CliOutputEvent.FromLogRecord(record, includeDiagnosticDetails));
 
-    public void UpsertJobRecord(TerminalJobRecord job)
-        => Publish(new CliOutputEvent.UpsertJobRecord(job));
+    public ILoggerFactory CreateLoggerFactory(
+        LogLevel consoleMinimumLevel,
+        string? logFilePath,
+        LogLevel fileMinimumLevel)
+        => LoggerFactory.Create(builder =>
+        {
+            builder.ClearProviders();
+            // Provider levels are intentionally independent: a quiet console
+            // must not prevent the file provider from retaining Debug records.
+            builder.SetMinimumLevel(LogLevel.Trace);
+            builder.AddProvider(new CompactTextLoggerProvider(
+                record => Write(
+                    record,
+                    includeDiagnosticDetails: consoleMinimumLevel <= LogLevel.Debug),
+                consoleMinimumLevel));
+            if (!string.IsNullOrWhiteSpace(logFilePath))
+                builder.AddProvider(new CompactFileLoggerProvider(logFilePath, fileMinimumLevel));
+        });
 
-    public void RemoveJob(string id)
-        => Publish(new CliOutputEvent.RemoveJob(id));
+    public void WriteOutput(CliOutputEvent outputEvent)
+    {
+        if (_disposed)
+            return;
+
+        if (_eventSink != null)
+        {
+            _eventSink(outputEvent);
+            return;
+        }
+
+        if (_live != null)
+        {
+            if (outputEvent is CliOutputEvent.JobLog { Line.ShowInLive: false })
+                return;
+            _live.Publish(outputEvent);
+            return;
+        }
+
+        CliLogStyle.WriteConsoleEvent(outputEvent, _forceHumanLogsToError);
+    }
+
+    public void ReplaceRenderState(TerminalRenderState state)
+        => Publish(new CliOutputEvent.ReplaceRenderState(state));
 
     public void SetRateLimited(DateTimeOffset? resetsAt)
         => Publish(new CliOutputEvent.RateLimit(resetsAt));
-
-    public void SetStatusMessage(string? message)
-        => Publish(new CliOutputEvent.StatusMessage(message));
 
     public void StopLiveRendering(bool printSummary = true)
     {
@@ -150,39 +184,7 @@ internal sealed class CliOutputController : IDisposable
             return;
 
         _disposed = true;
-        _consoleSink?.Dispose();
         StopLiveRendering();
     }
 
-    private void AttachConsoleSink()
-        => _consoleSink = SockseekLog.AddStructuredConsoleSink(WriteLog);
-
-    private void AttachLiveLogSinkIfReady()
-    {
-        if (!_installedConsoleSink || _live == null || _liveLogSinkAttached)
-            return;
-
-        _consoleSink?.Dispose();
-        _consoleSink = SockseekLog.AddStructuredConsoleSink(WriteLog, _liveLogMinimumLevel);
-        _liveLogSinkAttached = true;
-    }
-
-    private void WriteLog(SockseekLog.StructuredLogEntry entry, string _)
-    {
-        if (_disposed)
-            return;
-
-        var outputEvent = CliOutputEvent.FromLogEntry(entry);
-
-        if (_live != null)
-        {
-            if (outputEvent is CliOutputEvent.JobLog { Line.ShowInLive: false })
-                return;
-
-            _live.Publish(outputEvent);
-            return;
-        }
-
-        CliLogStyle.WriteConsoleEvent(outputEvent, _forceHumanLogsToError);
-    }
 }

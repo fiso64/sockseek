@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Soulseek;
@@ -24,28 +25,51 @@ namespace Sockseek.Core;
 internal sealed class JobOrchestrator
 {
     private readonly DownloadExecutionContext context;
-    private readonly Func<AlbumJob, Task> finalizeManualSelectionForAlbum;
+    private readonly Func<Job, Task> finalizeManualSelectionForChild;
     private readonly DiscoveryCoordinator discovery;
     private readonly DownloadExecutorCoordinator download;
+    private readonly ILogger<JobOrchestrator> logger;
 
-    public JobOrchestrator(DownloadExecutionContext context, Func<AlbumJob, Task> finalizeManualSelectionForAlbum)
+    public JobOrchestrator(DownloadExecutionContext context, Func<Job, Task> finalizeManualSelectionForChild)
     {
         this.context = context;
-        this.finalizeManualSelectionForAlbum = finalizeManualSelectionForAlbum;
+        this.finalizeManualSelectionForChild = finalizeManualSelectionForChild;
+        logger = context.LoggerFactory.CreateLogger<JobOrchestrator>();
         discovery = new DiscoveryCoordinator(context, this);
         download = new DownloadExecutorCoordinator(context, this);
     }
     // ── recursive job processor ───────────────────────────────────────────────
 
-    public async Task ProcessRootJob(Job rootJob)
+    public async Task ProcessRootJob(Job rootJob, bool requiresLogin, bool automaticStaleChecksEnabled,
+        bool emitAutoProfileFinalSummary = true)
     {
+        long startedAt = Stopwatch.GetTimestamp();
+        DownloadLogMessages.RootJobStarted(logger, rootJob.Id, rootJob.Kind);
         try
         {
-            await ProcessJob(rootJob);
+            context.RegisterForExecution(rootJob, default, null);
+            if (requiresLogin)
+            {
+                try
+                {
+                    await context.Runtime.EnsureServicesInitializedAsync(rootJob.Cts!.Token, automaticStaleChecksEnabled);
+                }
+                catch (OperationCanceledException) when (IsJobCancellationRequested(rootJob, default))
+                {
+                    MarkCancelledIfActive(rootJob, CancellationSourceFor(rootJob, default));
+                    context.Events.RaiseJobExecutionCompleted(rootJob);
+                    return;
+                }
+            }
+            RegisterExecutionChildren(rootJob, null);
+            await ProcessRegisteredJob(rootJob, default, null);
         }
         finally
         {
-            context.EmitAutoProfileFinalSummary(rootJob);
+            if (emitAutoProfileFinalSummary)
+                context.EmitAutoProfileFinalSummary(rootJob);
+            long durationMilliseconds = (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
+            DownloadLogMessages.RootJobFinished(logger, rootJob, durationMilliseconds);
         }
     }
 
@@ -59,9 +83,34 @@ internal sealed class JobOrchestrator
     public async Task<JobOutcome> RunOnCompleteIfApplicable(Job job, SongJob? song, JobContext ctx, JobOutcome outcome)
         => await download.RunOnCompleteIfApplicable(job, song, ctx, outcome);
 
-    public async Task ProcessJob(Job job, CancellationToken parentToken = default, Job? parentJob = null)
+    public Task ProcessJob(Job job, CancellationToken parentToken = default, Job? parentJob = null)
     {
-        context.RegisterJob(job, parentJob);
+        RegisterExecutionTree(job, parentToken, parentJob);
+        return ProcessRegisteredJob(job, parentToken, parentJob);
+    }
+
+    private void RegisterExecutionTree(Job job, CancellationToken parentToken, Job? parentJob)
+    {
+        context.RegisterForExecution(job, parentToken, parentJob);
+        RegisterExecutionChildren(job, parentJob);
+    }
+
+    private void RegisterExecutionChildren(Job job, Job? parentJob)
+    {
+        if (job is not JobList list) return;
+
+        // Publish all known members, including nested lists, independently of
+        // the execution window. Extracted/generated results enter here once
+        // they have been prepared, without eagerly invoking any extractor.
+        // Both group modes expose generated members under their semantic
+        // owner; the list still supplies scheduling and cancellation lifetime.
+        var childParent = parentJob is SongGroupsJob or AlbumGroupsJob ? parentJob : list;
+        foreach (var child in list.Jobs)
+            RegisterExecutionTree(child, list.Cts!.Token, childParent);
+    }
+
+    private async Task ProcessRegisteredJob(Job job, CancellationToken parentToken, Job? parentJob)
+    {
         bool executionCompletedRaised = false;
 
         void RaiseJobExecutionCompleted()
@@ -73,13 +122,6 @@ internal sealed class JobOrchestrator
             context.Events.RaiseJobExecutionCompleted(job);
         }
 
-        // Create a per-job CTS linked to both the engine-wide appCts and the parent job's token
-        // (if any). Cancelling this job propagates to all descendants; cancelling the parent
-        // propagates here automatically. ExtractJob passes parentToken (not its own token) when
-        // recursing into its Result so that the Result is a sibling, not a child, in the hierarchy.
-        job.Cts = CancellationTokenSource.CreateLinkedTokenSource(context.Runtime.Token, parentToken);
-
-        SockseekLog.Jobs.Trace($"ProcessJob: Starting job {job.DisplayId} ({job.GetType().Name})");
         try
         {
             // ── ExtractJob: run extractor, set Result, recurse ───────────────────
@@ -98,20 +140,21 @@ internal sealed class JobOrchestrator
                 // Pass parentToken (not ej.Cts.Token): the Result is a sibling of the ExtractJob in
                 // the CTS hierarchy. Cancelling the ExtractJob after extraction completes has no effect
                 // on the already-running Result; the Result can be cancelled independently.
-                SockseekLog.Jobs.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Processing extracted job {extractResult.Result.DisplayId}");
+                DownloadLogMessages.JobDecision(
+                    logger,
+                    job.Id,
+                    "processing extracted result",
+                    1);
                 await ProcessJob(extractResult.Result, parentToken, parentJob);
 
                 var extractCtx = context.Ctx(ej);
-                extractCtx.IndexEditor?.Update();
-                extractCtx.PlaylistEditor?.Update();
+                context.UpdateOutputs(ej, extractCtx);
 
                 // For single extracted jobs with a source line (e.g. a lone AlbumJob from a CSV row),
                 // trigger removal now that processing is complete. Multi-item results use LineNumber=0
                 // (no source line of their own) and handle per-child removal inside ProcessJob.
-                SockseekLog.Jobs.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Calling MaybeRemoveFromSource");
                 await MaybeRemoveFromSource(extractResult.Result, ej.Config);
 
-                SockseekLog.Jobs.Trace($"ProcessJob (ExtractJob {job.DisplayId}): Extracted job processing complete.");
                 return;
             }
 
@@ -133,11 +176,10 @@ internal sealed class JobOrchestrator
             if (job.Config != null)
                 await MaybeRemoveFromSource(job, job.Config);
 
-            SockseekLog.Jobs.Trace($"ProcessJob: Finished job {job.DisplayId} ({job.GetType().Name}). Raising execution completed.");
             RaiseJobExecutionCompleted();
 
-            if (job is AlbumJob albumJob)
-                await finalizeManualSelectionForAlbum(albumJob);
+            if (job is SongJob or AlbumJob)
+                await finalizeManualSelectionForChild(job);
         }
     }
 
@@ -151,7 +193,7 @@ internal sealed class JobOrchestrator
         if (job.CancellationSource != JobCancellationSource.None)
             return job.CancellationSource;
         if (context.Runtime.IsCancellationRequested)
-            return JobCancellationSource.UserRequestedAllJobs;
+            return JobCancellationSource.InternalEngine;
         if (parentToken.IsCancellationRequested)
             return JobCancellationSource.ParentJob;
 
@@ -215,18 +257,18 @@ internal sealed class JobOrchestrator
                     yield return source;
                 break;
 
-            case AlbumJob album:
-                foreach (var source in album.TrackJobs.SelectMany(CancellationSourcesFromSubtree))
+            case DirectoryDownloadJob directory:
+                foreach (var source in directory.FileJobs.SelectMany(CancellationSourcesFromSubtree))
                     yield return source;
                 break;
 
-            case AggregateJob aggregate:
-                foreach (var source in aggregate.Songs.SelectMany(CancellationSourcesFromSubtree))
+            case SongGroupsJob group:
+                foreach (var source in group.Songs.SelectMany(CancellationSourcesFromSubtree))
                     yield return source;
                 break;
 
-            case AlbumAggregateJob aggregate:
-                foreach (var source in aggregate.Albums.SelectMany(CancellationSourcesFromSubtree))
+            case AlbumGroupsJob group:
+                foreach (var source in group.Albums.SelectMany(CancellationSourcesFromSubtree))
                     yield return source;
                 break;
 
@@ -260,12 +302,12 @@ internal sealed class JobOrchestrator
                 if (extract.Result != null)
                     ApplyDownloadBehaviorPolicy(extract.Result, policy);
                 break;
-            case AggregateJob aggregate:
-                foreach (var song in aggregate.Songs)
+            case SongGroupsJob group:
+                foreach (var song in group.Songs)
                     ApplyDownloadBehaviorPolicy(song, policy);
                 break;
-            case AlbumAggregateJob aggregate:
-                foreach (var album in aggregate.Albums)
+            case AlbumGroupsJob group:
+                foreach (var album in group.Albums)
                     ApplyDownloadBehaviorPolicy(album, policy);
                 break;
         }
@@ -273,11 +315,11 @@ internal sealed class JobOrchestrator
 
     public async Task ProcessJobList(JobList jl, CancellationToken parentToken, Job? parentJob)
     {
-        var ctx = context.Contexts.TryGetValue(jl.Id, out var c) ? c : null;
+        var ctx = context.Contexts.TryGetValue(jl, out var c) ? c : null;
         var config = jl.Config!;
         jl.UpdateActivity(JobActivityPhase.RunningChildren);
-        var childParentJob = parentJob is AggregateJob ? parentJob : jl;
-        var batchOwner = parentJob is AggregateJob ? parentJob : jl;
+        var childParentJob = parentJob is SongGroupsJob or AlbumGroupsJob ? parentJob : jl;
+        var batchOwner = childParentJob;
 
         if (ctx?.PreprocessTracks == true)
         {
@@ -287,7 +329,7 @@ internal sealed class JobOrchestrator
 
         if (config.PrintJobs)
         {
-            await Task.WhenAll(jl.Jobs.ToList().Select(child => ProcessJob(child, jl.Cts!.Token, childParentJob)));
+            await ProcessChildren(jl, childParentJob);
             SetJobListTerminalState(jl, parentToken);
             return;
         }
@@ -304,6 +346,8 @@ internal sealed class JobOrchestrator
         {
             foreach (var song in skipEligibleDirectSongs)
             {
+                // Leave unvisited children for the normal cancellation drain below.
+                if (jl.Cts!.IsCancellationRequested) break;
                 var songCtx = context.Ctx(song);
                 var songConfig = song.Config;
 
@@ -316,7 +360,7 @@ internal sealed class JobOrchestrator
 
                 if (songConfig.Skip.SkipExisting
                     && song.LifecycleState == JobLifecycleState.Pending
-                    && context.SkipEvaluation.TrySetAlreadyExists(batchOwner, song, TrackSkipperContext.From(songCtx, songConfig.Skip, songConfig.ResolveSearchSettings())))
+                    && await context.SkipEvaluation.TrySetAlreadyExistsAsync(batchOwner, song, TrackSkipperContext.From(songCtx, songConfig.Skip, songConfig.ResolveSearchSettings())))
                 {
                     existing.Add(song);
                 }
@@ -327,52 +371,96 @@ internal sealed class JobOrchestrator
                 existing,
                 notFound);
 
-            foreach (var song in existing)
-                await MaybeRemoveFromSource(song, song.Config);
         }
 
-        ctx?.IndexEditor?.Update();
-        ctx?.PlaylistEditor?.Update();
+        context.UpdateOutputs(jl, ctx);
+        await RemoveCompletedRequests(existing.Where(song => ShouldRemoveFromSource(song, song.Config)));
 
         try
         {
             // ── fan-out ───────────────────────────────────────────────────────
-            // TODO [PERFORMANCE]: Split bulk child registration/materialization from child execution.
-            // Today each ProcessJob(child) runs synchronously until its first incomplete await, so a
-            // large JobList can start skip/search/failure work for early children before later children
-            // are even registered. That makes "workflow registration" cost include real processing.
-            // Register/materialize all children in one cheap pass, then schedule execution separately.
             if (directSongs.Count > 0)
             {
                 var intervalReporter = context.EngineSettings.ReportIntervalProgress
-                    ? new IntervalProgressReporter(TimeSpan.FromSeconds(30), 5, directSongs)
+                    ? new IntervalProgressReporter(
+                        TimeSpan.FromSeconds(30),
+                        5,
+                        directSongs,
+                        context.Events,
+                        jl.WorkflowId)
                     : null;
 
-                await Task.WhenAll(jl.Jobs.ToList().Select(async child =>
+                var cancelledEditors = new ConcurrentDictionary<DownloadOutputFile, byte>();
+                var progressGate = new object();
+                var copies = directSongs.GroupBy(song => song.Id).ToDictionary(group => group.Key, group => group.Count());
+                var reported = new HashSet<Guid>();
+                int downloaded = directSongs.Count(IsSubtreeSuccessful);
+                int failed = directSongs.Count(IsSubtreeUnsuccessful);
+                try
                 {
-                    bool wasInitial = child is SongJob s && s.LifecycleState == JobLifecycleState.Pending;
-                    await ProcessJob(child, jl.Cts!.Token, childParentJob);
+                    await BoundedAsync.ForEachAsync(
+                        jl.Jobs.ToList(),
+                        context.Runtime.ConcurrentSchedulingLimit,
+                        async child =>
+                        {
+                            bool wasInitial = child is SongJob s && s.LifecycleState == JobLifecycleState.Pending;
+                            await ProcessRegisteredJob(child, jl.Cts!.Token, childParentJob);
 
-                    if (wasInitial && child is SongJob song)
+                            if (wasInitial && child is SongJob song)
+                            {
+                                var songContext = context.Ctx(song);
+                                if (jl.Cts!.IsCancellationRequested)
+                                {
+                                    // Cancellation drains queued children too. Rebuilding
+                                    // a whole index/playlist and recounting the list per
+                                    // child turns that drain into quadratic synchronous
+                                    // work inside CancellationTokenSource.Cancel(). Keep
+                                    // every child's outcome, then flush each distinct
+                                    // output once, including per-child output overrides.
+                                    if (songContext.IndexEditor is { } index) cancelledEditors.TryAdd(index, 0);
+                                    if (songContext.PlaylistEditor is { } playlist) cancelledEditors.TryAdd(playlist, 0);
+                                }
+                                else
+                                {
+                                    context.UpdateOutputs(song, songContext);
+                                    intervalReporter?.MaybeReport(song);
+                                    // Completion contributes only this identity's
+                                    // memberships; do not recount every sibling.
+                                    lock (progressGate)
+                                    {
+                                        if (reported.Add(song.Id))
+                                        {
+                                            if (IsSubtreeSuccessful(song)) downloaded += copies[song.Id];
+                                            if (IsSubtreeUnsuccessful(song)) failed += copies[song.Id];
+                                        }
+                                        context.Events.RaiseOverallProgress(downloaded, failed, directSongs.Count);
+                                    }
+                                }
+
+                                await MaybeRemoveFromSource(song, song.Config);
+                            }
+                        });
+                }
+                finally
+                {
+                    // Try all independent outputs even if one cannot be written.
+                    await BoundedAsync.ForEachAsync(cancelledEditors.Keys, 1, editor =>
                     {
-                        context.Ctx(song).IndexEditor?.Update();
-                        context.Ctx(song).PlaylistEditor?.Update();
-                        intervalReporter?.MaybeReport(song);
-                        int dl = directSongs.Count(IsSubtreeSuccessful);
-                        int fl = directSongs.Count(IsSubtreeUnsuccessful);
-                        context.Events.RaiseOverallProgress(dl, fl, directSongs.Count);
-
-                        await MaybeRemoveFromSource(song, song.Config);
-                    }
-                }));
+                        editor.Reconcile();
+                        context.Runtime.Files.RequestOutputUpdate(editor);
+                        return Task.CompletedTask;
+                    });
+                }
 
                 int dlFinal = directSongs.Count(IsSubtreeSuccessful);
                 int flFinal = directSongs.Count(IsSubtreeUnsuccessful);
+                if (jl.Cts!.IsCancellationRequested)
+                    context.Events.RaiseOverallProgress(dlFinal, flFinal, directSongs.Count);
                 context.Events.RaiseListProgress(jl, dlFinal, flFinal, directSongs.Count);
             }
             else
             {
-                await Task.WhenAll(jl.Jobs.ToList().Select(child => ProcessJob(child, jl.Cts!.Token, childParentJob)));
+                await ProcessChildren(jl, childParentJob);
 
                 foreach (var child in jl.Jobs)
                     await MaybeRemoveFromSource(child, child.Config);
@@ -383,7 +471,16 @@ internal sealed class JobOrchestrator
         }
 
         SetJobListTerminalState(jl, parentToken);
+        // Child lists can have their own editors. Settle the submission's
+        // playlist with the final paths from all of its members.
+        context.UpdateOutputs(jl, ctx);
     }
+
+    private Task ProcessChildren(JobList list, Job? parentJob)
+        => BoundedAsync.ForEachAsync(
+            list.Jobs.ToList(),
+            context.Runtime.ConcurrentSchedulingLimit,
+            child => ProcessRegisteredJob(child, list.Cts!.Token, parentJob));
 
     internal static bool IsSubtreeSuccessful(Job? job)
     {
@@ -393,18 +490,17 @@ internal sealed class JobOrchestrator
         {
             JobList jl => jl.Jobs.All(IsSubtreeSuccessful),
             ExtractJob ej => ej.TerminalOutcome == JobTerminalOutcome.Succeeded && ej.Result != null && IsSubtreeSuccessful(ej.Result),
-            AlbumAggregateJob aag => aag.Albums.Count > 0 ? aag.Albums.All(IsSubtreeSuccessful) : IsSuccessfulTerminal(aag),
-            AggregateJob ag => ag.Songs.Count > 0 ? ag.Songs.All(IsSubtreeSuccessful) : IsSuccessfulTerminal(ag),
+            AlbumGroupsJob aag => aag.Albums.Count > 0 ? aag.Albums.All(IsSubtreeSuccessful) : IsSuccessfulTerminal(aag),
+            SongGroupsJob ag => ag.Songs.Count > 0 ? ag.Songs.All(IsSubtreeSuccessful) : IsSuccessfulTerminal(ag),
             _ => IsSuccessfulTerminal(job),
         };
     }
 
     public async Task FlushManualSelectionTerminalEffectsAsync(Job job)
     {
-        if (context.Contexts.TryGetValue(job.Id, out var ctx))
+        if (context.Contexts.TryGetValue(job, out var ctx))
         {
-            ctx.IndexEditor?.Update();
-            ctx.PlaylistEditor?.Update();
+            context.UpdateOutputs(job, ctx);
         }
 
         await MaybeRemoveFromSource(job, job.Config);
@@ -457,9 +553,9 @@ internal sealed class JobOrchestrator
         return job switch
         {
             JobList list => list.Jobs.Any(IsSubtreeUnsuccessful),
-            AlbumJob album => album.TrackJobs.Any(IsSubtreeUnsuccessful),
-            AggregateJob aggregate => aggregate.Songs.Any(IsSubtreeUnsuccessful),
-            AlbumAggregateJob aggregate => aggregate.Albums.Any(IsSubtreeUnsuccessful),
+            DirectoryDownloadJob directory => directory.FileJobs.Any(IsSubtreeUnsuccessful),
+            SongGroupsJob group => group.Songs.Any(IsSubtreeUnsuccessful),
+            AlbumGroupsJob group => group.Albums.Any(IsSubtreeUnsuccessful),
             ExtractJob extract => extract.Result != null && IsSubtreeUnsuccessful(extract.Result),
             _ => false,
         };
@@ -477,22 +573,43 @@ internal sealed class JobOrchestrator
         return job switch
         {
             JobList list => list.Jobs.Any(HasCancelledDescendant),
-            AlbumJob album => album.TrackJobs.Any(song => song.FailureReason == JobFailureReason.Cancelled),
-            AggregateJob aggregate => aggregate.Songs.Any(song => song.FailureReason == JobFailureReason.Cancelled),
-            AlbumAggregateJob aggregate => aggregate.Albums.Any(HasCancelledDescendant),
+            DirectoryDownloadJob directory => directory.FileJobs.Any(HasCancelledDescendant),
+            SongGroupsJob group => group.Songs.Any(song => song.FailureReason == JobFailureReason.Cancelled),
+            AlbumGroupsJob group => group.Albums.Any(HasCancelledDescendant),
             ExtractJob extract => extract.Result != null && HasCancelledDescendant(extract.Result),
             _ => false,
         };
     }
 
-    internal async Task MaybeRemoveFromSource(Job job, DownloadSettings config)
+    private bool ShouldRemoveFromSource(Job job, DownloadSettings config)
+        => !config.DoNotDownload && config.Extraction.RemoveTracksFromSource
+            && job is not (SearchJob or RetrieveFolderJob) && job.SourceMutation != null
+            && IsSubtreeSuccessful(job) && context.SourceMutations.TryClaim(job);
+
+    private Task MaybeRemoveFromSource(Job job, DownloadSettings config)
+        => ShouldRemoveFromSource(job, config) ? RemoveCompletedRequests([job]) : Task.CompletedTask;
+
+    private async Task RemoveCompletedRequests(IEnumerable<Job> jobs)
     {
-        if (config.DoNotDownload) return;
-        if (!config.Extraction.RemoveTracksFromSource) return;
-        if (job is SearchJob or RetrieveFolderJob) return;
-        if (job.SourceMutation == null) return;
-        if (!IsSubtreeSuccessful(job)) return;
-        await context.SourceMutations.ApplyIfNeededAsync(job, config);
+        var documents = jobs.GroupBy(job =>
+        {
+            var ctx = context.Ctx(job);
+            return (ctx.IndexEditor, ctx.PlaylistEditor);
+        });
+        foreach (var group in documents)
+        {
+            // Source removal is a receipt for the requested outputs. Publish
+            // every selected entry in this batch before consuming its rows.
+            foreach (var job in group)
+                context.UpdateOutputs(job, context.Ctx(job));
+            bool ready = true;
+            foreach (var document in new[] { group.Key.IndexEditor, group.Key.PlaylistEditor })
+                if (document?.IsWritable == true && await context.Runtime.Files.FlushOutputAsync(document) != null)
+                    ready = false;
+            if (ready) await context.SourceMutations.ApplyAsync(group);
+            else context.Events.RaiseJobMessage(group.First(), LogLevel.Warning, "source-mutation",
+                "The requested output files could not be written. The requests were kept in the source.");
+        }
     }
 
     async Task<JobOutcome> ProcessLeafJob(Job job, CancellationToken parentToken, Job? parentJob)
@@ -520,18 +637,28 @@ internal sealed class JobOrchestrator
             if (context.SkipEvaluation.TryGetNotFoundLastTimeOutcome(job) is { } outcome)
             {
                 JobOutcomeCommitter.Commit(job, outcome);
-                SockseekLog.Jobs.Info($"Download '{job.ToString(true)}' was not found during a prior run, skipping");
+                context.Events.RaiseJobMessage(
+                    job,
+                    LogLevel.Information,
+                    null,
+                    "not found during a prior run; skipping");
                 return outcome;
             }
         }
 
         if (config.Skip.SkipExisting && !config.PrintResults && job.CanBeSkipped
-            && context.SkipEvaluation.TryGetJobAlreadyExistsOutcome(job, ctx) is { } alreadyExistsOutcome)
+            && await context.SkipEvaluation.TryGetJobAlreadyExistsOutcomeAsync(job, ctx) is { } alreadyExistsOutcome)
         {
+            JobOutcome completed;
             if (job is SongJob existingSong)
             {
-                var organizer = new FileManager(existingSong, config.Output, config.Extraction, ctx.OutputScope);
-                await download.CommitAndFinalizeSong(
+                var organizer = new FileManager(
+                    existingSong,
+                    config.Output,
+                    config.Extraction,
+                    context.LoggerFactory.CreateLogger<FileManager>(),
+                    ctx.OutputScope);
+                completed = await download.CommitAndFinalizeSong(
                     existingSong,
                     existingSong,
                     alreadyExistsOutcome,
@@ -545,20 +672,20 @@ internal sealed class JobOrchestrator
                 DownloadExecutorCoordinator.ApplyPreCommitOutcomeMetadata(job, alreadyExistsOutcome);
                 var postProcessOutcome = DownloadExecutorCoordinator.OutcomeWithCurrentMetadata(job, alreadyExistsOutcome);
                 postProcessOutcome = await download.RunOnCompleteIfApplicable(job, null, ctx, postProcessOutcome);
-                JobOutcomeCommitter.Commit(job, DownloadExecutorCoordinator.OutcomeWithCurrentMetadata(job, postProcessOutcome));
+                completed = postProcessOutcome;
+                JobOutcomeCommitter.Commit(job, completed);
             }
 
-            if (!string.IsNullOrEmpty(alreadyExistsOutcome.DownloadPath))
-                ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, alreadyExistsOutcome.DownloadPath);
-            ctx.IndexEditor?.Update();
-            ctx.PlaylistEditor?.Update();
-            return alreadyExistsOutcome;
+            if (!string.IsNullOrEmpty(completed.DownloadPath))
+                ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, completed.DownloadPath);
+            context.UpdateOutputs(job, ctx);
+            return completed;
         }
 
         // ── source search / download ──────────────────────────────────────────
         // Leaf jobs hold a single job slot for their entire lifetime (search + download combined).
-        // Containers (AggregateJob, AlbumAggregateJob) don't hold a slot here; their children do.
-        if (job is SongJob or AlbumJob or SearchJob or RetrieveFolderJob)
+        // Containers (SongGroupsJob, AlbumGroupsJob) don't hold a slot here; their children do.
+        if (job is FileDownloadJob or AlbumJob or SearchJob or RetrieveFolderJob)
             return await context.Runtime.WithJobSlot(job.Cts!.Token, () => ProcessLeafJobCore(job, ctx, parentToken, parentJob));
         else
             return await ProcessLeafJobCore(job, ctx, parentToken, parentJob);
@@ -586,14 +713,14 @@ internal sealed class JobOrchestrator
                 return outcome;
         }
 
-        if (job is AggregateJob aggregateJob)
+        if (job is SongGroupsJob songGroupsJob)
         {
-            if (await discovery.ProcessAggregateDiscovery(aggregateJob, ctx, parentToken) is { } outcome)
+            if (await discovery.ProcessGroupDiscovery(songGroupsJob, ctx, parentToken) is { } outcome)
                 return outcome;
         }
 
-        if (job is AlbumAggregateJob albumAggregateJob)
-            return await discovery.ProcessAlbumAggregateDiscovery(albumAggregateJob, ctx, parentToken);
+        if (job is AlbumGroupsJob albumGroupsJob)
+            return await discovery.ProcessAlbumGroupsDiscovery(albumGroupsJob, ctx, parentToken);
 
         if (config.PrintResults)
         {

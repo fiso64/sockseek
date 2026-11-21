@@ -25,6 +25,9 @@ public sealed class SettingsPatch
     public IReadOnlyList<SettingChange> Operations { get; }
 
     [JsonIgnore]
+    public IReadOnlySet<string> ExplicitFields => Operations.Select(change => change.Path).ToHashSet(StringComparer.Ordinal);
+
+    [JsonIgnore]
     public bool HasOperations => Operations.Count != 0;
 
     public void ApplyTo<T>(T settings) where T : class
@@ -52,7 +55,7 @@ public sealed class SettingsPatch
     public static SettingsPatch? Difference<T>(T before, T after) where T : class
     {
         var changes = new List<SettingChange>();
-        foreach (var member in SettingsSchema.For(typeof(T)).Leaves)
+        foreach (var member in SettingsSchema.For(typeof(T)).Leaves.Values)
         {
             var oldValue = member.Get(before);
             var newValue = member.Get(after);

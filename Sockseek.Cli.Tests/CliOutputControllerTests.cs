@@ -1,44 +1,34 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.Extensions.Logging;
 using Sockseek.Cli;
-using Sockseek.Core;
 
 namespace Tests.Cli;
 
 [TestClass]
+[DoNotParallelize]
 public class CliOutputControllerTests
 {
     [TestMethod]
     public void Dispose_DetachesOnlyItsOwnConsoleSink()
     {
-        var originalOut = Console.Out;
-        var originalError = Console.Error;
-        using var console = new StringWriter();
+        var ownMessages = new List<string>();
         var otherMessages = new List<string>();
-        SockseekLog.RemoveNonFileOutputs();
-        try
-        {
-            Console.SetOut(console);
-            Console.SetError(console);
-            using var output = CliOutputController.Install([]);
-            SockseekLog.AddStructuredConsoleSink((entry, _) => otherMessages.Add(entry.Message));
-
-            SockseekLog.Info("before disposal");
-            StringAssert.Contains(console.ToString(), "before disposal");
-            console.GetStringBuilder().Clear();
-
-            output.Dispose();
-            output.Dispose();
-            SockseekLog.Info("after disposal");
-
-            Assert.AreEqual("", console.ToString(), "A disposed controller must not print later logs.");
-            CollectionAssert.AreEqual(new[] { "before disposal", "after disposal" }, otherMessages);
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-            Console.SetError(originalError);
-            SockseekLog.RemoveNonFileOutputs();
-        }
+        using var output = CliOutputController.CreateDetached(eventSink: entry =>
+            ownMessages.Add(entry.ToString()!));
+        using var other = CliOutputController.CreateDetached(eventSink: entry =>
+            otherMessages.Add(entry.ToString()!));
+        using var ownFactory = output.CreateLoggerFactory(LogLevel.Information, null, LogLevel.Debug);
+        using var otherFactory = other.CreateLoggerFactory(LogLevel.Information, null, LogLevel.Debug);
+        var ownLogger = ownFactory.CreateLogger("test");
+        var otherLogger = otherFactory.CreateLogger("test");
+        ownLogger.LogInformation("before disposal");
+        otherLogger.LogInformation("before disposal");
+        output.Dispose();
+        output.Dispose();
+        ownLogger.LogInformation("after disposal");
+        otherLogger.LogInformation("after disposal");
+        Assert.AreEqual(1, ownMessages.Count, "A disposed controller must not emit later logs.");
+        Assert.AreEqual(2, otherMessages.Count, "Disposal must not detach another controller's logger.");
     }
 
     [TestMethod]
@@ -48,14 +38,14 @@ public class CliOutputControllerTests
         var originalError = Console.Error;
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
-        SockseekLog.RemoveNonFileOutputs();
         try
         {
             Console.SetOut(stdout);
             Console.SetError(stderr);
             using var output = CliOutputController.Install(["--remote", "http://127.0.0.1:5030", "--detach"]);
 
-            SockseekLog.Info("detached log");
+            using var logs = output.CreateLoggerFactory(LogLevel.Information, null, LogLevel.Debug);
+            logs.CreateLogger("test").LogInformation("detached log");
 
             Assert.AreEqual("", stdout.ToString());
             StringAssert.Contains(stderr.ToString(), "detached log");
@@ -64,7 +54,6 @@ public class CliOutputControllerTests
         {
             Console.SetOut(originalOut);
             Console.SetError(originalError);
-            SockseekLog.RemoveNonFileOutputs();
-        }
+            }
     }
 }

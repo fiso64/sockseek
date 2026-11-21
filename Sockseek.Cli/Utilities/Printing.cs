@@ -1,8 +1,8 @@
+using Sockseek.Core.Extractors;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
+using Sockseek.Core.Services;
 using Sockseek.Core;
-using SearchResponse = Soulseek.SearchResponse;
-using SlFile = Soulseek.File;
 using Sockseek.Core.Settings;
 
 namespace Sockseek.Cli;
@@ -11,6 +11,7 @@ public static class Printing
 {
     public static readonly object ConsoleLock = new();
     internal static Action<string, ConsoleColor>? LiveWriteLine { get; set; }
+    private static readonly AsyncLocal<TextWriter?> ScopedOutput = new();
 
     private static bool _isBuffering;
     private static readonly List<(string value, ConsoleColor color, bool isNewLine)> _buffer = new();
@@ -40,44 +41,42 @@ public static class Printing
         }
     }
 
-    public static string DisplayString(SongQuery query, Soulseek.File? file = null, SearchResponse? response = null,
-        FileConditions? nec = null, FileConditions? pref = null, bool fullpath = false, string customPath = "",
-        bool infoFirst = false, bool showUser = true, bool showSpeed = false)
+    public static string DisplayString(SongQuery query, FileCandidate candidate,
+        bool fullpath = false, string customPath = "",
+        bool infoFirst = false, bool showUser = true, bool showSpeed = false, bool showConditions = false)
     {
-        if (file == null)
-            return query.ToString();
-
-        string sampleRate  = file.SampleRate.HasValue ? $"{(file.SampleRate.Value / 1000.0).Normalize()}kHz" : "";
-        string bitRate     = file.BitRate.HasValue ? $"{file.BitRate}kbps" : "";
-        string fileSize    = $"{file.Size / (float)(1024 * 1024):F1}MB";
-        string user        = showUser && response?.Username != null ? response.Username + "\\" : "";
-        string speed       = showSpeed && response?.Username != null ? $"({response.UploadSpeed / 1024.0 / 1024.0:F2}MB/s) " : "";
-        string fname       = fullpath ? file.Filename : (showUser ? "..\\" : "") + (customPath.Length == 0 ? Utils.GetFileNameSlsk(file.Filename) : customPath);
-        string length      = Utils.IsMusicFile(file.Filename) ? (file.Length ?? -1).ToString() + "s" : "";
+        string sampleRate = candidate.SampleRate is >= 0 ? $"{(candidate.SampleRate.Value / 1000.0).Normalize()}kHz" : "";
+        string bitRate = candidate.BitRate is >= 0 ? $"{candidate.BitRate}kbps" : "";
+        string fileSize = candidate.Target.Size.HasValue
+            ? $"{candidate.Size / (float)(1024 * 1024):F1}MB" : "unknown size";
+        string user = showUser ? candidate.Username + "\\" : "";
+        string speed = showSpeed && candidate.UploadSpeed.HasValue
+            ? $"({candidate.UploadSpeed.Value / 1024.0 / 1024.0:F2}MB/s) "
+            : "";
+        string fname = PeerIdentityValidator.ToDisplayText(fullpath
+            ? candidate.Filename
+            : (showUser ? "..\\" : "") + (customPath.Length == 0 ? Utils.GetFileNameSlsk(candidate.Filename) : customPath));
+        string length = Utils.IsMusicFile(candidate.Filename) ? Math.Max(-1, candidate.Length ?? -1) + "s" : "";
         string displayText;
         if (!infoFirst)
         {
-            string info = string.Join('/', new string[] { length, sampleRate + bitRate, fileSize }.Where(value => value.Length > 0));
+            string info = string.Join('/', new[] { length, sampleRate + bitRate, fileSize }.Where(value => value.Length > 0));
             displayText = $"{speed}{user}{fname} [{info}]";
         }
         else
         {
-            string info = string.Join('/', new string[] { length.PadRight(4), (sampleRate + bitRate).PadRight(8), fileSize.PadLeft(6) });
+            string info = string.Join('/', new[] { length.PadRight(4), (sampleRate + bitRate).PadRight(8), fileSize.PadLeft(6) });
             displayText = $"[{info}] {speed}{user}{fname}";
         }
 
-        string necStr  = nec  != null ? $"nec:{nec.GetNotSatisfiedName(file, query, response)}, " : "";
-        string prefStr = pref != null ? $"prf:{pref.GetNotSatisfiedName(file, query, response)}" : "";
-        string cond    = "";
-        if (nec != null || pref != null)
-            cond = $" ({(necStr + prefStr).TrimEnd(' ', ',')})";
-
-        return displayText + cond;
+        if (candidate.Visibility == SearchResultVisibility.Locked) displayText += " [locked]";
+        return showConditions ? displayText + ConditionExplanation(candidate.ProjectionFacts) : displayText;
     }
 
 
     public static void PrintTracks(IEnumerable<SongJob> songs, int number = int.MaxValue, bool fullInfo = false,
-        bool pathsOnly = false, bool showAncestors = true, bool infoFirst = false, bool showUser = true, bool indices = false)
+        bool pathsOnly = false, bool showAncestors = true, bool infoFirst = false, bool showUser = true, bool indices = false,
+        bool showConditions = false)
     {
         Console.ResetColor();
         var songList = songs.ToList();
@@ -102,9 +101,9 @@ public static class Printing
                         Write($" [{i + 1:D2}]", ConsoleColor.DarkGray);
                     }
                     if (ancestor.Length == 0)
-                        WriteLine("    " + DisplayString(songList[i].Query, c.File, c.Response, infoFirst: infoFirst, showUser: showUser));
+                        WriteLine("    " + DisplayString(songList[i].Query, c, infoFirst: infoFirst, showUser: showUser));
                     else
-                        WriteLine("    " + DisplayString(songList[i].Query, c.File, c.Response, customPath: c.File.Filename.Replace(ancestor, "").TrimStart('\\'), infoFirst: infoFirst, showUser: showUser));
+                        WriteLine("    " + DisplayString(songList[i].Query, c, customPath: c.Filename.Replace(ancestor, "").TrimStart('\\'), infoFirst: infoFirst, showUser: showUser));
                 }
             }
         }
@@ -128,8 +127,8 @@ public static class Printing
                     WriteLine($"  Local path:         {s.DownloadPath}");
                 if (!string.IsNullOrEmpty(s.Query.URI))
                     WriteLine($"  URL/ID:             {s.Query.URI}");
-                if (!string.IsNullOrEmpty(s.Other))
-                    WriteLine($"  Other:              {s.Other}");
+                if (!string.IsNullOrEmpty(s.ExtractorInfo))
+                    WriteLine($"  Extractor info:     {s.ExtractorInfo}");
                 if (s.Query.ArtistMaybeWrong)
                     WriteLine($"  Artist maybe wrong: {s.Query.ArtistMaybeWrong}");
                 if (s.Candidates != null)
@@ -138,9 +137,9 @@ public static class Printing
                     foreach (var c in s.Candidates)
                     {
                         if (ancestor.Length == 0)
-                            WriteLine("    " + DisplayString(s.Query, c.File, c.Response, infoFirst: infoFirst, showUser: showUser));
+                            WriteLine("    " + DisplayString(s.Query, c, infoFirst: infoFirst, showUser: showUser, showConditions: showConditions));
                         else
-                            WriteLine("    " + DisplayString(s.Query, c.File, c.Response, customPath: c.File.Filename.Replace(ancestor, "").TrimStart('\\'), infoFirst: infoFirst, showUser: showUser));
+                            WriteLine("    " + DisplayString(s.Query, c, customPath: c.Filename.Replace(ancestor, "").TrimStart('\\'), infoFirst: infoFirst, showUser: showUser, showConditions: showConditions));
                     }
                     if (s.Candidates.Count > 0) WriteLine();
                 }
@@ -155,101 +154,12 @@ public static class Printing
     }
 
 
-    public static void PrintResults(Job job, PrintOption printOption, SearchSettings search)
-        => ResultPrintFormatter.Print(job, printOption, search);
-
-    public static void PrintComplete(JobList queue)
-    {
-        var (successes, fails, skipped) = CountUserFacingCompletionsDetailed(queue);
-        PrintComplete(successes, fails, skipped);
-    }
-
-    internal static (int Successes, int Fails) CountUserFacingCompletions(JobList queue)
-    {
-        var (successes, fails, _) = CountUserFacingCompletionsDetailed(queue);
-        return (successes, fails);
-    }
-
-    internal static (int Successes, int Fails, int Skipped) CountUserFacingCompletionsDetailed(JobList queue)
-    {
-        int successes = 0, fails = 0;
-        int skipped = 0;
-        var visited = new HashSet<Guid>();
-
-        foreach (var job in queue.Jobs)
-            CountUserFacingCompletion(job, parent: null, visited, ref successes, ref fails, ref skipped);
-
-        return (successes, fails, skipped);
-    }
-
-    private static void CountUserFacingCompletion(
+    public static void PrintResults(
         Job job,
-        Job? parent,
-        ISet<Guid> visited,
-        ref int successes,
-        ref int fails,
-        ref int skipped)
-    {
-        if (!visited.Add(job.Id))
-            return;
-
-        if (job.Config?.DoNotDownload == true)
-            return;
-
-        switch (job)
-        {
-            case ExtractJob extractJob:
-                if (extractJob.Result != null)
-                    CountUserFacingCompletion(extractJob.Result, parent: null, visited, ref successes, ref fails, ref skipped);
-                return;
-
-            case JobList jobList:
-                foreach (var child in jobList.Jobs)
-                    CountUserFacingCompletion(child, jobList, visited, ref successes, ref fails, ref skipped);
-                return;
-
-            case AggregateJob aggregateJob:
-                foreach (var song in aggregateJob.Songs)
-                    CountUserFacingCompletion(song, aggregateJob, visited, ref successes, ref fails, ref skipped);
-                return;
-
-            case AlbumAggregateJob albumAggregateJob:
-                foreach (var album in albumAggregateJob.Albums)
-                    CountUserFacingCompletion(album, albumAggregateJob, visited, ref successes, ref fails, ref skipped);
-                return;
-
-            case RetrieveFolderJob:
-                return;
-        }
-
-        if (job is SongJob && parent is AlbumJob)
-            return;
-
-        if (IsSuccessfulCompletion(job)) successes++;
-        else if (IsManualSkipCompletion(job)) skipped++;
-        else if (job.IsUnsuccessfulTerminal) fails++;
-    }
-
-    public static void PrintComplete(int successes, int fails)
-        => PrintComplete(successes, fails, skipped: 0);
-
-    public static void PrintComplete(int successes, int fails, int skipped)
-    {
-        if (successes + fails + skipped > 1 || fails > 0 || skipped > 0)
-        {
-            WriteLine();
-            var skippedPart = skipped > 0 ? $", {skipped} skipped" : "";
-            SockseekLog.Info($"Completed: {successes} succeeded{skippedPart}, {fails} failed.");
-        }
-    }
-
-    public static bool IsSuccessfulCompletion(Job job)
-        => job.IsSuccessfulTerminal;
-
-    public static bool IsManualSkipCompletion(Job job)
-        => job.TerminalOutcome == JobTerminalOutcome.Skipped
-            && job.SkipReason == JobSkipReason.Manual;
-
+        PrintOption printOption,
+        SearchSettings search,
+        IReadOnlyDictionary<string, int>? peerFailureSnapshot = null)
+        => ResultPrintFormatter.Print(job, printOption, search, peerFailureSnapshot);
 
     public static void PrintTracksTbd(List<SongJob> toBeDownloaded, List<SongJob> existing, List<SongJob> notFound,
         bool isNormal, PrintOption printOption, bool summary = true)
@@ -270,19 +180,19 @@ public static class Printing
 
         if (summary && printOnly && toBeDownloaded.Count > 0)
         {
-            var label = printResults && !isNormal ? "aggregate tracks" : "tracks to download";
+            var label = printResults && !isNormal ? "group tracks" : "tracks to download";
             WriteLine($"{toBeDownloaded.Count} {label}:");
         }
         else if (summary && !printOnly && (isNormal || skippedTracks.Length > 0))
         {
-            SockseekLog.Info($"Downloading {toBeDownloaded.Count} tracks{skippedTracks}{(allSkipped ? '.' : ':')}");
+            WriteLine($"Downloading {toBeDownloaded.Count} tracks{skippedTracks}{(allSkipped ? '.' : ':')}");
         }
 
         if (toBeDownloaded.Count > 0)
         {
             bool showAll = !isNormal || printTracks || printResults;
             int limit = showAll ? int.MaxValue : 10;
-            PrintTracks(toBeDownloaded, limit, full, infoFirst: printTracks);
+            PrintTracks(toBeDownloaded, limit, full, infoFirst: printTracks, showConditions: printResults && full);
             if (!showAll && toBeDownloaded.Count > limit)
                 WriteLine($"  ... and {toBeDownloaded.Count - limit} more");
 
@@ -293,45 +203,63 @@ public static class Printing
         if (existing.Count > 0)
         {
             WriteLine($"{(toBeDownloaded.Count > 0 ? "\n" : "")}{existing.Count} tracks already exist:");
-            PrintTracks(existing, fullInfo: full, infoFirst: printTracks);
+            PrintTracks(existing, fullInfo: full, infoFirst: printTracks, showConditions: printResults && full);
         }
         if (notFound.Count > 0)
         {
             WriteLine($"{(toBeDownloaded.Count > 0 || existing.Count > 0 ? "\n" : "")}{notFound.Count} tracks were not found during a prior run:");
-            PrintTracks(notFound, fullInfo: full, infoFirst: printTracks);
+            PrintTracks(notFound, fullInfo: full, infoFirst: printTracks, showConditions: printResults && full);
         }
     }
 
 
-    public static void PrintTrackResults(IEnumerable<(SearchResponse, Soulseek.File)> orderedResults, SongQuery query,
-        bool full = false, FileConditions? necCond = null, FileConditions? prefCond = null)
+    public static void PrintTrackCandidates(IEnumerable<FileCandidate> orderedResults, SongQuery query,
+        bool full = false)
     {
         Console.ResetColor();
         int count = 0;
-        foreach (var (response, file) in orderedResults)
+        foreach (var candidate in orderedResults)
         {
-            WriteLine(DisplayString(query, file, response,
-                full ? necCond : null, full ? prefCond : null,
-                fullpath: full, infoFirst: true, showSpeed: full));
+            string display = DisplayString(
+                query,
+                candidate,
+                fullpath: full,
+                infoFirst: true,
+                showSpeed: full,
+                showConditions: full);
+            WriteLine(display);
             count++;
         }
         WriteLine($"Total: {count}\n", ConsoleColor.Yellow);
     }
 
+    private static string ConditionExplanation(SearchConditionFacts? facts)
+    {
+        if (facts == null)
+            return " (conditions:unavailable)";
+        string necessary = facts.Value.NecessaryConditionsSatisfied
+            ? "Satisfied"
+            : "Unsatisfied";
+        string preferred = facts.Value.UnsatisfiedPreferredConditions.Count == 0
+            ? "Satisfied"
+            : string.Join(
+                ", ",
+                facts.Value.UnsatisfiedPreferredConditions.Select(condition =>
+                    $"{condition} fails"));
+        return $" (nec:{necessary}, prf:{preferred})";
+    }
+
 
     public static void PrintLink(string username, string filename)
     {
-        var link = $"slsk://{username}/{filename.Replace('\\', '/')}";
-        WriteLine(link);
+        WriteLine(SoulseekExtractor.FormatLink(username, filename));
     }
 
 
     public static void PrintAlbumLink(AlbumFolder folder)
     {
-        if (folder.Files.Count == 0) return;
-        string directory = Utils.GreatestCommonDirectorySlsk(folder.Files.Select(f => f.Filename));
-        var link = $"slsk://{folder.Username}/{directory.Replace('\\', '/').TrimEnd('/')}/";
-        WriteLine(link);
+        if (!folder.Files.Any(file => file.Candidate.Visibility == SearchResultVisibility.Public)) return;
+        WriteLine(SoulseekExtractor.FormatLink(folder.Username, folder.FolderPath, directory: true));
     }
 
 
@@ -342,21 +270,24 @@ public static class Printing
         lock (ConsoleLock)
         {
             Console.ResetColor();
-            var firstResponse = folder.Files[0].Candidate.Response;
-            string noSlot   = !firstResponse.HasFreeUploadSlot ? ", no upload slots" : "";
-            string userInfo = $"{firstResponse.Username} ({((float)firstResponse.UploadSpeed / (1024 * 1024)):F3}MB/s{noSlot})";
-            var (parents, propsList) = FolderInfo(folder.Files.Select(f => f.Candidate.File), folder.FolderPath);
+            var firstCandidate = folder.Files[0].Candidate;
+            string noSlot = firstCandidate.HasFreeUploadSlot == false ? ", no upload slots" : "";
+            string speed = firstCandidate.UploadSpeed.HasValue
+                ? $"{firstCandidate.UploadSpeed.Value / (1024f * 1024f):F3}MB/s"
+                : "unknown speed";
+            string userInfo = $"{firstCandidate.Username} ({speed}{noSlot})";
+            var (parents, propsList) = FolderInfo(folder.Files.Select(f => f.Candidate), folder.FolderPath);
 
             string format     = propsList.FirstOrDefault() ?? "";
             string otherProps = propsList.Count > 1 ? " / " + string.Join(" / ", propsList.Skip(1)) : "";
 
-            Write($"User  : {userInfo}\nFolder: {parents}\nProps :[", ConsoleColor.White, force: force);
+            Write($"User  : {userInfo}\nFolder: {PeerIdentityValidator.ToDisplayText(parents)}\nProps :[", ConsoleColor.White, force: force);
             Write(format, GetFormatColor(format), force: force);
             WriteLine(otherProps + "]", ConsoleColor.White, force: force);
         }
     }
 
-    public static int PrintAlbum(AlbumFolder folder, bool indices = false, bool force = false)
+    public static int PrintAlbum(AlbumFolder folder, bool indices = false, bool force = false, bool showConditions = false)
     {
         if (folder.Files.Count == 0) return 0;
 
@@ -371,27 +302,13 @@ public static class Printing
             {
                 Write($" [{i + 1:D2}]", ConsoleColor.DarkGray, force: force);
             }
-            string customPath = PathRelativeToFolder(af.Candidate.File.Filename, ancestor);
-            WriteLine("    " + DisplayString(af.Query, af.Candidate.File, af.Candidate.Response, customPath: customPath, showUser: false), ConsoleColor.Gray, force: force);
+            string customPath = PathRelativeToFolder(af.Candidate.Filename, ancestor);
+            WriteLine("    " + DisplayString(af.Query, af.Candidate, customPath: customPath, showUser: false,
+                showConditions: showConditions), ConsoleColor.Gray, force: force);
             i++;
         }
 
         return 3 + folder.Files.Count;
-    }
-
-    public static string FormatList<T>(ICollection<T> items, Func<T, string> format, string indent = "  ", int maxCount = 10)
-    {
-        var result = new System.Text.StringBuilder();
-        int count = 1;
-        foreach (var item in items)
-        {
-            if (count > 1) result.Append('\n');
-            if (count > maxCount) { result.Append($"... and {items.Count - count} more"); break; }
-            result.Append(indent);
-            result.Append(format(item));
-            count++;
-        }
-        return result.ToString();
     }
 
     private static string PathRelativeToFolder(string filename, string folderPath)
@@ -399,26 +316,26 @@ public static class Printing
         if (folderPath.Length == 0)
             return "";
 
-        return filename.StartsWith(folderPath + "\\", StringComparison.OrdinalIgnoreCase)
+        return filename.StartsWith(folderPath + "\\", StringComparison.Ordinal)
             ? filename[(folderPath.Length + 1)..]
             : Utils.GetFileNameSlsk(filename);
     }
 
-    static (string parents, List<string> props) FolderInfo(IEnumerable<SlFile> files, string? folderPath = null)
+    static (string parents, List<string> props) FolderInfo(IEnumerable<FileCandidate> files, string? folderPath = null)
     {
         var fileList = files.ToList();
-        int totalLengthInSeconds = fileList.Sum(f => f.Length ?? 0);
-        var sampleRates = fileList.Where(f => f.SampleRate.HasValue).Select(f => f.SampleRate.GetValueOrDefault()).OrderBy(r => r).ToList();
+        long totalLengthInSeconds = fileList.Sum(f => Math.Max(0L, f.Length ?? 0));
+        var sampleRates = fileList.Where(f => f.SampleRate is >= 0).Select(f => f.SampleRate.GetValueOrDefault()).OrderBy(r => r).ToList();
         int? modeSampleRate = sampleRates.GroupBy(rate => rate).OrderByDescending(g => g.Count()).Select(g => (int?)g.Key).FirstOrDefault();
 
-        var bitRates = fileList.Where(f => f.BitRate.HasValue).Select(f => f.BitRate.GetValueOrDefault()).ToList();
+        var bitRates = fileList.Where(f => f.BitRate is >= 0).Select(f => f.BitRate.GetValueOrDefault()).ToList();
         double? meanBitrate = bitRates.Count > 0 ? (double?)bitRates.Average() : null;
-        double totalFileSizeInMB = fileList.Sum(f => f.Size) / (1024.0 * 1024.0);
+        double totalFileSizeInMB = fileList.Sum(f => (double)f.Target.Size.GetValueOrDefault()) / (1024.0 * 1024.0);
 
-        TimeSpan totalTimeSpan = TimeSpan.FromSeconds(totalLengthInSeconds);
-        string totalLengthFormatted = totalTimeSpan.TotalHours >= 1
-            ? string.Format("{0}:{1:D2}:{2:D2}", (int)totalTimeSpan.TotalHours, totalTimeSpan.Minutes, totalTimeSpan.Seconds)
-            : string.Format("{0:D2}:{1:D2}", totalTimeSpan.Minutes, totalTimeSpan.Seconds);
+        long hours = totalLengthInSeconds / 3600;
+        string totalLengthFormatted = hours >= 1
+            ? $"{hours}:{totalLengthInSeconds / 60 % 60:D2}:{totalLengthInSeconds % 60:D2}"
+            : $"{totalLengthInSeconds / 60:D2}:{totalLengthInSeconds % 60:D2}";
 
         var mostCommonExtension = fileList.GroupBy(f => Utils.GetExtensionSlsk(f.Filename))
             .OrderByDescending(g => Utils.IsMusicExtension(g.Key)).ThenByDescending(g => g.Count()).First().Key.TrimStart('.');
@@ -428,7 +345,7 @@ public static class Printing
             propsList.Add($"{(modeSampleRate.Value / 1000.0).Normalize()} kHz");
         if (meanBitrate.HasValue)
             propsList.Add($"{(int)meanBitrate.Value} kbps");
-        propsList.Add($"{totalFileSizeInMB:F2} MB");
+        propsList.Add(fileList.Any(f => !f.Target.Size.HasValue) ? "unknown size" : $"{totalFileSizeInMB:F2} MB");
 
         string gcp = string.IsNullOrWhiteSpace(folderPath)
             ? Utils.GreatestCommonDirectorySlsk(fileList.Select(x => x.Filename)).TrimEnd('\\')
@@ -457,14 +374,14 @@ public static class Printing
         };
     }
 
-    public static void RefreshOrPrint(int current, string item, bool print = false)
-    {
-        if (print)
-            SockseekLog.Info(item);
-    }
-
     public static void WriteLine(string value = "", ConsoleColor color = ConsoleColor.Gray, bool force = false)
     {
+        if (ScopedOutput.Value is { } output)
+        {
+            output.WriteLine(value);
+            return;
+        }
+
         if (!force)
         {
             lock (ConsoleLock)
@@ -493,6 +410,12 @@ public static class Printing
 
     public static void Write(string value, ConsoleColor color = ConsoleColor.Gray, bool force = false)
     {
+        if (ScopedOutput.Value is { } output)
+        {
+            output.Write(value);
+            return;
+        }
+
         if (!force)
         {
             lock (ConsoleLock)
@@ -510,6 +433,25 @@ public static class Printing
             Console.ForegroundColor = color;
             Console.Write(value);
             Console.ResetColor();
+        }
+    }
+
+    internal static IDisposable RedirectOutput(TextWriter output)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        TextWriter? previous = ScopedOutput.Value;
+        ScopedOutput.Value = output;
+        return new OutputScope(previous);
+    }
+
+    private sealed class OutputScope(TextWriter? previous) : IDisposable
+    {
+        private int disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+                ScopedOutput.Value = previous;
         }
     }
 }

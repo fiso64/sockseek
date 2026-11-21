@@ -14,7 +14,6 @@ public class AlbumQualityCoverageBenchmarks
 {
     private List<(SearchResponse Response, SlFile File)> rawResults = null!;
     private SearchSettings requiredFlacSearch = null!;
-    private SearchSettings legacyProjectionSearch = null!;
     private SearchSettings strictRequiredFlacSearch = null!;
     private AlbumQuery albumQuery = null!;
 
@@ -33,36 +32,16 @@ public class AlbumQualityCoverageBenchmarks
         requiredFlacSearch = BenchmarkDataFactory.CreateSearchSettings();
         requiredFlacSearch.NecessaryCond.Formats = ["flac"];
 
-        strictRequiredFlacSearch = CloneSearchSettings(requiredFlacSearch);
+        strictRequiredFlacSearch = BenchmarkDataFactory.CreateSearchSettings();
+        strictRequiredFlacSearch.NecessaryCond.Formats = ["flac"];
         strictRequiredFlacSearch.StrictAlbumQuality = true;
-
-        legacyProjectionSearch = CloneSearchSettings(requiredFlacSearch);
-        legacyProjectionSearch.NecessaryCond = legacyProjectionSearch.NecessaryCond.WithoutAlbumTrackConditions();
     }
 
     [Benchmark(Baseline = true)]
-    public int Old_FormatFilterBeforeGrouping()
-    {
-        var sortQuery = SearchResultProjector.AlbumFileMatchQuery(albumQuery);
-        var filteredResults = rawResults.Where(result =>
-            requiredFlacSearch.NecessaryCond.UserSatisfies(result.Response)
-            && (!Utils.IsMusicFile(result.File.Filename)
-                || ConditionSatisfactionPolicy.SearchFileSatisfies(
-                    requiredFlacSearch.NecessaryCond,
-                    result.Response,
-                    result.File,
-                    sortQuery)));
-
-        return SearchResultProjector.AlbumFolders(filteredResults, albumQuery, legacyProjectionSearch).Count;
-    }
-
-    [Benchmark]
-    public int New_MixedQualityCoverage()
+    public int MixedQualityCoverage()
         => SearchResultProjector.AlbumFolders(rawResults, albumQuery, requiredFlacSearch).Count;
 
     [Benchmark]
-    public int New_StrictQualityCoverage()
+    public int StrictQualityCoverage()
         => SearchResultProjector.AlbumFolders(rawResults, albumQuery, strictRequiredFlacSearch).Count;
-
-    private static SearchSettings CloneSearchSettings(SearchSettings source) => SettingsCloner.Clone(source);
 }

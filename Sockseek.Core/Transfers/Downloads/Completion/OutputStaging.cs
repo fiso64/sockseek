@@ -4,6 +4,7 @@ namespace Sockseek.Core.Services;
 
 internal static class OutputStaging
 {
+    public const string IncompleteExtension = ".incomplete";
     public const string DirectoryName = ".sockseek-staging";
 
     public static string Root(OutputSettings output)

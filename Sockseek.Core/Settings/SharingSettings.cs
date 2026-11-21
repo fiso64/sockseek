@@ -1,0 +1,109 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+using Sockseek.Core.Sharing;
+
+namespace Sockseek.Core.Settings;
+
+/// <summary>
+/// Settings for the local public share catalog; each scan captures one snapshot.
+/// </summary>
+public sealed class SharingSettings
+{
+    [SettingOption("--share", ListSyntax = OptionListSyntax.SingleItem, DefaultProfileOnly = true, Parser = nameof(ParseRoot))]
+    [SettingReloadable]
+    public List<ShareRootSettings> Roots { get; set; } = [];
+
+    [SettingOption("--share-exclude", ListSyntax = OptionListSyntax.SingleItem, DefaultProfileOnly = true)]
+    [SettingReloadable]
+    public List<string> ExcludedDirectories { get; set; } = [];
+
+    [SettingOption("--share-filter", ListSyntax = OptionListSyntax.SingleItem, DefaultProfileOnly = true)]
+    [SettingReloadable]
+    public List<string> Filters { get; set; } = [];
+
+    [SettingOption("--share-search-result-limit", DefaultProfileOnly = true)]
+    [SettingReloadable]
+    public int SearchResultLimit { get; set; } = 500;
+
+    [SettingOption("--share-scan-on-start", DefaultProfileOnly = true)]
+    public bool ScanOnStart { get; set; } = true;
+
+    [SettingOption("--share-rescan-interval", Parser = nameof(ParseRescanInterval), DefaultProfileOnly = true)]
+    public TimeSpan? RescanInterval { get; set; }
+
+    private static ShareRootSettings ParseRoot(string value, string flag) => ShareRootParser.Parse(value);
+
+    public string CatalogFingerprint()
+    {
+        byte[] canonical = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            SchemaVersion = ShareCatalogVersions.Schema,
+            Roots = Roots.Select(root => new
+            {
+                root.LocalPath,
+                Alias = root.EffectiveAlias,
+            }),
+            Exclusions = ExcludedDirectories,
+            Filters,
+        });
+        return Convert.ToHexString(SHA256.HashData(canonical));
+    }
+
+    private static TimeSpan? ParseRescanInterval(string value, string flag)
+    {
+        value = value.Trim();
+        if (value.Equals("off", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (TimeSpan.TryParse(
+                value,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var parsed))
+        {
+            return parsed;
+        }
+
+        if (value.Length > 1
+            && double.TryParse(
+                value[..^1],
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out double amount))
+        {
+            return char.ToLowerInvariant(value[^1]) switch
+            {
+                'm' => TimeSpan.FromMinutes(amount),
+                'h' => TimeSpan.FromHours(amount),
+                'd' => TimeSpan.FromDays(amount),
+                _ => throw InvalidDuration(),
+            };
+        }
+
+        throw InvalidDuration();
+
+        ArgumentException InvalidDuration()
+            => new(
+                $"Input error: Option '{flag}' requires a duration such as " +
+                "'00:30:00', '30m', '12h', '7d', or 'off'.");
+    }
+
+}
+
+/// <summary>
+/// One configured local root and the public alias under which peers see it.
+/// </summary>
+public sealed class ShareRootSettings
+{
+    public required string LocalPath { get; set; }
+
+    public string? Alias { get; set; }
+
+    /// <summary>
+    /// Populated by settings normalization from <see cref="Alias"/> or the final
+    /// local path segment.
+    /// </summary>
+    public string EffectiveAlias { get; set; } = "";
+}

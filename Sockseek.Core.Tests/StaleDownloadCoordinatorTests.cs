@@ -5,9 +5,7 @@ using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Transfers.Downloads.State;
-using System.Text.RegularExpressions;
-using Directory = System.IO.Directory;
-using File = System.IO.File;
+using System.Threading.Channels;
 
 namespace Tests.Core;
 
@@ -17,42 +15,41 @@ public class StaleDownloadCoordinatorTests
     private static readonly TimeSpan MaxStaleTime = TimeSpan.FromSeconds(5);
 
     [TestMethod]
-    public void StaleCoordinator_IsOnlyArmedByDownloaderPeerTransferScope()
+    public async Task SchedulerTracksProgressWithoutAccumulatingDeadlines()
     {
-        var repositoryRoot = FindRepositoryRoot();
-        var coreRoot = Path.Combine(repositoryRoot, "Sockseek.Core");
-        var forbiddenPatterns = new[]
+        using var scenario = new Scenario();
+        var attempt = scenario.Start("user-a", @"Music\Artist - Song.mp3");
+        scenario.ReportState(attempt, TransferStates.InProgress, bytesTransferred: 0);
+        using var stop = new CancellationTokenSource();
+        Task scheduler = scenario.Coordinator.RunAsync(stop.Token);
+        try
         {
-            new Regex(@"\bstaleDownloads\.(Register|Complete|ReportState|ReportProgress)\s*\(", RegexOptions.Singleline),
-            new Regex(@"\.BeginPeerTransfer\s*\(", RegexOptions.Singleline),
-            new Regex(@"\.CompletePeerTransfer\s*\(", RegexOptions.Singleline),
-        };
-        var watchPattern = new Regex(@"\.WatchPeerTransferAsync\s*\(", RegexOptions.Singleline);
-        var allowedWatchFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            Path.Combine(coreRoot, "Transfers", "Downloads", "Downloader.cs"),
-            Path.Combine(coreRoot, "Transfers", "Downloads", "StaleDetection", "StaleDownloadCoordinator.cs"),
-        };
-
-        var offenders = Directory.EnumerateFiles(coreRoot, "*.cs", SearchOption.AllDirectories)
-            .Where(path => !PathContainsSegment(path, "bin") && !PathContainsSegment(path, "obj"))
-            .SelectMany(path =>
+            await scenario.Clock.WaitForDeadlineAsync(MaxStaleTime);
+            for (int second = 1; second <= 4; second++)
             {
-                var text = File.ReadAllText(path);
-                var matches = forbiddenPatterns
-                    .SelectMany(pattern => pattern.Matches(text).Cast<Match>());
+                scenario.Advance(TimeSpan.FromSeconds(1));
+                scenario.ReportProgress(attempt, second * 4096);
+                await scenario.Clock.WaitForDeadlineAsync(MaxStaleTime + TimeSpan.FromSeconds(second));
+                Assert.AreEqual(1, scenario.Clock.ActiveTimers,
+                    "Activity must replace the deadline instead of retaining a timeout for every update.");
+            }
+            Assert.AreEqual(1, scenario.Clock.CreatedTimers,
+                "The scheduler must reuse its timer through an activity burst.");
 
-                if (!allowedWatchFiles.Contains(path))
-                    matches = matches.Concat(watchPattern.Matches(text).Cast<Match>());
-
-                return matches.Select(match => $"{Path.GetRelativePath(repositoryRoot, path)}:{LineNumber(text, match.Index)}");
-            })
-            .Distinct()
-            .OrderBy(line => line)
-            .ToList();
-
-        if (offenders.Count > 0)
-            Assert.Fail("Stale cancellation must only be armed by Downloader via StaleDownloadCoordinator.WatchPeerTransferAsync:\n" + string.Join("\n", offenders));
+            var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var registration = attempt.Download.Cts.Token.Register(() => cancelled.TrySetResult());
+            scenario.Advance(MaxStaleTime - TimeSpan.FromMilliseconds(1));
+            Assert.IsFalse(attempt.Download.Cts.IsCancellationRequested);
+            scenario.Advance(TimeSpan.FromMilliseconds(1));
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            AssertStaleTransferCancelled(attempt);
+        }
+        finally
+        {
+            stop.Cancel();
+            await scheduler.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Assert.AreEqual(0, scenario.Clock.ActiveTimers, "Stopping must release the armed deadline.");
     }
 
     [TestMethod]
@@ -69,7 +66,7 @@ public class StaleDownloadCoordinatorTests
         scenario.Advance(TimeSpan.FromMilliseconds(1));
         Assert.AreEqual(1, scenario.CancelStaleDownloads());
         AssertStaleTransferCancelled(attempt);
-        Assert.IsFalse(scenario.ActiveDownloads.Contains(attempt.Download.Candidate.Filename));
+        Assert.IsFalse(scenario.ActiveDownloads.Contains(attempt.Download.TransferId));
     }
 
     [TestMethod]
@@ -193,11 +190,13 @@ public class StaleDownloadCoordinatorTests
     }
 
     [TestMethod]
-    public void ActivityFromDifferentUserDoesNotProtectQueuedAttempt()
+    [DataRow("user-b")]
+    [DataRow("USER-A")]
+    public void ActivityFromDifferentUserDoesNotProtectQueuedAttempt(string otherUsername)
     {
         using var scenario = new Scenario();
         var queued = scenario.Start("user-a", @"Music\Artist - Queued.mp3");
-        var otherUser = scenario.Start("user-b", @"Music\Artist - Other.mp3");
+        var otherUser = scenario.Start(otherUsername, @"Music\Artist - Other.mp3");
         scenario.ReportState(queued, TransferStates.Queued | TransferStates.Remotely, bytesTransferred: 0);
         scenario.ReportState(otherUser, TransferStates.InProgress, bytesTransferred: 0);
 
@@ -224,29 +223,6 @@ public class StaleDownloadCoordinatorTests
         Assert.IsFalse(attempt.Download.Cts.IsCancellationRequested);
     }
 
-    [TestMethod]
-    public void StaleCoordinator_DoesNotWriteUserFacingAttemptLogs()
-    {
-        SockseekLog.RemoveNonFileOutputs();
-        var entries = new List<SockseekLog.StructuredLogEntry>();
-        SockseekLog.AddStructuredSink((entry, _) => entries.Add(entry));
-        try
-        {
-            using var scenario = new Scenario();
-            scenario.Start("user-a", @"Music\Artist - Song.mp3");
-
-            scenario.Advance(MaxStaleTime);
-            Assert.AreEqual(1, scenario.CancelStaleDownloads());
-
-            Assert.IsFalse(entries.Any(entry => entry.CategoryName == SockseekLog.Categories.Jobs),
-                "The coordinator is only the watchdog; Downloader/album orchestration own user-facing stale diagnostics.");
-        }
-        finally
-        {
-            SockseekLog.RemoveNonFileOutputs();
-        }
-    }
-
     private static void AssertStaleTransferCancelled(AttemptHandle attempt)
     {
         Assert.IsFalse(attempt.Song.Cts?.IsCancellationRequested == true);
@@ -255,26 +231,38 @@ public class StaleDownloadCoordinatorTests
         Assert.AreEqual((int)MaxStaleTime.TotalMilliseconds, attempt.Download.StaleMaxStaleTimeMs);
     }
 
-    private static string FindRepositoryRoot()
+    [TestMethod]
+    [TestCategory("Load")]
+    [TestCategory("CI")]
+    [DoNotParallelize] // Process-wide allocation counts must exclude other test classes.
+    public async Task CompletedPeerHistoryDoesNotAmplifyActiveDeadlineChecks()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null)
+        using var scenario = new Scenario();
+        for (int index = 0; index < 10_000; index++)
         {
-            if (File.Exists(Path.Combine(dir.FullName, "Sockseek.sln")))
-                return dir.FullName;
-
-            dir = dir.Parent;
+            var completed = scenario.Start($"peer-{index}", @"Music\Complete.mp3");
+            scenario.ReportProgress(completed, 50_000);
+            scenario.Complete(completed);
         }
-
-        throw new DirectoryNotFoundException("Could not locate repository root containing Sockseek.sln.");
+        var active = scenario.Start("active-peer", @"Music\Active.mp3");
+        scenario.ReportState(active, TransferStates.Queued, bytesTransferred: 0);
+        using var stop = new CancellationTokenSource();
+        long before = GC.GetTotalAllocatedBytes(true);
+        Task scheduler = scenario.Coordinator.RunAsync(stop.Token);
+        try
+        {
+            await scenario.Clock.WaitForDeadlineAsync(MaxStaleTime);
+            Assert.IsFalse(active.Download.Cts.IsCancellationRequested);
+        }
+        finally
+        {
+            stop.Cancel();
+            await scheduler.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        long allocated = GC.GetTotalAllocatedBytes(true) - before;
+        Assert.IsTrue(allocated < 256 * 1024,
+            $"Checking one active peer allocated {allocated:N0} bytes; completed peers must not be copied on every deadline check.");
     }
-
-    private static bool PathContainsSegment(string path, string segment)
-        => path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            .Any(part => part.Equals(segment, StringComparison.OrdinalIgnoreCase));
-
-    private static int LineNumber(string text, int index)
-        => text.AsSpan(0, index).Count('\n') + 1;
 
     private sealed class Scenario : IDisposable
     {
@@ -286,6 +274,7 @@ public class StaleDownloadCoordinatorTests
             Coordinator = new StaleDownloadCoordinator(ActiveDownloads, clock);
         }
 
+        public ManualTimeProvider Clock => clock;
         public ActiveDownloadTracker ActiveDownloads { get; } = new();
         public StaleDownloadCoordinator Coordinator { get; }
 
@@ -293,12 +282,12 @@ public class StaleDownloadCoordinatorTests
         {
             var response = new SearchResponse(username, 1, true, 100_000, 0, []);
             var file = TestHelpers.CreateSlFile(filename, size: 50_000, length: 180);
-            var candidate = new FileCandidate(response, file);
+            var candidate = SoulseekSearchAdapter.ToFileCandidate(response, file);
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = Path.GetFileNameWithoutExtension(filename) })
             {
                 Cts = new CancellationTokenSource(),
             };
-            var activeDownload = new ActiveDownload(song, candidate, new CancellationTokenSource(), parentJob);
+            var activeDownload = new ActiveDownload(Guid.NewGuid(), song, candidate, "C:/downloads/song.mp3", new CancellationTokenSource(), parentJob);
             ActiveDownloads.TryAdd(activeDownload);
             var activityReady = new TaskCompletionSource<StaleDownloadCoordinator.PeerTransferActivity>(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -340,11 +329,11 @@ public class StaleDownloadCoordinatorTests
         private static Transfer CreateTransfer(AttemptHandle attempt, TransferStates state, long bytesTransferred)
             => new(
                 TransferDirection.Download,
-                attempt.Download.Candidate.Username,
-                attempt.Download.Candidate.Filename,
+                attempt.Download.Target.Username,
+                attempt.Download.Target.Filename,
                 1,
                 state,
-                attempt.Download.Candidate.File.Size,
+                attempt.Download.Target.Size ?? 0,
                 0,
                 bytesTransferred);
 
@@ -371,17 +360,62 @@ public class StaleDownloadCoordinatorTests
 
     private sealed class ManualTimeProvider : TimeProvider
     {
-        private DateTimeOffset utcNow = new(2026, 6, 30, 12, 0, 0, TimeSpan.Zero);
+        private readonly object gate = new();
+        private readonly List<ManualTimer> timers = [];
+        private readonly Channel<long> deadlines = Channel.CreateUnbounded<long>();
         private long timestamp;
 
-        public override DateTimeOffset GetUtcNow() => utcNow;
+        public int CreatedTimers { get { lock (gate) return timers.Count; } }
+        public int ActiveTimers { get { lock (gate) return timers.Count(timer => timer.DueAt != null); } }
+        public override DateTimeOffset GetUtcNow()
+            => new DateTimeOffset(2026, 6, 30, 12, 0, 0, TimeSpan.Zero).AddTicks(GetTimestamp());
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-        public override long GetTimestamp() => timestamp;
+        public override long GetTimestamp() => Interlocked.Read(ref timestamp);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new ManualTimer(this, callback, state);
+            lock (gate) timers.Add(timer);
+            timer.Change(dueTime, period);
+            return timer;
+        }
+
+        public async Task WaitForDeadlineAsync(TimeSpan absoluteDeadline)
+        {
+            while (await deadlines.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5))
+                != absoluteDeadline.Ticks) { }
+        }
 
         public void Advance(TimeSpan timeSpan)
         {
-            utcNow += timeSpan;
-            timestamp += timeSpan.Ticks;
+            long now = Interlocked.Add(ref timestamp, timeSpan.Ticks);
+            ManualTimer[] due;
+            lock (gate)
+            {
+                due = timers.Where(timer => timer.DueAt <= now).ToArray();
+                foreach (var timer in due) timer.DueAt = null;
+            }
+            foreach (var timer in due) timer.Fire();
+        }
+
+        private sealed class ManualTimer(ManualTimeProvider clock, TimerCallback callback, object? state) : ITimer
+        {
+            private bool disposed;
+            public long? DueAt { get; set; }
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                if (period != Timeout.InfiniteTimeSpan) throw new NotSupportedException("Only one-shot deadlines are used.");
+                lock (clock.gate)
+                {
+                    if (disposed) return false;
+                    DueAt = dueTime == Timeout.InfiniteTimeSpan ? null : clock.GetTimestamp() + dueTime.Ticks;
+                    if (DueAt is { } deadline) clock.deadlines.Writer.TryWrite(deadline);
+                    return true;
+                }
+            }
+            public void Fire() => callback(state);
+            public void Dispose() { lock (clock.gate) { disposed = true; DueAt = null; } }
+            public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
         }
     }
 }

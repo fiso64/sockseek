@@ -243,46 +243,6 @@ file static class ReplaceCharsNew
         });
     }
 
-    public static string ReplaceInvalidChars(string str, string replaceStr, bool windows = false, bool removeSlash = true)
-    {
-        if (str.Length == 0)
-            return str;
-
-        var invalid = InvalidSet(windows, removeSlash);
-        int first = str.AsSpan().IndexOfAny(invalid);
-        if (first < 0)
-            return str;
-
-        if (replaceStr.Length == 1)
-            return ReplaceInvalidChars(str, replaceStr[0], windows, removeSlash);
-
-        if (replaceStr.Length == 0)
-        {
-            int keep = first;
-            for (int i = first; i < str.Length; i++)
-                if (!invalid.Contains(str[i])) keep++;
-
-            return string.Create(keep, (str, invalid, first), static (dst, state) =>
-            {
-                state.str.AsSpan()[..state.first].CopyTo(dst);
-                int di = state.first;
-                for (int i = state.first; i < state.str.Length; i++)
-                    if (!state.invalid.Contains(state.str[i]))
-                        dst[di++] = state.str[i];
-            });
-        }
-
-        var sb = new StringBuilder(str.Length * 2);
-        sb.Append(str, 0, first);
-        sb.Append(replaceStr);
-        for (int i = first + 1; i < str.Length; i++)
-        {
-            if (invalid.Contains(str[i])) sb.Append(replaceStr);
-            else sb.Append(str[i]);
-        }
-        return sb.ToString();
-    }
-
     public static string ReplaceSpecialChars(string str, string replaceStr)
     {
         if (str.Length == 0)

@@ -23,12 +23,6 @@ namespace Sockseek.Core.Models;
             ArtistMaybeWrong = other.ArtistMaybeWrong;
         }
 
-        public string ToKey()
-        {
-            // Keep numeric suffix compatible with old index files (TrackType.Album = 1)
-            return $"{Artist};{Album};1";
-        }
-
         public override string ToString() => ToString(noInfo: false);
 
         public string ToString(bool noInfo)

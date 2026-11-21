@@ -1,190 +1,152 @@
-using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
-using Sockseek.Core;
-using Sockseek.Core.Jobs;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Api;
+using Sockseek.Core;
+using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Server;
 
-public sealed class ServerEventBroadcaster : IDisposable
+/// <summary>Publishes coalesced state and activity batches to scoped SignalR groups.</summary>
+public sealed class ServerEventBroadcaster : IDisposable, IAsyncDisposable, IHostedService
 {
     private readonly IHubContext<ServerEventHub> hubContext;
     private readonly EngineStateStore stateStore;
-    private readonly ServerEventCoalescer coalescer;
-    private readonly ConcurrentDictionary<Guid, long> workflowBatchSequences = [];
-    private long nextSequence;
+    private readonly EngineSupervisor supervisor;
+    private readonly IAsyncDisposable publication;
+    private readonly BoundedStateBatchDispatcher dispatcher;
+    private readonly ILogger<ServerEventBroadcaster> logger;
+    private readonly ConcurrentDictionary<string, DaemonStateDetail> daemonReaders = [];
+    private int disposeState;
 
-    public event Action<ServerEventEnvelopeDto>? EventPublished;
-    public event Action<WorkflowUpdateBatchDto>? BatchPublished;
+    internal void SetDaemonReader(string connectionId, DaemonStateDetail? detail)
+    {
+        if (detail is { } value) daemonReaders[connectionId] = value;
+        else daemonReaders.TryRemove(connectionId, out _);
+    }
 
-    public ServerEventBroadcaster(EngineStateStore stateStore, EngineSupervisor supervisor, IHubContext<ServerEventHub> hubContext)
+    public event Action<StateUpdateBatchDto>? BatchPublished;
+    internal event Action? Flushed;
+
+    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    internal ServerEventBroadcaster(
+        EngineStateStore stateStore,
+        EngineSupervisor supervisor,
+        IHubContext<ServerEventHub> hubContext)
+        : this(
+            stateStore,
+            supervisor,
+            hubContext,
+            NullLogger<ServerEventBroadcaster>.Instance,
+            NullLoggerFactory.Instance)
+    {
+    }
+
+    public ServerEventBroadcaster(
+        EngineStateStore stateStore,
+        EngineSupervisor supervisor,
+        IHubContext<ServerEventHub> hubContext,
+        ILogger<ServerEventBroadcaster> logger,
+        ILoggerFactory loggerFactory)
     {
         this.stateStore = stateStore;
+        this.supervisor = supervisor;
         this.hubContext = hubContext;
-        coalescer = new ServerEventCoalescer(PublishItems);
-        stateStore.JobUpserted += summary => coalescer.Publish("job.upserted", summary);
-        stateStore.WorkflowUpserted += summary => coalescer.Publish("workflow.upserted", summary);
-        stateStore.SearchUpdated += update => coalescer.Publish("search.updated", update);
+        this.logger = logger;
+        dispatcher = new BoundedStateBatchDispatcher(
+            SendBatchAsync,
+            logger: loggerFactory.CreateLogger<BoundedStateBatchDispatcher>());
+        stateStore.StateBatchPublished += PublishBatch;
+        stateStore.StateUpdatesFlushed += NotifyFlushed;
+        publication = stateStore.StartStatePublication();
         supervisor.EngineCreated += AttachEngine;
     }
 
     private void AttachEngine(DownloadEngine engine)
-    {
-        new EngineEventDtoAdapter(GetSummary, coalescer.Publish).Attach(engine.Events, engine.SearchEvents);
-    }
+        => new EngineActivityDtoAdapter(stateStore)
+            .Attach(engine.Events, engine.SearchEvents);
 
-    private void PublishItems(IReadOnlyList<ServerEventItem> items)
+    private void PublishBatch(StateUpdate batch)
     {
-        var workflowEnvelopes = new Dictionary<Guid, List<ServerEventEnvelopeDto>>();
-
-        foreach (var item in items)
+        if (BatchPublished is { } handlers)
         {
-            var envelope = CreateEnvelope(item.Type, item.Payload);
-            if (envelope.WorkflowId is Guid workflowId)
+            foreach (Action<StateUpdateBatchDto> handler in Delegate.EnumerateInvocationList(handlers))
             {
-                if (!workflowEnvelopes.TryGetValue(workflowId, out var list))
+                try { handler(batch.ToDto()); }
+                catch (Exception ex)
                 {
-                    list = [];
-                    workflowEnvelopes[workflowId] = list;
+                    ServerLogMessages.LiveBatchObserverFailed(logger, ex);
                 }
-
-                list.Add(envelope);
-            }
-            else
-            {
-                PublishGlobalEnvelope(envelope);
             }
         }
-
-        foreach (var pair in workflowEnvelopes)
-            PublishWorkflowBatch(pair.Key, pair.Value);
+        dispatcher.TryPublish(batch);
     }
 
-    private ServerEventEnvelopeDto CreateEnvelope(string type, object payload)
+    private void NotifyFlushed()
     {
-        var descriptor = ServerEventCatalog.Describe(type);
-        return new ServerEventEnvelopeDto(
-            Interlocked.Increment(ref nextSequence),
-            type,
-            DateTimeOffset.UtcNow,
-            descriptor.Category,
-            descriptor.SnapshotInvalidation,
-            GetWorkflowId(payload),
-            payload);
+        if (Flushed is not { } handlers) return;
+        foreach (Action handler in Delegate.EnumerateInvocationList(handlers))
+        {
+            try { handler(); }
+            catch (Exception ex) { ServerLogMessages.LiveBatchObserverFailed(logger, ex); }
+        }
     }
 
-    private void PublishGlobalEnvelope(ServerEventEnvelopeDto envelope)
+    private async Task SendBatchAsync(
+        StateUpdate batch,
+        CancellationToken cancellationToken)
     {
-        EventPublished?.Invoke(envelope);
-        _ = hubContext.Clients.All.SendAsync("serverEvent", envelope);
+        if (batch.Scope.Kind == StateStreamScopeKind.Daemon
+            && daemonReaders.Values.Contains(DaemonStateDetail.Overview))
+        {
+            // Keep the same cursor, including empty filtered frames: a summary
+            // subscriber must not interpret omitted transfer detail as a gap.
+            var summary = batch with { State = batch.State with
+            {
+                Jobs = batch.State.Jobs.Where(job => job.Current.ParentJobId is null).ToArray(),
+                Transfers = [], RemovedTransferIds = [],
+            } };
+            await hubContext.Clients.Group(ServerEventHub.SummaryEventsGroup).SendAsync(
+                LiveProtocol.StateUpdateBatchMethod, summary.ToDto(), cancellationToken).ConfigureAwait(false);
+        }
+        // Unwatched child rows must not allocate full wire graphs merely to send
+        // to an empty group. Overview and narrow observations map their own facts.
+        if (batch.Scope.Kind == StateStreamScopeKind.Daemon
+            && !daemonReaders.Values.Contains(DaemonStateDetail.Full)) return;
+        if (batch.Scope is { Kind: StateStreamScopeKind.Workflow, WorkflowId: { } workflowId }
+            && !stateStore.HasWorkflowStreamReaders(workflowId)) return;
+        var clients = batch.Scope.Kind switch
+        {
+            StateStreamScopeKind.Daemon => hubContext.Clients.Group(ServerEventHub.AllEventsGroup),
+            StateStreamScopeKind.Workflow => hubContext.Clients.Group(
+                ServerEventHub.WorkflowGroupName(batch.Scope.WorkflowId!.Value)),
+            StateStreamScopeKind.ChatConversation or StateStreamScopeKind.ChatRoom
+                => hubContext.Clients.Group(ServerEventHub.ChatGroupName(batch.Scope)),
+            StateStreamScopeKind.UserBrowse => hubContext.Clients.Group(
+                ServerEventHub.UserBrowseGroupName(batch.Scope.UserBrowseId!.Value)),
+            _ => throw new ArgumentOutOfRangeException(),
+        };
+        await clients.SendAsync(
+            LiveProtocol.StateUpdateBatchMethod, batch.ToDto(), cancellationToken).ConfigureAwait(false);
     }
-
-    private void PublishWorkflowBatch(Guid workflowId, IReadOnlyList<ServerEventEnvelopeDto> envelopes)
-    {
-        var jobUpserts = Envelopes<JobSummaryDto>(envelopes, "job.upserted");
-        var workflow = Envelopes<WorkflowSummaryDto>(envelopes, "workflow.upserted").LastOrDefault();
-        var searchUpdates = Envelopes<SearchUpdatedDto>(envelopes, "search.updated");
-        var progress = Envelopes<DownloadProgressEventDto>(envelopes, "download.progress");
-        var activity = envelopes
-            .Where(envelope => envelope.Type is not "job.upserted"
-                and not "workflow.upserted"
-                and not "search.updated"
-                and not "download.progress")
-            .ToList();
-
-        var orderedEnvelopes = envelopes
-            .Where(envelope => envelope.Type == "job.upserted")
-            .Concat(envelopes.Where(envelope => envelope.Type == "workflow.upserted"))
-            .Concat(envelopes.Where(envelope => envelope.Type == "search.updated"))
-            .Concat(activity)
-            .Concat(envelopes.Where(envelope => envelope.Type == "download.progress"))
-            .ToList();
-
-        foreach (var envelope in orderedEnvelopes)
-            EventPublished?.Invoke(envelope);
-
-        var sequence = workflowBatchSequences.AddOrUpdate(workflowId, 1, static (_, current) => current + 1);
-        var batch = new WorkflowUpdateBatchDto(
-            sequence,
-            DateTimeOffset.UtcNow,
-            workflowId,
-            workflow,
-            jobUpserts,
-            searchUpdates,
-            progress,
-            activity);
-
-        BatchPublished?.Invoke(batch);
-
-        _ = hubContext.Clients
-            .Groups(ServerEventHub.AllEventsGroup, ServerEventHub.WorkflowGroupName(workflowId))
-            .SendAsync("workflowUpdateBatch", batch);
-    }
-
-    private static List<T> Envelopes<T>(IReadOnlyList<ServerEventEnvelopeDto> envelopes, string type)
-        => envelopes
-            .Where(envelope => envelope.Type == type)
-            .Select(envelope => (T)envelope.Payload)
-            .ToList();
 
     public void Dispose()
     {
-        coalescer.Dispose();
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 
-    private JobSummaryDto GetSummary(Job job)
-        => stateStore.GetJobSummary(job.Id) ?? new JobSummaryDto(
-            job.Id,
-            job.DisplayId,
-            job.WorkflowId,
-            EngineStateStore.GetJobKind(job),
-            EngineStateStore.ToServerJobLifecycleState(job.LifecycleState),
-            EngineStateStore.ToServerJobActivityPhase(job.ActivityPhase),
-            job.ActivityUntilUtc,
-            EngineStateStore.ToServerJobTerminalOutcome(job.TerminalOutcome),
-            EngineStateStore.ToServerJobSkipReason(job.SkipReason),
-            job.ItemName,
-            job.ToString(noInfo: true),
-            EngineStateStore.ToServerFailureReason(job.FailureReason),
-            job.FailureMessage,
-            null,
-            null,
-            null,
-            job.Discovery?.RawResultCount,
-            job.Discovery?.LockedFileCount,
-            job.Config?.AppliedAutoProfiles?.ToList() ?? [],
-            [],
-            job.FailureDetail,
-            EngineStateStore.ToServerJobCancellationSource(job.CancellationSource),
-            job.Config?.PrintOption ?? PrintOption.None);
-
-    private static Guid? GetWorkflowId(object payload)
-        => payload switch
-        {
-            JobSummaryDto summary => summary.WorkflowId,
-            WorkflowSummaryDto summary => summary.WorkflowId,
-            WorkflowDetailDto detail => detail.Summary.WorkflowId,
-            WorkflowTreeDto workflow => workflow.Summary.WorkflowId,
-            JobDetailDto detail => detail.Summary.WorkflowId,
-            SearchUpdatedDto update => update.WorkflowId,
-            ExtractionStartedEventDto e => e.Summary.WorkflowId,
-            ExtractionFailedEventDto e => e.Summary.WorkflowId,
-            JobStartedEventDto e => e.Summary.WorkflowId,
-            JobStatusEventDto e => e.Summary.WorkflowId,
-            JobMessageEventDto e => e.Summary.WorkflowId,
-            WorkflowMessageEventDto e => e.WorkflowId,
-            JobActivityChangedEventDto e => e.Summary.WorkflowId,
-            SongSearchingEventDto e => e.WorkflowId,
-            DownloadStartedEventDto e => e.WorkflowId,
-            DownloadProgressEventDto e => e.WorkflowId,
-            DownloadStateChangedEventDto e => e.WorkflowId,
-            DownloadAttemptFailedEventDto e => e.WorkflowId,
-            SongStateChangedEventDto e => e.WorkflowId,
-            AlbumDownloadStartedEventDto e => e.Summary.WorkflowId,
-            AlbumTrackDownloadStartedEventDto e => e.Summary.WorkflowId,
-            AlbumStateChangedEventDto e => e.Summary.WorkflowId,
-            JobFolderRetrievingEventDto e => e.Summary.WorkflowId,
-            TrackBatchResolvedEventDto e => e.Summary.WorkflowId,
-            _ => null,
-        };
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref disposeState, 1) != 0)
+            return;
+        await publication.DisposeAsync().ConfigureAwait(false);
+        stateStore.StateBatchPublished -= PublishBatch;
+        stateStore.StateUpdatesFlushed -= NotifyFlushed;
+        supervisor.EngineCreated -= AttachEngine;
+        await dispatcher.DisposeAsync().ConfigureAwait(false);
+    }
 }

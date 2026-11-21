@@ -1,13 +1,14 @@
 services:
   sockseek:
+    build: .
+    restart: unless-stopped
+    stop_grace_period: 45s
+    user: "${SOCKSEEK_USER:-1654:1654}"
     ports:
-    - "127.0.0.1:48721:48721"
-    build:
-      context: .
-    environment:
-      - TZ=Etc/GMT # Specify timezone from TZ Database name found here https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-      #- PUID=1000 # recommended if running docker on linux host, see main README Docker setup instructions
-      #- PGID=1000 # recommended if running docker on linux host, see main README Docker setup instructions
+      - "127.0.0.1:5030:5030"
+      - "49998:49998/tcp"
     volumes:
-      - ./config:/config
-      - ./data:/data
+      - ./instance/config:/etc/sockseek:ro
+      - ./instance/data:/var/lib/sockseek
+      - ./instance/downloads:/downloads
+      - ./instance/shares:/shares:ro

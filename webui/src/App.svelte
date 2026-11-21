@@ -1,0 +1,778 @@
+<script lang="ts">
+  import { appPath, routePathname } from './app/paths';
+  import LoadingIndicator from './components/LoadingIndicator.svelte';
+  import Icon from './components/Icon.svelte';
+  import LazyView from './components/LazyView.svelte';
+  import { ViewLoader } from './app/view-loader.svelte';
+  import { onMount, untrack } from 'svelte';
+  import AppShell from './components/AppShell.svelte';
+  import JobsList from './domains/jobs/JobsList.svelte';
+  import { canDeleteSubmission, requireDeleted } from './domains/jobs/deletion';
+  import { completedExtract, showsSearchResults } from './domains/jobs/presentation';
+  import { JobListController, type JobsTab } from './domains/jobs/job-list.svelte';
+  import { JobRouteReader } from './domains/jobs/route-reader';
+  import { createChatDrafts } from './domains/chat/messages';
+  import NewJobComposer from './domains/jobs/NewJobComposer.svelte';
+  import TransfersPage from './domains/transfers/TransfersPage.svelte';
+  import { TransferTimelineController } from './domains/transfers/controller.svelte';
+  import Dashboard from './domains/dashboard/Dashboard.svelte';
+  import { userBrowserSession, loadUserBrowserSession, saveUserBrowserUsername, type UserBrowseView } from './domains/users/session';
+  import ConfigurationDialog from './domains/system/ConfigurationDialog.svelte';
+  import type { SystemTab } from './domains/system/tabs';
+  import { DaemonLiveClient, type LiveConnectionStatus } from './api/live';
+    import { updatedJob } from './api/state.svelte';
+  import { daemonApi } from './api/client';
+  import { type JobSummaryDto, type Schema } from './api/types';
+  import { SearchViewController, type SearchViewState } from './domains/search/controller';
+  import { selectedSearchCount as countSearchSelection } from './domains/search/selection';
+  import { emptySearchDraft, parseSearchResultMode, searchJobPath, type SearchDraft, type SearchResultMode } from './domains/search/model';
+  import { canReplaySearch } from './domains/search/replay';
+  import type { PageId, UserLinkActions } from './app/navigation';
+
+  const automaticDetail = new ViewLoader(() => import('./domains/jobs/AutomaticJobDetail.svelte'));
+  const searchResults = new ViewLoader(() => import('./domains/search/SearchResults.svelte'));
+  const usersPage = new ViewLoader(() => import('./domains/users/UsersPage.svelte'));
+  const chatDrafts = createChatDrafts();
+  const chatPage = new ViewLoader(() => import('./domains/chat/ChatPage.svelte'));
+  const systemPage = new ViewLoader(() => import('./domains/system/SystemPage.svelte'));
+
+  const liveClient = new DaemonLiveClient();
+  const observeJobs = liveClient.observeJobs.bind(liveClient);
+  const jobLists = {
+    searches: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), 'searches'),
+    downloads: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), 'downloads'),
+  };
+  let jobsTab = $state<JobsTab>('searches');
+  let jobList = $derived(jobLists[jobsTab]);
+  const jobsListPath = () => jobsTab === 'downloads'
+    ? `/jobs?tab=downloads${jobLists.downloads.submissionId ? `&submission=${encodeURIComponent(jobLists.downloads.submissionId)}` : ''}` : '/jobs';
+
+  function changeJobsTab(tab: JobsTab): void {
+    jobsTab = tab;
+    mutationError = null;
+    setPath(jobsListPath());
+  }
+  const jobRoutes = new JobRouteReader(daemonApi, liveClient);
+  const transferTimeline = new TransferTimelineController(daemonApi,
+    (scope, next, error) => liveClient.observeTransferTimeline(scope, next, error));
+  const searchController = new SearchViewController(daemonApi, 1_000,
+    (id, next, error, complete) => liveClient.observeSearchView(id, next, error, complete));
+  let documentVisible = $state(true);
+
+  let activePage = $state<PageId>('dashboard');
+  // The Jobs subview survives a visit to another top-level page.
+  let showingSearch = $state(false);
+  let composer = $state<{ initialSearch: SearchDraft | null } | null>(null);
+  let composingJobCommitPending = $state(false);
+  let automaticJobId = $state<string | null>(null);
+  let automaticInitialDetail = $state<Schema<'JobDetailDto'> | null>(null);
+  let pendingJobId = $state<string | null>(null);
+  let jobRouteError = $state<Error | null>(null);
+  let openingJobKey = $state<string | null>(null);
+  const searchModeByJob = new Map<string, SearchResultMode>();
+  let search = $state<SearchDraft>({ ...emptySearchDraft,
+    resultMode: parseSearchResultMode(document.documentElement.dataset.searchMode ?? null)
+      ?? emptySearchDraft.resultMode,
+  });
+  let userBrowse = $state<{ query: string; mode: UserBrowseView }>({ query: '', mode: 'user' });
+  let systemTab = $state<SystemTab>('status');
+  let userBrowsers = $state({ user: loadUserBrowserSession('user'), shares: loadUserBrowserSession('shares') });
+  let userView = $derived<UserBrowseView>(activePage === 'shares' ? 'shares' : 'user');
+  let activeUsername = $derived(userBrowsers[userView].username);
+  let initialChatUsername = $state<string | null>(null);
+  let searchBusy = $state(false);
+  let rerunningSearch = $state(false);
+  let mutationError = $state<Error | null>(null);
+  let removingSearch = $state(false);
+  let liveStatus = $state<LiveConnectionStatus>('connecting');
+  let liveError = $state<Error | null>(null);
+  const liveState = liveClient.reducer.state;
+  const configurationRevision = $derived(Number(liveState.daemon?.configuration?.revision ?? 0));
+  // The controller publishes replacement snapshots; result DTOs need no deep proxies.
+  let searchState = $state.raw<SearchViewState>(searchController.current());
+  let deletingSubmissionIds = $state(new Set<string>());
+  let deferSearchRender = $state(false);
+  let searchRenderFrame: number | null = null;
+
+  function cancelDeferredSearchRender(): void {
+    if (searchRenderFrame !== null) cancelAnimationFrame(searchRenderFrame);
+    searchRenderFrame = null;
+    deferSearchRender = false;
+  }
+
+  function renderCachedSearchAfterPaint(): void {
+    deferSearchRender = true;
+    // The first frame paints the selected navigation item before mounting the
+    // cached result cards in the next frame. Do not delay direct job opens.
+    searchRenderFrame = requestAnimationFrame(() => {
+      searchRenderFrame = requestAnimationFrame(() => {
+        searchRenderFrame = null;
+        deferSearchRender = false;
+      });
+    });
+  }
+
+  $effect(() => {
+    const active = documentVisible && jobsListVisible();
+    const status = liveStatus;
+    const tab = jobsTab;
+    untrack(() => {
+      jobLists.searches.setActive(active && tab === 'searches', status);
+      jobLists.downloads.setActive(active && tab === 'downloads', status);
+    });
+  });
+
+  let observedSearchJob = $state.raw<Schema<'JobSummaryDto'> | null>(null);
+  let searchJobError = $state<Error | null>(null);
+  let searchJobRetry = $state(0);
+  let observedSearchId = $derived(activePage === 'jobs' && showingSearch && searchState.job?.relationships.parentJobId
+    ? searchState.job.jobId : null);
+  $effect(() => {
+    const id = observedSearchId;
+    searchJobRetry;
+    observedSearchJob = null;
+    searchJobError = null;
+    if (!id || liveStatus !== 'connected' || !documentVisible) return;
+    let disposed = false;
+    const stop = observeJobs(id, [], update => {
+      if (disposed) return;
+      for (const delta of update.state.jobs) if (delta.jobId === id)
+        observedSearchJob = updatedJob(untrack(() => observedSearchJob ?? undefined), delta) ?? null;
+    }, error => { if (!disposed) searchJobError = error; });
+    return () => { disposed = true; stop(); };
+  });
+  let activeLiveJob = $derived(searchState.job?.jobId
+    ? observedSearchJob?.jobId === searchState.job.jobId ? observedSearchJob
+      : liveState.jobs.get(searchState.job.jobId) ?? null
+    : null);
+  let activeSearchJob = $derived(activeLiveJob ?? searchState.job);
+  let activeSearchAction = $derived(activeSearchJob?.lifecycle.availableActions?.some((action) => action.kind === 'cancel')
+    ? 'cancel' as const
+    : activeSearchJob && canDeleteSubmission(activeSearchJob) ? 'delete' as const : null);
+  let canRerunSearch = $derived(canReplaySearch(activeSearchJob));
+  let selectedSearchCount = $derived(countSearchSelection(searchState));
+
+  function routeLocation(): string {
+    return routePathname() + window.location.search;
+  }
+
+  function setPath(path: string, replace = false): void {
+    if (routeLocation() === path) return;
+    if (replace) window.history.replaceState(null, '', appPath(path));
+    else window.history.pushState(null, '', appPath(path));
+  }
+
+  function decodeSegment(value: string): string {
+    try { return decodeURIComponent(value); }
+    catch { return value; }
+  }
+
+  function applyPath(pathname: string): void {
+    composer = null;
+    cancelDeferredSearchRender();
+    routeRequest?.abort();
+    const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
+    const root = parts[0];
+    if (root === 'jobs') {
+      automaticJobId = null;
+      automaticInitialDetail = null;
+      jobRouteError = null;
+      activePage = 'jobs';
+      showingSearch = Boolean(parts[1]);
+      pendingJobId = parts[1] ? decodeSegment(parts[1]) : null;
+      if (!pendingJobId) {
+        const params = new URLSearchParams(window.location.search);
+        jobsTab = params.get('tab') === 'downloads' ? 'downloads' : 'searches';
+        if (jobsTab === 'downloads') jobLists.downloads.filterSubmission(params.get('submission'));
+      }
+      if (pendingJobId) {
+        const requestedMode = parseSearchResultMode(new URLSearchParams(window.location.search).get('results'));
+        if (searchState.job?.jobId !== pendingJobId || !searchState.draft
+          || (requestedMode && requestedMode !== searchState.draft.resultMode))
+          void openJobFromPath(pendingJobId, routeLocation());
+      }
+      return;
+    }
+    if (root === 'users' || root === 'shares') {
+      activePage = root;
+      const mode = root === 'shares' ? 'shares' : 'user';
+      if (parts[1]) selectBrowseUser(mode, decodeSegment(parts[1]));
+      userBrowse = { query: userBrowsers[mode].username, mode };
+      return;
+    }
+    if (root === 'chat') {
+      activePage = 'chat';
+      initialChatUsername = parts[1] === 'users' && parts[2] ? decodeSegment(parts[2]) : null;
+      return;
+    }
+    if (root === 'system') {
+      activePage = 'system';
+      systemTab = parts[1] === 'shares' || parts[1] === 'management' || parts[1] === 'api' ? parts[1] : 'status';
+      return;
+    }
+    if (root === 'downloads' || root === 'uploads' || root === 'dashboard') {
+      activePage = root;
+      return;
+    }
+    activePage = 'dashboard';
+    setPath('/dashboard', true);
+  }
+
+  $effect(() => {
+    if (documentVisible && activePage === 'jobs' && showingSearch && searchState.job?.jobId === pendingJobId)
+      void searchController.resume();
+    else searchController.pause();
+  });
+
+  onMount(() => {
+    let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
+    const visibilityChanged = () => {
+      documentVisible = !document.hidden;
+      clearTimeout(hiddenTimer);
+      if (documentVisible) void liveClient.startDaemon().catch((error: unknown) => (liveError = asError(error)));
+      // Keep quick tab switches cheap. A tab left in the background gets a
+      // fresh daemon snapshot when it returns, including work finished meanwhile.
+      else hiddenTimer = setTimeout(() => void liveClient.suspend(), 5000);
+    };
+    const statusSubscription = liveClient.onStatus((status, error) => {
+      searchController.setLiveConnected(status === 'connected');
+      liveStatus = status;
+      transferTimeline.connected = status === 'connected';
+      liveError = error;
+      if (status !== 'connected') return;
+      if (activePage === 'jobs' && pendingJobId && jobRouteError)
+        void openJobFromPath(pendingJobId, routeLocation());
+      if (activePage === 'jobs' && showingSearch && searchState.phase === 'failed')
+        void searchController.refresh(true);
+      if (activePage === 'downloads' || activePage === 'uploads') {
+        const direction = activePage === 'downloads' ? 'download' : 'upload';
+        if (transferTimeline.timeline[direction].error)
+          void transferTimeline.load(direction, true);
+      }
+    });
+    const searchSubscription = searchController.subscribe((state) => (searchState = state));
+    const popstate = () => {
+      if (composer && composingJobCommitPending) {
+        // Back must not unmount the request owner before its commit receipt.
+        // The matching forward entry is the current route; the second
+        // popstate leaves the composer in place until the receipt arrives.
+        window.history.forward();
+        return;
+      }
+      applyPath(routePathname());
+    };
+    const beforeunload = (event: BeforeUnloadEvent) => {
+      if (!composer || !composingJobCommitPending) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('popstate', popstate);
+    window.addEventListener('beforeunload', beforeunload);
+    document.addEventListener('visibilitychange', visibilityChanged);
+    visibilityChanged();
+    if (activePage === 'downloads' || activePage === 'uploads')
+      void transferTimeline.load(activePage === 'downloads' ? 'download' : 'upload', true);
+    return () => {
+      cancelDeferredSearchRender();
+      transferTimeline.stop();
+      for (const list of Object.values(jobLists)) list.stop();
+      statusSubscription();
+      searchSubscription();
+      window.removeEventListener('popstate', popstate);
+      window.removeEventListener('beforeunload', beforeunload);
+      routeRequest?.abort();
+      searchController.stop();
+      clearTimeout(hiddenTimer);
+      document.removeEventListener('visibilitychange', visibilityChanged);
+      void liveClient.stop();
+    };
+  });
+
+  function navigate(page: PageId): void {
+    if (page === 'system') systemTab = 'status';
+    if (composer && composingJobCommitPending) return;
+    cancelDeferredSearchRender();
+    const wasOnJobs = activePage === 'jobs';
+    routeRequest?.abort();
+    jobRouteError = null;
+    composer = null;
+    if (page === 'jobs') {
+      activePage = 'jobs';
+      if (wasOnJobs) {
+        backToJobs();
+        return;
+      }
+      if (automaticJobId) {
+        setPath(`/jobs/${encodeURIComponent(automaticJobId)}`);
+        return;
+      }
+      if (showingSearch && searchState.job?.jobId === pendingJobId && searchState.draft) {
+        pendingJobId = searchState.job.jobId;
+        renderCachedSearchAfterPaint();
+        setPath(searchJobPath(pendingJobId, searchState.draft.resultMode));
+        return;
+      }
+      if (pendingJobId) {
+        setPath(`/jobs/${encodeURIComponent(pendingJobId)}`);
+        void openJobFromPath(pendingJobId, routeLocation());
+        return;
+      }
+      setPath(jobsListPath());
+      return;
+    }
+    activePage = page;
+    if (page === 'chat') initialChatUsername = null;
+    if (page === 'users' || page === 'shares') userBrowse = { query: activeUsername || userBrowse.query, mode: userView };
+    setPath((page === 'users' || page === 'shares') && activeUsername
+      ? `/${page}/${encodeURIComponent(activeUsername)}` : `/${page}`);
+    if (page === 'downloads') void transferTimeline.load('download', true);
+    if (page === 'uploads') void transferTimeline.load('upload', true);
+  }
+
+  function openJobDraft(): void {
+    composer = { initialSearch: null };
+  }
+
+  function composeSearchDownload(draft: SearchDraft): void {
+    if (composingJobCommitPending) return;
+    composer = { initialSearch: $state.snapshot(draft) };
+  }
+
+  async function submit(next: SearchDraft): Promise<void> {
+    if (searchBusy) return;
+    searchResults.load();
+    search = { ...next };
+    searchBusy = true;
+    const origin = routeLocation();
+    mutationError = null;
+    try {
+      const submitted = await daemonApi.submitSearch(next);
+      if (submitted.job.jobId) {
+        searchModeByJob.set(submitted.job.jobId, submitted.draft.resultMode);
+      }
+      if (routeLocation() !== origin) return;
+      await searchController.open(submitted);
+      if (routeLocation() !== origin) return;
+      jobsTab = 'searches';
+      automaticJobId = null;
+      automaticInitialDetail = null;
+      activePage = 'jobs';
+      showingSearch = true;
+      pendingJobId = submitted.job.jobId ?? null;
+      if (pendingJobId) setPath(searchJobPath(pendingJobId, submitted.draft.resultMode));
+    } catch (error) {
+      if (routeLocation() !== origin) return;
+      mutationError = asError(error);
+      activePage = 'jobs';
+      backToJobs();
+    } finally {
+      searchBusy = false;
+    }
+  }
+
+  async function rerunActiveSearch(): Promise<void> {
+    const job = activeSearchJob;
+    const view = searchState.summary;
+    if (!canRerunSearch || !job || !view || rerunningSearch) return;
+    rerunningSearch = true;
+    const origin = routeLocation();
+    mutationError = null;
+    try {
+      const submitted = await daemonApi.rerunSearch(job, view);
+      if (submitted.job.jobId) {
+        searchModeByJob.set(submitted.job.jobId, submitted.draft.resultMode);
+      }
+      if (routeLocation() !== origin) return;
+      await searchController.open(submitted);
+      if (routeLocation() !== origin) return;
+      pendingJobId = submitted.job.jobId ?? null;
+      if (pendingJobId) setPath(searchJobPath(pendingJobId, submitted.draft.resultMode));
+    } catch (error) { if (routeLocation() === origin) mutationError = asError(error); }
+    finally { rerunningSearch = false; }
+  }
+
+  function jobsListVisible(): boolean {
+    return activePage === 'jobs' && !showingSearch && !automaticJobId && !pendingJobId;
+  }
+
+  let routeRequest: AbortController | null = null;
+
+  async function openJobFromPath(jobId: string, route: string): Promise<void> {
+    routeRequest?.abort();
+    jobRouteError = null;
+    if (pendingJobId === jobId) showingSearch = true;
+    const request = new AbortController();
+    routeRequest = request;
+    try {
+      const detail = await jobRoutes.resolve(jobId, request.signal);
+      if (request.signal.aborted || routeLocation() !== route) return;
+
+      await openJob(detail.summary, detail);
+    } catch (error) {
+      if (request.signal.aborted || routeLocation() !== route) return;
+      jobRouteError = asError(error);
+      showingSearch = false;
+    }
+  }
+
+  function openAutomaticJob(jobId: string, detail: Schema<'JobDetailDto'> | null = null): void {
+    routeRequest?.abort();
+    jobRouteError = null;
+    jobsTab = 'downloads';
+    automaticJobId = jobId;
+    automaticInitialDetail = detail;
+    openingJobKey = null;
+    showingSearch = false;
+    composer = null;
+    activePage = 'jobs';
+    pendingJobId = jobId;
+    mutationError = null;
+    setPath(`/jobs/${encodeURIComponent(jobId)}`);
+  }
+
+  async function openJob(job: JobSummaryDto | string, detail?: Schema<'JobDetailDto'>): Promise<void> {
+    if (typeof job === 'string') {
+      await openJobFromPath(job, routeLocation());
+      return;
+    }
+    if (completedExtract(job)) {
+      const origin = routeLocation();
+      routeRequest?.abort();
+      const request = new AbortController();
+      routeRequest = request;
+      try {
+        const source = detail ?? await jobRoutes.read(job.jobId, request.signal);
+        const result = await jobRoutes.resolveDetail(source, request.signal);
+        if (request.signal.aborted || routeLocation() !== origin) return;
+        await openJob(result.summary, result);
+      } catch (cause) {
+        if (!request.signal.aborted && routeLocation() === origin) mutationError = asError(cause);
+      }
+      return;
+    }
+    jobsTab = job.display.kind === 'search' ? 'searches' : 'downloads';
+    if (!showsSearchResults(job)) {
+      openAutomaticJob(job.jobId, detail);
+      return;
+    }
+    searchResults.load();
+    const route = routeLocation();
+    const openKey = `${job.jobId}|${route}`;
+    if (openingJobKey === openKey) {
+      return;
+    }
+    automaticJobId = null;
+    automaticInitialDetail = null;
+    openingJobKey = openKey;
+    mutationError = null;
+    try {
+      const requestedMode = parseSearchResultMode(new URLSearchParams(window.location.search).get('results'))
+        ?? searchModeByJob.get(job.jobId);
+      const opened = await daemonApi.openSearchJob(job, undefined, detail, requestedMode);
+      if (openingJobKey !== openKey || routeLocation() !== route) return;
+      await searchController.open(opened);
+      if (openingJobKey !== openKey || routeLocation() !== route) return;
+      searchModeByJob.set(job.jobId, opened.draft.resultMode);
+      activePage = 'jobs';
+      showingSearch = true;
+      pendingJobId = job.jobId;
+      setPath(searchJobPath(job.jobId, opened.draft.resultMode),
+        route.split('?')[0] === `/jobs/${encodeURIComponent(job.jobId)}`);
+    } catch (error) {
+      if (openingJobKey !== openKey || routeLocation() !== route) return;
+      mutationError = asError(error);
+      showingSearch = false;
+      setPath(jobsListPath());
+    } finally {
+      if (openingJobKey === openKey) openingJobKey = null;
+    }
+  }
+
+  async function cancelJob(job: JobSummaryDto): Promise<void> {
+    if (!job.jobId) return;
+    mutationError = null;
+    try { await daemonApi.cancelJob(job.jobId); }
+    catch (error) { mutationError = asError(error); }
+  }
+
+  async function deleteSubmission(job: JobSummaryDto): Promise<boolean> {
+    if (!canDeleteSubmission(job) || deletingSubmissionIds.has(job.display.submissionId!)) return false;
+    deletingSubmissionIds = new Set([...deletingSubmissionIds, job.display.submissionId!]);
+    mutationError = null;
+    try {
+      requireDeleted(await daemonApi.deleteSubmission(job.display.submissionId!));
+      for (const list of Object.values(jobLists)) list.afterArchive(job.display.submissionId!);
+      return true;
+    } catch (error) { mutationError = asError(error); return false; }
+    finally { deletingSubmissionIds = new Set([...deletingSubmissionIds].filter((id) => id !== job.display.submissionId)); }
+  }
+
+  async function removeActiveSearch(): Promise<void> {
+    const job = activeSearchJob;
+    const action = activeSearchAction;
+    if (!job || !action || removingSearch) return;
+    removingSearch = true;
+    try {
+      if (action === 'cancel') await cancelJob(job);
+      else await deleteOpenedSubmission(job);
+    } finally { removingSearch = false; }
+  }
+
+  async function deleteOpenedSubmission(job: JobSummaryDto): Promise<void> {
+    const origin = routeLocation();
+    if (await deleteSubmission(job) && routeLocation() === origin) backToJobs();
+  }
+
+
+  // The transfer stream supplies its own snapshot. On a still-connected socket
+  // it can refresh the visible rows while the daemon overview catches up.
+  let transferStreamReady = $derived(documentVisible && (liveStatus === 'connected'
+    || (liveStatus === 'connecting' && liveClient.canObserve)));
+  $effect(() => {
+    if (transferStreamReady && (activePage === 'downloads' || activePage === 'uploads'))
+      return transferTimeline.observe(activePage === 'downloads' ? 'download' : 'upload');
+    transferTimeline.stop();
+  });
+
+  function selectBrowseUser(mode: UserBrowseView, username: string): void {
+    if (userBrowsers[mode].username !== username) {
+      userBrowsers[mode] = userBrowserSession(username);
+      saveUserBrowserUsername(mode, username);
+    }
+  }
+
+  function openUserView(mode: UserBrowseView, username: string): void {
+    selectBrowseUser(mode, username);
+    activePage = mode === 'shares' ? 'shares' : 'users';
+    userBrowse = { query: username, mode };
+    setPath(`/${activePage}/${encodeURIComponent(username)}`);
+  }
+
+  const userActions: UserLinkActions = {
+    profile: username => openUserView('user', username),
+    shares: username => openUserView('shares', username),
+    message: (username) => {
+      initialChatUsername = username;
+      activePage = 'chat';
+      setPath(`/chat/users/${encodeURIComponent(username)}`);
+    },
+  };
+
+  function submitUserBrowse(value: { query: string; mode: UserBrowseView }): void {
+    const username = value.query.trim();
+    if (username) openUserView(value.mode, username);
+  }
+
+  // The page's User/Shares toggle explicitly follows the displayed user.
+  // Sidebar and search-mode navigation only restore that tab's own session.
+  function changeUserView(value: UserBrowseView): void {
+    if (activeUsername) openUserView(value, activeUsername);
+  }
+
+  function changeUserBrowse(value: { query: string; mode: UserBrowseView }): void {
+    userBrowse = value;
+    if (value.mode !== userView) navigate(value.mode === 'shares' ? 'shares' : 'users');
+  }
+
+  function backToJobs(): void {
+    routeRequest?.abort();
+    automaticJobId = null;
+    automaticInitialDetail = null;
+    showingSearch = false;
+    pendingJobId = null;
+    jobRouteError = null;
+    setPath(jobsListPath());
+  }
+
+  function asError(error: unknown): Error {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+
+  // Resolve the initial route before mounting a page. Deep links must not
+  // briefly mount Dashboard and issue an analytics request only to abort it.
+  applyPath(routePathname());
+</script>
+
+<AppShell {activePage} {liveStatus} {liveState} {search} {userBrowse} {searchBusy} onnavigate={navigate} onsearchchange={(value) => (search = value)} onsearchsubmit={(value) => void submit(value)} ondownloadrequest={composeSearchDownload} onuserbrowsechange={changeUserBrowse} onuserbrowsesubmit={submitUserBrowse}>
+  {#if activePage === 'jobs' && pendingJobId && jobRouteError}
+    <section class="page page-search redesigned-search-page">
+      <div class={`resource-state-notice ${liveStatus === 'offline' ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Job unavailable'}</strong><small>{liveStatus === 'offline' ? 'This resource cannot be loaded while the daemon is offline.' : jobRouteError.message}</small></span>{#if liveStatus !== 'offline'}<button class="button" type="button" onclick={() => void openJobFromPath(pendingJobId!, routeLocation())}>Retry</button>{/if}<button class="button" type="button" onclick={backToJobs}>Back to jobs</button></div>
+    </section>
+  {:else if activePage === 'jobs' && showingSearch && pendingJobId && searchState.job?.jobId !== pendingJobId}
+    <section class="page page-search redesigned-search-page">
+      <LoadingIndicator label="Opening job" blocking />
+    </section>
+  {:else if activePage === 'jobs' && showingSearch && searchState.draft}
+    {#if !deferSearchRender}
+    <LazyView view={searchResults}>
+      {#snippet children(SearchResults)}
+        <SearchResults
+          {userActions}
+          {configurationRevision}
+          daemonOffline={liveStatus === 'offline'}
+          connected={documentVisible && liveStatus === 'connected'}
+          viewState={searchState}
+          liveJob={activeLiveJob}
+          liveJobError={searchJobError}
+          removeAction={activeSearchAction}
+          removePending={removingSearch}
+          actionError={mutationError}
+          onremove={() => void removeActiveSearch()}
+          searchAgainAvailable={canRerunSearch}
+          searchAgainPending={rerunningSearch}
+          isselected={(ref, parentRef) => {
+            // Controller queries must react to each published selection snapshot.
+            searchState;
+            return searchController.isSelected(ref, parentRef);
+          }}
+          selectedCount={selectedSearchCount}
+          onbeginrange={(additive) => searchController.beginRange(additive)}
+          ontoggle={(ref, selected, parentRef) => searchController.toggle(ref, selected, parentRef)}
+          onselectfolder={(ref, path, selected, includeFiltered) => searchController.toggleDirectoryPath(ref, path, selected, includeFiltered)}
+          isfolderselected={(directoryRef, relativePath, filtered) => {
+            searchState;
+            return searchController.isDirectoryPathSelected(directoryRef, relativePath, filtered);
+          }}
+          onselectall={(selected) => searchController.selectAll(selected)}
+          ondownload={(options) => void searchController.commit(options)}
+          onlibrarymatches={(id, request, signal) => daemonApi.getSearchViewLibraryMatches(id, request, signal)}
+          onresolvesettings={(options) => searchController.resolveSelectionSettings(options)}
+          oncheckrevision={(id, revision, signal) => daemonApi.getSearchViewRevisionLifetime(id, revision, signal)}
+          onloaddefinition={(viewId) => daemonApi.getSearchViewDefinition(viewId)}
+          onrefine={(request, resetSelection) => searchController.refine(request, resetSelection)}
+          onsort={(order) => searchController.sort(order)}
+          onloadmore={() => void searchController.loadMore()}
+          onretry={() => { searchJobRetry++; void searchController.refresh(true); }}
+          onloaddirectory={(ref) => void searchController.loadDirectoryFiles(ref)}
+          onretrievedirectory={(ref) => void searchController.retrieveDirectory(ref)}
+          onopenoptions={(ref) => void searchController.openGroupOptions(ref)}
+          onstepoption={(ref, direction) => void searchController.stepGroupOption(ref, direction)}
+          oncloseoptions={() => searchController.closeGroupOptions()}
+          onfilteroptions={(text) => void searchController.filterGroupOptions(text)}
+          onloadoptions={() => void searchController.loadMoreGroupOptions()}
+          onchooseoption={(ref, option) => searchController.chooseGroupOption(ref, option)}
+          ontogglealbumfile={(groupRef, fileRef, selected) => searchController.toggleAlbumGroupFile(groupRef, fileRef, selected)}
+          onviewdownloads={(id) => { jobLists.downloads.filterSubmission(id); jobsTab = 'downloads'; backToJobs(); }}
+          onback={backToJobs}
+          onsearchagain={() => void rerunActiveSearch()}
+        />
+      {/snippet}
+    </LazyView>
+    {/if}
+  {:else if activePage === 'jobs'}
+    {#if automaticJobId}
+      <LazyView view={automaticDetail}>
+        {#snippet children(AutomaticJobDetail)}
+          <AutomaticJobDetail jobId={automaticJobId!} initialDetail={automaticInitialDetail} {userActions}
+            connected={liveStatus === 'connected' && documentVisible}
+            {observeJobs}
+            onback={backToJobs} onopenjob={(job, detail) => void openJob(job, detail)} ondelete={(job) => void deleteOpenedSubmission(job)}
+            deletingSubmissions={deletingSubmissionIds} deleteError={mutationError} />
+        {/snippet}
+      </LazyView>
+    {:else}
+    {#key jobsTab}
+    <JobsList
+      tab={jobsTab} ontabchange={changeJobsTab} position={jobList}
+      submissionId={jobList.submissionId} onclearfilter={() => { jobList.filterSubmission(null); setPath(jobsListPath()); }}
+      refreshRevision={jobList.refreshRevision}
+      connected={liveStatus === 'connected' && documentVisible}
+      {observeJobs}
+      onnew={openJobDraft}
+      jobs={jobList.items}
+      loading={jobList.loading || liveStatus === 'connecting' || liveStatus === 'reconnecting'}
+      daemonOffline={liveStatus === 'offline'}
+      hasMore={Boolean(jobList.cursor)}
+      error={jobList.error ?? (liveStatus === 'offline' || liveStatus === 'failed' ? liveError : null)}
+      actionError={mutationError}
+      onretry={() => jobList.refresh()}
+      onopen={(job, detail) => void openJob(job, detail)}
+      oncancel={(job) => void cancelJob(job)}
+      ondelete={(job) => void deleteSubmission(job)}
+      deletingSubmissions={deletingSubmissionIds}
+      onloadmore={() => jobList.loadMore()}
+    />
+    {/key}
+    {/if}
+  {:else if activePage === 'dashboard'}
+    <Dashboard liveStatus={liveStatus} terminalTransferCommitRevision={liveState.daemon?.terminalTransferCommitRevision ?? 0} soulseek={liveState.daemon?.soulseekClient} activity={liveState.activitySummary} {userActions} />
+  {:else if activePage === 'downloads'}
+    <TransfersPage
+      direction="download"
+      readTransfer={transferTimeline.rows.download.read}
+      items={transferTimeline.timeline.download.items}
+      globalBoundary={transferTimeline.timeline.download.boundary}
+      coverage={transferTimeline.timeline.download.coverage}
+      summaries={transferTimeline.timeline.download.summaries}
+      summaryCoverage={transferTimeline.timeline.download.summaryCoverage}
+      summaryError={transferTimeline.timeline.download.summaryError}
+      nextCursor={transferTimeline.timeline.download.cursor}
+      loading={transferTimeline.timeline.download.loading}
+      daemonOffline={liveStatus === 'offline'}
+      error={transferTimeline.timeline.download.error}
+      onfetchedmembers={(rows) => transferTimeline.registerMembers('download', rows)}
+      missingMembers={transferTimeline.missingMembers.download}
+      onloadmore={() => void transferTimeline.load('download')}
+      onchanged={() => transferTimeline.afterMutation('download')}
+      onretrysummaries={() => transferTimeline.load('download', true)}
+      {userActions}
+    />
+  {:else if activePage === 'uploads'}
+    <TransfersPage
+      direction="upload"
+      readTransfer={transferTimeline.rows.upload.read}
+      items={transferTimeline.timeline.upload.items}
+      globalBoundary={transferTimeline.timeline.upload.boundary}
+      coverage={transferTimeline.timeline.upload.coverage}
+      summaries={transferTimeline.timeline.upload.summaries}
+      summaryCoverage={transferTimeline.timeline.upload.summaryCoverage}
+      summaryError={transferTimeline.timeline.upload.summaryError}
+      nextCursor={transferTimeline.timeline.upload.cursor}
+      loading={transferTimeline.timeline.upload.loading}
+      daemonOffline={liveStatus === 'offline'}
+      error={transferTimeline.timeline.upload.error}
+      onfetchedmembers={(rows) => transferTimeline.registerMembers('upload', rows)}
+      missingMembers={transferTimeline.missingMembers.upload}
+      onloadmore={() => void transferTimeline.load('upload')}
+      onchanged={() => transferTimeline.afterMutation('upload')}
+      onretrysummaries={() => transferTimeline.load('upload', true)}
+      {userActions}
+    />
+  {:else if activePage === 'users' || activePage === 'shares'}
+    {#if activeUsername}
+      {#key userBrowsers[userView]}
+        <LazyView view={usersPage}>
+          {#snippet children(UsersPage)}
+            <UsersPage {configurationRevision} session={userBrowsers[userView]} {documentVisible} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} />
+          {/snippet}
+        </LazyView>
+      {/key}
+    {:else}
+      <section class="page user-browser-page"><header class="user-browser-heading"><div><h1>{activePage === 'shares' ? 'Shares' : 'Users'}</h1></div></header><div class="resource-state-notice empty blocking" role="status"><span class="empty-state-icon" aria-hidden="true"><Icon name={activePage === 'shares' ? 'folder' : 'user'} /></span><span class="resource-state-copy"><strong>{activePage === 'shares' ? 'No shares to display' : 'No user to display'}</strong></span></div></section>
+    {/if}
+  {:else if activePage === 'chat'}
+    <LazyView view={chatPage}>
+      {#snippet children(ChatPage)}
+        <ChatPage drafts={chatDrafts} {liveClient} {liveStatus} runtime={liveState.daemon?.chat} {userActions} initialUsername={initialChatUsername} />
+      {/snippet}
+    </LazyView>
+  {:else}
+    <LazyView view={systemPage}>
+      {#snippet children(SystemPage)}
+        <SystemPage daemon={liveState.daemon} {liveStatus} {liveClient} tab={systemTab}
+          ontabchange={tab => { systemTab = tab; setPath(tab === 'status' ? '/system' : `/system/${tab}`); }} />
+      {/snippet}
+    </LazyView>
+  {/if}
+</AppShell>
+
+<ConfigurationDialog configuration={liveState.daemon?.configuration} epoch={liveState.epoch} />
+
+{#if composer}
+  {#key composer}
+    <NewJobComposer connected={liveStatus === 'connected' && documentVisible} initialSearch={composer.initialSearch}
+      onclose={() => composer = null}
+      oncommittingchange={(pending) => (composingJobCommitPending = pending)}
+      onstarted={(rootJobId) => { composingJobCommitPending = false; composer = null; openAutomaticJob(rootJobId); }} />
+  {/key}
+{/if}

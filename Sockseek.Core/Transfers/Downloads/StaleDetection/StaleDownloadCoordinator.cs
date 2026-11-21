@@ -1,5 +1,7 @@
 using Soulseek;
 using Sockseek.Core.Transfers.Downloads.State;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Sockseek.Core.Services;
 
@@ -7,17 +9,25 @@ internal sealed class StaleDownloadCoordinator
 {
     private readonly ActiveDownloadTracker activeDownloads;
     private readonly TimeProvider timeProvider;
+    private readonly ILogger<StaleDownloadCoordinator> logger;
     private readonly object gate = new();
     private readonly Dictionary<Guid, Attempt> attempts = new();
     // Keep recent peer activity after an attempt completes, so queued same-user
     // siblings don't become stale the moment the active transfer leaves tracking.
-    private readonly Dictionary<string, long> latestActivityByUser = new(StringComparer.OrdinalIgnoreCase);
-    private TaskCompletionSource deadlinesChanged = NewSignal();
+    private readonly Dictionary<string, PeerActivity> peers = new(StringComparer.Ordinal);
+    // Keep one pending wakeup, even if activity arrives between inspecting the
+    // deadlines and waiting. Bursts update attempt facts without allocating a
+    // completion source or leaving an old timeout armed for every update.
+    private readonly SemaphoreSlim deadlinesChanged = new(0, 1);
 
-    public StaleDownloadCoordinator(ActiveDownloadTracker activeDownloads, TimeProvider? timeProvider = null)
+    public StaleDownloadCoordinator(
+        ActiveDownloadTracker activeDownloads,
+        TimeProvider? timeProvider = null,
+        ILogger<StaleDownloadCoordinator>? logger = null)
     {
         this.activeDownloads = activeDownloads;
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.logger = logger ?? NullLogger<StaleDownloadCoordinator>.Instance;
     }
 
     // Arms stale detection only for the Soulseek peer-transfer call. Search,
@@ -25,12 +35,13 @@ internal sealed class StaleDownloadCoordinator
     internal async Task<T> WatchPeerTransferAsync<T>(
         ActiveDownload download,
         int maxStaleTimeMs,
-        Func<PeerTransferActivity, Task<T>> transfer)
+        Func<PeerTransferActivity, Task<T>> transfer,
+        ISoulseekClient? client = null)
     {
         ArgumentNullException.ThrowIfNull(download);
         ArgumentNullException.ThrowIfNull(transfer);
 
-        var attemptId = BeginPeerTransfer(download, maxStaleTimeMs);
+        var attemptId = BeginPeerTransfer(download, maxStaleTimeMs, client);
         try
         {
             return await transfer(new PeerTransferActivity(this, attemptId));
@@ -41,16 +52,18 @@ internal sealed class StaleDownloadCoordinator
         }
     }
 
-    private Guid BeginPeerTransfer(ActiveDownload download, int maxStaleTimeMs)
+    private Guid BeginPeerTransfer(ActiveDownload download, int maxStaleTimeMs, ISoulseekClient? client)
     {
-        var attempt = new Attempt(
-            Guid.NewGuid(),
-            download,
-            Math.Max(0, maxStaleTimeMs),
-            timeProvider.GetTimestamp());
-
+        Attempt attempt;
         lock (gate)
-            attempts[attempt.Id] = attempt;
+        {
+            string username = download.Target.Username;
+            if (!peers.TryGetValue(username, out var peer)) peers.Add(username, peer = new PeerActivity());
+            peer.AttemptCount++;
+            peer.LastActivityTimestamp = timeProvider.GetTimestamp();
+            attempt = new Attempt(Guid.NewGuid(), download, Math.Max(0, maxStaleTimeMs), peer, client);
+            attempts.Add(attempt.Id, attempt);
+        }
 
         SignalDeadlinesChanged();
         return attempt.Id;
@@ -66,25 +79,33 @@ internal sealed class StaleDownloadCoordinator
     {
         bool removed;
         lock (gate)
-            removed = attempts.Remove(attemptId);
+            removed = RemoveAttemptLocked(attemptId);
 
         if (removed)
             SignalDeadlinesChanged();
     }
 
+    private bool RemoveAttemptLocked(Guid attemptId)
+    {
+        if (!attempts.Remove(attemptId, out var removed)) return false;
+        // Preserve completed sibling activity only while this peer has queued work.
+        if (--removed.Peer.AttemptCount == 0)
+            peers.Remove(removed.Download.Target.Username);
+        return true;
+    }
+
     public async Task RunAsync(CancellationToken cancellationToken)
     {
+        // The scheduler owns one reschedulable timer. Racing Task.Delay against
+        // activity leaves the losing delays alive until their original deadlines.
+        using var timer = timeProvider.CreateTimer(
+            static state => ((StaleDownloadCoordinator)state!).SignalDeadlinesChanged(),
+            this, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
                 var delay = GetDelayUntilNextStaleCheck();
-
-                if (delay == null)
-                {
-                    await WaitForDeadlinesChangedAsync(cancellationToken);
-                    continue;
-                }
 
                 if (delay <= TimeSpan.Zero)
                 {
@@ -92,7 +113,8 @@ internal sealed class StaleDownloadCoordinator
                     continue;
                 }
 
-                await WaitForDeadlinesChangedOrDelayAsync(delay.Value, cancellationToken);
+                timer.Change(delay ?? Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                await deadlinesChanged.WaitAsync(cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -100,7 +122,11 @@ internal sealed class StaleDownloadCoordinator
             }
             catch (Exception ex)
             {
-                SockseekLog.Jobs.Error(ex, "Error in stale download scheduler");
+                DownloadLogMessages.ComponentFailed(
+                    logger,
+                    ex,
+                    "stale-download-scheduler",
+                    null);
                 await Task.Delay(TimeSpan.FromSeconds(1), timeProvider, cancellationToken);
             }
         }
@@ -109,28 +135,76 @@ internal sealed class StaleDownloadCoordinator
     public int CancelStaleDownloads()
     {
         var now = timeProvider.GetTimestamp();
-        List<Attempt> staleAttempts;
-
+        List<Attempt> expired = [];
+        List<Attempt> checkQueue = [];
         lock (gate)
         {
-            staleAttempts = GetStaleAttempts(now).ToList();
-
-            foreach (var attempt in staleAttempts)
-                attempts.Remove(attempt.Id);
+            foreach (var attempt in attempts.Values)
+            {
+                if ((attempt.CheckingQueue && IsQueuedRemotely(attempt)) || !IsStale(attempt, now)) continue;
+                // A hand-picked file can wait in its peer’s queue. Automated
+                // jobs need the deadline to release the slot and try another candidate.
+                if (attempt.Download.Owner.SelectionSource.HasValue
+                    && attempt.Client != null && IsQueuedRemotely(attempt))
+                {
+                    attempt.CheckingQueue = true;
+                    checkQueue.Add(attempt);
+                }
+                else expired.Add(attempt);
+            }
+            foreach (var attempt in expired) RemoveAttemptLocked(attempt.Id);
         }
 
-        if (staleAttempts.Count > 0)
-            SignalDeadlinesChanged();
+        foreach (var attempt in expired) Cancel(attempt);
+        foreach (var attempt in checkQueue) _ = CheckQueueAsync(attempt);
+        return expired.Count;
+    }
 
-        foreach (var attempt in staleAttempts)
+    private static bool IsQueuedRemotely(Attempt attempt)
+    {
+        const TransferStates queued = TransferStates.Queued | TransferStates.Remotely;
+        return (attempt.State & queued) == queued;
+    }
+
+    private async Task CheckQueueAsync(Attempt attempt)
+    {
+        bool confirmed = false;
+        try
         {
-            var download = attempt.Download;
-            download.MarkStaleCancelled(attempt.MaxStaleTimeMs);
-            try { download.Cts.Cancel(); } catch { }
-            activeDownloads.TryRemove(download.Candidate.Filename, out _);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(attempt.Download.Cts.Token);
+            timeout.CancelAfter(TimeSpan.FromMilliseconds(attempt.MaxStaleTimeMs));
+            var target = attempt.Download.Target;
+            confirmed = await attempt.Client!.GetDownloadPlaceInQueueAsync(target.Username, target.Filename, timeout.Token)
+                .ConfigureAwait(false) >= 0;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not confirm the queue position for transfer {TransferId}", attempt.Download.TransferId);
         }
 
-        return staleAttempts.Count;
+        bool expired = false;
+        lock (gate)
+        {
+            if (!attempts.ContainsKey(attempt.Id)) return;
+            attempt.CheckingQueue = false;
+            var now = timeProvider.GetTimestamp();
+            if (IsQueuedRemotely(attempt))
+            {
+                if (confirmed) attempt.LastOwnActivityTimestamp = now;
+                else if (IsStale(attempt, now) && !attempt.Download.Cts.IsCancellationRequested)
+                    expired = RemoveAttemptLocked(attempt.Id);
+            }
+        }
+        if (expired) Cancel(attempt);
+        SignalDeadlinesChanged();
+    }
+
+    private void Cancel(Attempt attempt)
+    {
+        var download = attempt.Download;
+        download.MarkStaleCancelled(attempt.MaxStaleTimeMs);
+        try { download.Cts.Cancel(); } catch (Exception ex) { logger.LogDebug(ex, "Stale transfer {TransferId} cancellation failed", download.TransferId); }
+        activeDownloads.TryRemove(download.TransferId, out _);
     }
 
     private void ReportActivity(Guid attemptId, Transfer transfer)
@@ -156,7 +230,7 @@ internal sealed class StaleDownloadCoordinator
             {
                 var now = timeProvider.GetTimestamp();
                 attempt.LastOwnActivityTimestamp = now;
-                latestActivityByUser[attempt.Download.Candidate.Username] = now;
+                attempt.Peer.LastActivityTimestamp = now;
             }
         }
 
@@ -166,18 +240,21 @@ internal sealed class StaleDownloadCoordinator
 
     private TimeSpan? GetDelayUntilNextStaleCheck()
     {
-        var now = timeProvider.GetTimestamp();
         TimeSpan? nextDelay = null;
 
         lock (gate)
         {
+            // This scan includes all facts published before taking the gate.
+            // Consume their pending notification; later activity retains a wake.
+            deadlinesChanged.Wait(0);
+            var now = timeProvider.GetTimestamp();
             if (attempts.Count == 0)
                 return null;
 
-            var latestActivityByUser = GetLatestActivityByUser();
             foreach (var attempt in attempts.Values)
             {
-                var referenceTimestamp = GetReferenceTimestamp(attempt, latestActivityByUser);
+                if (attempt.CheckingQueue && IsQueuedRemotely(attempt)) continue;
+                var referenceTimestamp = GetReferenceTimestamp(attempt);
                 var elapsed = timeProvider.GetElapsedTime(referenceTimestamp, now);
                 var remaining = TimeSpan.FromMilliseconds(attempt.MaxStaleTimeMs) - elapsed;
 
@@ -189,92 +266,25 @@ internal sealed class StaleDownloadCoordinator
         return nextDelay < TimeSpan.Zero ? TimeSpan.Zero : nextDelay;
     }
 
-    private List<Attempt> GetStaleAttempts(long now)
-    {
-        var staleAttempts = new List<Attempt>();
-        var latestActivityByUser = GetLatestActivityByUser();
-        foreach (var attempt in attempts.Values)
-        {
-            var referenceTimestamp = GetReferenceTimestamp(attempt, latestActivityByUser);
-            if (timeProvider.GetElapsedTime(referenceTimestamp, now).TotalMilliseconds < attempt.MaxStaleTimeMs)
-                continue;
+    private bool IsStale(Attempt attempt, long now)
+        => timeProvider.GetElapsedTime(GetReferenceTimestamp(attempt), now).TotalMilliseconds >= attempt.MaxStaleTimeMs;
 
-            staleAttempts.Add(attempt);
-        }
-
-        return staleAttempts;
-    }
-
-    private Dictionary<string, long> GetLatestActivityByUser()
-    {
-        var latest = new Dictionary<string, long>(latestActivityByUser, StringComparer.OrdinalIgnoreCase);
-        foreach (var attempt in attempts.Values)
-        {
-            var username = attempt.Download.Candidate.Username;
-            if (!latest.TryGetValue(username, out var latestActivity)
-                || attempt.LastOwnActivityTimestamp > latestActivity)
-            {
-                latest[username] = attempt.LastOwnActivityTimestamp;
-            }
-        }
-
-        return latest;
-    }
-
-    private static long GetReferenceTimestamp(
-        Attempt attempt,
-        IReadOnlyDictionary<string, long> latestActivityByUser)
-    {
-        var referenceTimestamp = attempt.LastOwnActivityTimestamp;
-        // Queued siblings from the same user are protected by any fresh same-user activity;
-        // an in-progress transfer must make progress on its own.
-        if (!IsInProgress(attempt.State)
-            && latestActivityByUser.TryGetValue(attempt.Download.Candidate.Username, out var latestUserActivity)
-            && latestUserActivity > referenceTimestamp)
-        {
-            referenceTimestamp = latestUserActivity;
-        }
-
-        return referenceTimestamp;
-    }
-
-    private async Task WaitForDeadlinesChangedOrDelayAsync(TimeSpan delay, CancellationToken cancellationToken)
-    {
-        var signal = GetDeadlinesChangedTask();
-        var signalTask = signal.WaitAsync(cancellationToken);
-        var delayTask = Task.Delay(delay, timeProvider, cancellationToken);
-        await await Task.WhenAny(signalTask, delayTask);
-    }
-
-    private async Task WaitForDeadlinesChangedAsync(CancellationToken cancellationToken)
-    {
-        var signal = GetDeadlinesChangedTask();
-        await signal.WaitAsync(cancellationToken);
-    }
-
-    private Task GetDeadlinesChangedTask()
-    {
-        lock (gate)
-            return deadlinesChanged.Task;
-    }
+    private static long GetReferenceTimestamp(Attempt attempt)
+        // Queued siblings share activity; an active transfer must make its own progress.
+        => IsInProgress(attempt.State) ? attempt.LastOwnActivityTimestamp
+            : Math.Max(attempt.LastOwnActivityTimestamp, attempt.Peer.LastActivityTimestamp);
 
     private void SignalDeadlinesChanged()
     {
-        TaskCompletionSource previousSignal;
         lock (gate)
         {
-            previousSignal = deadlinesChanged;
-            deadlinesChanged = NewSignal();
+            if (deadlinesChanged.CurrentCount == 0)
+                deadlinesChanged.Release();
         }
-
-        previousSignal.TrySetResult();
     }
 
     private static bool IsInProgress(TransferStates? state)
-        => state.HasValue && state.Value.HasFlag(TransferStates.InProgress);
-
-    private static TaskCompletionSource NewSignal()
-        => new(TaskCreationOptions.RunContinuationsAsynchronously);
+        => state is { } value && (value & TransferStates.InProgress) == TransferStates.InProgress;
 
     internal readonly struct PeerTransferActivity
     {
@@ -294,16 +304,27 @@ internal sealed class StaleDownloadCoordinator
             => coordinator.ReportProgress(attemptId, transfer);
     }
 
+    private sealed class PeerActivity
+    {
+        public int AttemptCount { get; set; }
+        public long LastActivityTimestamp { get; set; }
+    }
+
     private sealed class Attempt
     {
-        public Attempt(Guid id, ActiveDownload download, int maxStaleTimeMs, long registeredAtTimestamp)
+        public Attempt(Guid id, ActiveDownload download, int maxStaleTimeMs, PeerActivity peer, ISoulseekClient? client)
         {
             Id = id;
             Download = download;
             MaxStaleTimeMs = maxStaleTimeMs;
-            LastOwnActivityTimestamp = registeredAtTimestamp;
+            Peer = peer;
+            Client = client;
+            LastOwnActivityTimestamp = peer.LastActivityTimestamp;
         }
 
+        public bool CheckingQueue { get; set; }
+        public ISoulseekClient? Client { get; }
+        public PeerActivity Peer { get; }
         public Guid Id { get; }
         public ActiveDownload Download { get; }
         public int MaxStaleTimeMs { get; }

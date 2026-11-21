@@ -13,8 +13,9 @@ namespace Tests.Jobs
         [TestMethod]
         public void SongJob_UpgradeToAlbum_ReturnsAlbumJob()
         {
-            var song = new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Title" }) { ItemNumber = 5, LineNumber = 10 };
-            var results = ((IUpgradeable)song).Upgrade(album: true, aggregate: false).ToList();
+            var song = new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Title" })
+            { ItemNumber = 5, LineNumber = 10, ExtractorInfo = "Catalog entry: A12" };
+            var results = ((IUpgradeable)song).Upgrade(album: true, group: false).ToList();
 
             Assert.AreEqual(1, results.Count);
             Assert.IsInstanceOfType(results[0], typeof(AlbumJob));
@@ -27,17 +28,18 @@ namespace Tests.Jobs
             Assert.AreEqual(1, album.UpgradeSources.Count);
             Assert.AreEqual(5, album.ItemNumber);
             Assert.AreEqual(10, album.LineNumber);
+            Assert.AreEqual(song.ExtractorInfo, album.ExtractorInfo);
         }
 
         [TestMethod]
-        public void SongJob_UpgradeToAggregate_ReturnsAggregateJob()
+        public void SongJob_UpgradeToGroup_ReturnsSongGroupsJob()
         {
             var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Title" });
-            var results = ((IUpgradeable)song).Upgrade(album: false, aggregate: true).ToList();
+            var results = ((IUpgradeable)song).Upgrade(album: false, group: true).ToList();
 
             Assert.AreEqual(1, results.Count);
-            Assert.IsInstanceOfType(results[0], typeof(AggregateJob));
-            var agg = (AggregateJob)results[0];
+            Assert.IsInstanceOfType(results[0], typeof(SongGroupsJob));
+            var agg = (SongGroupsJob)results[0];
             Assert.AreEqual("Artist", agg.Query.Artist);
             Assert.AreEqual("Title", agg.Query.Title);
             Assert.IsNotNull(agg.ItemName);
@@ -50,7 +52,7 @@ namespace Tests.Jobs
             list.Add(new SongJob(new SongQuery { Artist = "A1", Title = "T1" }));
             list.Add(new SongJob(new SongQuery { Artist = "A2", Title = "T2" }));
 
-            var results = ((IUpgradeable)list).Upgrade(album: true, aggregate: false).ToList();
+            var results = ((IUpgradeable)list).Upgrade(album: true, group: false).ToList();
 
             Assert.AreEqual(1, results.Count);
             Assert.IsInstanceOfType(results[0], typeof(JobList));
@@ -68,7 +70,7 @@ namespace Tests.Jobs
             list.Add(new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Track 2" }));
             list.Add(new SongJob(new SongQuery { Artist = "Artist", Album = "Other Album", Title = "Other Track" }));
 
-            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, aggregate: false).Single();
+            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, group: false).Single();
 
             Assert.AreEqual(2, resultList.Jobs.Count);
             var album = (AlbumJob)resultList.Jobs[0];
@@ -84,7 +86,7 @@ namespace Tests.Jobs
             list.Add(new SongJob(new SongQuery { Artist = "Artist 1", Album = "Album", Title = "Track 1" }));
             list.Add(new SongJob(new SongQuery { Artist = "Artist 2", Album = "Album", Title = "Track 2" }));
 
-            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, aggregate: false).Single();
+            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, group: false).Single();
 
             Assert.AreEqual(2, resultList.Jobs.Count);
         }
@@ -96,7 +98,7 @@ namespace Tests.Jobs
             list.Add(new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" }));
             list.Add(new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" }));
 
-            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, aggregate: false).Single();
+            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, group: false).Single();
 
             Assert.AreEqual(2, resultList.Jobs.Count);
             Assert.IsTrue(resultList.Jobs.OfType<AlbumJob>().All(a => a.UpgradeSources.Count == 0));
@@ -109,7 +111,7 @@ namespace Tests.Jobs
             list.Add(new SongJob(new SongQuery { Artist = "Artist", Album = "Album", Title = "Track" }));
             list.Add(new AlbumJob(new AlbumQuery { Artist = "Artist", Album = "Album" }));
 
-            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, aggregate: false).Single();
+            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, group: false).Single();
 
             Assert.AreEqual(2, resultList.Jobs.Count);
             Assert.AreEqual(1, resultList.Jobs.OfType<AlbumJob>().Count(a => a.UpgradeSources.Count == 1));
@@ -133,7 +135,7 @@ namespace Tests.Jobs
             };
             var list = new JobList("My List", new Job[] { first, second, third });
 
-            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, aggregate: false).Single();
+            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, group: false).Single();
 
             Assert.AreEqual(2, resultList.Jobs.Count);
             var fiveTrackAlbum = resultList.Jobs.OfType<AlbumJob>().Single(a => a.ExtractorFolderCond!.MinTrackCount == 5);
@@ -155,23 +157,23 @@ namespace Tests.Jobs
             };
             var list = new JobList("My List", new Job[] { first, second });
 
-            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, aggregate: false).Single();
+            var resultList = (JobList)((IUpgradeable)list).Upgrade(album: true, group: false).Single();
 
             Assert.AreEqual(2, resultList.Jobs.Count);
         }
 
         [TestMethod]
-        public void JobList_UpgradeToAggregate_FlattensList()
+        public void JobList_UpgradeToGroup_FlattensList()
         {
             var list = new JobList("My List");
             list.Add(new SongJob(new SongQuery { Artist = "A1", Title = "T1" }));
             list.Add(new SongJob(new SongQuery { Artist = "A2", Title = "T2" }));
 
-            var results = ((IUpgradeable)list).Upgrade(album: false, aggregate: true).ToList();
+            var results = ((IUpgradeable)list).Upgrade(album: false, group: true).ToList();
 
             Assert.AreEqual(2, results.Count);
-            Assert.IsInstanceOfType(results[0], typeof(AggregateJob));
-            Assert.IsInstanceOfType(results[1], typeof(AggregateJob));
+            Assert.IsInstanceOfType(results[0], typeof(SongGroupsJob));
+            Assert.IsInstanceOfType(results[1], typeof(SongGroupsJob));
         }
 
         [TestMethod]
@@ -182,7 +184,7 @@ namespace Tests.Jobs
             var ej = new ExtractJob("some-input");
             list.Add(ej);
 
-            var results = ((IUpgradeable)list).Upgrade(album: true, aggregate: false).ToList();
+            var results = ((IUpgradeable)list).Upgrade(album: true, group: false).ToList();
 
             Assert.AreEqual(1, results.Count);
             var resultList = (JobList)results[0];

@@ -29,7 +29,7 @@ public sealed class SettingsSchema
 
     private readonly Dictionary<string, SettingMember> members = new(StringComparer.Ordinal);
     private readonly List<(Type Type, string Prefix)> groups = [];
-    private readonly List<SettingMember> leaves = [];
+    private readonly Dictionary<string, SettingMember> leaves = new(StringComparer.Ordinal);
     private readonly Type rootType;
     private IReadOnlyList<SettingOption>? options;
 
@@ -40,7 +40,8 @@ public sealed class SettingsSchema
     }
 
     public static SettingsSchema For(Type type) => schemas.GetOrAdd(type, static type => new(type));
-    public IReadOnlyList<SettingMember> Leaves => leaves;
+    public IReadOnlyDictionary<string, SettingMember> Leaves => leaves;
+    public SettingMember GetMember(string path) => members[path];
 
     public IReadOnlyList<SettingOption> Options
     {
@@ -74,13 +75,14 @@ public sealed class SettingsSchema
         groups.Add((type, prefix));
         foreach (var member in DataMembers(type))
         {
-            if (member.IsDefined(typeof(JsonIgnoreAttribute))) continue;
+            if (member.IsDefined(typeof(SettingIgnoreAttribute))
+                || member.GetCustomAttribute<JsonIgnoreAttribute>()?.Condition == JsonIgnoreCondition.Always) continue;
             var entry = new SettingMember(prefix + member.Name, parents, member);
             members.Add(entry.Path, entry);
             if (IsGroup(entry.ValueType))
                 Visit(entry.ValueType, entry.Path + ".", [.. parents, member]);
             else
-                leaves.Add(entry);
+                leaves.Add(entry.Path, entry);
         }
     }
 
@@ -97,7 +99,7 @@ public sealed class SettingsSchema
             throw new ArgumentException($"An append operation for '{change.Path}' requires a collection.");
         member.Validate(value);
         if (value != null && IsGroup(member.ValueType))
-            foreach (var child in For(member.ValueType).Leaves)
+            foreach (var child in For(member.ValueType).Leaves.Values)
                 child.Validate(child.Get(value));
         // Prepared patches own their values; applying one cannot change a later application.
         value = CopyValue(value);
@@ -170,7 +172,7 @@ public sealed class SettingsSchema
         return copy;
     }
 
-    internal static bool ValuesEqual(object? left, object? right)
+    public static bool ValuesEqual(object? left, object? right)
     {
         if (Equals(left, right)) return true;
         if (left == null || right == null || left.GetType() != right.GetType()) return false;
@@ -232,10 +234,12 @@ public sealed class SettingMember
         this.parents = parents;
         this.member = member;
         ValueType = SettingsSchema.MemberType(member);
+        Reloadable = member.IsDefined(typeof(SettingReloadableAttribute));
     }
 
     public string Path { get; }
     public Type ValueType { get; }
+    public bool Reloadable { get; }
     public object? Get(object root) => SettingsSchema.Get(member, SettingsSchema.Parent(root, parents));
     internal void Set(object root, object? value) => SettingsSchema.Set(member, SettingsSchema.Parent(root, parents), value);
 

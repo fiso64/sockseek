@@ -13,15 +13,14 @@ public static partial class Utils
     // container extensions such as .webm must not be classified as unconditionally audio.
     public static IReadOnlySet<string> KnownAudioExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        ".mp3", ".flac", ".ogg", ".m4a", ".opus", ".wav", ".aac", ".alac",
+        ".mp3", ".flac", ".ogg", ".m4a", ".m4b", ".opus", ".wav", ".aac", ".alac",
         ".aif", ".aiff",
     };
 
-    [Obsolete("Use KnownAudioExtensions. Requested default formats are available from SearchDefaults.Formats.")]
-    public static readonly string[] musicExtensions = [.. KnownAudioExtensions];
     public static readonly string[] imageExtensions = new string[] { ".jpg", ".png", ".jpeg", ".gif", ".webp" };
-    public static readonly string[] videoExtensions = new string[] { ".mp4", ".mkv", ".avi", ".mov", ".webm", ".mpeg" };
 
+    // Matching, naming and sharing need tags and audio properties. Cover art can stay on disk.
+    internal const TagLib.ReadStyle AudioMetadataReadStyle = TagLib.ReadStyle.Average | TagLib.ReadStyle.PictureLazy;
 
     public static bool IsMusicExtension(string extension)
     {
@@ -33,24 +32,9 @@ public static partial class Utils
         return KnownAudioExtensions.Contains(Path.GetExtension(fileName));
     }
 
-    public static bool IsImageExtension(string extension)
-    {
-        return imageExtensions.Contains(extension.ToLower());
-    }
-
     public static bool IsImageFile(string fileName)
     {
         return imageExtensions.Contains(Path.GetExtension(fileName).ToLower());
-    }
-
-    public static bool IsVideoExtension(string extension)
-    {
-        return videoExtensions.Contains(extension.ToLower());
-    }
-
-    public static bool IsVideoFile(string fileName)
-    {
-        return videoExtensions.Contains(Path.GetExtension(fileName).ToLower());
     }
 
     public static bool IsInternetUrl(this string str)
@@ -58,30 +42,6 @@ public static partial class Utils
         str = str.TrimStart();
         return str.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
             || str.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
-    }
-
-    public static void WriteAllLines(string path, IEnumerable<string> lines, char separator)
-    {
-        using (var writer = new StreamWriter(path))
-        {
-            foreach (var line in lines)
-            {
-                writer.Write(line);
-                writer.Write(separator);
-            }
-        }
-    }
-
-    public async static Task WriteAllLinesAsync(string path, IEnumerable<string> lines, char separator)
-    {
-        using (var writer = new StreamWriter(path))
-        {
-            foreach (var line in lines)
-            {
-                await writer.WriteAsync(line);
-                await writer.WriteAsync(separator);
-            }
-        }
     }
 
     public static string GetFullPath(string path)
@@ -178,43 +138,6 @@ public static partial class Utils
         return parts.Length == 0 ? prefix : Path.Join([prefix, .. parts]);
     }
 
-    public static List<string> FromCsv(string csvLine)
-    {
-        var items = new List<string>();
-        var currentItem = new StringBuilder();
-        bool inQuotes = false;
-
-        for (int i = 0; i < csvLine.Length; i++)
-        {
-            char c = csvLine[i];
-
-            if (c == '"' && (i == 0 || csvLine[i - 1] != '\\'))
-            {
-                if (inQuotes && i + 1 < csvLine.Length && csvLine[i + 1] == '"')
-                {
-                    currentItem.Append('"');
-                    i++;
-                }
-                else
-                {
-                    inQuotes = !inQuotes;
-                }
-            }
-            else if (c == ',' && !inQuotes)
-            {
-                items.Add(currentItem.ToString());
-                currentItem.Clear();
-            }
-            else
-            {
-                currentItem.Append(c);
-            }
-        }
-        items.Add(currentItem.ToString());
-
-        return items;
-    }
-
     public static decimal Normalize(this double value)
     {
         return ((decimal)value) / 1.000000000000000000000000000000000m;
@@ -232,56 +155,171 @@ public static partial class Utils
         return count;
     }
 
-    public static void Move(string sourceFilePath, string destinationFilePath)
+    public static void Move(string sourceFilePath, string destinationFilePath, bool overwrite = true)
     {
-        if (File.Exists(sourceFilePath))
+        string source = Path.GetFullPath(sourceFilePath);
+        string destination = Path.GetFullPath(destinationFilePath);
+        if (!File.Exists(source))
+            throw new FileNotFoundException("Source file does not exist.", source);
+        if (source == destination) return;
+
+        if (Path.GetDirectoryName(source) == Path.GetDirectoryName(destination))
         {
-            if (File.Exists(destinationFilePath))
-            {
-                if (Path.GetFullPath(sourceFilePath) == Path.GetFullPath(destinationFilePath))
-                {
-                    return;
-                }
-                File.Delete(destinationFilePath);
-            }
-            File.Move(sourceFilePath, destinationFilePath);
+            File.Move(source, destination, overwrite);
+            return;
         }
-        else
+
+        // File.Move can fall back to a copy between mounts. Let that copy finish
+        // under a temporary name before replacing the user's previous recording.
+        string temporary = TemporarySibling(destination);
+        try
         {
-            throw new IOException($"Source file does not exist at path: {sourceFilePath}");
+            File.Move(source, temporary);
+        }
+        catch
+        {
+            File.Delete(temporary);
+            throw;
+        }
+        try
+        {
+            File.Move(temporary, destination, overwrite);
+        }
+        catch
+        {
+            File.Move(temporary, source);
+            throw;
         }
     }
+
+    internal static void CopyToDestination(string source, string destination, bool overwrite)
+    {
+        string temporary = TemporarySibling(destination);
+        try
+        {
+            File.Copy(source, temporary);
+            File.Move(temporary, destination, overwrite);
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
+    }
+
+    // Keep generated names portable to filesystems with a 255-byte component
+    // limit. Retain the file type and distinguish names with the same prefix.
+    internal static string FitPathComponent(string name)
+    {
+        const int maxBytes = 255;
+        if (Encoding.UTF8.GetByteCount(name) <= maxBytes) return name;
+        byte[] hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(name));
+        string suffix = "~" + Convert.ToHexStringLower(hash.AsSpan(0, 8));
+        string extension = Path.GetExtension(name);
+        int available = maxBytes - suffix.Length - Encoding.UTF8.GetByteCount(extension);
+        if (available < 1)
+        {
+            extension = "";
+            available = maxBytes - suffix.Length;
+        }
+        int chars = 0;
+        foreach (var rune in name.EnumerateRunes())
+        {
+            if (rune.Utf8SequenceLength > available) break;
+            available -= rune.Utf8SequenceLength;
+            chars += rune.Utf16SequenceLength;
+        }
+        return name[..chars] + suffix + extension;
+    }
+
+    // A planner whose reservations only grow can reuse the next suffix for the
+    // exact spelling of each path. Filesystem callers must check from the start.
+    internal static string ResolvePathCollision(string path, Func<string, bool> tryReserve,
+        Dictionary<string, int>? nextSuffixByPath = null)
+    {
+        if (tryReserve(path))
+            return path;
+
+        string directory = Path.GetDirectoryName(path)!;
+        string extension = Path.GetExtension(path);
+        string stem = Path.GetFileNameWithoutExtension(path);
+        int suffix = nextSuffixByPath?.GetValueOrDefault(path, 2) ?? 2;
+        for (; ; suffix++)
+        {
+            string candidate = Path.Combine(directory, FitPathComponent($"{stem} ({suffix}){extension}"));
+            if (tryReserve(candidate))
+            {
+                if (nextSuffixByPath != null) nextSuffixByPath[path] = suffix + 1;
+                return candidate;
+            }
+        }
+    }
+
+    internal static string FitFileName(string path)
+        => Path.Join(Path.GetDirectoryName(path), FitPathComponent(Path.GetFileName(path)));
+
+    // File replacement changes the inode. Lock the destination name so two
+    // Sockseek processes can read, merge and publish as one operation.
+    internal static void UpdateFile(string path, Action update)
+    {
+        string fullPath = Path.GetFullPath(path);
+        if (File.Exists(fullPath))
+            fullPath = File.ResolveLinkTarget(fullPath, returnFinalTarget: true)?.FullName ?? fullPath;
+        if (OperatingSystem.IsWindows()) fullPath = fullPath.ToUpperInvariant();
+        string name = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(fullPath)));
+        using var mutex = new Mutex(false, "Sockseek.File." + name);
+        try { mutex.WaitOne(); }
+        catch (AbandonedMutexException) { /* The previous writer exited. We own the mutex. */ }
+        try { update(); }
+        finally { mutex.ReleaseMutex(); }
+    }
+
+    internal static void WriteAtomically(string path, Action<FileStream> write)
+    {
+        path = Path.GetFullPath(path);
+        if (File.Exists(path))
+            path = File.ResolveLinkTarget(path, returnFinalTarget: true)?.FullName ?? path;
+        string temporary = TemporarySibling(path);
+        try
+        {
+            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
+            if (!OperatingSystem.IsWindows() && File.Exists(path))
+                options.UnixCreateMode = File.GetUnixFileMode(path);
+            using (var output = new FileStream(temporary, options))
+                write(output);
+            if (!OperatingSystem.IsWindows() && options.UnixCreateMode is { } mode)
+                File.SetUnixFileMode(temporary, mode);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally { File.Delete(temporary); }
+    }
+
+    private static string TemporarySibling(string destination) =>
+        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(destination))!, $".{Guid.NewGuid():N}.incomplete");
 
     public static void DeleteAncestorsIfEmpty(string startDir, string root)
     {
-        string x = NormalizedPath(Path.GetFullPath(root));
-        string y = NormalizedPath(startDir);
-
-        if (x.Length == 0)
-            return;
-
-        while (y.StartsWith(x + '/') && FileCountRecursive(y) == 0)
+        if (string.IsNullOrWhiteSpace(root)) return;
+        string boundary = Path.GetFullPath(root);
+        for (string? path = Path.GetFullPath(startDir);
+             path != null && IsInDirectory(path, boundary, strict: true);
+             path = Path.GetDirectoryName(path))
         {
-            // Never recursively delete after an emptiness check: another process may
-            // create a payload between the check and deletion.
-            Directory.Delete(y, recursive: false);
-
-            string prev = y;
-            y = NormalizedPath(Path.GetDirectoryName(y) ?? "");
-
-            if (prev.Length == y.Length)
-                break;
+            // A nonempty folder or a concurrent creator ends cleanup. The
+            // completed file has already been published at its destination.
+            try { Directory.Delete(path, recursive: false); }
+            catch (IOException) { break; }
+            catch (UnauthorizedAccessException) { break; }
         }
     }
 
-    public static void MoveAndDeleteParent(string oldPath, string newPath, string recurseUntil)
+    public static void MoveAndDeleteParent(string oldPath, string newPath, string recurseUntil, bool overwrite = true)
     {
         if (Path.GetFullPath(oldPath) != Path.GetFullPath(newPath))
         {
             var newParent = Path.GetDirectoryName(newPath);
             if (!string.IsNullOrEmpty(newParent))
                 Directory.CreateDirectory(newParent);
-            Move(oldPath, newPath);
+            Move(oldPath, newPath, overwrite);
             var oldParent = Path.GetDirectoryName(oldPath);
             if (!string.IsNullOrEmpty(oldParent))
                 DeleteAncestorsIfEmpty(oldParent, recurseUntil);
@@ -328,18 +366,34 @@ public static partial class Utils
         return s;
     }
 
+    private static readonly char[] s_controlChars = Enumerable.Range(0, 0x20)
+        .Concat(Enumerable.Range(0x7f, 0x21))
+        .Select(static value => (char)value)
+        .ToArray();
+
     private static readonly SearchValues<char> s_windowsInvalid =
-        SearchValues.Create([':', '|', '?', '>', '<', '*', '"', '/', '\\']);
+        SearchValues.Create(new[] { ':', '|', '?', '>', '<', '*', '"', '/', '\\' }
+            .Concat(s_controlChars)
+            .Distinct()
+            .ToArray());
 
     private static readonly SearchValues<char> s_windowsInvalidNoSlash =
-        SearchValues.Create([':', '|', '?', '>', '<', '*', '"']);
+        SearchValues.Create(new[] { ':', '|', '?', '>', '<', '*', '"' }
+            .Concat(s_controlChars)
+            .Distinct()
+            .ToArray());
 
     private static readonly SearchValues<char> s_platformInvalid =
-        SearchValues.Create(Path.GetInvalidFileNameChars());
+        SearchValues.Create(Path.GetInvalidFileNameChars()
+            .Concat(s_controlChars)
+            .Distinct()
+            .ToArray());
 
     private static readonly SearchValues<char> s_platformInvalidNoSlash =
         SearchValues.Create(Path.GetInvalidFileNameChars()
             .Where(static c => c is not '/' and not '\\')
+            .Concat(s_controlChars)
+            .Distinct()
             .ToArray());
 
     private static SearchValues<char> InvalidSet(bool windows, bool removeSlash) => windows
@@ -703,64 +757,6 @@ public static partial class Utils
         return false;
     }
 
-    public static bool ContainsInBracketsOptimized(this string str, string searchTerm, bool ignoreCase = false)
-    {
-        if (str.Length == 0 && searchTerm.Length > 0)
-            return false;
-
-        var comp = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        int depth = 0;
-        int searchTermLen = searchTerm.Length;
-
-        for (int i = 0; i < str.Length; i++)
-        {
-            char c = str[i];
-
-            if (c == '[' || c == '(')
-            {
-                depth++;
-            }
-            else if (c == ']' || c == ')')
-            {
-                depth--;
-            }
-
-            if (depth > 0 && i + searchTermLen <= str.Length)
-            {
-                if (str.Substring(i, searchTermLen).Equals(searchTerm, comp))
-                    return true;
-            }
-        }
-
-        return false;
-    }
-
-    public static Dictionary<K, V> ToSafeDictionary<T, K, V>(this IEnumerable<T> source, Func<T, K> keySelector, Func<T, V> valSelector) where K : notnull
-    {
-        var d = new Dictionary<K, V>();
-        foreach (var element in source)
-        {
-            if (!d.ContainsKey(keySelector(element)))
-                d.Add(keySelector(element), valSelector(element));
-        }
-        return d;
-    }
-
-    public static int IndexOf<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate)
-    {
-        var index = 0;
-        foreach (var item in source)
-        {
-            if (predicate.Invoke(item))
-            {
-                return index;
-            }
-            index++;
-        }
-
-        return -1;
-    }
-
     public static string GreatestCommonPath(IEnumerable<string> paths)
     {
         using var enumerator = paths.GetEnumerator();
@@ -841,7 +837,7 @@ public static partial class Utils
         }
 
         const string separator = " - ";
-        inputTitle = inputTitle.Replace(" — ", separator).Replace(" -- ", separator);
+        inputTitle = inputTitle.Replace(" — ", separator).Replace(" – ", separator).Replace(" -- ", separator);
 
         int separatorLength = separator.Length;
         int lastValidSeparatorIndex = -1;
@@ -885,25 +881,26 @@ public static partial class Utils
         return (null, inputTitle);
     }
 
-    public static bool SequenceEqualUpToPermutation<T>(this IEnumerable<T> list1, IEnumerable<T> list2) where T : notnull
+    // Display filters compare human-readable text. Wire names and path identities keep their exact spelling.
+    public static string FoldDisplayText(string value)
     {
-        var cnt = new Dictionary<T, int>();
-        foreach (T s in list1)
+        if (Ascii.IsValid(value)) return value;
+        try
         {
-            if (cnt.TryGetValue(s, out int count))
-                cnt[s] = count + 1;
-            else
-                cnt[s] = 1;
+            return DisplayAccentMarks().Replace(value.Normalize(NormalizationForm.FormD), "");
         }
-        foreach (T s in list2)
+        catch (ArgumentException)
         {
-            if (cnt.TryGetValue(s, out int count))
-                cnt[s] = count - 1;
-            else
-                return false;
+            // An ill-formed peer name is still searchable by its literal spelling.
+            return value;
         }
-        return cnt.Values.All(c => c == 0);
     }
+
+    [GeneratedRegex(@"\p{M}+")]
+    private static partial Regex DisplayAccentMarks();
+
+    public static bool ContainsDisplayText(string value, string filter)
+        => FoldDisplayText(value).Contains(FoldDisplayText(filter), StringComparison.OrdinalIgnoreCase);
 
     public static bool RemoveDiacriticsIfExist(this string s, out string res)
     {

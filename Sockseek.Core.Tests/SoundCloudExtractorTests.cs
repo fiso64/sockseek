@@ -78,7 +78,7 @@ public class SoundCloudExtractorTests
         var extractor = new SoundCloudExtractor(new SoundCloudSettings());
 
         var error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
-            () => extractor.GetTracks("https://soundcloud.com/artist/sets/playlist", new ExtractionSettings()));
+            () => extractor.ExtractAsync("https://soundcloud.com/artist/sets/playlist", new ExtractionSettings()));
 
         StringAssert.Contains(error.Message, "--soundcloud-token");
     }
@@ -99,7 +99,7 @@ public class SoundCloudExtractorTests
     [TestMethod]
     public void SoundCloudUrl_SelectsSoundCloudExtractor()
     {
-        var (type, extractor) = ExtractorRegistry.GetMatchingExtractor(
+        var (type, extractor) = ExtractorRegistry.CreateExtractor(
             "https://soundcloud.com/artist/sets/playlist", InputType.None, new DownloadSettings());
 
         Assert.AreEqual(InputType.SoundCloud, type);

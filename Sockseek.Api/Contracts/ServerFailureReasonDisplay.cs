@@ -18,12 +18,6 @@ public static class ServerFailureReasonDisplay
             _ => "",
         };
 
-    public static string LabelOrUnknown(ServerJobFailureReason? reason)
-    {
-        var label = Label(reason);
-        return label.Length > 0 ? label : Label(ServerJobFailureReason.Other);
-    }
-
     public static string FailedLabel(ServerJobFailureReason? reason)
     {
         var label = Label(reason);

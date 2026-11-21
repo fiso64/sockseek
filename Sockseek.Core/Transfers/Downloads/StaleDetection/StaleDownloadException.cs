@@ -6,16 +6,21 @@ public sealed class StaleDownloadException : TimeoutException
 {
     private const string MessagePrefix = "Download attempt became stale after ";
 
-    public StaleDownloadException(FileCandidate candidate, int maxStaleTimeMs)
+    public StaleDownloadException(PeerFileTarget target, int maxStaleTimeMs)
         : base(
             $"{MessagePrefix}{maxStaleTimeMs}ms without peer transfer activity: " +
-            $"{candidate.Username}\\{candidate.Filename}")
+            $"{target.Username}\\{PeerIdentityValidator.ToDisplayText(target.Filename)}")
     {
-        Candidate = candidate;
+        Target = target;
         MaxStaleTimeMs = maxStaleTimeMs;
     }
 
-    public FileCandidate Candidate { get; }
+    public StaleDownloadException(FileCandidate candidate, int maxStaleTimeMs)
+        : this(candidate.Target, maxStaleTimeMs)
+    {
+    }
+
+    public PeerFileTarget Target { get; }
     public int MaxStaleTimeMs { get; }
 
     public static bool IsStaleFailureMessage(string? message)

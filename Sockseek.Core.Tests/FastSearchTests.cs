@@ -89,6 +89,60 @@ namespace Tests.FastSearch
                 "Background search should have been cancelled once the fast download succeeded");
         }
 
+        [TestMethod]
+        public async Task SongDownload_FastSearch_ObservesCandidateThatArrivesAfterCallerStartsWaiting()
+        {
+            var enterSearch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseSearchStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var keepSearchOpen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            bool searchCancelled = false;
+            var client = new ClientTests.MockSoulseekClient(
+                new[] { FastUser() }.ToList())
+            {
+                SearchHandler = async (_, callback, _, ct) =>
+                {
+                    enterSearch.TrySetResult();
+                    await releaseSearchStart.Task.WaitAsync(ct);
+                    callback(FastUser());
+                    try { await keepSearchOpen.Task.WaitAsync(ct); }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        searchCancelled = true;
+                        throw;
+                    }
+                    return null!;
+                },
+            };
+
+            var (app, outputDir) = CreateApp(client,
+                "testartist - testsong",
+                new[] { "--fast-search", "--fast-search-min-up-speed", "1" });
+
+            Task? runTask = null;
+            try
+            {
+                runTask = app.RunAsync(CancellationToken.None);
+                await enterSearch.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                releaseSearchStart.TrySetResult();
+                await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                releaseSearchStart.TrySetResult();
+                keepSearchOpen.TrySetResult();
+                if (runTask != null)
+                    await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+                app.Cancel();
+                await app.DisposeAsync();
+                if (System.IO.Directory.Exists(outputDir))
+                    System.IO.Directory.Delete(outputDir, true);
+            }
+
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, app.Queue.AllSongs().Single().TerminalOutcome);
+            Assert.IsTrue(searchCancelled);
+            Assert.AreEqual(1, client.DownloadCallCount);
+        }
+
         // ── Test 2: fast-search fallback when provisional download fails ─────
 
         [TestMethod]
@@ -132,7 +186,7 @@ namespace Tests.FastSearch
             var song = app.Queue.AllSongs().Single();
             Assert.AreEqual(JobTerminalOutcome.Succeeded, song.TerminalOutcome,
                 "Should fall back to full candidate list and succeed via gooduser");
-            Assert.AreEqual("gooduser", song.ChosenCandidate?.Username,
+            Assert.AreEqual("gooduser", song.ResolvedTarget?.Username,
                 "Should have downloaded from gooduser after fast-user failed");
         }
 

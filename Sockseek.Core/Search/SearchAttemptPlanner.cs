@@ -34,6 +34,8 @@ internal static class SearchAttemptPlanner
                 if (!normalSearch && remaining == 0)
                     break;
 
+                // TODO: Consider -term and *suffix in Song and Album Search. In automated
+                // jobs, the same characters can be part of an imported artist or title.
                 string text = Searcher.CleanSearchString(variant.Text, !search.NoRemoveSpecialChars);
                 if (string.IsNullOrWhiteSpace(text))
                     continue;

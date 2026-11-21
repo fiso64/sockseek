@@ -25,6 +25,9 @@ namespace Sockseek.Core;
         Organizing = 9,
         RunningOnComplete = 10,
         RunningFallback = 11,
+        SearchingFallback = 12,
+        DownloadingFallback = 13,
+        ProcessingFallback = 14,
     }
 
     public enum JobTerminalOutcome
@@ -101,6 +104,7 @@ namespace Sockseek.Core;
         ChildJobsFailed = 8,
         NoSearchResults = 9,
         NoMatchingResults = 10,
+        Interrupted = 11,
     }
 
     public enum SkipMode
@@ -119,10 +123,20 @@ namespace Sockseek.Core;
         Bandcamp,
         String,
         List,
-        Soulseek,
+        [JsonStringEnumMemberName("soulseek-link")]
+        SoulseekLink,
         MusicBrainz,
         SoundCloud,
         None = -1,
+    }
+
+    public static class InputTypes
+    {
+        public static bool TryParse(string? value, out InputType type)
+            => Enum.TryParse(value?.Replace("-", ""), ignoreCase: true, out type) && Enum.IsDefined(type);
+
+        public static string ToInputName(this InputType type)
+            => type == InputType.SoulseekLink ? "soulseek-link" : type.ToString();
     }
 
     /// <summary>
@@ -137,26 +151,7 @@ namespace Sockseek.Core;
     {
         Song = 0,
         Album = 1,
-    }
-
-    // backward-compat, remove this
-    public enum TrackTypeOld
-    {
-        Normal = 0,
-        Album = 1,
-        Aggregate = 2,
-        AlbumAggregate = 3,
-    }
-
-    // TODO: should be removed once the TODO in M3uEditor.cs is done.
-    // Indexes are no longer stored in the M3Us, so it doesn't make sense to model this
-    // as one enum. Use two independent bools instead.
-    public enum M3uOption
-    {
-        None,
-        Index,
-        Playlist,
-        All,
+        General = 2,
     }
 
     public enum PrintOption

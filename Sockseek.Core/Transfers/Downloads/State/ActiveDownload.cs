@@ -9,23 +9,45 @@ namespace Sockseek.Core.Transfers.Downloads.State;
 // No progress bar or display logic — those belong in the CLI layer.
 internal sealed class ActiveDownload
 {
-    public SongJob Song { get; }
-    public FileCandidate Candidate { get; }
+    public Guid TransferId { get; }
+    public FileDownloadJob Owner { get; }
+    public PeerFileTarget Target { get; }
+    public string OutputPath { get; }
     public CancellationTokenSource Cts { get; }
     public Job? ParentJob { get; }
 
     // Set by the Soulseek client callbacks for live display and command handling.
     public Transfer? Transfer { get; set; }
+    public bool UserCancelled { get; set; }
     public bool IsManuallySkipped { get; set; }
     public bool IsStaleCancelled => StaleMaxStaleTimeMs.HasValue;
     public int? StaleMaxStaleTimeMs { get; private set; }
 
-    public ActiveDownload(SongJob song, FileCandidate candidate, CancellationTokenSource cts, Job? parentJob = null)
+    public ActiveDownload(
+        Guid transferId,
+        FileDownloadJob owner,
+        PeerFileTarget target,
+        string outputPath,
+        CancellationTokenSource cts,
+        Job? parentJob = null)
     {
-        Song = song;
-        Candidate = candidate;
+        TransferId = transferId;
+        Owner = owner;
+        Target = target;
+        OutputPath = outputPath;
         Cts = cts;
         ParentJob = parentJob;
+    }
+
+    public ActiveDownload(
+        Guid transferId,
+        SongJob song,
+        FileCandidate candidate,
+        string outputPath,
+        CancellationTokenSource cts,
+        Job? parentJob = null)
+        : this(transferId, song, candidate.Target, outputPath, cts, parentJob)
+    {
     }
 
     public void MarkStaleCancelled(int maxStaleTimeMs)

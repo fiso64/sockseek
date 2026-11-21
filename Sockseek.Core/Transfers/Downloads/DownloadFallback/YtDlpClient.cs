@@ -17,11 +17,14 @@ public sealed class YtDlpSongDownloadFallback(IYtDlpClient client) : ISongDownlo
         DownloadSettings settings,
         FileManager organizer,
         IJobLog? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<FallbackTransferDescriptor>? transferStarting = null)
     {
         if (!CanRun(song, settings))
             return null;
 
+        song.Fallback = new FallbackSource("yt-dlp");
+        song.UpdateActivity(JobActivityPhase.SearchingFallback);
         var results = await client.SearchAsync(song.Query, log, ct);
         if (results.Count == 0)
             return null;
@@ -31,12 +34,16 @@ public sealed class YtDlpSongDownloadFallback(IYtDlpClient client) : ISongDownlo
             ? $"{song.Query.Artist} - {song.Query.Title}"
             : result.Title;
         var savePathNoExt = organizer.GetSavePathNoExt(sourceName + ".mp3");
+        song.Fallback = new FallbackSource("yt-dlp", sourceName, result.Id);
+        song.UpdateActivity(JobActivityPhase.DownloadingFallback);
+        transferStarting?.Invoke(new FallbackTransferDescriptor(result.Id, savePathNoExt));
         var downloadPath = await client.DownloadAsync(
             result.Id,
             savePathNoExt,
             settings.YtDlp.YtdlpArgument ?? "",
             log,
-            ct);
+            ct,
+            () => song.UpdateActivity(JobActivityPhase.ProcessingFallback));
 
         return string.IsNullOrWhiteSpace(downloadPath)
             ? null
@@ -44,39 +51,120 @@ public sealed class YtDlpSongDownloadFallback(IYtDlpClient client) : ISongDownlo
     }
 }
 
+public sealed record YtDlpSearchResult(int Length, string Id, string Title);
+
+public interface IYtDlpClient
+{
+    Task<IReadOnlyList<YtDlpSearchResult>> SearchAsync(SongQuery query, IJobLog? log, CancellationToken ct);
+
+    Task<string> DownloadAsync(string id, string savePathNoExt, string ytdlpArgument, IJobLog? log, CancellationToken ct, Action? processing = null);
+}
+
 public sealed class YtDlpClient : IYtDlpClient
 {
     public async Task<IReadOnlyList<YtDlpSearchResult>> SearchAsync(SongQuery query, IJobLog? log, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var results = await YtDlpCommand.SearchAsync(query, log);
+        var results = await YtDlpCommand.SearchAsync(query, log, ct);
         ct.ThrowIfCancellationRequested();
         return results
             .Select(result => new YtDlpSearchResult(result.length, result.id, result.title))
             .ToList();
     }
 
-    public async Task<string> DownloadAsync(string id, string savePathNoExt, string ytdlpArgument, IJobLog? log, CancellationToken ct)
+    public async Task<string> DownloadAsync(string id, string savePathNoExt, string ytdlpArgument, IJobLog? log, CancellationToken ct, Action? processing = null)
     {
         ct.ThrowIfCancellationRequested();
-        var path = await YtDlpCommand.DownloadAsync(id, savePathNoExt, ytdlpArgument, log);
-        ct.ThrowIfCancellationRequested();
-        return path;
+        string destination = Path.GetDirectoryName(Path.GetFullPath(savePathNoExt))!;
+        string root = Path.Combine(destination, OutputStaging.DirectoryName);
+        Directory.CreateDirectory(root);
+        string key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(string.Join('\0', id, Path.GetFileName(savePathNoExt), ytdlpArgument))));
+        string stage = Path.Combine(root, key);
+        // Concurrent requests for the same output must never append to the same partial.
+        using var lease = TryClaim(stage + ".lock");
+        if (lease == null) stage = Path.Combine(root, Guid.NewGuid().ToString("N"));
+        CleanPartialDownloads(stage, keepHttp: lease != null);
+        Directory.CreateDirectory(stage);
+        bool publishing = false;
+        try
+        {
+            // yt-dlp knows the actual protocol and format only after selecting the media.
+            string prefix = Path.Combine(stage, "%(protocol)s-%(format_id)s", Path.GetFileName(savePathNoExt));
+            string media = Path.GetFullPath(await YtDlpCommand.DownloadAsync(id, prefix, ytdlpArgument, log, ct, processing));
+            ct.ThrowIfCancellationRequested();
+            publishing = true;
+            string finalMedia = media;
+            foreach (string format in Directory.EnumerateDirectories(stage))
+            {
+                foreach (string file in Directory.EnumerateFiles(format, "*", SearchOption.AllDirectories))
+                {
+                    if (file == media || file.EndsWith(".part", StringComparison.Ordinal)) continue;
+                    string target = Path.Combine(destination, Path.GetRelativePath(format, file));
+                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                    Utils.Move(file, target);
+                }
+                if (Utils.IsInDirectory(media, format, strict: true))
+                    finalMedia = Path.Combine(destination, Path.GetRelativePath(format, media));
+            }
+            if (finalMedia != media)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(finalMedia)!);
+                Utils.Move(media, finalMedia);
+            }
+            Directory.Delete(stage, recursive: true);
+            return finalMedia;
+        }
+        finally
+        {
+            if (!publishing) CleanPartialDownloads(stage, keepHttp: lease != null);
+        }
+    }
+
+    private static FileStream? TryClaim(string path)
+    {
+        try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose); }
+        catch (IOException) when (File.Exists(path)) { return null; }
+    }
+
+    private static void CleanPartialDownloads(string stage, bool keepHttp)
+    {
+        if (!Directory.Exists(stage)) return;
+        foreach (string format in Directory.GetDirectories(stage))
+        {
+            // Resume a plain HTTP file by byte offset. Restart segmented formats
+            // because their fragment checkpoint can disagree with the partial media.
+            string name = Path.GetFileName(format);
+            if (keepHttp && (name.StartsWith("http-", StringComparison.Ordinal) || name.StartsWith("https-", StringComparison.Ordinal)))
+            {
+                bool hasPartial = false;
+                foreach (string file in Directory.EnumerateFiles(format, "*", SearchOption.AllDirectories))
+                {
+                    if (file.EndsWith(".part", StringComparison.Ordinal)) hasPartial = true;
+                    else File.Delete(file);
+                }
+                if (hasPartial) continue;
+            }
+            Directory.Delete(format, recursive: true);
+        }
+        if (!Directory.EnumerateFileSystemEntries(stage).Any()) Directory.Delete(stage);
     }
 }
 
 internal static class YtDlpCommand
 {
+    private const string ProcessingMarker = "sockseek-fallback-processing";
+    private const string ProcessingPrint = " --print \"post_process:" + ProcessingMarker + "\"";
     private const string DownloadPathPrefix = "sockseek-download-path:";
     private const string DownloadResultPrefix = "sockseek-download-result:";
     private const string DownloadResultTemplate =
         "[%(filepath)j,%(id)j,%(title)j,%(webpage_url)j,%(extractor)j,%(format_id)j,%(ext)j,%(duration)j]";
 
-    public static async Task<List<(int length, string id, string title)>> SearchAsync(SongQuery query, IJobLog? log = null)
+    public static async Task<List<(int length, string id, string title)>> SearchAsync(SongQuery query, IJobLog? log = null, CancellationToken ct = default)
     {
         log ??= ExtractorContext.None.Log;
         string search = query.Artist.Length > 0 ? $"{query.Artist} - {query.Title}" : query.Title;
-        var result = await RunAsync($"\"ytsearch3:{search}\" --dump-json", log);
+        var result = await RunAsync($"\"ytsearch3:{search}\" --dump-json", log, ct: ct);
         if (result.ExitCode != 0)
             throw new InvalidOperationException($"yt-dlp search failed with exit code {result.ExitCode}: {string.Join(Environment.NewLine, result.Stderr)}");
 
@@ -150,12 +238,13 @@ internal static class YtDlpCommand
         }
     }
 
-    public static async Task<string> DownloadAsync(string id, string savePathNoExt, string ytdlpArgument = "", IJobLog? log = null)
+    public static async Task<string> DownloadAsync(string id, string savePathNoExt, string ytdlpArgument = "", IJobLog? log = null, CancellationToken ct = default, Action? processing = null)
     {
         log ??= ExtractorContext.None.Log;
         var arguments = BuildDownloadArguments(id, savePathNoExt, ytdlpArgument);
 
-        var result = await RunAsync(arguments, log, StripInternalDownloadResultPrint(arguments));
+        var result = await RunAsync(arguments, log, StripInternalDownloadResultPrint(arguments), ct,
+            line => { if (line == ProcessingMarker) processing?.Invoke(); });
         if (result.ExitCode != 0)
             throw new InvalidOperationException($"yt-dlp download failed with exit code {result.ExitCode}: {string.Join(Environment.NewLine, result.Stderr)}");
 
@@ -180,19 +269,19 @@ internal static class YtDlpCommand
     internal static string BuildDownloadArguments(string id, string savePathNoExt, string ytdlpArgument = "")
     {
         if (ytdlpArgument.Length == 0)
-            ytdlpArgument = "\"{id}\" -f bestaudio/best -ci -o \"{savepath-noext}.%(ext)s\" -x";
+            ytdlpArgument = "\"{id}\" -f bestaudio/best -o \"{savepath-noext}.%(ext)s\" -x";
 
         return ytdlpArgument
             .Replace("{id}", id)
             .Replace("{savepath}", savePathNoExt)
             .Replace("{savepath-noext}", savePathNoExt)
             .Replace("{savedir}", Path.GetDirectoryName(savePathNoExt))
-            + $" --print \"after_move:{DownloadResultPrefix}{DownloadResultTemplate}\"";
+            + $" --print \"after_move:{DownloadResultPrefix}{DownloadResultTemplate}\"" + ProcessingPrint;
     }
 
     internal static string StripInternalDownloadResultPrint(string arguments)
     {
-        var suffix = $" --print \"after_move:{DownloadResultPrefix}{DownloadResultTemplate}\"";
+        var suffix = $" --print \"after_move:{DownloadResultPrefix}{DownloadResultTemplate}\"" + ProcessingPrint;
         return arguments.EndsWith(suffix, StringComparison.Ordinal)
             ? arguments[..^suffix.Length]
             : arguments;
@@ -339,40 +428,45 @@ internal static class YtDlpCommand
             : null;
     }
 
-    private sealed record ProcessResult(int ExitCode, IReadOnlyList<string> Stdout, IReadOnlyList<string> Stderr);
+    internal sealed record ProcessResult(int ExitCode, IReadOnlyList<string> Stdout, IReadOnlyList<string> Stderr);
 
-    private static async Task<ProcessResult> RunAsync(string arguments, IJobLog log, string? logArguments = null)
-    {
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
+    private static Task<ProcessResult> RunAsync(string arguments, IJobLog log,
+        string? logArguments = null, CancellationToken ct = default, Action<string>? output = null)
+        => RunAsync(new ProcessStartInfo("yt-dlp", arguments)
         {
-            FileName = "yt-dlp",
-            Arguments = arguments,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-        };
+        }, log, logArguments, ct, output);
 
-        log.Info($"{process.StartInfo.FileName} {logArguments ?? process.StartInfo.Arguments}");
-        process.Start();
-
-        var stdoutTask = ReadLinesAsync(process.StandardOutput);
-        var stderrTask = ReadLinesAsync(process.StandardError);
-        await process.WaitForExitAsync();
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-        foreach (var line in stderr)
-            log.Info(line);
-
-        return new ProcessResult(process.ExitCode, stdout, stderr);
-    }
-
-    private static async Task<List<string>> ReadLinesAsync(TextReader reader)
+    internal static async Task<ProcessResult> RunAsync(ProcessStartInfo startInfo, IJobLog log,
+        string? logArguments = null, CancellationToken ct = default, Action<string>? output = null)
     {
-        var lines = new List<string>();
-        string? line;
-        while ((line = await reader.ReadLineAsync()) != null)
-            lines.Add(line);
-        return lines;
+        ct.ThrowIfCancellationRequested();
+        log.Info($"{startInfo.FileName} {logArguments ?? startInfo.Arguments}");
+        using var process = Process.Start(startInfo)!;
+        List<string> stdout = [], stderr = [];
+        try
+        {
+            await foreach (var line in process.ReadAllLinesAsync(ct))
+            {
+                (line.StandardError ? stderr : stdout).Add(line.Content);
+                if (!line.StandardError) output?.Invoke(line.Content);
+            }
+            await process.WaitForExitAsync(ct);
+            foreach (var line in stderr) log.Info(line);
+            return new ProcessResult(process.ExitCode, stdout, stderr);
+        }
+        finally
+        {
+            // Canceling output enumeration or a wait does not terminate yt-dlp.
+            // Join the child on failure/cancellation as well as normal EOF.
+            if (!process.HasExited)
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) when (process.HasExited) { }
+                await process.WaitForExitAsync();
+            }
+        }
     }
 }

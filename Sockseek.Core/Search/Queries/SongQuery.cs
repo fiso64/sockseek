@@ -20,12 +20,6 @@ namespace Sockseek.Core.Models;
             ArtistMaybeWrong = other.ArtistMaybeWrong;
         }
 
-        public string ToKey()
-        {
-            // Keep numeric suffix compatible with old index files (TrackType.Normal = 0)
-            return $"{Artist};{Album};{Title};{Length};0";
-        }
-
         public override string ToString() => ToString(noInfo: false);
 
         public string ToString(bool noInfo)
@@ -79,7 +73,7 @@ namespace Sockseek.Core.Models;
             if (_lenTol == -1) return true;
             if (a.Length == -1 && b.Length == -1) return true;
             if (a.Length == -1 || b.Length == -1) return false;
-            return Math.Abs(a.Length - b.Length) <= _lenTol;
+            return Math.Abs((long)a.Length - b.Length) <= _lenTol;
         }
 
         public int GetHashCode(SongQuery a)

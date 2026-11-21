@@ -59,31 +59,35 @@ public class DownloadSettings
         _ => throw new Exception($"Input error: Invalid print option '{s}' for '{flag}'"),
     };
 
-    /// Tracks which auto-profiles were applied by the job settings resolver.
-    [JsonIgnore]
-    public HashSet<string> AppliedAutoProfiles { get; set; } = [];
+    /// Application order and origin, captured with accepted settings.
+    [SettingIgnore]
+    public List<AppliedProfile> AppliedProfiles { get; set; } = [];
+
+    // Workflow logging needs automatic matches, not explicitly selected profiles.
+    [JsonIgnore, SettingIgnore]
+    public IReadOnlyList<string> AppliedAutoProfiles => AppliedProfiles
+        .Where(profile => profile.Source == "automatic").Select(profile => profile.Name).ToArray();
 
     /// Runtime path expansion context. This is not a user-facing setting.
     [JsonIgnore]
     public PathVariableContext RuntimePathContext { get; set; } = PathVariableContext.Empty;
 
-    /// Automatic aggregate threshold supplied by the host's backend.
-    [JsonIgnore]
-    public int DefaultMinSharesAggregate { get; set; } = SearchSettings.DefaultMinShares;
+    /// Automatic group threshold supplied by the host's backend.
+    [SettingIgnore]
+    public int DefaultMinGroupShares { get; set; } = SearchSettings.DefaultMinShares;
 
     // ── Computed properties ───────────────────────────────────────────────────
 
     public bool DoNotDownload  => PrintOption != PrintOption.None;
     public bool PrintJobs      => (PrintOption & PrintOption.Jobs)    != 0;
     public bool PrintResults   => (PrintOption & (PrintOption.Results | PrintOption.Json | PrintOption.Link)) != 0;
-    public bool PrintFull      => (PrintOption & PrintOption.Full)    != 0;
     public bool NonVerbosePrint => (PrintOption & (PrintOption.Json | PrintOption.Link | PrintOption.Index)) != 0;
 
     public bool NeedLogin      => !PrintJobs && (PrintOption & PrintOption.Index) == 0;
 
     /// Resolve mode-specific search behavior without rewriting configured conditions.
     public SearchSettings ResolveSearchSettings(SearchSettings? search = null)
-        => (search ?? Search).Resolve(Output.AlbumArtOnly, DefaultMinSharesAggregate);
+        => (search ?? Search).Resolve(Output.AlbumArtOnly, DefaultMinGroupShares);
 
     public ResolvedIncompleteAlbumAction ResolveIncompleteAlbumAction()
     {
@@ -94,6 +98,10 @@ public class DownloadSettings
 
         return new ResolvedIncompleteAlbumAction(kind, path);
     }
+
+    // Before extraction, the input may not yet have supplied its index default.
+    public bool? ResolveWriteIndex(bool? inputDefault = null)
+        => DoNotDownload ? false : Output.WriteIndex ?? (Output.IndexFilePath != null ? true : inputDefault);
 
     public bool HasOnComplete => Output.OnComplete?.Any(x => !string.IsNullOrWhiteSpace(x)) == true;
 }
