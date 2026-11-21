@@ -725,11 +725,12 @@ public sealed class UploadCoordinator : IAsyncDisposable
     private void SetProgress(Work item, long bytes, double speed)
     {
         bool publish;
+        bool reachedEnd;
         lock (sync)
         {
             if (IsTerminal(item.State))
                 return;
-            bool reachedEnd = item.BytesTransferred < item.Request.SizeBytes && bytes >= item.Request.SizeBytes;
+            reachedEnd = item.BytesTransferred < item.Request.SizeBytes && bytes >= item.Request.SizeBytes;
             item.BytesTransferred = Math.Clamp(bytes, 0, item.Request.SizeBytes);
             item.BytesPerSecond = double.IsFinite(speed) ? Math.Max(0, speed) : 0;
             item.LastProgressAtUtc = DateTimeOffset.UtcNow;
@@ -747,6 +748,7 @@ public sealed class UploadCoordinator : IAsyncDisposable
         }
         // Track every chunk; publish at human-visible cadence. Terminalization
         // always publishes the latest byte totals, including partial failures.
+        if (reachedEnd) UploadLogMessages.AllBytesReported(logger, item.Request.TransferId);
         if (publish) Publish(item);
     }
 
@@ -757,10 +759,12 @@ public sealed class UploadCoordinator : IAsyncDisposable
         string? failureMessage = null,
         Exception? exception = null)
     {
+        UploadTransferState previousState;
         lock (sync)
         {
             if (IsTerminal(item.State))
                 return false;
+            previousState = item.State;
             item.State = state;
             if (state == UploadTransferState.Completed && item.Attempt?.BytesTransferred > 0 && item.BytesPerSecond > 0)
                 Volatile.Write(ref measuredUploadSpeed, (int)Math.Min(int.MaxValue, Math.Ceiling(item.BytesPerSecond)));
@@ -775,12 +779,16 @@ public sealed class UploadCoordinator : IAsyncDisposable
         SharingTelemetry.RecordUploadTerminal(
             state,
             item.Attempt?.BytesTransferred ?? 0);
-        long durationMs = (long)(item.FinishedAtUtc.Value - item.Request.RequestedAtUtc).TotalMilliseconds;
+        var finished = item.FinishedAtUtc.Value;
+        var started = item.Attempt?.StartedAtUtc ?? finished;
+        long queuedMs = (long)(started - item.Request.RequestedAtUtc).TotalMilliseconds;
+        long activeMs = (long)(finished - started).TotalMilliseconds;
+        long sent = item.Attempt?.BytesTransferred ?? 0;
         string peerHash = LogIdentity.PeerHash(item.Request.Username);
         if (state == UploadTransferState.Failed)
-            UploadLogMessages.Failed(logger, exception, item.Request.TransferId, peerHash, failure, item.BytesTransferred, durationMs);
+            UploadLogMessages.Failed(logger, exception, item.Request.TransferId, peerHash, failure, previousState, sent, queuedMs, activeMs);
         else
-            UploadLogMessages.Terminal(logger, item.Request.TransferId, peerHash, state, item.BytesTransferred, durationMs);
+            UploadLogMessages.Terminal(logger, item.Request.TransferId, peerHash, state, sent, queuedMs, activeMs);
         return true;
     }
 
@@ -1053,6 +1061,9 @@ public sealed class UploadCoordinator : IAsyncDisposable
 
 internal static partial class UploadLogMessages
 {
+    [LoggerMessage(4317, LogLevel.Debug, "Upload {TransferId}: all file bytes reported; awaiting transfer completion")]
+    public static partial void AllBytesReported(ILogger logger, Guid transferId);
+
     [LoggerMessage(4316, LogLevel.Debug, "Could not report measured upload speed to the Soulseek server")]
     public static partial void SpeedReportFailed(ILogger logger, Exception exception);
 
@@ -1087,17 +1098,17 @@ internal static partial class UploadLogMessages
         EventId = 4313,
         EventName = "upload.terminal",
         Level = LogLevel.Information,
-        Message = "Upload {TransferId}: {State} ({BytesTransferred} bytes in {DurationMs} ms, peer hash {PeerHash})")]
+        Message = "Upload {TransferId}: {State} ({BytesTransferred} bytes sent, queued {QueuedMs} ms, active {ActiveMs} ms, peer hash {PeerHash})")]
     public static partial void Terminal(
         ILogger logger, Guid transferId, string peerHash, UploadTransferState state,
-        long bytesTransferred, long durationMs);
+        long bytesTransferred, long queuedMs, long activeMs);
 
     [LoggerMessage(
         EventId = 4314,
         EventName = "upload.failed",
         Level = LogLevel.Error,
-        Message = "Upload {TransferId} for peer hash {PeerHash} failed: {FailureReason} ({BytesTransferred} bytes transferred in {DurationMs} ms)")]
+        Message = "Upload {TransferId} for peer hash {PeerHash} failed during {PreviousState}: {FailureReason} ({BytesTransferred} bytes sent, queued {QueuedMs} ms, active {ActiveMs} ms)")]
     public static partial void Failed(
-        ILogger logger, Exception? exception, Guid transferId, string peerHash, UploadFailureReason failureReason,
-        long bytesTransferred, long durationMs);
+        ILogger logger, Exception? exception, Guid transferId, string peerHash, UploadFailureReason failureReason, UploadTransferState previousState,
+        long bytesTransferred, long queuedMs, long activeMs);
 }

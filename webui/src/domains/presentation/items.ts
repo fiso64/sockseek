@@ -78,6 +78,12 @@ export interface TransferPresentation {
   completedAt?: string;
 }
 
+export function isTerminalTransfer(transfer?: TransferPresentation): boolean {
+  return transfer?.tone === 'complete' || transfer?.tone === 'partial'
+    || transfer?.tone === 'failed' || transfer?.tone === 'cancelled'
+    || transfer?.job?.lifecycle.lifecycleState === 'Terminal';
+}
+
 /** One immutable file presentation. Replace it when data changes; selection is separate. */
 export interface FolderItemFile {
   readonly id: string;

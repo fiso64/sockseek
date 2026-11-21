@@ -12,6 +12,9 @@ public class DaemonSettings
     // defaults or share their collections with a bound settings instance.
     private static readonly ServerOptions Defaults = new();
 
+    [SettingOption("--web-ui-dir", DefaultProfileOnly = true)]
+    public string? WebUiDirectory { get; set; }
+
     [SettingOption("--web-theme", DefaultProfileOnly = true), SettingReloadable]
     [Required, RegularExpression("^(dark|light|auto|2009-dark|2009-light)$")]
     public string WebTheme { get; set; } = Defaults.WebUi.Theme;
@@ -91,6 +94,10 @@ public class DaemonSettings
         {
             Authentication = CreateAuthenticationOptions(),
             WebUi = CreateWebUiOptions(),
+#if EMBEDDED_WEB_ASSETS
+            WebAssetsAssembly = typeof(DaemonSettings).Assembly,
+#endif
+            WebUiDirectory = WebUiDirectory,
             ServeDocumentation = ServeDocumentation,
             Engine = daemonEngine,
             LaunchDownloadSettings = DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings),

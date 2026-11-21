@@ -109,19 +109,31 @@ public sealed class OperationalLoggingTests
     }
 
     [TestMethod]
-    public void LoginAttemptsAreDebugAndSuccessfulLoginIsInformation()
+    public async Task SessionLossAndRecoveryRecordTheTransportErrorAndAttempts()
     {
         var provider = new CapturingLoggerProvider();
-        using ILoggerFactory factory = LoggerFactory.Create(builder => builder
-            .SetMinimumLevel(LogLevel.Debug).AddProvider(provider));
-        ILogger logger = factory.CreateLogger("Sockseek.Core.Soulseek.SoulseekClientManager");
+        using var factory = LoggerFactory.Create(builder => builder.SetMinimumLevel(LogLevel.Information).AddProvider(provider));
+        var settings = new Sockseek.Core.Settings.EngineSettings { Username = "fixture", Password = "fixture" };
+        var client = new Tests.ClientTests.MockSoulseekClient([]);
+        var allowRetry = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var manager = new SoulseekClientManager(settings, client, null,
+            (_, ct) => allowRetry.Task.WaitAsync(ct), logger: factory.CreateLogger<SoulseekClientManager>());
 
-        SoulseekLogMessages.LoginStarting(logger);
-        SoulseekLogMessages.RandomLoginStarting(logger);
-        SoulseekLogMessages.LoginCompleted(logger);
+        var reset = new SocketException((int)SocketError.ConnectionReset);
+        client.RaiseStateChanged(Soulseek.SoulseekClientStates.Disconnecting, reset);
+        client.ConnectException = new TimeoutException();
+        client.Connecting = () => client.RaiseStateChanged(Soulseek.SoulseekClientStates.Connected | Soulseek.SoulseekClientStates.LoggingIn);
+        await Assert.ThrowsExactlyAsync<SoulseekConnectionUnavailableException>(() => manager.EnsureConnectedAndLoggedInAsync(settings));
+        await Assert.ThrowsExactlyAsync<SoulseekConnectionUnavailableException>(() => manager.EnsureConnectedAndLoggedInAsync(settings));
+        Assert.AreEqual(1, client.ConnectCallCount);
+        client.ConnectException = null;
+        allowRetry.SetResult();
+        await manager.WaitUntilReadyAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await manager.DisposeAsync();
 
-        CollectionAssert.AreEqual(new[] { LogLevel.Debug, LogLevel.Debug, LogLevel.Information },
-            provider.Entries.Select(entry => entry.Level).ToArray());
+        Assert.AreSame(reset, provider.Entries.Single(e => e.EventId.Id == 2027).Exception);
+        Assert.AreEqual(1, provider.Entries.Single(e => e.EventId.Id == 2005).Properties["Attempt"]);
+        Assert.AreEqual(2, provider.Entries.Single(e => e.EventId.Id == 2013).Properties["Attempts"]);
     }
 
     [TestMethod]

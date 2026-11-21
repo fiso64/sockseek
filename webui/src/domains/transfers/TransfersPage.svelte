@@ -13,8 +13,8 @@
   import TransferBulkActions, { type BulkCancelMode } from '../../components/TransferBulkActions.svelte';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import MutationStatus, { type MutationState } from '../../components/MutationStatus.svelte';
-  import { basename, type FolderItemFile } from '../presentation/items';
-  import { arrangeTransferGroups, presentTransferEntry, transferEntryActions, TransferProjection, isQueuedTransfer, isTerminalTransfer, type TransferTimelineEntry, type TransferTimelineFolderEntry } from './model';
+  import { basename, isTerminalTransfer, type FolderItemFile } from '../presentation/items';
+  import { arrangeTransferGroups, presentTransferEntry, transferEntryActions, TransferProjection, isQueuedTransfer, type TransferTimelineEntry, type TransferTimelineFolderEntry } from './model';
   import { transferGroupKeys, transferGroupMemberScope, transferGroupCursor } from './history';
 
   interface Props {

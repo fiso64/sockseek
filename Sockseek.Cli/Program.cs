@@ -1405,8 +1405,6 @@ internal static partial class Program
         EnsureDaemonEndpointAvailable(daemonSettings);
         var options = daemonSettings.CreateServerOptions(engineSettings, configFile, invocation);
 
-        // A published CLI carries the WebUI beside the executable. Resolve
-        // static assets there even when launched from a different directory.
         var app = ServerHost.Build([], options, url, configureServices: services =>
             services.AddHostedService(provider => new DaemonConfigWatcher(
                 configFile, invocation, daemonSettings.NoConfigWatch,

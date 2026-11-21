@@ -8,7 +8,7 @@
   import RelativeTime from '../RelativeTime.svelte';
   import { folderItemIconPaths, type AppIconName } from '../../app/icons';
   import type { FolderItemFile, TransferPresentation } from '../../domains/presentation/items';
-  import { audioSummary, basename, formatBytes, formatLength, parentPath } from '../../domains/presentation/items';
+  import { audioSummary, basename, formatBytes, formatLength, isTerminalTransfer, parentPath } from '../../domains/presentation/items';
   import { buildFolderTreeRows, type FolderTreeNode } from '../../domains/presentation/folder-tree';
   import { fileTypeIcon } from '../../domains/presentation/file-types';
 
@@ -90,7 +90,7 @@
   }
 
   function showsInlineTransferProgress(value: TransferPresentation): boolean {
-    return value.progressPercent !== undefined && value.tone !== 'complete' && value.tone !== 'queued';
+    return value.progressPercent !== undefined && !isTerminalTransfer(value) && value.tone !== 'queued';
   }
 
   function fileTransferProgressText(value: TransferPresentation): string {
@@ -211,8 +211,7 @@
     {/if}
   </div>
 
-  {#if transfer}
-    {#if transfer.tone !== 'complete'}
+  {#if transfer && !isTerminalTransfer(transfer)}
     <div class={`transfer-card-footer folder-transfer-footer ${transfer.tone ?? ''} ${transferDirectionClass}`}>
       {#if transfer.progressPercent !== undefined}
         <div class="progress-track transfer-progress-track" aria-label={`${transfer.progressPercent.toFixed(0)}% complete`}>
@@ -226,7 +225,6 @@
         </div>
       {/if}
     </div>
-    {/if}
   {/if}
 
   <div class="folder-files-table" class:transfer-files={Boolean(transfer)}>

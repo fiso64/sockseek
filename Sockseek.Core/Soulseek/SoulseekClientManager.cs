@@ -2,6 +2,7 @@ using Soulseek;
 using Soulseek.Diagnostics;
 using System.Security.Cryptography;
 using System.Net.Sockets;
+using System.Diagnostics;
 using Sockseek.Core.Settings;
 using System.ComponentModel;
 using Microsoft.Extensions.Logging;
@@ -54,6 +55,10 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
     private Task? _monitorTask;
     private int _disposeState;
     private string? loggedInUsername;
+    private long unavailableSince;
+    private volatile SoulseekClientStates loginPhase;
+    private SoulseekConnectionUnavailableException? lastTransientFailure;
+    private int loginAttempts; // Serialized by the initialization semaphore.
 
     public event Action<SoulseekClientStates>? StateChanged;
     public event Action<ISoulseekClient>? ClientCreated;
@@ -73,9 +78,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
     public SoulseekClientStates State => _client?.State ?? SoulseekClientStates.None;
 
     public bool IsConnectedAndLoggedIn =>
-        _client != null &&
-        _client.State.HasFlag(SoulseekClientStates.Connected) &&
-        _client.State.HasFlag(SoulseekClientStates.LoggedIn);
+        State.HasFlag(SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn);
 
     public bool HasFatalError
     {
@@ -92,11 +95,10 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         {
             if (_fatalException != null)
                 return Task.FromException(_fatalException);
+            if (!IsConnectedAndLoggedIn && _readyTcs.Task.IsCompletedSuccessfully)
+                _readyTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            return _readyTcs.Task.WaitAsync(cancellationToken);
         }
-
-        if (IsConnectedAndLoggedIn) return Task.CompletedTask;
-
-        return _readyTcs.Task.WaitAsync(cancellationToken);
     }
 
     public SoulseekClientManager(
@@ -174,19 +176,25 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
 
     private void OnStateChanged(object? sender, SoulseekClientStateChangedEventArgs e)
     {
-        if (!IsConnectedAndLoggedIn)
+        bool lostLogin = e.PreviousState.HasFlag(SoulseekClientStates.LoggedIn) && !e.State.HasFlag(SoulseekClientStates.LoggedIn);
+        if (Volatile.Read(ref _disposeState) == 0)
+        {
+            if (e.State is not (SoulseekClientStates.Disconnecting or SoulseekClientStates.Disconnected or SoulseekClientStates.None))
+                loginPhase = e.State;
+            if (e.State.HasFlag(SoulseekClientStates.LoggingIn))
+                SoulseekLogMessages.ServerConnected(logger, _client?.IPEndPoint);
+        }
+
+        if (lostLogin && Volatile.Read(ref _disposeState) == 0)
         {
             lock (stateLock)
             {
-                if (_fatalException is null && _readyTcs.Task.IsCompleted)
-                    _readyTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                Interlocked.CompareExchange(ref unavailableSince, Stopwatch.GetTimestamp(), 0);
+                if (_fatalException is null && _readyTcs.Task.IsCompletedSuccessfully)
+                    _readyTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
             }
-        }
-
-        // Reconnection is driven by the client's state event. The bounded signal
-        // coalesces bursts without queuing one monitor wake-up per transition.
-        if (Volatile.Read(ref _disposeState) == 0)
-        {
+            SoulseekLogMessages.Disconnected(logger, e.Exception, _client?.IPEndPoint,
+                BoundedReason(e.Message ?? e.Exception?.Message ?? "No reason supplied"));
             try
             {
                 connectionStateChanged.Release();
@@ -263,26 +271,39 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
     /// </summary>
     /// <param name="loginSettings">Configuration containing potentially updated credentials.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <exception cref="InvalidOperationException">Thrown if login fails after retries.</exception>
+    /// <exception cref="InvalidOperationException">Thrown if login fails or automatic recovery is in progress.</exception>
     /// <exception cref="OperationCanceledException">Thrown if cancelled.</exception>
-    public async Task EnsureConnectedAndLoggedInAsync(EngineSettings loginSettings, CancellationToken cancellationToken = default)
-    {
-        if (IsConnectedAndLoggedIn)
-        {
-            CaptureExistingLogin(loginSettings);
-            return;
-        }
+    public Task EnsureConnectedAndLoggedInAsync(EngineSettings loginSettings, CancellationToken cancellationToken = default)
+        => ConnectAsync(loginSettings, retry: false, cancellationToken);
 
+    private async Task ConnectAsync(EngineSettings loginSettings, bool retry, CancellationToken cancellationToken)
+    {
         await _initializationSemaphore.WaitAsync(cancellationToken);
         try
         {
+            lock (stateLock)
+            {
+                if (_fatalException is not null) throw _fatalException;
+            }
             if (IsConnectedAndLoggedIn)
             {
                 CaptureExistingLogin(loginSettings);
                 return;
             }
-            cancellationToken.ThrowIfCancellationRequested();
+            // Chat, sharing and downloads can start together. Once an attempt
+            // fails, the monitor owns retries and all callers see the same failure.
+            if (!retry && lastTransientFailure is not null) throw lastTransientFailure;
+            await StartSessionAsync(loginSettings, cancellationToken);
+        }
+        finally { _initializationSemaphore.Release(); }
+    }
 
+    private async Task StartSessionAsync(EngineSettings loginSettings, CancellationToken cancellationToken)
+    {
+        long attemptStarted = Stopwatch.GetTimestamp();
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             if (_client == null)
             {
                 var created = CreateClientInstance(_initialSettings);
@@ -306,23 +327,44 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
             if (missingCredentialMessage != null)
                 throw new InvalidOperationException(missingCredentialMessage);
 
+            long since = Interlocked.CompareExchange(ref unavailableSince, attemptStarted, 0);
+            if (since == 0) since = attemptStarted;
+            loginAttempts++;
+            loginPhase = SoulseekClientStates.None;
             await LoginInternalAsync(_client, loginSettings, cancellationToken);
-            _readyTcs.TrySetResult();
+            lock (stateLock)
+            {
+                // The library raises LoggedIn before it finishes session setup.
+                if (!IsConnectedAndLoggedIn)
+                    throw new SoulseekClientException("Disconnected before Soulseek session setup finished.");
+                Interlocked.CompareExchange(ref unavailableSince, 0, since);
+                _readyTcs.TrySetResult();
+            }
+            lastTransientFailure = null;
+            SoulseekLogMessages.LoginCompleted(logger, _client.IPEndPoint, loginAttempts, (long)Stopwatch.GetElapsedTime(since).TotalMilliseconds);
+            loginAttempts = 0;
             StartMonitoring();
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             if (IsTransient(ex))
             {
-                string reason = ex.GetBaseException().Message;
-                if (reason.Length > 512) reason = reason[..512] + "…";
+                string reason = BoundedReason(ex.GetBaseException().Message);
+                string phase = loginPhase switch
+                {
+                    SoulseekClientStates.None => "preparing the connection",
+                    SoulseekClientStates.Connecting => "opening the server connection",
+                    _ when loginPhase.HasFlag(SoulseekClientStates.LoggedIn) => "sending session configuration",
+                    _ => "logging in after TCP connected",
+                };
+                long elapsed = (long)Stopwatch.GetElapsedTime(attemptStarted).TotalMilliseconds;
                 if (reconnectWarningGate.TryAcquire(out long suppressedCount))
-                    SoulseekLogMessages.ConnectionLost(logger, reason, suppressedCount);
+                    SoulseekLogMessages.ConnectionLost(logger, loginAttempts, phase, elapsed, reason, suppressedCount);
                 else
-                    SoulseekLogMessages.SessionStartFailed(logger, reason);
-                StartMonitoring(); // Ensure monitoring starts even on transient failure so we can retry
-                if (ex is OperationCanceledException) throw;
-                throw CreateConnectionFailure(ex);
+                    SoulseekLogMessages.SessionStartFailed(logger, loginAttempts, phase, elapsed, reason);
+                lastTransientFailure = CreateConnectionFailure(ex);
+                StartMonitoring();
+                throw lastTransientFailure;
             }
 
             var failure = CreateConnectionFailure(ex);
@@ -330,11 +372,9 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
             MarkFatal(failure);
             throw failure;
         }
-        finally
-        {
-            _initializationSemaphore.Release();
-        }
     }
+
+    private static string BoundedReason(string reason) => reason.Length <= 512 ? reason : reason[..512] + "…";
 
     private void CaptureExistingLogin(EngineSettings settings)
     {
@@ -429,21 +469,21 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
             {
                 if (IsConnectedAndLoggedIn)
                 {
-                    retryDelay = 1;
                     // StateChanged is the normal wake-up path. The timeout is a
                     // low-frequency safety net for an implementation that mutates
                     // State without raising the interface event.
-                    await connectionStateChanged.WaitAsync(TimeSpan.FromSeconds(30), ct);
+                    if (!await connectionStateChanged.WaitAsync(TimeSpan.FromSeconds(30), ct) && IsConnectedAndLoggedIn)
+                        retryDelay = 1; // A short-lived login should not reset outage backoff.
                     continue;
                 }
 
                 if (HasFatalError)
                     break;
 
-                await monitorDelay(TimeSpan.FromSeconds(retryDelay), ct);
-
-                await EnsureConnectedAndLoggedInAsync(_initialSettings, ct);
-                retryDelay = 1;
+                var delay = TimeSpan.FromMilliseconds(retryDelay * 1000 + Random.Shared.Next(1000));
+                SoulseekLogMessages.ReconnectScheduled(logger, delay);
+                await monitorDelay(delay, ct);
+                await ConnectAsync(_initialSettings, retry: true, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
@@ -453,9 +493,8 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
                     MarkFatal(ex);
                     break;
                 }
-
-                retryDelay = Math.Min(retryDelay * 2, 8);
             }
+            retryDelay = Math.Min(retryDelay * 2, 300);
         }
     }
 
@@ -567,7 +606,11 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         Func<string, System.Net.IPEndPoint, string, Task<int?>>? queueResolver =
             inboundRouter is null ? null : inboundRouter.ResolvePlaceInQueueAsync;
 
-        var clientOptionsBuilder = new SoulseekClientOptions(
+        // Per-route peer connection errors are emitted at Debug by Soulseek.NET.
+        var diagnosticLevel = settings.LogLevel == LogLevel.Trace ? DiagnosticLevel.Debug : DiagnosticLevel.Info;
+        return new SoulseekClientOptions(
+            enableListener: settings.ListenPort.HasValue,
+            minimumDiagnosticLevel: diagnosticLevel,
             transferConnectionOptions: transferConnectionOptions,
             serverConnectionOptions: serverConnectionOptions,
             listenPort: settings.ListenPort ?? 49998,
@@ -584,30 +627,6 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
             acceptPrivateRoomInvitations: true,
             startingToken: startingToken
         );
-
-        if (settings.ListenPort == null)
-        {
-            // No listen port: create client without listener to avoid bind failures
-            clientOptionsBuilder = new SoulseekClientOptions(
-                transferConnectionOptions: transferConnectionOptions,
-                serverConnectionOptions: serverConnectionOptions,
-                enableListener: false,
-                maximumConcurrentSearches: int.MaxValue,
-                maximumConcurrentUploads: int.MaxValue, // UploadScheduler owns admission, including live slot changes.
-                maximumUploadSpeed: maximumUploadSpeed,
-                searchResponseResolver: searchResolver,
-                browseResponseResolver: browseResolver,
-                directoryContentsResolver: directoryResolver,
-                userInfoResolver: resolvedUserInfo,
-                enqueueDownload: enqueueUpload,
-                placeInQueueResolver: queueResolver,
-                autoAcknowledgePrivateMessages: false,
-                acceptPrivateRoomInvitations: true,
-                startingToken: startingToken
-            );
-        }
-
-        return clientOptionsBuilder;
     }
 
     /// <summary>
@@ -653,7 +672,6 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
             }
             throw;
         }
-        SoulseekLogMessages.LoginCompleted(logger);
     }
 
     public void Dispose()

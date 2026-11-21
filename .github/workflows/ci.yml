@@ -75,12 +75,19 @@ jobs:
       run: |
         git add -- Sockseek.Cli/Help.Content.cs nix/settings.json
         git diff --cached --exit-code
-    - name: Publish daemon with its production WebUI
+    - name: Publish and serve the embedded WebUI
       run: |
-        dotnet publish Sockseek.Cli/Sockseek.Cli.csproj --no-build --no-restore --configuration Release --output artifacts/ci-publish -m:1 -p:OpenApiGenerateDocuments=false
-        test -s artifacts/ci-publish/manual/index.html
-        test -s artifacts/ci-publish/wwwroot/index.html
-        test -n "$(find artifacts/ci-publish/wwwroot/assets -maxdepth 1 -name '*.js' -print -quit)"
+        dotnet publish Sockseek.Cli -c Release --use-current-runtime --no-self-contained -p:PublishSingleFile=true -p:OpenApiGenerateDocuments=false -o artifacts/ci-publish -m:1
+        test ! -e artifacts/ci-publish/wwwroot && test ! -e artifacts/ci-publish/manual
+        mkdir -p "$RUNNER_TEMP/mock-files"
+        artifacts/ci-publish/sockseek daemon --no-config --no-auth --mock-files-dir "$RUNNER_TEMP/mock-files" --data-dir "$RUNNER_TEMP/sockseek-data" &
+        daemon=$!
+        trap 'kill "$daemon" 2>/dev/null || true' EXIT
+        curl -fsS --retry 20 --retry-all-errors --retry-delay 1 http://127.0.0.1:5030/ -o "$RUNNER_TEMP/shell.html"
+        grep -q data-docs "$RUNNER_TEMP/shell.html"
+        asset=$(find webui/dist/assets -name '*.js' -printf '%f\n' -quit)
+        curl -fsS "http://127.0.0.1:5030/assets/$asset" | cmp - "webui/dist/assets/$asset"
+        curl -fsS http://127.0.0.1:5030/docs/installation/nixos.html -o /dev/null
     - name: Check WebUI types and unit tests
       working-directory: webui
       # Publish installed dependencies, checked the schema and built the SPA.

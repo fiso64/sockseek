@@ -6,7 +6,7 @@
   import Icon from '../Icon.svelte';
   import LockedIndicator from '../LockedIndicator.svelte';
   import type { AudioAttributes, TransferPresentation } from '../../domains/presentation/items';
-  import { audioSummary, basename, formatBytes, formatLength, parentPath } from '../../domains/presentation/items';
+  import { audioSummary, basename, formatBytes, formatLength, isTerminalTransfer, parentPath } from '../../domains/presentation/items';
 
   interface Props {
     highlight?: RegExp;
@@ -113,7 +113,7 @@
     </svelte:element>
   {/if}
 
-  {#if transfer && transfer.tone !== 'complete'}
+  {#if transfer && !isTerminalTransfer(transfer)}
     {@const footerDetail = transferFooterDetail(transfer)}
     <div class={`transfer-card-footer file-transfer-footer ${transfer.tone ?? ''} ${transferDirectionClass}`}>
       {#if transfer.progressPercent !== undefined}

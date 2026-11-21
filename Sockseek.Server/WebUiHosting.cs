@@ -9,8 +9,17 @@ internal static class WebUiHosting
     public static bool Map(WebApplication app)
     {
         var options = app.Services.GetRequiredService<IOptions<ServerOptions>>().Value;
-        string manual = Path.Combine(app.Environment.ContentRootPath, "manual");
-        bool serveDocs = options.ServeDocumentation && File.Exists(Path.Combine(manual, "index.html"));
+        IFileProvider DirectoryFiles(string path)
+        {
+            if (!Directory.Exists(path)) return new NullFileProvider();
+            var files = new PhysicalFileProvider(path);
+            app.Lifetime.ApplicationStopped.Register(files.Dispose);
+            return files;
+        }
+
+        var manual = options.WebAssetsAssembly is { } manualAssembly ? new ManifestEmbeddedFileProvider(manualAssembly, "manual")
+            : DirectoryFiles(Path.Combine(app.Environment.ContentRootPath, "manual"));
+        bool serveDocs = options.ServeDocumentation && manual.GetFileInfo("index.html").Exists;
         app.Map("/docs", docs =>
         {
             docs.Use((context, next) =>
@@ -20,9 +29,7 @@ internal static class WebUiHosting
             });
             if (serveDocs)
             {
-                var files = new PhysicalFileProvider(manual);
-                app.Lifetime.ApplicationStopped.Register(files.Dispose);
-                docs.UseFileServer(new FileServerOptions { FileProvider = files });
+                docs.UseFileServer(new FileServerOptions { FileProvider = manual });
             }
             docs.Run(context =>
             {
@@ -31,10 +38,17 @@ internal static class WebUiHosting
             });
         });
 
-        string indexPath = Path.Combine(app.Environment.WebRootPath
-            ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot"), "index.html");
-        if (!File.Exists(indexPath)) return false;
-        string template = File.ReadAllText(indexPath);
+        var ui = options.WebUiDirectory is { } custom ? DirectoryFiles(custom)
+            : options.WebAssetsAssembly is { } uiAssembly ? new ManifestEmbeddedFileProvider(uiAssembly, "wwwroot") : app.Environment.WebRootFileProvider;
+        var index = ui.GetFileInfo("index.html");
+        if (!index.Exists)
+        {
+            if (options.WebUiDirectory != null)
+                app.Logger.LogError("WebUI unavailable: web-ui-dir {Directory} contains no index.html", options.WebUiDirectory);
+            return false;
+        }
+        using var reader = new StreamReader(index.CreateReadStream());
+        string template = reader.ReadToEnd();
         string docsAttribute = serveDocs ? "data-docs " : "";
 
         Task Shell(HttpContext context)
@@ -69,12 +83,14 @@ internal static class WebUiHosting
                 await Shell(context);
             else await next(context);
         });
-        app.UseStaticFiles(new StaticFileOptions
+        // An alternate UI may contain an api/ folder. The daemon owns that route.
+        app.UseWhen(context => !context.Request.Path.StartsWithSegments("/api"), branch => branch.UseStaticFiles(new StaticFileOptions
         {
+            FileProvider = ui,
             OnPrepareResponse = context => context.Context.Response.Headers.CacheControl =
-                context.Context.Request.Path.StartsWithSegments("/assets")
+                options.WebUiDirectory == null && context.Context.Request.Path.StartsWithSegments("/assets")
                     ? "public,max-age=31536000,immutable" : "no-cache",
-        });
+        }));
         app.MapFallback(Shell).AllowAnonymous().ExcludeFromDescription();
         return true;
     }

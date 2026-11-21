@@ -235,6 +235,39 @@ public class SoulseekClientManagerTests
     }
 
     [TestMethod]
+    public async Task ShortLivedLoginsBackOffAndWaitersOnlyResumeAfterSessionSetup()
+    {
+        var settings = new EngineSettings { Username = "user", Password = "pass" };
+        var client = new MockSoulseekClient([]);
+        var delays = new List<TimeSpan>();
+        var capped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowRecovery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var manager = new SoulseekClientManager(settings, client, null, (delay, ct) =>
+        {
+            delays.Add(delay);
+            if (delays.Count < 11) return Task.CompletedTask;
+            capped.TrySetResult();
+            return allowRecovery.Task.WaitAsync(ct);
+        });
+        bool dropDuringLogin = true;
+        manager.StateChanged += state =>
+        {
+            if (state.HasFlag(SoulseekClientStates.LoggedIn) && dropDuringLogin)
+                client.RaiseStateChanged(SoulseekClientStates.Disconnected);
+        };
+        client.RaiseStateChanged(SoulseekClientStates.Disconnected);
+        Task ready = manager.WaitUntilReadyAsync();
+        await capped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsFalse(ready.IsCompleted);
+        int[] expectedSeconds = [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 300];
+        CollectionAssert.AreEqual(expectedSeconds, delays.Select(delay => (int)delay.TotalSeconds).ToArray());
+        dropDuringLogin = false;
+        allowRecovery.SetResult();
+        await ready.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(manager.IsConnectedAndLoggedIn);
+    }
+
+    [TestMethod]
     [DataRow("listener")]
     [DataRow("credentials")]
     [DataRow("wrapped credentials")]

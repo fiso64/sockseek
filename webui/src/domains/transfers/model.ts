@@ -1,6 +1,6 @@
 import { wireInteger, type TransferStateDto, type Schema, type WireInteger } from '../../api/types';
 import type { AudioAttributes, FolderItemFile, TransferPresentation } from '../presentation/items';
-import { audioAttributes as audio } from '../presentation/items';
+import { audioAttributes as audio, isTerminalTransfer } from '../presentation/items';
 import { formatBytes } from '../../app/format';
 import { compareTransferPosition } from './history';
 
@@ -298,10 +298,6 @@ export function* transferEntryActions(
       entry.direction, entry.rows[0]!.createdAt);
   }
   for (const row of entry.rows) yield currentRow(row, projection, readTransfer).transfer;
-}
-
-export function isTerminalTransfer(transfer?: TransferPresentation): boolean {
-  return transfer?.tone === 'complete' || transfer?.tone === 'failed' || transfer?.tone === 'cancelled';
 }
 
 export function isQueuedTransfer(transfer?: TransferPresentation): boolean {

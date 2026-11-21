@@ -46,29 +46,41 @@
     </ItemGroup>
   </Target>
 
-  <!-- The CLI is the distributed daemon executable; publish its static WebUI
-       alongside it, not from the referenced Server library's publish target. -->
-  <Target Name="PublishWebUi" AfterTargets="ComputeFilesToPublish"
-          Condition="'$(SkipWebUiBuild)' != 'true' and Exists('$(WebUiProjectDirectory)/package.json')">
+  <!-- Portable releases carry their assets in the CLI assembly. Folder publishes
+       also support separately built assets (Docker and Nix). -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true' and '$(SkipWebUiBuild)' != 'true'">
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+    <DefineConstants>$(DefineConstants);EMBEDDED_WEB_ASSETS</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(GenerateEmbeddedFilesManifest)' == 'true'">
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="11.0.0" PrivateAssets="all" IncludeAssets="build" />
+  </ItemGroup>
+
+  <Target Name="BuildWebAssets">
     <Exec WorkingDirectory="$(WebUiProjectDirectory)" Command="npm ci" />
     <Exec WorkingDirectory="$(WebUiProjectDirectory)" Command="npm run api:check" />
     <Exec WorkingDirectory="$(WebUiProjectDirectory)" Command="npm run build" />
     <Exec WorkingDirectory="../docs" Command="npm ci" />
     <Exec WorkingDirectory="../docs" Command="npm run build" />
     <ItemGroup>
-      <ManualPublishFile Include="../docs/.vitepress/dist/**" />
-      <ResolvedFileToPublish Include="@(ManualPublishFile->'%(FullPath)')">
-        <RelativePath>manual/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
-        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-      </ResolvedFileToPublish>
-      <WebUiPublishFile Include="$(WebUiProjectDirectory)/dist/**" />
-      <ResolvedFileToPublish Include="@(WebUiPublishFile-&gt;'%(FullPath)')"
-                             Exclude="@(ResolvedFileToPublish)">
-        <RelativePath>wwwroot/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
-        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-      </ResolvedFileToPublish>
+      <WebUiFile Include="$(WebUiProjectDirectory)/dist/**" />
+      <ManualFile Include="../docs/.vitepress/dist/**" />
+      <WebAsset Include="@(WebUiFile)" Link="wwwroot/%(WebUiFile.RecursiveDir)%(WebUiFile.Filename)%(WebUiFile.Extension)" />
+      <WebAsset Include="@(ManualFile)" Link="manual/%(ManualFile.RecursiveDir)%(ManualFile.Filename)%(ManualFile.Extension)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="EmbedWebAssets" BeforeTargets="PrepareForBuild" DependsOnTargets="BuildWebAssets"
+          Condition="'$(GenerateEmbeddedFilesManifest)' == 'true'">
+    <ItemGroup>
+      <EmbeddedResource Include="@(WebAsset)" WithCulture="false" LogicalName="%(WebAsset.Link)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="PublishWebUi" AfterTargets="ComputeFilesToPublish" DependsOnTargets="BuildWebAssets"
+          Condition="'$(PublishSingleFile)' != 'true' and '$(SkipWebUiBuild)' != 'true' and Exists('$(WebUiProjectDirectory)/package.json')">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="@(WebAsset->'%(FullPath)')" RelativePath="%(WebAsset.Link)" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
 

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using System.Net;
 
 namespace Sockseek.Core.Services;
 
@@ -28,11 +29,20 @@ internal static partial class SoulseekLogMessages
     [LoggerMessage(2003, LogLevel.Error, "Soulseek server kicked this client; stopping this run")]
     internal static partial void KickedStopping(ILogger logger);
 
-    [LoggerMessage(2004, LogLevel.Debug, "Soulseek connection attempt failed: {Reason}")]
-    internal static partial void SessionStartFailed(ILogger logger, string reason);
+    [LoggerMessage(2004, LogLevel.Debug, "Soulseek attempt {Attempt} failed while {Phase} after {ElapsedMs} ms: {Reason}")]
+    internal static partial void SessionStartFailed(ILogger logger, int attempt, string phase, long elapsedMs, string reason);
 
-    [LoggerMessage(2005, LogLevel.Warning, "Could not connect to Soulseek: {Reason}. Retrying automatically ({SuppressedCount} other failed attempts since the last warning)")]
-    internal static partial void ConnectionLost(ILogger logger, string reason, long suppressedCount);
+    [LoggerMessage(2005, LogLevel.Warning, "Soulseek attempt {Attempt} failed while {Phase} after {ElapsedMs} ms: {Reason}. Retrying automatically ({SuppressedCount} other failed attempts since the last warning)")]
+    internal static partial void ConnectionLost(ILogger logger, int attempt, string phase, long elapsedMs, string reason, long suppressedCount);
+
+    [LoggerMessage(2029, LogLevel.Debug, "Next Soulseek reconnect attempt in {Delay}")]
+    internal static partial void ReconnectScheduled(ILogger logger, TimeSpan delay);
+
+    [LoggerMessage(2028, LogLevel.Debug, "Connected to Soulseek server {Endpoint} over TCP; starting login")]
+    internal static partial void ServerConnected(ILogger logger, IPEndPoint? endpoint);
+
+    [LoggerMessage(2027, LogLevel.Warning, "Lost Soulseek server connection to {Endpoint}: {Reason}")]
+    internal static partial void Disconnected(ILogger logger, Exception? exception, IPEndPoint? endpoint, string reason);
 
     [LoggerMessage(2007, LogLevel.Error, "Soulseek login failed. Automatic retries have stopped")]
     internal static partial void PermanentFailure(ILogger logger, Exception exception);
@@ -46,8 +56,8 @@ internal static partial class SoulseekLogMessages
     [LoggerMessage(2012, LogLevel.Debug, "Starting Soulseek login")]
     internal static partial void LoginStarting(ILogger logger);
 
-    [LoggerMessage(2013, LogLevel.Information, "Soulseek login completed")]
-    internal static partial void LoginCompleted(ILogger logger);
+    [LoggerMessage(2013, LogLevel.Information, "Soulseek login completed at {Endpoint} after {Attempts} attempt(s), {ElapsedMs} ms since connection loss or startup attempt")]
+    internal static partial void LoginCompleted(ILogger logger, IPEndPoint? endpoint, int attempts, long elapsedMs);
 
     [LoggerMessage(2014, LogLevel.Warning, "Soulseek client-created observer failed")]
     internal static partial void ClientCreatedObserverFailed(ILogger logger, Exception exception);

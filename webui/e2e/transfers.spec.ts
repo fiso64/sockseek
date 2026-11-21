@@ -55,7 +55,11 @@ test('retries one refused file from Downloads and from its job', async ({ page, 
     const failed = (await history()).find(row => row.identity.remotePath === filename)!;
     if (surface === 'jobs') await page.goto(`/jobs/${failed.identity.jobId}`);
     expect(failed.status.failureReason).toBe('Denied');
-    await page.getByRole('article').filter({ hasText: `${surface}.txt` }).getByRole('button', { name: surface === 'downloads' ? 'Peer refused' : 'Failed', exact: true }).click();
+    const card = page.getByRole('article').filter({ hasText: `${surface}.txt` });
+    const failureButton = card.getByRole('button', { name: surface === 'downloads' ? 'Peer refused' : 'Failed', exact: true });
+    await expect(failureButton).toBeVisible();
+    await expect(card.locator('.progress-track')).toHaveCount(0);
+    await failureButton.click();
     const dialog = page.getByRole('dialog', { name: 'Transfer details' });
     const failure = dialog.locator('.transfer-details-message');
     await expect(failure.locator(':scope > p')).toContainText('fixture-peer');

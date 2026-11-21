@@ -8,6 +8,8 @@ namespace Sockseek.Server;
 public sealed class ServerOptions
 {
     public WebUiOptions WebUi { get; set; } = new();
+    public System.Reflection.Assembly? WebAssetsAssembly { get; init; }
+    public string? WebUiDirectory { get; set; }
     public bool ServeDocumentation { get; set; } = true;
     public string Name { get; set; } = "Sockseek";
     public Authentication.AuthenticationOptions Authentication { get; set; } = new();

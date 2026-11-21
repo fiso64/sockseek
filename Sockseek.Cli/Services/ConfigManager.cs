@@ -79,12 +79,12 @@ public static partial class ConfigManager
 
         PostProcess(engine, dl, file.ConfigDir);
         if (!string.IsNullOrWhiteSpace(daemon.DataDirectory))
-            daemon.DataDirectory = Utils.GetFullPath(Utils.ExpandVariables(
-                daemon.DataDirectory, new PathVariableContext(ConfigDir: file.ConfigDir)));
+            daemon.DataDirectory = ResolveLocalPath(daemon.DataDirectory);
 
-        if (daemon.WebPasswordFile is not null) daemon.WebPasswordFile = ResolveSecretPath(daemon.WebPasswordFile);
-        if (remote.ApiKeyFile is not null) remote.ApiKeyFile = ResolveSecretPath(remote.ApiKeyFile);
-        string ResolveSecretPath(string path) => Utils.GetFullPath(Utils.ExpandVariables(
+        if (daemon.WebUiDirectory is not null) daemon.WebUiDirectory = ResolveLocalPath(daemon.WebUiDirectory);
+        if (daemon.WebPasswordFile is not null) daemon.WebPasswordFile = ResolveLocalPath(daemon.WebPasswordFile);
+        if (remote.ApiKeyFile is not null) remote.ApiKeyFile = ResolveLocalPath(remote.ApiKeyFile);
+        string ResolveLocalPath(string path) => Utils.GetFullPath(Utils.ExpandVariables(
             path, new PathVariableContext(ConfigDir: file.ConfigDir)));
 
         return (engine, dl, cli, daemon, remote);

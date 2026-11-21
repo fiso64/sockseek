@@ -78,13 +78,13 @@ namespace Tests.ClientTests
         public void RaiseExcludedSearchPhrases(params string[] phrases)
             => ExcludedSearchPhrasesReceived?.Invoke(this, phrases);
 
-        public void RaiseStateChanged(SoulseekClientStates state)
+        public void RaiseStateChanged(SoulseekClientStates state, Exception? exception = null)
         {
             SoulseekClientStates previous = State;
             State = state;
             StateChanged?.Invoke(
                 this,
-                new SoulseekClientStateChangedEventArgs(previous, state, "test"));
+                new SoulseekClientStateChangedEventArgs(previous, state, exception?.Message ?? "test", exception));
         }
 
         public MockSoulseekClient(

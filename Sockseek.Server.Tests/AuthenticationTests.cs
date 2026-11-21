@@ -31,24 +31,31 @@ public sealed class AuthenticationTests
     private static readonly string PasswordHash = AuthenticationOptions.HashPassword(Password);
 
     [TestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public async Task BundledManual_IsAnonymousWhenEnabledAndNeverFallsBackToWebUi(bool enabled)
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    public async Task BundledManual_IsAnonymousWhenEnabledAndNeverFallsBackToWebUi(bool enabled, bool customUi)
     {
         string root = Directory.CreateTempSubdirectory("sockseek-manual-").FullName;
         try
         {
             Directory.CreateDirectory(Path.Combine(root, "manual"));
-            Directory.CreateDirectory(Path.Combine(root, "wwwroot"));
+            string stock = Directory.CreateDirectory(Path.Combine(root, "wwwroot")).FullName;
+            string ui = customUi ? Directory.CreateDirectory(Path.Combine(root, "custom")).FullName : stock;
+            await File.WriteAllTextAsync(Path.Combine(stock, "stock.js"), "stock");
             await File.WriteAllTextAsync(Path.Combine(root, "manual", "index.html"), "manual");
-            await File.WriteAllTextAsync(Path.Combine(root, "wwwroot", "index.html"), """<html ><head><base href="/"></head></html>""");
+            await File.WriteAllTextAsync(Path.Combine(ui, "index.html"), """<html ><head><base href="/"></head></html>""");
+            Directory.CreateDirectory(Path.Combine(ui, "api"));
+            await File.WriteAllTextAsync(Path.Combine(ui, "api", "route.json"), "asset");
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = root });
             builder.Logging.ClearProviders();
-            builder.Services.AddSingleton<IOptions<ServerOptions>>(Options.Create(new ServerOptions { ServeDocumentation = enabled }));
+            builder.Services.AddSingleton<IOptions<ServerOptions>>(Options.Create(new ServerOptions
+                { ServeDocumentation = enabled, WebUiDirectory = customUi ? ui : null }));
             await using var app = builder.Build();
             app.Urls.Add("http://127.0.0.1:0");
             WebUiHosting.Map(app);
             app.UseRouting();
+            app.MapGet("/api/route.json", () => "api");
             await app.StartAsync();
             using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
             using var page = await client.GetAsync("/docs/");
@@ -60,6 +67,8 @@ public sealed class AuthenticationTests
             Assert.AreEqual(enabled, shell.Contains("data-docs"));
             StringAssert.Contains(shell, """<base href="./">""");
             StringAssert.Contains(await client.GetStringAsync("/jobs/selected"), """<base href="../">""");
+            Assert.AreEqual("api", await client.GetStringAsync("/api/route.json"));
+            Assert.AreEqual(customUi ? HttpStatusCode.NotFound : HttpStatusCode.OK, (await client.GetAsync("/stock.js")).StatusCode);
         }
         finally { Directory.Delete(root, recursive: true); }
     }
