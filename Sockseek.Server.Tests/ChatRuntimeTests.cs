@@ -382,9 +382,13 @@ public sealed class ChatRuntimeTests
         var settings = Settings();
         await using var session = new DaemonSoulseekRuntime(settings, _ => fake.Client);
         await using var chat = new ChatRuntime(settings, session, database.Host.Chat!);
+        var room = await database.Host.Chat!.UpsertRoomAsync("local", "remembered", true, ChatRoomKind.Public);
+        await session.EnsureStartedAsync();
+        fake.RaiseState(SoulseekClientStates.Connected);
+        fake.RaiseState(SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn);
         await chat.StartAsync(CancellationToken.None);
-        ChatRoomSummaryDto room = await chat.Rooms.JoinRoomAsync(
-            "remembered", remember: true, CancellationToken.None);
+        Assert.AreEqual(ServerChatRoomJoinPhase.Joined,
+            (await chat.Rooms.GetRoomSummaryAsync(room.RoomId, CancellationToken.None))?.Phase);
         Assert.AreEqual(1, fake.RoomJoinCount);
 
         fake.RaiseState(SoulseekClientStates.None);
@@ -458,6 +462,7 @@ public sealed class ChatRuntimeTests
 
     [TestMethod]
     [TestCategory("Load")]
+    [DoNotParallelize] // The managed-heap measurement includes every test in the process.
     [Timeout(180_000)]
     public async Task TenThousandMixedInboundEventsDrainWithinHomeserverBounds()
     {

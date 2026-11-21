@@ -17,10 +17,11 @@ public sealed class SharingCatalogTests
         await using var reader = await SqliteShareCatalogReader.OpenAsync(fixture.DatabasePath);
 
         var resolved = await reader.ResolveFileAsync(
-            RemotePathKey.Create("music/artist/cafe\u0301 track.FLAC"));
+            RemotePathKey.Create(fixture.File.RemotePath));
+        Assert.IsNull(await reader.ResolveFileAsync(RemotePathKey.Create("music/artist/cafe\u0301 track.FLAC")));
         var search = await reader.SearchAsync("café track", 10, []);
         var directory = await reader.GetDirectoryAsync(
-            RemotePathKey.Create(@"MUSIC\ARTIST"));
+            RemotePathKey.Create(@"Music\Artist"));
         var browse = new List<ShareCatalogBrowseDirectoryRow>();
         await foreach (var item in reader.EnumerateBrowseRowsAsync())
             if (item is ShareCatalogBrowseDirectoryRow header) browse.Add(header);

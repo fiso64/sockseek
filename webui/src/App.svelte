@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appPath, routePathname } from './app/paths';
   import LoadingIndicator from './components/LoadingIndicator.svelte';
   import Icon from './components/Icon.svelte';
   import LazyView from './components/LazyView.svelte';
@@ -10,7 +11,7 @@
   import { completedExtract, showsSearchResults } from './domains/jobs/presentation';
   import { JobListController, type JobsTab } from './domains/jobs/job-list.svelte';
   import { JobRouteReader } from './domains/jobs/route-reader';
-  import Modal from './components/Modal.svelte';
+  import { createChatDrafts } from './domains/chat/messages';
   import NewJobComposer from './domains/jobs/NewJobComposer.svelte';
   import TransfersPage from './domains/transfers/TransfersPage.svelte';
   import { TransferTimelineController } from './domains/transfers/controller.svelte';
@@ -32,6 +33,7 @@
   const automaticDetail = new ViewLoader(() => import('./domains/jobs/AutomaticJobDetail.svelte'));
   const searchResults = new ViewLoader(() => import('./domains/search/SearchResults.svelte'));
   const usersPage = new ViewLoader(() => import('./domains/users/UsersPage.svelte'));
+  const chatDrafts = createChatDrafts();
   const chatPage = new ViewLoader(() => import('./domains/chat/ChatPage.svelte'));
   const systemPage = new ViewLoader(() => import('./domains/system/SystemPage.svelte'));
 
@@ -61,8 +63,7 @@
   let activePage = $state<PageId>('dashboard');
   // The Jobs subview survives a visit to another top-level page.
   let showingSearch = $state(false);
-  let composingJob = $state(false);
-  let composerSearch = $state<SearchDraft | null>(null);
+  let composer = $state<{ initialSearch: SearchDraft | null; open: boolean } | null>(null);
   let composingJobCommitPending = $state(false);
   let automaticJobId = $state<string | null>(null);
   let automaticInitialDetail = $state<Schema<'JobDetailDto'> | null>(null);
@@ -87,6 +88,7 @@
   let liveStatus = $state<LiveConnectionStatus>('connecting');
   let liveError = $state<Error | null>(null);
   const liveState = liveClient.reducer.state;
+  const configurationRevision = $derived(Number(liveState.daemon?.configuration?.revision ?? 0));
   // The controller publishes replacement snapshots; result DTOs need no deep proxies.
   let searchState = $state.raw<SearchViewState>(searchController.current());
   let deletingSubmissionIds = $state(new Set<string>());
@@ -154,13 +156,13 @@
   let selectedSearchCount = $derived(countSearchSelection(searchState));
 
   function routeLocation(): string {
-    return window.location.pathname + window.location.search;
+    return routePathname() + window.location.search;
   }
 
   function setPath(path: string, replace = false): void {
     if (routeLocation() === path) return;
-    if (replace) window.history.replaceState(null, '', path);
-    else window.history.pushState(null, '', path);
+    if (replace) window.history.replaceState(null, '', appPath(path));
+    else window.history.pushState(null, '', appPath(path));
   }
 
   function decodeSegment(value: string): string {
@@ -225,9 +227,15 @@
   });
 
   onMount(() => {
-    const visibilityChanged = () => { documentVisible = !document.hidden; };
-    visibilityChanged();
-    document.addEventListener('visibilitychange', visibilityChanged);
+    let hiddenTimer: ReturnType<typeof setTimeout> | undefined;
+    const visibilityChanged = () => {
+      documentVisible = !document.hidden;
+      clearTimeout(hiddenTimer);
+      if (documentVisible) void liveClient.startDaemon().catch((error: unknown) => (liveError = asError(error)));
+      // Keep quick tab switches cheap. A tab left in the background gets a
+      // fresh daemon snapshot when it returns, including work finished meanwhile.
+      else hiddenTimer = setTimeout(() => void liveClient.suspend(), 5000);
+    };
     const statusSubscription = liveClient.onStatus((status, error) => {
       searchController.setLiveConnected(status === 'connected');
       liveStatus = status;
@@ -246,28 +254,26 @@
     });
     const searchSubscription = searchController.subscribe((state) => (searchState = state));
     const popstate = () => {
-      if (composingJob && composingJobCommitPending) {
+      if (composer?.open && composingJobCommitPending) {
         // Back must not unmount the request owner before its commit receipt.
         // The matching forward entry is the current route; the second
         // popstate leaves the composer in place until the receipt arrives.
         window.history.forward();
         return;
       }
-      applyPath(window.location.pathname);
+      applyPath(routePathname());
     };
     const beforeunload = (event: BeforeUnloadEvent) => {
-      if (!composingJob || !composingJobCommitPending) return;
+      if (!composer?.open || !composingJobCommitPending) return;
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('popstate', popstate);
     window.addEventListener('beforeunload', beforeunload);
-    const startup: Promise<unknown>[] = [
-      liveClient.startDaemon().catch((error: unknown) => (liveError = asError(error))),
-    ];
-    if (activePage === 'downloads') startup.push(transferTimeline.load('download', true));
-    if (activePage === 'uploads') startup.push(transferTimeline.load('upload', true));
-    void Promise.allSettled(startup);
+    document.addEventListener('visibilitychange', visibilityChanged);
+    visibilityChanged();
+    if (activePage === 'downloads' || activePage === 'uploads')
+      void transferTimeline.load(activePage === 'downloads' ? 'download' : 'upload', true);
     return () => {
       cancelDeferredSearchRender();
       transferTimeline.stop();
@@ -278,6 +284,7 @@
       window.removeEventListener('beforeunload', beforeunload);
       routeRequest?.abort();
       searchController.stop();
+      clearTimeout(hiddenTimer);
       document.removeEventListener('visibilitychange', visibilityChanged);
       void liveClient.stop();
     };
@@ -285,12 +292,12 @@
 
   function navigate(page: PageId): void {
     if (page === 'system') systemTab = 'status';
-    if (composingJob && composingJobCommitPending) return;
+    if (composer?.open && composingJobCommitPending) return;
     cancelDeferredSearchRender();
     const wasOnJobs = activePage === 'jobs';
     routeRequest?.abort();
     jobRouteError = null;
-    composingJob = false;
+    if (composer) composer.open = false;
     if (page === 'jobs') {
       activePage = 'jobs';
       if (wasOnJobs) {
@@ -324,10 +331,15 @@
     if (page === 'uploads') void transferTimeline.load('upload', true);
   }
 
+  function openJobDraft(): void {
+    if (composer) composer.open = true;
+    else composer = { initialSearch: null, open: true };
+  }
+
   function composeSearchDownload(draft: SearchDraft): void {
     if (composingJobCommitPending) return;
-    composerSearch = JSON.parse(JSON.stringify(draft)) as SearchDraft;
-    composingJob = true;
+    if (composer && !window.confirm('Discard your unfinished job draft and start one from this search?')) return;
+    composer = { initialSearch: $state.snapshot(draft), open: true };
   }
 
   async function submit(next: SearchDraft): Promise<void> {
@@ -335,14 +347,17 @@
     searchResults.load();
     search = { ...next };
     searchBusy = true;
+    const origin = routeLocation();
     mutationError = null;
     try {
       const submitted = await daemonApi.submitSearch(next);
-      jobsTab = 'searches';
       if (submitted.job.jobId) {
         searchModeByJob.set(submitted.job.jobId, submitted.draft.resultMode);
       }
+      if (routeLocation() !== origin) return;
       await searchController.open(submitted);
+      if (routeLocation() !== origin) return;
+      jobsTab = 'searches';
       automaticJobId = null;
       automaticInitialDetail = null;
       activePage = 'jobs';
@@ -350,6 +365,7 @@
       pendingJobId = submitted.job.jobId ?? null;
       if (pendingJobId) setPath(searchJobPath(pendingJobId, submitted.draft.resultMode));
     } catch (error) {
+      if (routeLocation() !== origin) return;
       mutationError = asError(error);
       activePage = 'jobs';
       backToJobs();
@@ -363,16 +379,19 @@
     const view = searchState.summary;
     if (!canRerunSearch || !job || !view || rerunningSearch) return;
     rerunningSearch = true;
+    const origin = routeLocation();
     mutationError = null;
     try {
       const submitted = await daemonApi.rerunSearch(job, view);
       if (submitted.job.jobId) {
         searchModeByJob.set(submitted.job.jobId, submitted.draft.resultMode);
       }
+      if (routeLocation() !== origin) return;
       await searchController.open(submitted);
+      if (routeLocation() !== origin) return;
       pendingJobId = submitted.job.jobId ?? null;
       if (pendingJobId) setPath(searchJobPath(pendingJobId, submitted.draft.resultMode));
-    } catch (error) { mutationError = asError(error); }
+    } catch (error) { if (routeLocation() === origin) mutationError = asError(error); }
     finally { rerunningSearch = false; }
   }
 
@@ -408,7 +427,7 @@
     automaticInitialDetail = detail;
     openingJobKey = null;
     showingSearch = false;
-    composingJob = false;
+    if (composer) composer.open = false;
     activePage = 'jobs';
     pendingJobId = jobId;
     mutationError = null;
@@ -510,9 +529,12 @@
   }
 
 
+  // The transfer stream supplies its own snapshot. On a still-connected socket
+  // it can refresh the visible rows while the daemon overview catches up.
+  let transferStreamReady = $derived(documentVisible && (liveStatus === 'connected'
+    || (liveStatus === 'connecting' && liveClient.canObserve)));
   $effect(() => {
-    if (documentVisible && liveStatus === 'connected'
-      && (activePage === 'downloads' || activePage === 'uploads'))
+    if (transferStreamReady && (activePage === 'downloads' || activePage === 'uploads'))
       return transferTimeline.observe(activePage === 'downloads' ? 'download' : 'upload');
     transferTimeline.stop();
   });
@@ -573,7 +595,7 @@
 
   // Resolve the initial route before mounting a page. Deep links must not
   // briefly mount Dashboard and issue an analytics request only to abort it.
-  applyPath(window.location.pathname);
+  applyPath(routePathname());
 </script>
 
 <AppShell {activePage} {liveStatus} {liveState} {search} {userBrowse} {searchBusy} onnavigate={navigate} onsearchchange={(value) => (search = value)} onsearchsubmit={(value) => void submit(value)} ondownloadrequest={composeSearchDownload} onuserbrowsechange={changeUserBrowse} onuserbrowsesubmit={submitUserBrowse}>
@@ -591,7 +613,9 @@
       {#snippet children(SearchResults)}
         <SearchResults
           {userActions}
+          {configurationRevision}
           daemonOffline={liveStatus === 'offline'}
+          connected={documentVisible && liveStatus === 'connected'}
           viewState={searchState}
           liveJob={activeLiveJob}
           liveJobError={searchJobError}
@@ -609,14 +633,16 @@
           selectedCount={selectedSearchCount}
           onbeginrange={(additive) => searchController.beginRange(additive)}
           ontoggle={(ref, selected, parentRef) => searchController.toggle(ref, selected, parentRef)}
-          onselectfolder={(directoryRef, relativePath, selected) => searchController.toggleDirectoryPath(directoryRef, relativePath, selected)}
-          isfolderselected={(directoryRef, relativePath) => {
+          onselectfolder={(ref, path, selected, includeFiltered) => searchController.toggleDirectoryPath(ref, path, selected, includeFiltered)}
+          isfolderselected={(directoryRef, relativePath, filtered) => {
             searchState;
-            return searchController.isDirectoryPathSelected(directoryRef, relativePath);
+            return searchController.isDirectoryPathSelected(directoryRef, relativePath, filtered);
           }}
           onselectall={(selected) => searchController.selectAll(selected)}
           ondownload={(options) => void searchController.commit(options)}
+          onlibrarymatches={(id, request, signal) => daemonApi.getSearchViewLibraryMatches(id, request, signal)}
           onresolvesettings={(options) => searchController.resolveSelectionSettings(options)}
+          oncheckrevision={(id, revision, signal) => daemonApi.getSearchViewRevisionLifetime(id, revision, signal)}
           onloaddefinition={(viewId) => daemonApi.getSearchViewDefinition(viewId)}
           onrefine={(request, resetSelection) => searchController.refine(request, resetSelection)}
           onsort={(order) => searchController.sort(order)}
@@ -657,7 +683,8 @@
       refreshRevision={jobList.refreshRevision}
       connected={liveStatus === 'connected' && documentVisible}
       {observeJobs}
-      onnew={() => { composerSearch = null; composingJob = true; }}
+      hasDraft={Boolean(composer)}
+      onnew={openJobDraft}
       jobs={jobList.items}
       loading={jobList.loading || liveStatus === 'connecting' || liveStatus === 'reconnecting'}
       daemonOffline={liveStatus === 'offline'}
@@ -722,7 +749,7 @@
       {#key userBrowsers[userView]}
         <LazyView view={usersPage}>
           {#snippet children(UsersPage)}
-            <UsersPage session={userBrowsers[userView]} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} />
+            <UsersPage {configurationRevision} session={userBrowsers[userView]} {documentVisible} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} />
           {/snippet}
         </LazyView>
       {/key}
@@ -732,7 +759,7 @@
   {:else if activePage === 'chat'}
     <LazyView view={chatPage}>
       {#snippet children(ChatPage)}
-        <ChatPage {liveClient} {liveStatus} runtime={liveState.daemon?.chat} {userActions} initialUsername={initialChatUsername} />
+        <ChatPage drafts={chatDrafts} {liveClient} {liveStatus} runtime={liveState.daemon?.chat} {userActions} initialUsername={initialChatUsername} />
       {/snippet}
     </LazyView>
   {:else}
@@ -747,9 +774,11 @@
 
 <ConfigurationDialog configuration={liveState.daemon?.configuration} epoch={liveState.epoch} />
 
-{#if composingJob}
-  <Modal title="Create new job" label="New job" closeLabel="Close new job" wide locked={composingJobCommitPending}
-    onclose={() => { composingJob = false; }}>
-    <NewJobComposer initialSearch={composerSearch} oncommittingchange={(pending) => (composingJobCommitPending = pending)} onstarted={(rootJobId) => { composingJobCommitPending = false; openAutomaticJob(rootJobId); }} />
-  </Modal>
+{#if composer}
+  {#key composer}
+    <NewJobComposer open={composer.open} connected={liveStatus === 'connected' && documentVisible} initialSearch={composer.initialSearch}
+      onclose={(keep) => { if (keep && composer) composer.open = false; else composer = null; }}
+      oncommittingchange={(pending) => (composingJobCommitPending = pending)}
+      onstarted={(rootJobId) => { composingJobCommitPending = false; composer = null; openAutomaticJob(rootJobId); }} />
+  {/key}
 {/if}

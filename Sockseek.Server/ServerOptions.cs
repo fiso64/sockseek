@@ -25,6 +25,8 @@ public sealed class ServerOptions
     public ProfileCatalog Profiles { get; set; } = ProfileCatalog.Empty;
     public string? ConfigDir { get; set; }
     public Func<EngineSettings, ISoulseekClient>? ClientFactory { get; set; }
+    /// <summary>Optional transport instrumentation, applied to the production client too.</summary>
+    public Func<ISoulseekClient, ISoulseekClient>? ClientDecorator { get; set; }
     public ServerPersistenceOptions Persistence { get; set; } = new();
 }
 

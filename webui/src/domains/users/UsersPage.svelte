@@ -1,5 +1,6 @@
 <script lang="ts">
-  import ShareBrowser from './ShareBrowser.svelte';
+  import { appPath } from '../../app/paths';
+  import ShareBrowser from './ShareBrowserView.svelte';
   import { peerShareSource } from './share-source';
   import { userPresence } from './presence.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
@@ -9,6 +10,7 @@
   import { daemonApi } from '../../api/client';
   import { formatBytes, formatCount, formatSpeed } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
+  import RelativeTime from '../../components/RelativeTime.svelte';
   import LinkifiedText from '../../components/LinkifiedText.svelte';
 
   import type { UserBrowserSession, UserBrowseView } from './session';
@@ -17,12 +19,14 @@
     session: UserBrowserSession;
     view: UserBrowseView;
     liveStatus: LiveConnectionStatus;
+    documentVisible: boolean;
+    configurationRevision?: number;
     liveClient: DaemonLiveClient;
     onviewchange: (view: UserBrowseView) => void;
     onmessageuser: (username: string) => void;
   }
 
-  let { session, view, liveStatus, liveClient, onviewchange, onmessageuser }: Props = $props();
+  let { session, view, liveStatus, documentVisible, configurationRevision, liveClient, onviewchange, onmessageuser }: Props = $props();
   // App keys this component by session. A new user starts a fresh lifetime;
   // ordinary navigation restores the saved view without keeping its DOM alive.
   const username = untrack(() => session.username);
@@ -44,7 +48,7 @@
     && (browse.state === 'queued' || browse.state === 'running') ? browse.browseId : null);
   const browsePending = $derived(browseStarting || (!browseError && (browse?.state === 'queued' || browse?.state === 'running')));
 
-  let pictureUrl = $derived(profile?.picture?.url ? absoluteApiPath(profile.picture.url) : null);
+  let pictureUrl = $derived(profile?.picture?.url ? appPath(profile.picture.url) : null);
 
   $effect(() => {
     const currentView = view;
@@ -188,7 +192,6 @@
     }, delay);
   }
 
-  function absoluteApiPath(value: string): string { return value.startsWith('/') ? value : `/${value}`; }
   function asError(cause: unknown): Error { return cause instanceof Error ? cause : new Error(String(cause)); }
 </script>
 
@@ -251,8 +254,9 @@
               <span class="user-capacity-inline" aria-label="Upload capacity">
                 <span class:available={profile.hasFreeUploadSlot === true}
                   class:unknown={profile.hasFreeUploadSlot == null} class="slot-state"><i></i>{profile.hasFreeUploadSlot == null ? 'Slot unknown' : profile.hasFreeUploadSlot ? 'Free slot' : 'No free slot'}</span>
-                <span><strong>{profile.uploadSlots ?? '—'}</strong> slots</span>
+                <span><strong>{profile.uploadSlots ?? '—'}</strong> {profile.uploadSlots === 1 ? 'slot' : 'slots'}</span>
                 <span><strong>{profile.queueLength ?? '—'}</strong> queued</span>
+                {#if profile.info.state === 'available'}<span>Reported <RelativeTime timestamp={profile.observedAt} lowercase /></span>{/if}
               </span>
             </div>
             {#if profile.description}
@@ -312,9 +316,7 @@
       {/if}
     {/if}
     {#if displayedBrowse}
-      {#key displayedBrowse.browseId}
-        <ShareBrowser source={peerShareSource(displayedBrowse)} session={session.shares} filterActions={refreshShares} />
-      {/key}
+      <ShareBrowser {configurationRevision} source={peerShareSource(displayedBrowse)} session={session.shares} connected={liveStatus === 'connected' && documentVisible} filterActions={refreshShares} />
     {/if}
   {/if}
 </section>

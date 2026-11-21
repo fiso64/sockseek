@@ -421,7 +421,7 @@ public static class CoreSnapshotFactory
     }
 
     internal static FileDownloadStateSnapshot CreateFileDownloadState(FileDownloadJob job)
-        => new(job.DownloadPath, job.BytesTransferred, job.FileSize, job.ExistingFileSource, job.Reused);
+        => new(job.DownloadPath, job.BytesTransferred, job.FileSize, job.ExistingFileSource, job.Reused, job.PathBeforeIncompleteMove);
 
     private static DirectoryDownloadStateSnapshot CreateDirectoryDownloadState(DirectoryDownloadJob job)
     {

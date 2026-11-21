@@ -18,21 +18,7 @@ for ordered live-state deltas and compact activity.
 
 ## .NET clients
 
-<!-- TODO [docs] Shorten this section to the minimum, just to point to the clients. -->
-
-.NET consumers should use `Sockseek.Api.SockseekApiClient` for HTTP queries and
-`Sockseek.Api.SockseekLiveClient` for live monitoring. The live client supports
-daemon-wide and resource-scoped subscriptions, handles snapshot hydration and
-recovery, and exposes current state through `DaemonClientStore`. Create the shared
-HTTP client with `SockseekApiClient.CreateHttpClient(serverUrl, apiKey)` and pass it
-to both clients. All API/hub access requires authentication by default; see
-[credentials and deployment](../using-sockseek/daemon.md). Browser clients use
-`/api/auth/session`, `/api/auth/login` and `/api/auth/logout`, with cookies and the
-bootstrap `X-CSRF-Token` for mutations. Refresh the token after login/logout.
-
-For a UI, use `includeTransferDetails: false` and observe the fetched transfer
-timeline or displayed job IDs separately. Global transfer totals remain available.
-Scoped observations end on cancellation or disconnect; reopen them after reconnect.
+Use [SockseekApiClient](https://github.com/fiso64/sockseek/blob/v4/Sockseek.Api/Client/SockseekApiClient.cs) for HTTP requests and [SockseekLiveClient](https://github.com/fiso64/sockseek/blob/v4/Sockseek.Api/Client/SockseekLiveClient.cs) for live updates.
 
 ## OpenAPI
 

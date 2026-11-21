@@ -77,7 +77,7 @@ public sealed record PersistedDirectoryManifestPage(
     int SupplementalEntryCount,
     long JobRevision,
     IReadOnlyList<PersistedDirectoryManifestEntry> Items,
-    int? NextOrdinal);
+    int? NextOrdinal, Guid? RetryJobId = null);
 public sealed record PersistedWorkflowSummary(
     Guid WorkflowId,
     long FirstDisplayId,
@@ -89,6 +89,9 @@ public sealed record PersistedWorkflowSummary(
     int CompletedJobCount);
 public sealed record PersistedWorkflowPage(IReadOnlyList<PersistedWorkflowSummary> Items, string? NextCursor);
 
+public sealed record DirectoryRetryKey(Guid JobId, string? Peer = null);
+public sealed record DirectoryRetryStatus(int MissingFiles, bool CompletedOnRetry);
+
 public interface IJobHistoryReader
 {
     Task<PersistedJobPage> GetJobsAsync(JobHistoryQuery query, CancellationToken cancellationToken = default);
@@ -99,6 +102,9 @@ public interface IJobHistoryReader
     Task<PersistedDirectoryManifestPage?> GetDirectoryManifestAsync(
         Guid jobId, int? attemptNumber, int afterOrdinal, int limit,
         CancellationToken cancellationToken = default);
+    Task<Dictionary<DirectoryRetryKey, DirectoryRetryStatus>> GetDirectoryRetryStatusAsync(
+        IReadOnlyCollection<DirectoryRetryKey> folders, CancellationToken ct);
+    Task<int?> GetDirectoryAttemptForChildAsync(Guid directoryId, Guid childId, CancellationToken ct);
     Task<int> GetChildCountAsync(Guid parentJobId, CancellationToken cancellationToken = default);
     Task<PersistedWorkflowPage> GetWorkflowsAsync(string? cursor = null, int limit = 100, CancellationToken cancellationToken = default);
     Task<PersistedWorkflowSummary?> GetWorkflowAsync(Guid workflowId, CancellationToken cancellationToken = default);
@@ -107,6 +113,65 @@ public interface IJobHistoryReader
 
 public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contextFactory) : IJobHistoryReader
 {
+
+    // Presentation uses the saved selection and child outcomes. Only the actual
+    // retry inspects output files and restores the original download settings.
+    public async Task<Dictionary<DirectoryRetryKey, DirectoryRetryStatus>> GetDirectoryRetryStatusAsync(
+        IReadOnlyCollection<DirectoryRetryKey> folders, CancellationToken ct)
+    {
+        if (folders.Count == 0) return [];
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var keys = JsonSerializer.Serialize(folders.Select(key => new[] { key.JobId.ToString("D").ToUpperInvariant(), key.Peer }));
+        var rows = await SqliteReadQuery.ReadAsync(context, """
+            WITH requested AS MATERIALIZED (
+                SELECT j.id, j.source_job_id, k.value ->> 1 AS peer,
+                    CASE WHEN j.source_job_id IS NOT NULL AND j.parent_job_id IS NULL
+                         THEN spec.specification_json ->> '$.command.directoryRetry.sourceAttempt' END AS source_attempt
+                FROM json_each($keys) k JOIN jobs j ON j.id = k.value ->> 0
+                LEFT JOIN submission_specifications spec ON spec.submission_id = j.submission_id AND j.source_job_id IS NOT NULL
+                WHERE j.submission_id IS NOT NULL AND j.lifecycle_state = 'Terminal' AND j.kind IN ('Album', 'RemoteDirectory')
+            ), attempts AS MATERIALIZED (
+                SELECT r.*, CASE WHEN r.source_attempt IS NULL THEN r.id ELSE r.source_job_id END AS original,
+                    coalesce(r.source_attempt, (
+                        SELECT m.attempt_number FROM directory_manifests m WHERE m.job_id = r.id
+                        AND (r.peer IS NULL OR EXISTS (
+                            SELECT 1 FROM directory_manifest_entries e
+                            WHERE e.job_id = m.job_id AND e.attempt_number = m.attempt_number AND e.ordinal < m.entry_count
+                            AND e.target_json ->> '$.Identity.Username' = r.peer))
+                        ORDER BY m.attempt_number DESC LIMIT 1)) AS attempt
+                FROM requested r
+            ), selections AS (
+                SELECT a.id, a.peer, coalesce(last.job_id, m.job_id) AS job_id,
+                    coalesce(last.attempt_number, m.attempt_number) AS attempt, coalesce(last.entry_count, m.entry_count) AS planned,
+                    coalesce(j.terminal_outcome = 'Succeeded', 0) AS continued
+                FROM attempts a JOIN directory_manifests m ON m.job_id = a.original AND m.attempt_number = a.attempt
+                LEFT JOIN jobs j ON j.id = m.retry_job_id
+                LEFT JOIN directory_manifests last ON last.job_id = j.id AND last.attempt_number =
+                    (SELECT max(attempt_number) FROM directory_manifests WHERE job_id = j.id)
+                WHERE m.retry_job_id IS NULL OR j.lifecycle_state = 'Terminal'
+            )
+            SELECT s.id, s.peer, s.planned - count(c.id), s.continued
+            FROM selections s LEFT JOIN directory_manifest_entries e
+                ON e.job_id = s.job_id AND e.attempt_number = s.attempt AND e.ordinal < s.planned
+            LEFT JOIN jobs c ON c.id = e.child_job_id AND (c.terminal_outcome = 'Succeeded'
+                OR (c.terminal_outcome = 'Skipped' AND c.skip_reason = 'AlreadyExists'))
+            GROUP BY s.id, s.peer
+            """, [new SqliteParameter("$keys", keys)], row => (
+                Key: new DirectoryRetryKey(row.GetGuid(0), row.IsDBNull(1) ? null : row.GetString(1)),
+                Status: new DirectoryRetryStatus(row.GetInt32(2), row.GetInt32(2) == 0 && row.GetBoolean(3))), ct);
+        return rows.ToDictionary(row => row.Key, row => row.Status);
+    }
+
+    public async Task<int?> GetDirectoryAttemptForChildAsync(Guid directoryId, Guid childId, CancellationToken ct)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.Database.SqlQuery<int?>($"""
+            SELECT e.attempt_number AS Value FROM directory_manifest_entries e JOIN directory_manifests m
+              ON m.job_id=e.job_id AND m.attempt_number=e.attempt_number
+            WHERE e.job_id = {directoryId} AND e.child_job_id = {childId} AND e.ordinal < m.entry_count
+            ORDER BY e.attempt_number DESC LIMIT 1
+            """).FirstOrDefaultAsync(ct);
+    }
 
     public async Task<PersistedDirectoryManifestPage?> GetDirectoryManifestAsync(
         Guid jobId, int? attemptNumber, int afterOrdinal, int limit,
@@ -126,7 +191,7 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
         metadata.Transaction = transaction.GetDbTransaction();
         metadata.CommandText = """
             SELECT attempt_number, display_root, entry_count, total_known_bytes,
-                   children_materialized, json_array_length(supplemental_job_ids_json), job_revision
+                   children_materialized, json_array_length(supplemental_job_ids_json), job_revision, retry_job_id
             FROM directory_manifests
             WHERE job_id = $job AND attempt_number = COALESCE($attempt, (
                 SELECT json_extract(payload_json, '$.Directory.AttemptNumber')
@@ -149,6 +214,7 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
         bool materialized;
         int supplementalCount;
         long revision;
+        Guid? retryJobId;
         await using (var row = await metadata.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             if (!await row.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -160,6 +226,7 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
             materialized = row.GetInt32(4) != 0;
             supplementalCount = row.GetInt32(5);
             revision = row.GetInt64(6);
+            retryJobId = row.IsDBNull(7) ? null : row.GetGuid(7);
         }
 
         await using var entries = connection.CreateCommand();
@@ -217,7 +284,7 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new PersistedDirectoryManifestPage(
             number, root, count, bytes, materialized, supplementalCount, revision,
-            items, more ? items[^1].Ordinal : null);
+            items, more ? items[^1].Ordinal : null, retryJobId);
     }
 
     public async Task<PersistedJobPage> GetJobsAsync(JobHistoryQuery query, CancellationToken cancellationToken = default)

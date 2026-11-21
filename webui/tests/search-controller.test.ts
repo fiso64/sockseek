@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DaemonApiClient, type GroupOptionQuery } from '../src/api/client';
 import { DaemonApiError } from '../src/api/http';
-import type { Schema, SearchViewFilePageDto, SearchViewSummaryDto, SearchViewUpdateDto } from '../src/api/types';
+import type { Schema, SearchViewRequest, SearchViewFilePageDto, SearchViewSummaryDto, SearchViewUpdateDto } from '../src/api/types';
 import { allSearchResultsSelected, SearchSelection } from '../src/domains/search/selection';
 import { SearchViewController } from '../src/domains/search/controller';
 import { emptySearchDraft } from '../src/domains/search/model';
@@ -25,7 +25,7 @@ function page(viewId: string, revision = 1, nextCursor: string | null = null): S
 function directorySummary(ref: string, folderPath = 'Music'): Schema<'SearchViewDirectoryDto'> {
   return {
     ref: { ref, username: 'peer', folderPath }, visibility: 'Public', preferenceTier: 'Preferred',
-    satisfiedPreferredConditions: [], publicMatchingFileCount: 1, lockedMatchingFileCount: 0,
+    hasFilteredFiles: false, satisfiedPreferredConditions: [], publicMatchingFileCount: 1, lockedMatchingFileCount: 0,
     publicMatchingBytes: 1, lockedMatchingBytes: 0, retrievedFileCount: null, retrievedBytes: null,
     retrievalState: 'SearchResultsOnly', peer: { username: 'peer' },
     bestChild: { ref: `${ref}-file`, visibility: 'Public', preferenceTier: 'Preferred',
@@ -138,8 +138,8 @@ describe('Search View request isolation', () => {
     });
 
   it('requires an explicit reload after expiry, preserving filters but clearing the old selection', async () => {
-    const request: Schema<'CreateSearchViewRequestDto'> = { kind: 'Files', includeFullResults: true, filterText: 'flac' };
-    const creates: Schema<'CreateSearchViewRequestDto'>[] = [];
+    const request: SearchViewRequest = { kind: 'Files', filterText: 'flac' };
+    const creates: SearchViewRequest[] = [];
     let polls = 0;
     let failPage = true;
     class Api extends DaemonApiClient {
@@ -151,7 +151,7 @@ describe('Search View request isolation', () => {
         polls++;
         throw new DaemonApiError('Snapshot expired', 404);
       }
-      override async createSearchView(_id: string, input: Schema<'CreateSearchViewRequestDto'>) {
+      override async createSearchView(_id: string, input: SearchViewRequest) {
         creates.push(input);
         return summary('replacement');
       }
@@ -202,7 +202,7 @@ describe('Search View request isolation', () => {
         draft: { ...emptySearchDraft, resultMode: 'track' } });
       controller.selectAll(true);
       controller.toggle('excluded-file', false);
-      expect(await controller.refine({ kind: 'Files', includeFullResults: true, filterText: 'remaining' })).toBe(true);
+      expect(await controller.refine({ kind: 'Files', filterText: 'remaining' })).toBe(true);
       expect(requests.filter(id => id === 'narrower')).toHaveLength(1);
       expect(controller.current().selectionRefs).toEqual(new Set(['excluded-file']));
       expect(controller.selectedCount()).toBe(1);
@@ -295,7 +295,7 @@ describe('Search View request isolation', () => {
     const requests: string[] = [];
     class Api extends DaemonApiClient {
       override async getSearchViewFiles(id: string) { requests.push(id); return page(id); }
-      override createSearchView(_id: string, _request: Schema<'CreateSearchViewRequestDto'>, cancellation?: AbortSignal) {
+      override createSearchView(_id: string, _request: SearchViewRequest, cancellation?: AbortSignal) {
         signal = cancellation;
         return created.promise;
       }
@@ -307,7 +307,7 @@ describe('Search View request isolation', () => {
     const controller = new SearchViewController(new Api());
     try {
       await open(controller, 'original');
-      const refining = controller.refine({ kind: 'Files', filterText: 'abandoned', includeFullResults: false });
+      const refining = controller.refine({ kind: 'Files', filterText: 'abandoned' });
       controller.pause();
       expect(signal?.aborted).toBe(true);
       created.resolve(summary('abandoned', 0));
@@ -471,7 +471,7 @@ describe('Search View request isolation', () => {
         view: { ...summary('source'), kind: 'GenericDirectories' },
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       controller.toggle('folder', true);
-      refining = controller.refine({ kind: 'GenericDirectories', includeFullResults: false, refinementSettings: {
+      refining = controller.refine({ kind: 'GenericDirectories', refinementSettings: {
         necessaryCond: { formats: { replace: ['pdf'] } },
       } });
       await requested.promise;
@@ -521,7 +521,7 @@ describe('Search View request isolation', () => {
       override async commitSearchView(): Promise<never> { commits++; throw new Error('Unexpected commit'); }
     }
     const controller = new SearchViewController(new Api(), 60_000);
-    const refine = () => controller.refine({ kind: 'GenericDirectories', includeFullResults: false });
+    const refine = () => controller.refine({ kind: 'GenericDirectories' });
     try {
       await controller.open({ job: { jobId: 'source' }, view: projected('source'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
@@ -579,7 +579,7 @@ describe('Search View request isolation', () => {
     const controller = new SearchViewController(new Api(), 60_000);
     try {
       await open(controller, 'source');
-      await controller.refine({ kind: 'Files', includeFullResults: true, filterText: 'Track' });
+      await controller.refine({ kind: 'Files', filterText: 'Track' });
       expect(updates).toBe(1);
       expect(pages).toEqual(['source:1', 'refined:1']);
       expect(controller.current().summary?.viewId).toBe('refined');
@@ -653,7 +653,7 @@ describe('Search View request isolation', () => {
       await controller.open({ job: { jobId: 'job' }, view: view('source'),
         draft: { ...emptySearchDraft, resultMode: mode } });
       controller.subscribe(state => seen.push({ id: state.summary?.viewId, rows: state.rows.length }));
-      pending = controller.refine({ kind, filterText: 'still matches', includeFullResults: true });
+      pending = controller.refine({ kind, filterText: 'still matches' });
       await requested.promise;
       expect(controller.current().summary?.viewId).toBe('source');
       expect(controller.current().rows).toHaveLength(1);
@@ -679,7 +679,7 @@ describe('Search View request isolation', () => {
     const firstRequested = deferred<void>();
     const secondView = deferred<SearchViewSummaryDto>();
     class Api extends DaemonApiClient {
-      override createSearchView(_job: string, request: Schema<'CreateSearchViewRequestDto'>) {
+      override createSearchView(_job: string, request: SearchViewRequest) {
         return request.filterText === 'first' ? Promise.resolve(summary('first')) : secondView.promise;
       }
       override getSearchViewFiles(id: string) {
@@ -692,9 +692,9 @@ describe('Search View request isolation', () => {
     let second: Promise<unknown> | undefined;
     try {
       await open(controller, 'source');
-      first = controller.refine({ kind: 'Files', filterText: 'first', includeFullResults: true });
+      first = controller.refine({ kind: 'Files', filterText: 'first' });
       await firstRequested.promise;
-      second = controller.refine({ kind: 'Files', filterText: 'second', includeFullResults: true });
+      second = controller.refine({ kind: 'Files', filterText: 'second' });
       firstPage.resolve(page('first'));
       await first;
       expect(controller.current().summary?.viewId).toBe('source');
@@ -724,12 +724,12 @@ describe('Search View request isolation', () => {
     const controller = new SearchViewController(new Api(), 60_000);
     try {
       await open(controller, 'source');
-      await controller.refine({ kind: 'Files', includeFullResults: true });
+      await controller.refine({ kind: 'Files' });
       expect(controller.current().summary?.viewId).toBe('source');
       expect(controller.current().rows).toHaveLength(1);
       expect(controller.current().refinementError?.message).toBe('page unavailable');
       fail = false;
-      await controller.refine({ kind: 'Files', includeFullResults: true });
+      await controller.refine({ kind: 'Files' });
       expect(controller.current().summary?.viewId).toBe('replacement');
       expect(controller.current().rows).toHaveLength(1);
       expect(controller.current().refinementError).toBeNull();
@@ -740,7 +740,7 @@ describe('Search View request isolation', () => {
     const first = deferred<SearchViewSummaryDto>();
     class Api extends DaemonApiClient {
       override async getSearchViewFiles(id: string) { return page(id); }
-      override async createSearchView(_jobId: string, request: Schema<'CreateSearchViewRequestDto'>) {
+      override async createSearchView(_jobId: string, request: SearchViewRequest) {
         return request.filterText === 'first' ? first.promise : summary('second-view');
       }
       override async countSearchViewSelection(_viewId: string, request: Schema<'CountSearchViewSelectionRequestDto'>) {
@@ -751,8 +751,8 @@ describe('Search View request isolation', () => {
     try {
       await open(controller, 'job');
       controller.toggle('stable-ref', true);
-      const older = controller.refine({ kind: 'Files', includeFullResults: true, filterText: 'first' });
-      await controller.refine({ kind: 'Files', includeFullResults: true, filterText: 'second' });
+      const older = controller.refine({ kind: 'Files', filterText: 'first' });
+      await controller.refine({ kind: 'Files', filterText: 'second' });
       first.resolve(summary('first-view'));
       await older;
       expect(controller.current().summary?.viewId).toBe('second-view');
@@ -786,7 +786,7 @@ describe('Search View request isolation', () => {
       expect(jobReads).toBe(1);
       expect(controller.current().retrievals.get('old-folder')?.loading).toBe(true);
 
-      await controller.refine({ kind: 'GenericDirectories', includeFullResults: true, filterText: 'other' });
+      await controller.refine({ kind: 'GenericDirectories', filterText: 'other' });
       await controller.refresh();
       expect(controller.current().summary?.viewId).toBe('new-view');
       expect(controller.current().retrievals.size).toBe(0);
@@ -821,7 +821,7 @@ describe('Search View request isolation', () => {
       await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('old-view'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       const retrieving = controller.retrieveDirectory('old-folder');
-      await controller.refine({ kind: 'GenericDirectories', includeFullResults: true, filterText: 'other' });
+      await controller.refine({ kind: 'GenericDirectories', filterText: 'other' });
       accepted.resolve({ jobId: 'retrieval-job' } as Schema<'JobSummaryDto'>);
       await retrieving;
       await controller.refresh();
@@ -858,7 +858,7 @@ describe('Search View request isolation', () => {
       await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('old-view'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       await controller.retrieveDirectory('same-folder');
-      await controller.refine({ kind: 'GenericDirectories', includeFullResults: true });
+      await controller.refine({ kind: 'GenericDirectories' });
       expect(controller.current().retrievals.get('same-folder')?.loading).toBe(true);
       await controller.retrieveDirectory('same-folder');
       expect(starts).toBe(1);
@@ -890,7 +890,7 @@ describe('Search View request isolation', () => {
       await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('old-view'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       const retrieving = controller.retrieveDirectory('same-folder');
-      await controller.refine({ kind: 'GenericDirectories', includeFullResults: true });
+      await controller.refine({ kind: 'GenericDirectories' });
       expect(controller.current().retrievals.get('same-folder')?.loading).toBe(true);
       await controller.retrieveDirectory('same-folder');
       expect(starts).toBe(1);
@@ -924,7 +924,7 @@ describe('Search View request isolation', () => {
       await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('old-view'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       const retrieving = controller.retrieveDirectory('same-folder');
-      await controller.refine({ kind: 'GenericDirectories', includeFullResults: true });
+      await controller.refine({ kind: 'GenericDirectories' });
       accepted.reject(new Error('Response lost'));
       await retrieving;
       expect(controller.current().retrievals.get('same-folder')?.error?.message).toBe('Response lost');
@@ -1305,7 +1305,7 @@ describe('Search View request isolation', () => {
     const requests: Parameters<DaemonApiClient['commitSearchView']>[] = [];
     const directory = (ref: string): Schema<'SearchViewDirectoryDto'> => ({
       ref: { ref, username: ref, folderPath: `${ref}/album` }, visibility: 'Public', preferenceTier: 'Preferred',
-      satisfiedPreferredConditions: [], publicMatchingFileCount: 2, lockedMatchingFileCount: 0,
+      hasFilteredFiles: false, satisfiedPreferredConditions: [], publicMatchingFileCount: 2, lockedMatchingFileCount: 0,
       publicMatchingBytes: 256, lockedMatchingBytes: 0, retrievedFileCount: null, retrievedBytes: null,
       retrievalState: 'SearchResultsOnly', peer: { username: ref },
       bestChild: { ref: `${ref}-intro`, visibility: 'Public', preferenceTier: 'Preferred',
@@ -1325,7 +1325,9 @@ describe('Search View request isolation', () => {
         return { revision: summary(id), items: [{ ref: 'group', query: { artist: 'Artist', album: 'Album',
           artistMaybeWrong: false }, shareCount: 2, selectableOptionCount: 2, optionCount: 2, representative: first }], nextCursor: null };
       }
-      override async getSearchViewAlbumGroupOptions(id: string) {
+      override async getSearchViewAlbumGroupOptions(id: string, _ref: string, _revision: number | string, query: GroupOptionQuery = {}) {
+        if (query.previousTo || query.nextTo) return { revision: summary(id), groupRef: 'group',
+          items: [query.previousTo ? first : second], nextCursor: null };
         return { revision: summary(id), groupRef: 'group', items: [first, second], nextCursor: null };
       }
       override async getSearchViewDirectoryFiles(id: string, ref: string) {
@@ -1353,6 +1355,12 @@ describe('Search View request isolation', () => {
       controller.chooseGroupOption('group', controller.current().groupOptions!.items[1]!);
       controller.toggleAlbumGroupFile('group', 'second-intro', false);
       expect(controller.current().albumFileSelections.get('group')?.mode).toBe('AllExcept');
+      await controller.stepGroupOption('group', -1);
+      expect(controller.isSelected('group')).toBe(false);
+      await controller.stepGroupOption('group', 1);
+      expect(controller.isSelected('group')).toBe(true);
+      expect(controller.isSelected('second-intro', 'group')).toBe(false);
+      expect(controller.isSelected('second-finale', 'group')).toBe(true);
       await controller.commit();
       await controller.commit();
       expect(requests[0]?.[1].chosenOptions).toEqual({ group: 'second' });
@@ -1643,7 +1651,7 @@ describe('Search View request isolation', () => {
   it('isolates retrieval status failures while another folder completes', async () => {
     const directories: Schema<'SearchViewDirectoryDto'>[] = ['first', 'second'].map(ref => ({
       ref: { ref, username: 'peer', folderPath: ref }, visibility: 'Public', preferenceTier: 'Preferred',
-      satisfiedPreferredConditions: [], publicMatchingFileCount: 1, lockedMatchingFileCount: 0,
+      hasFilteredFiles: false, satisfiedPreferredConditions: [], publicMatchingFileCount: 1, lockedMatchingFileCount: 0,
       publicMatchingBytes: 1, lockedMatchingBytes: 0, retrievedFileCount: null, retrievedBytes: null,
       retrievalState: 'SearchResultsOnly', peer: { username: 'peer' },
       bestChild: { ref: `${ref}-file`, visibility: 'Public', preferenceTier: 'Preferred',
@@ -2123,7 +2131,7 @@ describe('Search View request isolation', () => {
         draft: { ...emptySearchDraft, resultMode: mode } });
       const older = controller.loadMore();
       expect(controller.current().loadingMore).toBe(true);
-      await controller.refine({ kind, includeFullResults: true });
+      await controller.refine({ kind });
       expect(controller.current().refinementError?.message).toBe('Replacement unavailable');
       expect(controller.current().summary?.viewId).toBe('source');
       expect(controller.current().loadingMore).toBe(false);

@@ -1,8 +1,10 @@
+using Sockseek.Core;
 using Sockseek.Api;
 using static Sockseek.Server.Planning.SearchViewCache;
 using System.Collections.Immutable;
 using System.Globalization;
 using Sockseek.Core.Services;
+using Sockseek.Core.Models;
 
 namespace Sockseek.Server.Planning;
 
@@ -34,9 +36,74 @@ public sealed partial class SearchViewSnapshot
     internal ImmutableDictionary<string, AlbumRow> Albums = ImmutableDictionary<string, AlbumRow>.Empty;
     internal ImmutableDictionary<string, ImmutableHashSet<string>> Parents = ImmutableDictionary<string, ImmutableHashSet<string>>.Empty;
     internal ImmutableHashSet<string> Peers = ImmutableHashSet<string>.Empty;
+    // Only text-filtered File Search views retain omitted public files. Index folders
+    // by their exact peer paths so a promotion never needs to browse the peer.
+    internal ImmutableDictionary<PeerPathKey, ImmutableDictionary<string, SearchProjectionInput>> FilteredFiles = ImmutableDictionary<PeerPathKey, ImmutableDictionary<string, SearchProjectionInput>>.Empty;
+    internal ImmutableDictionary<PeerPathKey, ImmutableHashSet<PeerPathKey>> FilteredFolders = ImmutableDictionary<PeerPathKey, ImmutableHashSet<PeerPathKey>>.Empty;
+
+    internal void AddFilteredFiles(IEnumerable<SearchProjectionInput> files, CancellationToken token)
+    {
+        var byFolder = FilteredFiles.ToBuilder();
+        var byAncestor = FilteredFolders.ToBuilder();
+        foreach (var group in files.GroupBy(file => new PeerPathKey(file.Username, ParentPath(file.Filename) ?? "")))
+        {
+            token.ThrowIfCancellationRequested();
+            var key = group.Key;
+            bool existing = byFolder.TryGetValue(key, out var prior);
+            var bucket = (prior ?? ImmutableDictionary<string, SearchProjectionInput>.Empty).ToBuilder();
+            foreach (var file in group)
+            {
+                token.ThrowIfCancellationRequested();
+                if (key.RemotePath.Length != 0 || file.Filename.IndexOfAny(['\\', '/']) < 0)
+                    bucket[file.Filename] = file;
+            }
+            if (bucket.Count == 0) continue;
+            byFolder[key] = bucket.ToImmutable();
+            if (existing) continue;
+            for (string? path = key.RemotePath; path != null; path = ParentPath(path))
+            {
+                var ancestor = new PeerPathKey(key.Username, path);
+                var children = byAncestor.GetValueOrDefault(ancestor) ?? ImmutableHashSet<PeerPathKey>.Empty;
+                byAncestor[ancestor] = children.Add(key);
+            }
+        }
+        FilteredFiles = byFolder.ToImmutable();
+        FilteredFolders = byAncestor.ToImmutable();
+    }
+
+    private static string? ParentPath(string path)
+    {
+        int last = path.LastIndexOfAny(['\\', '/']);
+        return last <= 0 ? null : path[..last];
+    }
+
+    internal bool HasFilteredFiles(SearchViewDirectory directory)
+        => FilteredFolders.ContainsKey(new(directory.Username, directory.FolderPath));
+
+    internal string? DeepestFilteredFolder(SearchViewDirectory directory, string filename)
+    {
+        if (FilteredFolders.Count == 0) return null;
+        for (string? path = ParentPath(filename); path != null && path.Length > directory.FolderPath.Length; path = ParentPath(path))
+            if (FilteredFolders.ContainsKey(new(directory.Username, path)))
+                return RelativePath(directory.FolderPath, path).Replace('\\', '/');
+        return null;
+    }
+
+    internal IEnumerable<SearchProjectionInput> ReadFilteredFiles(SearchViewDirectory directory, CancellationToken token)
+    {
+        if (!FilteredFolders.TryGetValue(new(directory.Username, directory.FolderPath), out var buckets)) yield break;
+        foreach (var key in buckets)
+            foreach (var file in FilteredFiles[key].Values)
+            {
+                token.ThrowIfCancellationRequested();
+                yield return file;
+            }
+    }
+
     internal SearchViewSelectionCounts Counts = new(0, 0, 0);
     internal readonly Lock IndexGate = new();
     internal readonly Dictionary<SearchViewSortOrder, ImmutableSortedSet<SearchViewFilePosition>> FileIndexes = [];
+    private readonly Dictionary<SearchViewSortOrder, SearchViewFilePosition[]> completedFileOrders = [];
     internal readonly Dictionary<SearchViewSortOrder, ImmutableSortedSet<SearchViewDirectoryPosition>> DirectoryIndexes = [];
     internal readonly Dictionary<string, ImmutableSortedSet<SearchViewDirectoryPosition>> AlbumOptionIndexes = [];
     internal ImmutableSortedSet<SearchViewTrackGroupPosition> TrackIndex = ImmutableSortedSet.Create(TrackComparer);
@@ -115,20 +182,28 @@ public sealed partial class SearchViewSnapshot
 
     internal static ImmutableSortedSet<SearchViewDirectoryFilePosition> ChildSet() => ImmutableSortedSet.Create(ChildComparer);
     internal static ImmutableSortedSet<SearchViewFilePosition> FileSet(SearchViewSortOrder order)
+        => ImmutableSortedSet.Create<SearchViewFilePosition>(FileComparer(order));
+
+    private static IComparer<SearchViewFilePosition> FileComparer(SearchViewSortOrder order)
     {
         if (order is not (SearchViewSortOrder.Relevance or SearchViewSortOrder.UploadSpeed
             or SearchViewSortOrder.QueueDepth or SearchViewSortOrder.ItemSizeAscending or SearchViewSortOrder.ItemSizeDescending))
             throw new ArgumentOutOfRangeException(nameof(order));
-        return ImmutableSortedSet.Create<SearchViewFilePosition>(Comparer<SearchViewFilePosition>.Create((a, b) =>
+        return Comparer<SearchViewFilePosition>.Create((a, b) =>
         {
-            int result = order == SearchViewSortOrder.Relevance
-                ? SearchProjectionSortKeyComparer.Instance.Compare(
-                    a.Rank,
-                    b.Rank)
-                : CompareAlternative(order, a.PrimaryNumber, b.PrimaryNumber, a.SecondaryNumber, b.SecondaryNumber);
+            int result = order switch
+            {
+                SearchViewSortOrder.ItemSizeAscending => a.Size.CompareTo(b.Size),
+                SearchViewSortOrder.ItemSizeDescending => b.Size.CompareTo(a.Size),
+                SearchViewSortOrder.UploadSpeed => b.UploadSpeed.CompareTo(a.UploadSpeed),
+                SearchViewSortOrder.QueueDepth => a.QueueLength.CompareTo(b.QueueLength),
+                _ => SearchProjectionSortKeyComparer.Instance.Compare(a.Rank, b.Rank),
+            };
+            if (result == 0 && order == SearchViewSortOrder.QueueDepth)
+                result = b.UploadSpeed.CompareTo(a.UploadSpeed);
             if (result == 0) result = a.Sequence.CompareTo(b.Sequence);
             return result != 0 ? result : StringComparer.Ordinal.Compare(a.Ref, b.Ref);
-        }));
+        });
     }
     internal static ImmutableSortedSet<SearchViewDirectoryPosition> DirectorySet(SearchViewSortOrder order)
     {
@@ -164,18 +239,6 @@ public sealed partial class SearchViewSnapshot
         return result == 0 && order == SearchViewSortOrder.QueueDepth ? Nullable.Compare(bSecondary, aSecondary) : result;
     }
 
-    internal static ImmutableSortedSet<SearchViewFilePosition> FileIndex(SearchViewSnapshot snapshot, SearchViewSortOrder order)
-    {
-        lock (snapshot.IndexGate)
-        {
-            if (!snapshot.FileIndexes.TryGetValue(order, out var index))
-            {
-                index = FileSet(order).Union(snapshot.Files.Values.Select(row => Position(row.Value, row.Key, order)));
-                snapshot.FileIndexes.Add(order, index);
-            }
-            return index;
-        }
-    }
     internal static ImmutableSortedSet<SearchViewDirectoryPosition> DirectoryIndex(SearchViewSnapshot snapshot, SearchViewSortOrder order)
     {
         lock (snapshot.IndexGate)
@@ -193,9 +256,45 @@ public sealed partial class SearchViewSnapshot
     public SearchViewFilePage GetFiles(SearchViewFilePosition? after, int limit, SearchViewSortOrder? sortOrder = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var page = Page(FileIndex(this, sortOrder ?? View.SortOrder), after, limit);
+        var order = sortOrder ?? View.SortOrder;
+        var page = FilePage(order, after, limit);
         return new(Revision,
             page.Items.Select(position => Files[position.Ref].Value).ToArray(), page.Next);
+    }
+
+    private (SearchViewFilePosition[] Items, SearchViewFilePosition? Next) FilePage(
+        SearchViewSortOrder order, SearchViewFilePosition? after, int limit)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        ImmutableSortedSet<SearchViewFilePosition>? index;
+        lock (IndexGate)
+        {
+            if (!FileIndexes.TryGetValue(order, out index))
+            {
+                FileIndexes.TryGetValue(View.SortOrder, out var primary);
+                // Live orders advance by changed keys on each publication. Once a
+                // file search finishes, new orders only need arrays of existing keys.
+                if (View.IsComplete && primary != null)
+                {
+                    var comparer = FileComparer(order);
+                    if (!completedFileOrders.TryGetValue(order, out var sorted))
+                    {
+                        sorted = primary.ToArray();
+                        Array.Sort(sorted, comparer);
+                        completedFileOrders.Add(order, sorted);
+                    }
+                    int position = after == null ? -1 : Array.BinarySearch(sorted, after, comparer);
+                    int start = position < 0 ? ~position : position + 1;
+                    var items = sorted.AsSpan(start, Math.Min(limit, sorted.Length - start)).ToArray();
+                    return (items, items.Length < sorted.Length - start ? items[^1] : null);
+                }
+                IEnumerable<SearchViewFilePosition> positions = primary != null
+                    ? primary : Files.Values.Select(row => Position(row.Value, row.Key));
+                index = FileSet(order).Union(positions);
+                FileIndexes.Add(order, index);
+            }
+        }
+        return Page(index, after, limit);
     }
 
     public SearchViewDirectoryPage GetDirectories(SearchViewDirectoryPosition? after, int limit, int initialFileLimit = 0,
@@ -293,12 +392,12 @@ public sealed partial class SearchViewSnapshot
 
         bool Matches(SearchViewDirectoryPosition position, string filter)
         {
-            if (position.Username.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                || position.FolderPath.Contains(filter, StringComparison.OrdinalIgnoreCase)) return true;
+            if (Utils.ContainsDisplayText(position.Username, filter)
+                || Utils.ContainsDisplayText(position.FolderPath, filter)) return true;
             foreach (var child in Directories[position.Ref].Children)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (Files[child.Ref].Value.Input.Filename.Contains(filter, StringComparison.OrdinalIgnoreCase)) return true;
+                if (Utils.ContainsDisplayText(Files[child.Ref].Value.Input.Filename, filter)) return true;
             }
             return false;
         }

@@ -104,7 +104,8 @@ public sealed record SourceMutationDto(
     int LineNumber = 0,
     int ItemNumber = 1,
     int CsvColumnCount = 0,
-    string? TrackUri = null);
+    string? TrackUri = null,
+    string? RecordHash = null);
 
 public sealed record JobProvenanceDto(
     int ItemNumber = 1,

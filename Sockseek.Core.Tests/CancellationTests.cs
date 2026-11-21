@@ -1168,18 +1168,15 @@ namespace Tests.Cancellation
             await using var engine = new DownloadEngine(engineSettings,
                 TestHelpers.CreateMockClientManager(client, engineSettings), loggerFactory: loggerFactory, retireTerminalWorkflows: true);
             observedEngine = engine;
-            using var releaseDiscovery = new ManualResetEventSlim();
             using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            var publishingDiscovery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var pickerReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var followingRootPrepared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             engine.Events.JobExecutionCompleted += change =>
             {
-                if (change.Job.Id != song.Id || change.Job.LifecycleState != JobLifecycleState.AwaitingSelection) return;
-                publishingDiscovery.TrySetResult();
-                releaseDiscovery.Wait(watchdog.Token);
+                if (change.Job.Id == song.Id && change.Job.LifecycleState == JobLifecycleState.AwaitingSelection)
+                    pickerReady.TrySetResult();
             };
-            // Preparation of the following root proves that the queued resume
-            // has been read, while discovery's final publication is still held.
+            // The following root can only be prepared after the reader admits the queued resume.
             healthy.PropertyChanged += (_, change) =>
             {
                 if (change.PropertyName == nameof(Job.Config)) followingRootPrepared.TrySetResult();
@@ -1188,12 +1185,17 @@ namespace Tests.Cancellation
             var running = Task.Run(() => engine.RunAsync(CancellationToken.None));
             try
             {
-                await publishingDiscovery.Task.WaitAsync(watchdog.Token);
-                Assert.IsTrue(engine.TryStartManualSongSelection(song.Id, song.Candidates![0], null, out _));
-                engine.Enqueue(healthy, settings);
-                await followingRootPrepared.Task.WaitAsync(watchdog.Token);
-                if (!cancelOnAdmission) Assert.IsTrue(engine.CancelJob(song.Id));
-                releaseDiscovery.Set();
+                await pickerReady.Task.WaitAsync(watchdog.Token);
+                // Hold the same gate as discovery without blocking the event publisher or queue reader.
+                await song.ExecutionGate.WaitAsync(watchdog.Token);
+                try
+                {
+                    Assert.IsTrue(engine.TryStartManualSongSelection(song.Id, song.Candidates![0], null, out _));
+                    engine.Enqueue(healthy, settings);
+                    await followingRootPrepared.Task.WaitAsync(watchdog.Token);
+                    if (!cancelOnAdmission) Assert.IsTrue(engine.CancelJob(song.Id));
+                }
+                finally { song.ExecutionGate.Release(); }
                 await WaitForAsync(engine, () => song.IsTerminal && healthy.IsTerminal);
                 if (cancelOnAdmission) Assert.IsTrue(admissionCancellationAccepted,
                     "Request cancellation from root-start publication, after queue admission but before registration.");
@@ -1205,7 +1207,6 @@ namespace Tests.Cancellation
             }
             finally
             {
-                releaseDiscovery.Set();
                 engine.CompleteEnqueue();
                 try { await IgnoreCancellation(running.WaitAsync(TimeSpan.FromSeconds(5))); }
                 finally { System.IO.Directory.Delete(outputDir, recursive: true); }

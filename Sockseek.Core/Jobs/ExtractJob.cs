@@ -11,6 +11,14 @@ namespace Sockseek.Core.Jobs;
         public override JobSnapshotKind Kind => JobSnapshotKind.Extract;
 
         public string     Input     { get; }
+        // Used only while planning an upload. The retained input keeps its original name.
+        public string? UploadedFilePath { get; private set; }
+        public void ReadFromUpload(string path)
+        {
+            UploadedFilePath = path;
+            ItemName = Input;
+        }
+
         public InputType? InputType { get; set; }
         public ExtractionMode? RequestedModeOverride { get; set; }
         private bool autoProcessResult = true;
@@ -52,6 +60,18 @@ namespace Sockseek.Core.Jobs;
             Input     = input;
             InputType = inputType;
         }
+
+        // An extractor can enumerate a playlist position even when the provider
+        // withholds its metadata. Planning and direct execution report it alike.
+        internal string? SourceUnavailableReason { get; private init; }
+
+        internal static ExtractJob UnavailablePlaylistEntry(string input, InputType provider, int position)
+            => new(input, provider)
+            {
+                ItemNumber = position,
+                ItemName = $"Track {position} unavailable",
+                SourceUnavailableReason = $"{provider} returned no track details for playlist position {position}.",
+            };
 
         public override string ToString(bool noInfo) => Input;
     }

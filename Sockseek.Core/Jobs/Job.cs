@@ -67,6 +67,7 @@ namespace Sockseek.Core.Jobs;
 
         // New durable rows use time-ordered identities to keep SQLite index inserts local.
         public Guid Id { get; } = Guid.CreateVersion7();
+        public IReadOnlyList<string>? InheritedFolders { get; set; }
         public int DisplayId => _displayId;
 
         public int EnsureDisplayId()
@@ -110,6 +111,21 @@ namespace Sockseek.Core.Jobs;
         {
             MarkCancellationSource(source);
             Cts?.Cancel();
+        }
+
+        // A buffered root can be cancelled before preparation has supplied an
+        // execution token. Publish the result before the scheduler can retire it.
+        public bool TryCancelQueuedRoot(JobCancellationSource source, Action publish)
+        {
+            if (!ExecutionGate.Wait(0)) return false;
+            try
+            {
+                if (Cts is not null || LifecycleState != JobLifecycleState.Pending) return false;
+                SetCancelled(source);
+                publish();
+                return true;
+            }
+            finally { ExecutionGate.Release(); }
         }
 
         public JobCancellationSource CancellationSource => StateSnapshot.CancellationSource;
@@ -399,7 +415,10 @@ namespace Sockseek.Core.Jobs;
         public string DefaultPlaylistName()
         {
             var name = ItemName ?? ToString(noInfo: true);
-            return $"_{name.ReplaceInvalidChars(" ").Trim()}.m3u8";
+            if (this is ExtractJob source && (source.InputType is InputType.CSV or InputType.List
+                || Path.IsPathFullyQualified(name)))
+                name = Path.GetFileName(name);
+            return Utils.FitPathComponent($"_{name.ReplaceInvalidChars(" ").Trim()}.m3u8");
         }
 
         public virtual string ToString(bool noInfo) => ItemName ?? QueryTrack?.ToString(noInfo) ?? "";

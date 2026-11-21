@@ -58,7 +58,7 @@ internal sealed class OutputFinalizer
         {
             if (string.IsNullOrWhiteSpace(config.Output.NameFormat))
                 return new InitialDownloadTarget(organizer.GetSavePath(filename), PublishToDuplicateCache: true);
-            string sourceName = Utils.GetFileNameSlsk(filename).CleanPath(config.Output.InvalidReplaceStr);
+            string sourceName = Utils.FitPathComponent(Utils.GetFileNameSlsk(filename).CleanPath(config.Output.InvalidReplaceStr));
             return new InitialDownloadTarget(Path.Join(OutputStaging.Root(config.Output), song.Id.ToString("N"), sourceName),
                 PublishToDuplicateCache: false);
         });
@@ -80,11 +80,8 @@ internal sealed class OutputFinalizer
             try
             {
                 bool skipped = false;
-                organizer.OrganizeDownloadedFile(song, (file, destination) =>
-                {
-                    skipped = !PreparePlacement(cache, file, destination, parentJob.Config.Output, allowOverwrite);
-                    return !skipped;
-                });
+                organizer.OrganizeDownloadedFile(song, (file, destination, cleanupRoot) =>
+                    PlaceFile(cache, file, destination, cleanupRoot, parentJob.Config.Output, allowOverwrite, out skipped));
                 if (skipped)
                     return OutputFinalizationResult.Completed(JobOutcome.AlreadyExists(song.DownloadPath));
                 EnsureFileLeftStaging(song, parentJob.Config.Output);
@@ -124,13 +121,11 @@ internal sealed class OutputFinalizer
             {
                 if (!string.IsNullOrEmpty(album.DownloadPath))
                     organizer.OrganizeAlbum(album, filesToOrganize, additionalImages,
-                        preparePlacement: (file, destination) =>
+                        placeFile: (file, destination, cleanupRoot) =>
                         {
-                            if (PreparePlacement(cache, file, destination, album.Config.Output, allowOverwrite)) return true;
-                            // Album children have already committed their transfer outcome.
-                            // An occupied final destination skips only this file, not its siblings.
-                            JobOutcomeCommitter.Commit(file, JobOutcome.AlreadyExists(file.DownloadPath));
-                            return false;
+                            string path = PlaceFile(cache, file, destination, cleanupRoot, album.Config.Output, allowOverwrite, out bool skipped);
+                            if (skipped) JobOutcomeCommitter.Commit(file, JobOutcome.AlreadyExists(path));
+                            return path;
                         });
                 EnsureAlbumFilesLeftStaging(album, chosenFiles, additionalImages, outcome);
                 RefreshSuccessfulAlbumPath(album, filesToOrganize, outcome);
@@ -178,9 +173,6 @@ internal sealed class OutputFinalizer
             "download completed, but organizing the output failed");
     }
 
-    public ValueTask<bool> PublishDownloadedFileCacheAsync(SongJob song, JobOutcome outcome)
-        => files.WithCacheAsync(cache => { PublishDownloadedFileCache(cache, song, outcome); return true; });
-
     private static void PublishDownloadedFileCache(DownloadFileOperations.Cache cache, SongJob song, JobOutcome outcome)
     {
         if (outcome.TerminalOutcome != JobTerminalOutcome.Succeeded) return;
@@ -198,21 +190,34 @@ internal sealed class OutputFinalizer
                 PublishDownloadedFileCache(cache, song, JobOutcome.Done(song.DownloadPath, song.ResolvedTarget, song.DownloadSource));
     }
 
-    private static bool PreparePlacement(
-        DownloadFileOperations.Cache cache, SongJob file, string destination, OutputSettings output, bool allowOverwrite)
+    private static string PlaceFile(
+        DownloadFileOperations.Cache cache, SongJob file, string destination, string cleanupRoot,
+        OutputSettings output, bool allowOverwrite, out bool skipped)
     {
-        // Existence protects an occupied path; rejecting a history/library match
-        // never grants permission to replace a different version at that path.
-        if (!allowOverwrite && File.Exists(destination))
-        {
-            if (OutputStaging.Contains(file.DownloadPath, output))
-                Utils.DeleteFileAndParentsIfEmpty(file.DownloadPath!, OutputStaging.Root(output));
-            file.DownloadPath = destination;
-            return false;
-        }
-        cache.InvalidatePath(destination);
-        return true;
+        string source = file.DownloadPath!;
+        var placed = cache.PlaceFile(source, destination, cleanupRoot,
+            allowOverwrite: !output.PreserveSelectionConflicts && allowOverwrite,
+            replaceExisting: output.PreserveSelectionConflicts ? null : path => !TrackSkipperContext.KeepExistingOutput(file, path));
+        skipped = placed.Matched && !output.PreserveSelectionConflicts;
+        if (placed.Matched && OutputStaging.Contains(source, output))
+            Utils.DeleteFileAndParentsIfEmpty(source, cleanupRoot);
+        return placed.Path;
     }
+
+    public async ValueTask RestoreCompletedAlbumFiles(AlbumJob album)
+        => _ = await files.WithCacheAsync(cache =>
+        {
+            foreach (var child in album.TrackJobs)
+            {
+                if (child.PathBeforeIncompleteMove is not { } destination || child.DownloadPath is not { } source) continue;
+                var placed = cache.PlaceFile(source, destination, album.Config.ResolveIncompleteAlbumAction().Path);
+                cache.InvalidatePath(source);
+                child.DownloadPath = placed.Path;
+                child.PathBeforeIncompleteMove = null;
+                events?.RaiseJobStateChanged(child);
+            }
+            return true;
+        });
 
     public async Task HandleIncompleteAlbumAsync(AlbumJob job, AlbumFolder folder, ResolvedIncompleteAlbumAction action, DownloadSettings config)
     {
@@ -274,6 +279,7 @@ internal sealed class OutputFinalizer
                         cache.InvalidatePath(newPath);
                         cache.InvalidatePath(downloadPath);
                         Utils.Move(downloadPath, newPath);
+                        af.PathBeforeIncompleteMove = downloadPath;
                         af.DownloadPath = newPath;
                         events?.RaiseTransferOutputChanged(af, newPath);
                         events?.RaiseJobStateChanged(af);

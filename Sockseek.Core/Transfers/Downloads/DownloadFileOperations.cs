@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Core.Models;
+using Sockseek.Core.Jobs;
 
 namespace Sockseek.Core.Services;
 
@@ -139,46 +140,76 @@ internal sealed class DownloadFileOperations : IDisposable
     }
 
     public ValueTask<ExactFileTransferOutcome?> TryReuseAsync(PeerFileTarget target, string outputPath, Guid jobId, Guid workflowId,
-        bool publish, bool allowOverwrite, bool allowReuse = true)
-        => WithCacheAsync(state => TryReuse(state, target, outputPath, jobId, workflowId, publish, allowOverwrite, allowReuse));
+        bool publish, bool allowOverwrite, bool allowReuse = true, SongJob? song = null, bool selectionLayout = false)
+        => WithCacheAsync(state => TryReuse(state, target, outputPath, jobId, workflowId, publish, allowOverwrite, allowReuse, song, selectionLayout));
 
-    public ValueTask<(ExactFileTransferOutcome? Reused, Stream? Output)> PrepareAsync(
+    public ValueTask<(ExactFileTransferOutcome? Reused, DownloadOutput? Output)> PrepareAsync(
         PeerFileTarget target, string outputPath, string incompletePath, Guid jobId, Guid workflowId,
-        bool publish, bool allowOverwrite, bool allowReuse = true)
-        => WithCacheAsync(state =>
+        bool publish, bool allowOverwrite, bool allowReuse = true, SongJob? song = null, bool selectionLayout = false)
+        => WithCacheAsync<(ExactFileTransferOutcome?, DownloadOutput?)>(state =>
         {
-            var reused = TryReuse(state, target, outputPath, jobId, workflowId, publish, allowOverwrite, allowReuse);
+            var reused = TryReuse(state, target, outputPath, jobId, workflowId, publish, allowOverwrite, allowReuse, song, selectionLayout);
             // No callback/queue gap between the final reuse decision and opening
             // a new output: another completed publication cannot be missed here.
-            return (reused, reused == null ? Open(state, incompletePath) : null);
+            if (reused != null) return (reused, null);
+            var output = selectionLayout && PathEquals(incompletePath, outputPath)
+                ? OpenNewSelection(state, outputPath)
+                : Open(state, incompletePath);
+            return (null, output);
         });
 
-    public ValueTask<Stream> OpenAsync(string path) => WithCacheAsync(state => Open(state, path));
+    private DownloadOutput OpenNewSelection(Cache state, string path)
+    {
+        // Reserve a visible numbered filename before writing if another selection owns this name.
+        DownloadOutput? output = null;
+        Utils.ResolvePathCollision(path, candidate =>
+        {
+            if (Directory.Exists(candidate)) return false;
+            try { output = Open(state, candidate, FileMode.CreateNew); }
+            catch (IOException) when (File.Exists(candidate)) { return false; }
+            return true;
+        });
+        return output!;
+    }
 
-    private Stream Open(Cache state, string path)
+    public ValueTask<Stream> OpenAsync(string path) => WithCacheAsync(state => Open(state, path).Stream);
+
+    private DownloadOutput Open(Cache state, string path, FileMode mode = FileMode.OpenOrCreate)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        state.InvalidatePath(path);
         // FileMode.Create unconditionally ftruncates even a new file on Unix.
         // On ext4 that can force buffered downloads through the journal at close,
         // stalling unrelated FULL-WAL commits. Only truncate an actual old payload.
-        var output = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read,
+        var output = new FileStream(path, mode, FileAccess.ReadWrite, FileShare.Read,
             bufferSize: 1, FileOptions.SequentialScan);
         try
         {
-            if (output.Length != 0) output.SetLength(0);
+            state.InvalidatePath(path);
+            if (mode == FileMode.OpenOrCreate && output.Length != 0) output.SetLength(0);
         }
         catch { output.Dispose(); throw; }
         // One managed buffer preserves cheap tiny writes; large async writes
         // pass through WorkerStream onto these same owned I/O workers.
-        return new BufferedStream(new WorkerStream(output, this), 4096);
+        return new DownloadOutput(output.Name, new BufferedStream(new WorkerStream(output, this), 4096), this);
+    }
+
+    internal sealed class DownloadOutput(string path, Stream stream, DownloadFileOperations owner) : IAsyncDisposable
+    {
+        public string Path { get; } = path;
+        public Stream Stream { get; } = stream;
+        public ValueTask DisposeAsync() => Stream.CanWrite ? owner.CloseAsync(Stream) : ValueTask.CompletedTask;
     }
 
     private ExactFileTransferOutcome? TryReuse(Cache cache, PeerFileTarget target, string outputPath,
-        Guid jobId, Guid workflowId, bool publishToDuplicateCache, bool allowOverwrite, bool allowReuse)
+        Guid jobId, Guid workflowId, bool publishToDuplicateCache, bool allowOverwrite, bool allowReuse, SongJob? song, bool selectionLayout)
     {
-        if (!allowOverwrite && File.Exists(outputPath))
-            return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
+        if (!selectionLayout && !allowOverwrite && File.Exists(outputPath))
+        {
+            if (TrackSkipperContext.KeepExistingOutput(song, outputPath))
+                return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
+            cache.InvalidatePath(outputPath);
+            allowOverwrite = true;
+        }
         if (!allowReuse || !cache.TryGetReusable(target, workflowId, out var existingDownload)) return null;
         var existingPath = existingDownload.OutputPath;
 
@@ -187,25 +218,24 @@ internal sealed class DownloadFileOperations : IDisposable
             jobId,
             "reusing existing transfer");
 
-        if (!PathEquals(existingPath, outputPath))
+        if (selectionLayout)
         {
-            bool replacing = File.Exists(outputPath);
-            if (replacing && !allowOverwrite)
-                return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
+            var placed = cache.PlaceFile(existingPath, outputPath, cleanupRoot: null);
+            if (placed.Matched) return ExactFileTransferOutcome.AlreadyExists(target, placed.Path);
+            outputPath = placed.Path;
+        }
+        else if (!PathEquals(existingPath, outputPath))
+        {
             DownloadLogMessages.JobDecision(
                 logger,
                 jobId,
                 "copying reused transfer");
             cache.InvalidatePath(outputPath);
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-            // Copy(overwrite: true) also ftruncates a fresh Unix destination.
-            // Keep its existing-file behavior, but create new copies directly.
-            try { File.Copy(existingPath, outputPath, overwrite: replacing); }
-            catch (IOException) when (!replacing)
+            try { Utils.CopyToDestination(existingPath, outputPath, allowOverwrite); }
+            catch (IOException) when (!allowOverwrite && File.Exists(outputPath))
             {
-                if (!allowOverwrite && File.Exists(outputPath))
-                    return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
-                File.Copy(existingPath, outputPath, overwrite: allowOverwrite);
+                return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
             }
         }
 
@@ -216,9 +246,16 @@ internal sealed class DownloadFileOperations : IDisposable
         return ExactFileTransferOutcome.Completed(new ExactFileTransferResult(outputPath, target));
     }
 
-    private static bool PathEquals(string left, string right)
+    internal static bool PathEquals(string left, string right)
         => string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    public ValueTask ResetPartialAsync(Stream output) => Enqueue(() =>
+    {
+        if (output.Length == 0) return;
+        output.SetLength(0);
+        output.Position = 0;
+    });
 
     public ValueTask CloseAsync(Stream stream) => Enqueue(stream.Dispose);
 
@@ -391,7 +428,7 @@ internal sealed class DownloadFileOperations : IDisposable
     // metadata under this lock; it never waits for filesystem work or deletes files.
     internal sealed class Cache
     {
-        internal sealed record CachedDownload(string OutputPath, PeerFileTarget Target);
+        internal sealed record CachedDownload(string OutputPath, long Length, DateTime LastWriteTimeUtc);
         private readonly record struct Key(Guid WorkflowId, PeerFileIdentity Identity);
         private readonly Lock gate = new();
         private readonly ConcurrentDictionary<Key, CachedDownload> downloadedFiles = new();
@@ -409,8 +446,8 @@ internal sealed class DownloadFileOperations : IDisposable
             var key = new Key(workflowId, target.Identity);
             if (!downloadedFiles.TryGetValue(key, out var cached)) { result = null; return false; }
             var file = new FileInfo(cached.OutputPath);
-            var expectedSize = target.Size ?? cached.Target.Size;
-            if (file.Exists && (expectedSize is null || file.Length == expectedSize.Value))
+            if (file.Exists && file.Length == cached.Length && file.LastWriteTimeUtc == cached.LastWriteTimeUtc
+                && (target.Size is null || target.Size == cached.Length))
             {
                 result = cached;
                 return true;
@@ -421,15 +458,76 @@ internal sealed class DownloadFileOperations : IDisposable
             return false;
         }
 
+        // A null cleanup root copies from a reusable download. A transfer or organizer
+        // supplies its cleanup root to move the completed payload into place.
+        public (string Path, bool Matched) PlaceFile(string source, string destination, string? cleanupRoot,
+            bool allowOverwrite = false, Func<string, bool>? replaceExisting = null)
+        {
+            bool matched = false;
+            string path = Utils.ResolvePathCollision(destination, candidate =>
+            {
+                if (!allowOverwrite && replaceExisting is null && Directory.Exists(candidate)) return false;
+                bool overwrite = allowOverwrite;
+                if (!overwrite && File.Exists(candidate))
+                {
+                    overwrite = replaceExisting?.Invoke(candidate) == true;
+                    if (!overwrite)
+                    {
+                        matched = PathEquals(source, candidate) || FilesMatch(source, candidate);
+                        return matched;
+                    }
+                }
+
+                try
+                {
+                    if (cleanupRoot != null)
+                        Utils.MoveAndDeleteParent(source, candidate, cleanupRoot, overwrite);
+                    else
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(candidate)!);
+                        Utils.CopyToDestination(source, candidate, overwrite);
+                    }
+                }
+                catch (IOException) when (!overwrite && File.Exists(source) && File.Exists(candidate))
+                {
+                    matched = FilesMatch(source, candidate);
+                    return matched;
+                }
+                InvalidatePath(candidate);
+                return true;
+            });
+            return (path, matched);
+        }
+
+        private static bool FilesMatch(string firstPath, string secondPath)
+        {
+            using var first = File.OpenRead(firstPath);
+            using var second = File.OpenRead(secondPath);
+            if (first.Length != second.Length) return false;
+            Span<byte> left = stackalloc byte[8192];
+            Span<byte> right = stackalloc byte[8192];
+            int read;
+            while ((read = first.Read(left)) != 0)
+            {
+                if (second.ReadAtLeast(right[..read], read, throwOnEndOfStream: false) != read
+                    || !left[..read].SequenceEqual(right[..read])) return false;
+            }
+            return second.ReadByte() == -1;
+        }
+
         public void Publish(string outputPath, PeerFileTarget target, Guid workflowId)
         {
             string path = Path.GetFullPath(outputPath);
             var key = new Key(workflowId, target.Identity);
+            var file = new FileInfo(path);
+            var entry = file.Exists && (target.Size is null || file.Length == target.Size)
+                ? new CachedDownload(path, file.Length, file.LastWriteTimeUtc) : null;
             lock (gate)
             {
                 InvalidatePath(path);
                 Remove(key);
-                downloadedFiles[key] = new(path, target);
+                if (entry is null) return;
+                downloadedFiles[key] = entry;
                 identitiesByPath[path] = key;
                 if (!identitiesByWorkflow.TryGetValue(workflowId, out var identities))
                     identitiesByWorkflow.Add(workflowId, identities = []);
@@ -475,13 +573,28 @@ internal sealed class DownloadFileOperations : IDisposable
         public override long Length => file.Length;
         public override long Position { get => file.Position; set => file.Position = value; }
         public override long Seek(long offset, SeekOrigin origin) => file.Seek(offset, origin);
-        public override void SetLength(long value) => file.SetLength(value);
-        public override void Flush() => file.Flush();
+        public override void SetLength(long value)
+        {
+            try { file.SetLength(value); }
+            catch (Exception e) when (value >= 0 && DownloadDestinationException.IsFileError(e))
+            {
+                throw new DownloadDestinationException(e);
+            }
+        }
+        public override void Flush()
+        {
+            try { file.Flush(); }
+            catch (Exception e) when (DownloadDestinationException.IsFileError(e)) { throw new DownloadDestinationException(e); }
+        }
         public override int Read(byte[] buffer, int offset, int count) => file.Read(buffer, offset, count);
-        public override void Write(byte[] buffer, int offset, int count) => file.Write(buffer, offset, count);
-        public override void Write(ReadOnlySpan<byte> buffer) => file.Write(buffer);
+        public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            try { file.Write(buffer); }
+            catch (Exception e) when (DownloadDestinationException.IsFileError(e)) { throw new DownloadDestinationException(e); }
+        }
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-            => owner.Enqueue(() => { cancellationToken.ThrowIfCancellationRequested(); file.Write(buffer.Span); });
+            => owner.Enqueue(() => { cancellationToken.ThrowIfCancellationRequested(); Write(buffer.Span); });
         public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
             => WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
@@ -489,8 +602,19 @@ internal sealed class DownloadFileOperations : IDisposable
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
             => ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
         public override Task FlushAsync(CancellationToken cancellationToken)
-            => owner.Enqueue(() => { cancellationToken.ThrowIfCancellationRequested(); file.Flush(); }).AsTask();
-        protected override void Dispose(bool disposing) { if (disposing) file.Dispose(); base.Dispose(disposing); }
+            => owner.Enqueue(() => { cancellationToken.ThrowIfCancellationRequested(); Flush(); }).AsTask();
+        protected override void Dispose(bool disposing)
+        {
+            try { if (disposing) file.Dispose(); }
+            catch (Exception e) when (DownloadDestinationException.IsFileError(e)) { throw new DownloadDestinationException(e); }
+            base.Dispose(disposing);
+        }
         public override ValueTask DisposeAsync() => owner.CloseAsync(this);
     }
+}
+
+internal sealed class DownloadDestinationException(Exception cause) : IOException(cause.Message, cause)
+{
+    // .NET can translate EFBIG from write or truncate to ArgumentOutOfRangeException.
+    internal static bool IsFileError(Exception error) => error is IOException or UnauthorizedAccessException or ArgumentOutOfRangeException;
 }

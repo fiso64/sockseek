@@ -52,7 +52,13 @@ internal static class WebUiHosting
                 + $"data-theme=\"{HtmlEncoder.Default.Encode(settings.Theme)}\" "
                 + $"data-search-mode=\"{HtmlEncoder.Default.Encode(settings.DefaultSearchMode)}\" ";
             context.Response.Headers.CacheControl = "no-cache";
-            return Results.Content(template.Replace("<html ", "<html " + attributes, StringComparison.Ordinal),
+            // A stripping reverse proxy can serve the same shell at any prefix.
+            // Resolve relative assets from the app root, including on deep bookmarks.
+            int depth = context.Request.Path.Value?.Count(c => c == '/') ?? 0;
+            string relativeRoot = depth < 2 ? "./" : string.Concat(Enumerable.Repeat("../", depth - 1));
+            var html = template.Replace("<base href=\"/\"", $"<base href=\"{relativeRoot}\"", StringComparison.Ordinal)
+                .Replace("<html ", "<html " + attributes, StringComparison.Ordinal);
+            return Results.Content(html,
                 "text/html; charset=utf-8").ExecuteAsync(context);
         }
 

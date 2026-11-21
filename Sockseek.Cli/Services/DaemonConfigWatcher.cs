@@ -26,7 +26,11 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
         SingleReader = true, FullMode = BoundedChannelFullMode.DropOldest,
     });
     private string? appliedText;
+    private int revision;
     private string? rejectedText;
+    private string? picturePath;
+    private FileSystemWatcher? pictureWatcher;
+    private int pictureChanged;
     private bool watching;
     private bool restartRequired;
 
@@ -48,16 +52,8 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
         try
         {
             // Watch the directory, not the inode: editors commonly save by rename.
-            using var watcher = new FileSystemWatcher(Path.GetDirectoryName(path)!, Path.GetFileName(path))
-            {
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
-            };
-            watcher.Changed += Changed;
-            watcher.Created += Changed;
-            watcher.Deleted += Changed;
-            watcher.Renamed += (_, _) => changes.Writer.TryWrite(true);
-            watcher.Error += (_, error) => changes.Writer.TryComplete(error.GetException());
-            watcher.EnableRaisingEvents = true;
+            using var watcher = WatchFile(path, () => changes.Writer.TryWrite(true),
+                (_, error) => changes.Writer.TryComplete(error.GetException()));
             watching = true;
             supervisor.StateStore.UpdateConfigurationStatus(new(true, false, false));
             // Close the startup-read/watch-registration gap too.
@@ -81,9 +77,51 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
             ReportError(exception);
             WatchFailed(logger, exception.GetType().Name);
         }
+        finally { pictureWatcher?.Dispose(); }
     }
 
-    private void Changed(object sender, FileSystemEventArgs args) => changes.Writer.TryWrite(true);
+    private static FileSystemWatcher WatchFile(string file, Action changed, ErrorEventHandler error)
+    {
+        var watcher = new FileSystemWatcher(Path.GetDirectoryName(file)!, Path.GetFileName(file))
+        {
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
+        };
+        void Notify(object sender, FileSystemEventArgs args) => changed();
+        watcher.Changed += Notify;
+        watcher.Created += Notify;
+        watcher.Deleted += Notify;
+        watcher.Renamed += Notify;
+        watcher.Error += error;
+        try
+        {
+            watcher.EnableRaisingEvents = true;
+            return watcher;
+        }
+        catch
+        {
+            watcher.Dispose();
+            throw;
+        }
+    }
+
+    private void WatchPicture(string? nextPath)
+    {
+        if (!watching || picturePath == nextPath && pictureWatcher != null) return;
+        pictureWatcher?.Dispose();
+        pictureWatcher = null;
+        picturePath = nextPath;
+        if (string.IsNullOrWhiteSpace(nextPath) || !Directory.Exists(Path.GetDirectoryName(nextPath))) return;
+        void Notify()
+        {
+            Interlocked.Exchange(ref pictureChanged, 1);
+            changes.Writer.TryWrite(true);
+        }
+        try { pictureWatcher = WatchFile(nextPath, Notify, (_, _) => Notify()); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning("Profile picture watching is unavailable ({ErrorType})", ex.GetType().Name);
+        }
+    }
 
     internal async Task<bool> ReloadAsync(CancellationToken cancellationToken = default)
     {
@@ -93,10 +131,11 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
             // Missing/unreadable files must not silently reset defaults. Empty
             // files are valid, intentional removal of all configured overrides.
             string text = File.ReadAllText(path);
-            if (text == appliedText)
+            bool refreshPicture = Interlocked.Exchange(ref pictureChanged, 0) != 0;
+            if (text == appliedText && !refreshPicture)
             {
                 rejectedText = null;
-                supervisor.StateStore.UpdateConfigurationStatus(new(watching, restartRequired, false));
+                supervisor.StateStore.UpdateConfigurationStatus(new(watching, restartRequired, false, Revision: revision));
                 return true;
             }
             if (text == rejectedText) return false;
@@ -119,12 +158,14 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
                     .Select(change => "Daemon." + change.Path)).ToArray();
 
             applying = true;
-            await supervisor.Runtime.ReloadConfigurationAsync(engine, daemon.CreateWebUiOptions(), cancellationToken).ConfigureAwait(false);
+            WatchPicture(engine.UserPicturePath);
+            await supervisor.Runtime.ReloadConfigurationAsync(engine, daemon.CreateWebUiOptions(), cancellationToken, profilePictureChanged: refreshPicture).ConfigureAwait(false);
             supervisor.Submissions.ReloadProfiles(profiles);
             restartRequired = restartChanges.Length != 0;
+            if (text != appliedText) revision++;
             appliedText = text;
             rejectedText = null;
-            supervisor.StateStore.UpdateConfigurationStatus(new(watching, restartRequired, false));
+            supervisor.StateStore.UpdateConfigurationStatus(new(watching, restartRequired, false, Revision: revision));
             Reloaded(logger, profiles.NamedProfiles.Count, restartRequired);
             if (restartRequired) RestartNeeded(logger, string.Join(", ", restartChanges));
             return true;
@@ -149,7 +190,7 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
         const string prefix = "Input error: ";
         if (error.StartsWith(prefix, StringComparison.Ordinal)) error = error[prefix.Length..];
         supervisor.StateStore.UpdateConfigurationStatus(new(watching, restartRequired, true,
-            error, exception.Data["ConfigLine"] as int?));
+            error, exception.Data["ConfigLine"] as int?, revision));
     }
 
     [LoggerMessage(5010, LogLevel.Information, "Configuration reloaded: {ProfileCount} profiles; restart required: {RestartRequired}")]

@@ -42,6 +42,7 @@ public class DownloadEvents
     // transforms). This happens at the same moment the ExtractJob itself completes.
     public event Action<JobResultCreatedChange>? JobResultCreated;
     public event Action<EngineCompletedChange>? EngineCompleted;
+    public event Action<RootExecutionChanged>? RootExecution;
     public event Action<WorkflowRetiredChange>? WorkflowRetired;
 
     // Fired for transient, human-readable status updates that don't warrant a formal state change
@@ -155,6 +156,9 @@ public class DownloadEvents
 
     internal void RaiseEngineCompleted(JobList queue)
         => Publish(new EngineCompletedChange(CoreChange.NextSequence(), UtcNow(), Reference(queue)), EngineCompleted);
+
+    internal void RaiseRootExecution(Guid workflowId, bool started)
+        => Publish(new RootExecutionChanged(CoreChange.NextSequence(), UtcNow(), workflowId, started), RootExecution);
 
     internal void RaiseWorkflowRetired(Guid workflowId, int jobCount)
     {
@@ -414,7 +418,8 @@ public class DownloadEvents
         FileDownloadJob song,
         PeerFileTarget candidate,
         string transferOutputPath,
-        Exception exception)
+        Exception exception,
+        TransferFailureReason reason = TransferFailureReason.PeerFailure)
         => PublishNonTerminalTransfer(transferId, facts => Publish(new TransferAttemptFailedChange(
             CoreChange.NextSequence(),
             UtcNow(),
@@ -423,7 +428,7 @@ public class DownloadEvents
             attemptId,
             attemptNumber,
             NextAttemptRevision(facts, attemptId),
-            CoreSnapshotFactory.CreateException(exception)), TransferAttemptFailed));
+            CoreSnapshotFactory.CreateException(exception), reason), TransferAttemptFailed));
 
     internal void RaiseTransferAttemptCancelled(
         Guid transferId,
@@ -466,12 +471,13 @@ public class DownloadEvents
         Guid attemptId,
         SongJob song,
         string sourceReference,
-        string outputPath)
+        string outputPath,
+        long producedBytes)
         => PublishNonTerminalTransfer(transferId, facts => Publish(new TransferAttemptCompletedChange(
             CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
-            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "AttemptCompleted", 0, 0, 1),
+            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "AttemptCompleted", producedBytes, producedBytes, 1),
             attemptId,
             AttemptNumber: 1,
             AttemptRevision: NextAttemptRevision(facts, attemptId)), TransferAttemptCompleted));

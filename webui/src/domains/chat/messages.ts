@@ -1,3 +1,4 @@
+import { SvelteMap } from 'svelte/reactivity';
 import { wireInteger, type ChatMessageDto } from '../../api/types';
 
 /** Later observations replace the same message, including send-state changes. */
@@ -16,4 +17,12 @@ export function snapshotNeedsHistory(boundary: ChatMessageDto | undefined, tail:
   if (!tail.length) return false;
   if (!boundary) return true;
   return wireInteger(tail[0]!.sequence) > wireInteger(boundary.sequence);
+}
+
+/** Drafts and retry identities belong to the signed-in tab, across route changes. */
+export function createChatDrafts() {
+  return {
+    text: new SvelteMap<string, string>(),
+    unconfirmed: new Map<string, { text: string; id: string }>(),
+  };
 }

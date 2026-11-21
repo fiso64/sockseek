@@ -159,6 +159,9 @@ public sealed class EnginePersistenceTests
             CollectionAssert.AreEqual(content, await System.IO.File.ReadAllBytesAsync(job.DownloadPath!));
             Assert.IsFalse(System.IO.File.Exists(job.DownloadPath + ".incomplete"));
             var terminal = sink.Mutations.OfType<TransferTerminalPersistenceMutation>().Single();
+            Assert.IsFalse(sink.Mutations.OfType<TransferPersistenceMutation>()
+                .Any(row => Enum.TryParse<TransferStates>(row.State, out var state) && state.HasFlag(TransferStates.Completed)),
+                "A transport callback cannot mark the download completed before the output is published.");
             Assert.AreEqual(remoteSize, job.FileSize);
             Assert.AreEqual(remoteSize, job.BytesTransferred);
             Assert.AreEqual(remoteSize, terminal.Transfer.TransferredBytes);

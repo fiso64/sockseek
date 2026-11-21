@@ -18,6 +18,7 @@ internal sealed class ActiveDownload
 
     // Set by the Soulseek client callbacks for live display and command handling.
     public Transfer? Transfer { get; set; }
+    public bool UserCancelled { get; set; }
     public bool IsManuallySkipped { get; set; }
     public bool IsStaleCancelled => StaleMaxStaleTimeMs.HasValue;
     public int? StaleMaxStaleTimeMs { get; private set; }

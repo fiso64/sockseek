@@ -766,8 +766,10 @@ namespace Tests.Core
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, album.TerminalOutcome, album.FailureMessage + "\n" + string.Join("\n", album.TrackJobs.Select(file => $"{file.TerminalOutcome}: {file.FailureMessage} {file.FailureDetail}")));
                 Assert.AreEqual(4, album.TrackJobs.Count);
                 Assert.IsTrue(album.TrackJobs.All(file => file.IsSuccessfulTerminal));
-                Assert.AreEqual(existingCount, album.ProgressSummary.SkippedFileCount);
-                Assert.AreEqual(4 - existingCount, album.ProgressSummary.DownloadedFileCount);
+                Assert.AreEqual(0, album.ProgressSummary.SkippedFileCount);
+                Assert.AreEqual(4, album.ProgressSummary.DownloadedFileCount);
+                foreach (var track in album.TrackJobs)
+                    Assert.AreEqual(track.ResolvedPeerTarget!.Size, new FileInfo(track.DownloadPath!).Length);
                 Assert.AreEqual(0, album.ProgressSummary.FailedFileCount);
                 foreach (var name in names.Take(existingCount))
                     Assert.AreEqual("keep", await System.IO.File.ReadAllTextAsync(Path.Combine(finalDir, name)));
@@ -822,7 +824,7 @@ namespace Tests.Core
                 await app.RunAsync(CancellationToken.None);
 
                 Assert.AreEqual(JobTerminalOutcome.Failed, album.TerminalOutcome);
-                StringAssert.Contains(album.FailureMessage ?? "", "Failed to move album ancillary file");
+                StringAssert.Contains(album.FailureMessage ?? "", blockedBookletPath);
                 StringAssert.Contains(album.FailureMessage ?? "", "Downloaded payload retained at:");
                 var pdf = album.TrackJobs.Single(file => file.IsNotAudio);
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, pdf.TerminalOutcome);
@@ -1394,7 +1396,9 @@ namespace Tests.Core
         }
 
         [TestMethod]
-        public async Task OutputFinalizer_DoesNotReplaceAPathCreatedAfterSkipEvaluation()
+        [DataRow(true)]
+        [DataRow(false)]
+        public async Task OutputFinalizer_DoesNotReplaceAPathCreatedAfterSkipEvaluation(bool sameBytes)
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-name-format-collision-" + Guid.NewGuid());
             Directory.CreateDirectory(outputDir);
@@ -1415,7 +1419,8 @@ namespace Tests.Core
                     "Artist - Payload.xyz");
                 string finalPath = Path.Combine(outputDir, "Payload.xyz");
                 Directory.CreateDirectory(Path.GetDirectoryName(stagingPath)!);
-                System.IO.File.WriteAllText(stagingPath, "new payload");
+                string incoming = sameBytes ? "existing payload" : "distinct payload";
+                System.IO.File.WriteAllText(stagingPath, incoming);
                 System.IO.File.WriteAllText(finalPath, "existing payload");
                 var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Payload" })
                 {
@@ -1440,9 +1445,9 @@ namespace Tests.Core
                     finalizePlacement: true,
                     allowOverwrite: !dl.Skip.SkipExisting);
 
-                Assert.AreEqual(JobTerminalOutcome.Skipped, result.Outcome.TerminalOutcome);
-                Assert.AreEqual(JobSkipReason.AlreadyExists, result.Outcome.SkipReason);
-                Assert.AreEqual(finalPath, result.Outcome.DownloadPath);
+                Assert.AreEqual(sameBytes ? JobTerminalOutcome.Skipped : JobTerminalOutcome.Succeeded, result.Outcome.TerminalOutcome);
+                Assert.AreEqual(sameBytes ? finalPath : Path.Combine(outputDir, "Payload (2).xyz"), song.DownloadPath);
+                Assert.AreEqual(incoming, System.IO.File.ReadAllText(song.DownloadPath!));
                 Assert.AreEqual("existing payload", System.IO.File.ReadAllText(finalPath));
                 Assert.IsFalse(System.IO.File.Exists(stagingPath));
             }

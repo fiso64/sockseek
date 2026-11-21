@@ -119,7 +119,7 @@
 
   function handleInput(event: Event): void {
     const query = (event.currentTarget as HTMLInputElement).value;
-    if (value.resultMode === 'generic') return setSimple(query);
+    if (value.resultMode === 'generic' || (event instanceof InputEvent && event.isComposing)) return setSimple(query);
     const delimiter = searchDelimiter(query);
     if (!delimiter || suppressAutoSplit) {
       if (!delimiter) suppressAutoSplit = false;
@@ -170,6 +170,7 @@
   }
 
   function keydown(event: KeyboardEvent): void {
+    if (event.isComposing) return;
     if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
       event.preventDefault();
       const index = modes.findIndex((mode) => mode.value === value.resultMode);
@@ -196,6 +197,7 @@
   }
 
   function splitKeydown(event: KeyboardEvent, field: 'artist' | 'title'): void {
+    if (event.isComposing) return;
     if (event.key === 'Backspace' && !value[field]) {
       event.preventDefault();
       merge();
@@ -205,6 +207,7 @@
   }
 
   function userKeydown(event: KeyboardEvent): void {
+    if (event.isComposing) return;
     if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
       event.preventDefault();
       onuserchange({ ...userValue, mode: userValue.mode === 'user' ? 'shares' : 'user' });
@@ -217,6 +220,7 @@
   }
 
   function windowKeydown(event: KeyboardEvent): void {
+    if (event.isComposing) return;
     const target = event.target as HTMLElement | null;
     if (event.key === 'Escape' && (modeMenuOpen || searchRoot?.contains(target))) {
       event.preventDefault();

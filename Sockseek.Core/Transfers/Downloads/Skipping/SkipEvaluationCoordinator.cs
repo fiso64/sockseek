@@ -7,7 +7,7 @@ namespace Sockseek.Core.Transfers.Downloads.Skipping;
 
 internal sealed class SkipEvaluationCoordinator
 {
-    private sealed record Match(string Path, ExistingFileSource Source);
+    internal sealed record Match(string Path, ExistingFileSource Source, List<string>? PlaylistTracks = null);
     private readonly Func<Job, JobContext> getContext;
     private readonly Action<Job> raiseBuildingMusicDirectoryIndex;
     private readonly ILogger<SkipEvaluationCoordinator> logger;
@@ -22,10 +22,15 @@ internal sealed class SkipEvaluationCoordinator
         this.logger = logger;
     }
 
-    public bool TrySetAlreadyExists(Job job, SongJob song, TrackSkipperContext skipCtx)
+    public async ValueTask<bool> TrySetAlreadyExistsAsync(Job job, SongJob song, TrackSkipperContext skipCtx)
     {
-        if (!song.CanBeSkipped) return false;
-        var match = FindExistingSong(job, song, skipCtx);
+        if (!song.CanBeSkipped || song.Cts?.IsCancellationRequested == true) return false;
+        var ctx = getContext(job);
+        if (OnCompleteExecutor.HasUnfinishedExport(job, song, ctx)) return false;
+        Match? match;
+        try { match = await FindExistingAsync(job, ctx, song, skipCtx); }
+        catch (OperationCanceledException) when (job.Cts?.IsCancellationRequested == true) { return false; }
+        if (song.Cts?.IsCancellationRequested == true) return false;
 
         if (match != null)
         {
@@ -36,50 +41,23 @@ internal sealed class SkipEvaluationCoordinator
         return match != null;
     }
 
-    public JobOutcome? TryGetJobAlreadyExistsOutcome(Job job, JobContext ctx)
+    public async ValueTask<JobOutcome?> TryGetJobAlreadyExistsOutcomeAsync(Job job, JobContext ctx)
     {
-        if (!job.CanBeSkipped) return null;
-        var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.ResolveSearchSettings());
-        Match? match;
-
-        if (job is SongJob song)
-            match = FindExistingSong(job, song, skipCtx);
-        else if (job is AlbumJob album)
-            match = FindExistingAlbum(job, album, ctx, skipCtx);
-        else
+        // A name or tag match in a separate library must not become the input
+        // to a converter that may move or delete files. Use the transfer's own
+        // destination when resuming work on an unfinished export.
+        if (!job.CanBeSkipped || OnCompleteExecutor.HasUnfinishedExport(job, job as SongJob, ctx))
             return null;
-
+        var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.ResolveSearchSettings());
+        if (job is not (SongJob or AlbumJob) || job is AlbumJob && job.Config.Output.AlbumArtOnly) return null;
+        var match = await FindExistingAsync(job, ctx, job, skipCtx);
         if (match == null)
             return null;
 
+        job.Cts!.Token.ThrowIfCancellationRequested();
+        if (job is AlbumJob album) album.ExistingPlaylistTracks = match.PlaylistTracks;
         AlreadyExists(job);
         return JobOutcome.AlreadyExists(match.Path, match.Source);
-    }
-
-    private Match? FindExistingSong(Job job, SongJob song, TrackSkipperContext skipCtx)
-    {
-        string? path = null;
-        var jobCtx = getContext(job);
-
-        if (jobCtx.OutputDirSkipper != null)
-        {
-            if (!jobCtx.OutputDirSkipper.IndexIsBuilt) jobCtx.OutputDirSkipper.BuildIndex();
-            jobCtx.OutputDirSkipper.SongExists(song, skipCtx, out path);
-            if (path != null) return new(path, SourceOf(jobCtx.OutputDirSkipper));
-        }
-
-        if (path == null && jobCtx.MusicDirSkipper != null)
-        {
-            if (!jobCtx.MusicDirSkipper.IndexIsBuilt)
-            {
-                raiseBuildingMusicDirectoryIndex(job);
-                jobCtx.MusicDirSkipper.BuildIndex();
-            }
-            jobCtx.MusicDirSkipper.SongExists(song, skipCtx, out path);
-            if (path != null) return new(path, SourceOf(jobCtx.MusicDirSkipper));
-        }
-
-        return null;
     }
 
     public bool TrySetNotFoundLastTime(SongJob song, DownloadOutputFile? indexEditor)
@@ -123,40 +101,65 @@ internal sealed class SkipEvaluationCoordinator
             job.Id,
             "skipped because a previous search found no results");
 
-    private Match? FindExistingAlbum(Job job, AlbumJob album, JobContext ctx, TrackSkipperContext skipCtx)
+    private ValueTask<Match?> FindExistingAsync(Job owner, JobContext ctx, Job candidate, TrackSkipperContext skipCtx)
+        => FindExistingAsync(ctx, candidate, skipCtx, owner.Cts!.Token, () => raiseBuildingMusicDirectoryIndex(owner));
+
+    internal static async ValueTask<Match?> FindExistingAsync(JobContext ctx, Job candidate,
+        TrackSkipperContext skipCtx, CancellationToken token, Action? buildingLibrary = null)
     {
-        string? path = null;
-
-        if (ctx.OutputDirSkipper != null)
+        skipCtx.CancellationToken = token;
+        if (ctx.OutputDirSkipper is { } output)
         {
-            if (!ctx.OutputDirSkipper.IndexIsBuilt) ctx.OutputDirSkipper.BuildIndex();
-            ctx.OutputDirSkipper.AlbumExists(album, skipCtx, out path);
-            if (path != null) return new(path, SourceOf(ctx.OutputDirSkipper));
+            if (!output.IndexIsBuilt) await output.EnsureIndexAsync(token);
+            if (await LookupAsync(output) is { } match) return match;
         }
+        if (ctx.MusicDirSkipper is not { } library) return null;
+        if (!library.IndexIsBuilt)
+            await library.EnsureIndexAsync(token, buildingLibrary);
+        return await LookupAsync(library);
 
-        if (path == null && ctx.MusicDirSkipper != null)
+        async ValueTask<Match?> LookupAsync(TrackSkipper skipper)
         {
-            if (!ctx.MusicDirSkipper.IndexIsBuilt)
+            if (skipper is IndexSkipper)
             {
-                raiseBuildingMusicDirectoryIndex(job);
-                ctx.MusicDirSkipper.BuildIndex();
+                // A miss needs no disk access. Keep it synchronous so fresh songs
+                // enter the download queue in the order the user selected them.
+                var path = IndexSkipper.CompletedPath(candidate, skipCtx);
+                if (path == null) return null;
+                if (!skipCtx.checkFileExists && (candidate is SongJob || ctx.PlaylistEditor == null))
+                    return new(path, ExistingFileSource.CompletionHistory);
             }
-            ctx.MusicDirSkipper.AlbumExists(album, skipCtx, out path);
-            if (path != null) return new(path, SourceOf(ctx.MusicDirSkipper));
+            return await Task.Run(() => MatchIn(skipper), token).WaitAsync(token).ConfigureAwait(false);
         }
 
-        return null;
+        Match? MatchIn(TrackSkipper skipper)
+        {
+            token.ThrowIfCancellationRequested();
+            string? path;
+            if (candidate is SongJob song)
+            {
+                if (!skipper.SongExists(song, skipCtx, out path) || path == null) return null;
+            }
+            else
+            {
+                var album = (AlbumJob)candidate;
+                List<string>? tracks = ctx.PlaylistEditor is null ? null : [];
+                if (!skipper.AlbumExists(album, skipCtx, out path, tracks) || path == null) return null;
+                return new(path, SourceOf(skipper), tracks);
+            }
+            return new(path, SourceOf(skipper));
+        }
     }
 
     private static ExistingFileSource SourceOf(TrackSkipper skipper)
-        => skipper is IndexSkipper or IndexConditionalSkipper
+        => skipper is IndexSkipper
             ? ExistingFileSource.CompletionHistory : ExistingFileSource.Library;
 
     private static IndexEntry? PreviousRunResult(Job job, DownloadOutputFile indexEditor)
         => job switch
         {
             SongJob song => indexEditor.PreviousRunResult(song),
-            AlbumJob album => indexEditor.PreviousRunResult(album),
+            AlbumJob album when !album.Config.Output.AlbumArtOnly => indexEditor.PreviousRunResult(album),
             _ => null,
         };
 

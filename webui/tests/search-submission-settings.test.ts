@@ -19,7 +19,7 @@ it.each([
   expect(showsSearchResults({ ...summary, printOption: 8 })).toBe(true);
   expect(showsSearchResults({ ...summary, printOption: 16 })).toBe(true);
   const opened = await new DaemonApiClient(http).openSearchJob(summary);
-  expect(post).toHaveBeenCalledWith('/jobs/job/search-views', { kind: projection, includeFullResults: true }, undefined);
+  expect(post).toHaveBeenCalledWith('/jobs/job/search-views', { kind: projection }, undefined);
   expect(opened.draft).toMatchObject({ resultMode: mode, artist: 'Artist', title: mode.includes('album') ? 'Album' : 'Track' });
   expect(showsSearchResults({ kind: 'search' })).toBe(true);
   expect(showsSearchResults({ kind: 'extract', printOption: 6 })).toBe(false);
@@ -129,8 +129,8 @@ it('uses only a compatible result mode when reopening a retained search', async 
   const client = new DaemonApiClient(http);
   await client.openSearchJob({ jobId: 'job' }, undefined, undefined, 'album-groups');
   await client.openSearchJob({ jobId: 'job' }, undefined, undefined, 'song-groups');
-  expect(post.mock.calls[0]?.[1]).toMatchObject({ kind: 'Files', includeFullResults: true });
-  expect(post.mock.calls[1]?.[1]).toMatchObject({ kind: 'TrackGroups', includeFullResults: true });
+  expect(post.mock.calls[0]?.[1]).toEqual({ kind: 'Files' });
+  expect(post.mock.calls[1]?.[1]).toEqual({ kind: 'TrackGroups' });
 });
 
 it('retains the submitted settings when the caller edits its draft during submission', async () => {
@@ -155,5 +155,6 @@ it.each<SearchResultMode>(['generic', 'track', 'album', 'song-groups', 'album-gr
     const searchSettings = { searchTimeout: 1234, necessaryCond: { strictTitle: true } };
     await new DaemonApiClient(http).submitSearch({ ...emptySearchDraft, query: 'Track', resultMode, searchSettings });
     expect(post.mock.calls[0]?.[1]).toMatchObject({ options: { downloadSettings: { search: searchSettings } } });
+    for (const [, body] of post.mock.calls) expect(body).not.toHaveProperty('includeFullResults');
   },
 );

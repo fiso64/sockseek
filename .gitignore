@@ -367,6 +367,7 @@ FodyWeavers.xsd
 install.bat
 .codex
 .tools/
+/lab/
 **/launchSettings.json
 docs/temp/**
 temp/**

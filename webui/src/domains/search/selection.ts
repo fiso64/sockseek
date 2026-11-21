@@ -10,7 +10,7 @@ export interface SearchSelectionState {
   readonly chosenOptions: ReadonlyMap<string, GroupOption>;
   readonly checkedChoiceRevisions: ReadonlyMap<string, string>;
   readonly staleChoices: ReadonlySet<string>;
-  readonly albumFileSelections: ReadonlyMap<string, { mode: 'Only' | 'AllExcept'; refs: ReadonlySet<string> }>;
+  readonly albumFileSelections: ReadonlyMap<string, { optionRef: string; mode: 'Only' | 'AllExcept'; refs: ReadonlySet<string> }>;
   readonly selectedAll: boolean;
   readonly selectionRevision: number | string | null;
   readonly selectionNeedsReview: boolean;
@@ -68,6 +68,7 @@ export function allSearchResultsSelected(state: DisplayedSelection): boolean {
   // exact counts already requested by the toolbar; group totals include
   // alternative sources, so their completeness is determined by group choices.
   if (state.summary.kind !== 'TrackGroups' && state.summary.kind !== 'AlbumGroups'
+    && !state.directoryPathRules.some(rule => rule.includeFilteredFiles)
     && state.selectionCounts && sameWireInteger(state.selectionCounts.revision, state.summary.revision))
     return BigInt(state.summary.counters.projectedPublicFileCount) > 0n
       && BigInt(state.selectionCounts.publicFileCount) === BigInt(state.summary.counters.projectedPublicFileCount);
@@ -122,7 +123,13 @@ export class SearchSelection {
   private summary: SearchViewSummaryDto | null = null;
   // Child selections retain their parent even when the displayed page changes.
   private selectedFileParents = new Map<string, string>();
-  private fileRelativePaths = new Map<string, string>();
+  private knownFiles = new Map<string, { relativePath: string; identity: Schema<'FileCandidateRefDto'> }>();
+  checkedFileIdentities(): Schema<'FileCandidateRefDto'>[] {
+    return [...this.state.includedFiles.keys()].flatMap(ref => {
+      const entry = this.knownFiles.get(ref);
+      return entry ? [entry.identity] : [];
+    });
+  }
   private lockedRefs = new Set<string>();
   private pending: PendingSearchCommit | null = null;
   private countedSelection: string | null = null;
@@ -151,7 +158,7 @@ export class SearchSelection {
     this.summary = null;
     this.pending = null;
     this.selectedFileParents.clear();
-    this.fileRelativePaths.clear();
+    this.knownFiles.clear();
     this.lockedRefs.clear();
   }
 
@@ -170,7 +177,8 @@ export class SearchSelection {
 
   rememberFiles(files: readonly Schema<'SearchViewDirectoryFileDto'>[]): void {
     for (const file of files) {
-      this.fileRelativePaths.set(file.ref, file.relativePath);
+      this.knownFiles.set(file.ref, { relativePath: file.relativePath,
+        identity: { username: file.file.peer.username, filename: file.file.remoteFilename } });
       this.rememberResult(file.ref, file.file.visibility === 'Locked');
     }
   }
@@ -233,7 +241,7 @@ export class SearchSelection {
       excludedFileIdentities.delete(ref);
       includedFiles.delete(ref);
       if (parentRef && (generic || this.state.selectedAll || this.isSelected(parentRef))) {
-        const inherited = generic ? this.directoryPathInheritance(parentRef, this.fileRelativePaths.get(ref)) : this.isSelected(parentRef);
+        const inherited = generic ? this.directoryPathInheritance(parentRef, this.knownFiles.get(ref)?.relativePath) : this.isSelected(parentRef);
         if (selected && !inherited) includedFiles.set(ref, parentRef);
         if (!selected && inherited) excludedFiles.set(ref, parentRef);
       } else if (selected !== this.state.selectedAll) refs.add(ref);
@@ -311,7 +319,7 @@ export class SearchSelection {
       if (this.summary?.kind === 'GenericDirectories') {
         if (this.state.excludedFiles.has(ref)) return false;
         if (this.state.includedFiles.has(ref)) return true;
-        return this.directoryPathInheritance(parentRef, this.fileRelativePaths.get(ref));
+        return this.directoryPathInheritance(parentRef, this.knownFiles.get(ref)?.relativePath);
       }
       const album = this.state.albumFileSelections.get(parentRef);
       if (album) return this.isSelected(parentRef) && (album.mode === 'Only' ? album.refs.has(ref) : !album.refs.has(ref));
@@ -326,36 +334,37 @@ export class SearchSelection {
     return this.state.selectedAll ? !this.state.selectionRefs.has(ref) : this.state.selectionRefs.has(ref);
   }
 
-  private directoryPathInheritance(directoryRef: string, relativePath?: string, includeExact = false): boolean {
-    let selected = this.isSelected(directoryRef);
-    if (!relativePath) return selected;
+  private directoryPathInheritance(directoryRef: string, relativePath?: string, includeExact = false, filtered = false): boolean {
+    let selected = !filtered && this.isSelected(directoryRef);
+    if (relativePath === undefined) return selected;
     const normalized = relativePath.replace(/\\/g, '/');
     let bestLength = -1;
     for (const rule of this.state.directoryPathRules) {
       if (rule.directoryRef !== directoryRef || rule.relativePath.length <= bestLength
-        || !(normalized.startsWith(`${rule.relativePath}/`)
+        || !(rule.relativePath === '' || normalized.startsWith(`${rule.relativePath}/`)
           || includeExact && normalized === rule.relativePath)) continue;
       bestLength = rule.relativePath.length;
-      selected = rule.selected;
+      selected = rule.selected && (!filtered || rule.includeFilteredFiles);
     }
     return selected;
   }
 
-  isDirectoryPathSelected(directoryRef: string, relativePath: string): boolean {
-    return this.directoryPathInheritance(directoryRef, relativePath, true);
+  isDirectoryPathSelected(directoryRef: string, relativePath: string, filtered = false): boolean {
+    return this.directoryPathInheritance(directoryRef, relativePath, true, filtered);
   }
 
-  toggleDirectoryPath(directoryRef: string, relativePath: string, selected: boolean): boolean {
+  toggleDirectoryPath(directoryRef: string, relativePath: string, selected: boolean, includeFilteredFiles = false): boolean {
     if (this.summary?.kind !== 'GenericDirectories') return false;
     if (this.selectionReadOnly()) return false;
+    if (relativePath === '') this.toggle(directoryRef, selected);
     const rules = this.state.directoryPathRules.filter(rule => rule.directoryRef !== directoryRef
       || (rule.relativePath !== relativePath && !rule.relativePath.startsWith(`${relativePath}/`)));
-    rules.push({ directoryRef, relativePath, selected });
+    rules.push({ directoryRef, relativePath, selected, includeFilteredFiles });
     const excludedFiles = new Map(this.state.excludedFiles);
     const excludedFileIdentities = new Map(this.state.excludedFileIdentities);
     const includedFiles = new Map(this.state.includedFiles);
     for (const [ref, parent] of [...includedFiles, ...excludedFiles]) {
-      if (parent !== directoryRef || !this.fileRelativePaths.get(ref)?.replace(/\\/g, '/').startsWith(`${relativePath}/`)) continue;
+      if (parent !== directoryRef || !this.knownFiles.get(ref)?.relativePath.replace(/\\/g, '/').startsWith(`${relativePath}/`)) continue;
       includedFiles.delete(ref);
       excludedFiles.delete(ref);
       excludedFileIdentities.delete(ref);
@@ -408,11 +417,15 @@ export class SearchSelection {
     const staleChoices = new Set(this.state.staleChoices);
     staleChoices.delete(groupRef);
     const refs = new Set(this.state.selectionRefs);
-    if (select) {
-      if (this.state.selectedAll) refs.delete(groupRef); else refs.add(groupRef);
-    }
     const albumFileSelections = new Map(this.state.albumFileSelections);
-    albumFileSelections.delete(groupRef);
+    const subset = albumFileSelections.get(groupRef);
+    if (subset || select) {
+      // File refs belong to one pressing. Previewing another starts unchecked.
+      // Returning to the same pressing restores its exact track selection.
+      const selected = select || subset?.optionRef === option.ref;
+      if (selected === this.state.selectedAll) refs.delete(groupRef); else refs.add(groupRef);
+      if (select && subset?.optionRef !== option.ref) albumFileSelections.delete(groupRef);
+    }
     this.state = { ...this.state, chosenOptions, checkedChoiceRevisions, staleChoices,
       albumFileSelections, selectionRefs: refs };
     this.changed();
@@ -434,7 +447,9 @@ export class SearchSelection {
     const staleChoices = new Set(this.state.staleChoices);
     staleChoices.delete(groupRef);
     const wasSelected = this.isSelected(groupRef);
-    const previous = this.state.albumFileSelections.get(groupRef);
+    const optionRef = chosenOptions.get(groupRef)!.ref;
+    const saved = this.state.albumFileSelections.get(groupRef);
+    const previous = saved?.optionRef === optionRef ? saved : undefined;
     const mode = previous?.mode ?? (wasSelected ? 'AllExcept' : 'Only');
     const refs = new Set(previous?.refs ?? []);
     for (const ref of targets) {
@@ -449,7 +464,7 @@ export class SearchSelection {
     else selectionRefs.add(groupRef);
     const albumFileSelections = new Map(this.state.albumFileSelections);
     if (!groupSelected || (mode === 'AllExcept' && refs.size === 0) || (mode === 'Only' && allLoadedRefsMatch)) albumFileSelections.delete(groupRef);
-    else albumFileSelections.set(groupRef, { mode, refs });
+    else albumFileSelections.set(groupRef, { optionRef, mode, refs });
     this.state = { ...this.state, selectionRefs, chosenOptions, checkedChoiceRevisions,
       staleChoices, albumFileSelections };
     this.changed();

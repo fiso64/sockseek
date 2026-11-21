@@ -1,4 +1,8 @@
+using System.Runtime.CompilerServices;
 using Sockseek.Api;
+using Sockseek.Core.Jobs;
+using Sockseek.Core.Planning;
+using Sockseek.Core.Snapshots;
 using Sockseek.Persistence.Read;
 
 namespace Sockseek.Server.Persistence;
@@ -14,17 +18,28 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
     PersistenceCoordinator persistence, ILogger<JobReadService>? logger = null)
 {
     private readonly Sockseek.Core.Diagnostics.RepeatedWarningGate sourceReadWarnings = new();
+    // A live job can be inspected repeatedly while its original search is in history.
+    // Keep positive lookups only for that job's lifetime and until the next deletion.
+    private sealed record RetainedSource(Guid Id, long RemovalVersion);
+    private readonly ConditionalWeakTable<Job, RetainedSource> retainedSources = new();
 
-    private async Task<bool> IsSourceJobAvailableAsync(Guid? sourceId, CancellationToken cancellationToken)
+    private async Task<bool> IsSourceJobAvailableAsync(Guid? sourceId, CancellationToken cancellationToken, Job? owner = null)
     {
         if (sourceId is not Guid id) return false;
         if (live.IsJobAvailable(id)) return true;
+        long version = persistence.JobRemovalVersion;
+        if (owner != null && retainedSources.TryGetValue(owner, out var known)
+            && known.Id == id && known.RemovalVersion == version) return true;
         try
         {
             if (persistence.JobHistory is { } history)
             {
                 await persistence.WaitForJobHandoffAsync(id, cancellationToken, includeSearchResults: false).ConfigureAwait(false);
-                if (await history.ContainsJobAsync(id, cancellationToken).ConfigureAwait(false)) return true;
+                if (await history.ContainsJobAsync(id, cancellationToken).ConfigureAwait(false))
+                {
+                    if (owner != null) retainedSources.AddOrUpdate(owner, new(id, version));
+                    return true;
+                }
             }
             return live.IsJobAvailable(id);
         }
@@ -36,8 +51,43 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         }
     }
 
-    private async Task<JobDetailDto> WithSourceAvailabilityAsync(JobDetailDto detail, CancellationToken cancellationToken)
-        => detail with { SourceJobAvailable = await IsSourceJobAvailableAsync(detail.Summary.SourceJobId, cancellationToken).ConfigureAwait(false) };
+    private async Task<JobDetailDto> WithSourceAvailabilityAsync(JobDetailDto detail, CancellationToken cancellationToken, Job? owner)
+        => await WithRepeatOptionsAsync(detail with {
+            SourceJobAvailable = await IsSourceJobAvailableAsync(detail.Summary.SourceJobId, cancellationToken, owner).ConfigureAwait(false)
+        }, cancellationToken);
+
+    private async Task<JobDetailDto> WithRepeatOptionsAsync(JobDetailDto detail, CancellationToken ct)
+    {
+        var job = detail.Summary;
+        if (job.LifecycleState != ServerJobLifecycleState.Terminal || job.SubmissionId is not Guid submission ||
+            persistence.JobHistory == null || persistence.Submissions == null) return detail;
+        bool canRun = false;
+        if (job.Kind is not (ServerJobKind.RemoteFile or ServerJobKind.RemoteDirectory))
+        {
+            var json = await persistence.Submissions.GetSpecificationJsonAsync(submission, ct);
+            canRun = json != null && SubmissionSpecificationCodec.Deserialize(json).CanRunAgain(job.JobId);
+        }
+        int missing = 0;
+        Guid? file = null;
+        if (!canRun && job.TerminalOutcome is not ServerJobTerminalOutcome.Succeeded
+            && job.Kind is ServerJobKind.RemoteDirectory or ServerJobKind.Album or ServerJobKind.RemoteFile or ServerJobKind.Song)
+        {
+            try { await persistence.WaitForRetryHistoryAsync(live, job.JobId, ct); }
+            catch (PersistenceHandoffException) { return detail; } // Live details survive loss of retry history.
+            if (job.Kind is ServerJobKind.RemoteDirectory or ServerJobKind.Album)
+            {
+                var key = new DirectoryRetryKey(job.JobId);
+                var status = await persistence.JobHistory.GetDirectoryRetryStatusAsync([key], ct);
+                missing = status.GetValueOrDefault(key)?.MissingFiles ?? 0;
+            }
+            else if (job.Kind is ServerJobKind.RemoteFile or ServerJobKind.Song && persistence.TransferHistory != null)
+            {
+                var page = await persistence.TransferHistory.GetTransfersAsync(new(Limit: 1, JobId: job.JobId, Direction: "Download"), ct);
+                if (page.Items.FirstOrDefault() is { CanRetry: true } candidate) file = candidate.Id;
+            }
+        }
+        return detail with { RepeatOptions = new(canRun, missing, file) };
+    }
 
     public async Task<DeleteCompletedJobsResponseDto> DeleteCompletedAsync(
         CompletedJobCategory category, CancellationToken cancellationToken)
@@ -61,6 +111,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         {
             supervisor.ForgetSubmissions(deleted);
             live.RemoveSubmissions(deleted);
+            persistence.NotifyJobsRemoved();
         }
         var receipt = new DeleteCompletedJobsResponseDto(results.Sum(result => result.AffectedSubmissionCount),
             results.Sum(result => result.AffectedJobCount), candidates.Count - eligible.Length + results.Sum(result => result.RejectedSubmissionCount));
@@ -92,6 +143,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         {
             supervisor.ForgetSubmissions(new HashSet<Guid> { submissionId });
             live.RemoveSubmissions([submissionId]);
+            if (result.AffectedJobCount > 0) persistence.NotifyJobsRemoved();
         }
         if (logger != null && result.AffectedSubmissionCount > 0)
             ServerLogMessages.SubmissionDeleted(logger, submissionId,
@@ -106,12 +158,8 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
     {
         if (persistence.Submissions == null)
             throw new NotSupportedException("Submission history is unavailable because persistence is disabled or not started.");
-        var liveJobs = live.GetJobs(new JobQuery(
-            null,
-            null,
-            null,
-            null,
-            IncludeAll: true));
+        var liveJobs = live.GetJobs(new JobQuery(null, null, null, null, IncludeAll: true))
+            .ToLookup(job => job.SubmissionId);
         persistence.EnsureJobProjectionsAvailable();
         var page = await persistence.Submissions.GetSubmissionsAsync(
             new SubmissionHistoryQuery(cursor, limit),
@@ -119,7 +167,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         return new CombinedSubmissionPage(
             page.Items.Select(item => WithLiveSubmissionCounts(
                 SubmissionDtoMapper.ToSummary(item),
-                liveJobs.Where(job => job.SubmissionId == item.Id).ToArray())).ToArray(),
+                liveJobs[item.Id].ToArray())).ToArray(),
             page.NextCursor);
     }
 
@@ -221,7 +269,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
     {
         var liveDetail = live.GetJobDetailByDisplayId(workflowId, displayId);
         if (liveDetail != null)
-            return await WithSourceAvailabilityAsync(liveDetail, cancellationToken).ConfigureAwait(false);
+            return await WithSourceAvailabilityAsync(liveDetail, cancellationToken, supervisor.GetRuntimeJob<Job>(liveDetail.Summary.JobId)).ConfigureAwait(false);
         await persistence.WaitForWorkflowHandoffAsync(workflowId, cancellationToken, includeSearchResults: false)
             .ConfigureAwait(false);
         if (persistence.JobHistory == null)
@@ -230,7 +278,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         if (job == null)
             return null;
         int childCount = await persistence.JobHistory.GetChildCountAsync(job.Id, cancellationToken).ConfigureAwait(false);
-        return await WithSourceAvailabilityAsync(HistoricalJobDtoMapper.ToDetail(job, childCount), cancellationToken).ConfigureAwait(false);
+        return await WithRepeatOptionsAsync(HistoricalJobDtoMapper.ToDetail(job, childCount), cancellationToken);
     }
 
     public async Task<CombinedJobPage> GetJobsAsync(
@@ -291,10 +339,10 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
 
     public async Task<JobDetailDto?> GetJobAsync(Guid jobId, CancellationToken cancellationToken = default)
     {
-        _ = supervisor.GetRuntimeJob<Sockseek.Core.Jobs.Job>(jobId); // Refresh transient output ownership.
+        var runtimeJob = supervisor.GetRuntimeJob<Job>(jobId);
         var liveDetail = live.GetJobDetail(jobId);
         if (liveDetail != null)
-            return await WithSourceAvailabilityAsync(liveDetail, cancellationToken).ConfigureAwait(false);
+            return await WithSourceAvailabilityAsync(liveDetail, cancellationToken, runtimeJob).ConfigureAwait(false);
         await persistence.WaitForJobHandoffAsync(jobId, cancellationToken, includeSearchResults: false)
             .ConfigureAwait(false);
         if (persistence.JobHistory == null)
@@ -304,7 +352,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         if (job == null)
             return null;
         int childCount = await persistence.JobHistory.GetChildCountAsync(jobId, cancellationToken).ConfigureAwait(false);
-        return await WithSourceAvailabilityAsync(HistoricalJobDtoMapper.ToDetail(job, childCount), cancellationToken).ConfigureAwait(false);
+        return await WithRepeatOptionsAsync(HistoricalJobDtoMapper.ToDetail(job, childCount), cancellationToken);
     }
 
     public async Task<DirectoryManifestPageDto?> GetDirectoryManifestAsync(
@@ -344,10 +392,10 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
             retained.Items.Select(item =>
             {
                 var child = item.Child == null ? null : HistoricalJobDtoMapper.ReadSnapshot(item.Child, tolerateInvalidPayload: true);
-                var file = child == null ? null : HistoricalJobDtoMapper.ToPayload(child) switch
+                var file = child?.Payload switch
                 {
-                    SongJobPayloadDto song => song.File,
-                    RemoteFileJobPayloadDto remote => remote.File,
+                    SongJobSnapshotPayload song => ServerSnapshotMapper.ToFileDownloadStateDto(song),
+                    RemoteFileJobSnapshotPayload remote => ServerSnapshotMapper.ToFileDownloadStateDto(remote.File),
                     _ => null,
                 };
                 return new DirectoryManifestEntryDto(
@@ -374,11 +422,10 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         // the final session until durable history acknowledges the complete source.
         var current = supervisor.GetRuntimeJob<Sockseek.Core.Jobs.Job>(jobId)?.SearchObservationSession;
         var session = persistence.GetRetiringSearchSource(jobId)?.Session ?? current;
-        var liveResults = session?.RawSnapshot(afterSequence, limit == int.MaxValue ? limit : limit + 1)
+        var items = session?.RawSnapshot(afterSequence, limit == int.MaxValue ? limit : limit + 1)
             .Select(ServerSnapshotMapper.ToSearchRawResultDto).ToList();
-        if (liveResults != null)
+        if (items != null)
         {
-            var items = liveResults.ToList();
             bool hasMore = items.Count > limit;
             if (hasMore) items.RemoveAt(items.Count - 1);
             return new CombinedSearchRawPage(items, hasMore && items.Count > 0 ? items[^1].Sequence : null);

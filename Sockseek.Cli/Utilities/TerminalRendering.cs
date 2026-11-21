@@ -343,7 +343,7 @@ internal sealed class TerminalLiveRenderer : IDisposable
         _lastTerminalSize = size;
     }
 
-    private static (int Width, int Height) GetTerminalSize()
+    internal static (int Width, int Height) GetTerminalSize()
     {
         if (Console.IsOutputRedirected)
             return (0, 0);

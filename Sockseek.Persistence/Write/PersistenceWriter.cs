@@ -105,7 +105,10 @@ public sealed class PersistenceWriter(
                         if (result == WriteBatchResult.RecoverableFailure)
                         {
                             consecutiveRecoveryAttempts++;
-                            if (consecutiveRecoveryAttempts >= options.MaximumRecoveryAttempts)
+                            // A full history volume needs operator action. Keep accepted
+                            // rows in order until space returns or shutdown reports the backlog.
+                            if (consecutiveRecoveryAttempts >= options.MaximumRecoveryAttempts
+                                && !PersistenceDatabaseErrors.IsDiskFull(failure))
                             {
                                 var exhausted = new InvalidOperationException(
                                     $"Persistence recovery exhausted {options.MaximumRecoveryAttempts} attempts; dropping {batch.Count} retained mutations.",
@@ -562,7 +565,7 @@ public sealed class PersistenceWriter(
                 JOIN transfers current ON current.username = inserted.username COLLATE BINARY
                     AND current.remote_path = inserted.remote_path COLLATE BINARY
                     AND current.direction = 'Upload' AND current.removed_at_utc IS NULL
-                WHERE old.id <> current.id AND old.terminal_outcome <> 'None'
+                WHERE old.id <> current.id AND old.terminal_outcome IN ('Failed', 'Cancelled', 'Interrupted')
                     AND (old.created_at_utc < current.created_at_utc
                         OR (old.created_at_utc = current.created_at_utc
                             AND old.last_runtime_id = current.last_runtime_id
@@ -764,25 +767,34 @@ public sealed class PersistenceWriter(
         if (entity != null && (entity.Revision >= mutation.Revision || entity.LifecycleState == "Terminal" && mutation.LifecycleState != "Terminal"))
             return 0;
 
-        long occurredAt = mutation.OccurredAtUnixMilliseconds;
-        if (entity == null)
+        Guid? sourceJobId = mutation.SourceJobId is Guid source && batchRows.SourceJobIds.Contains(source) ? source : null;
+        var updated = ApplyJobFacts(entity, mutation, sourceJobId, options.MaximumFailureTextLength);
+        if (entity is null) jobs.Add(updated.Id, updated);
+        if (mutation.Kind == "Search" && await context.SearchJobs.FindAsync([mutation.JobId], cancellationToken).ConfigureAwait(false) == null)
         {
-            entity = new JobEntity
-            {
-                Id = mutation.JobId,
-                CreatedAtUtc = (mutation.RegisteredAtUtc ?? mutation.OccurredAtUtc)
-                    .ToUniversalTime().ToUnixTimeMilliseconds(),
-                StartedAtUtc = mutation.StartedAtUtc?.ToUniversalTime().ToUnixTimeMilliseconds()
-                    ?? (mutation.LifecycleState == "Pending" ? null : occurredAt),
-            };
-            jobs.Add(entity.Id, entity);
+            context.SearchJobs.Add(CreateSearchRow(mutation));
         }
+        return 1;
+    }
 
+    internal static SearchJobEntity CreateSearchRow(JobPersistenceMutation mutation)
+        => new() { JobId = mutation.JobId, Query = mutation.QueryText ?? "", ResultPersistenceState = "NotPersisted" };
+
+    internal static JobEntity ApplyJobFacts(JobEntity? entity, JobPersistenceMutation mutation,
+        Guid? sourceJobId, int maximumFailureTextLength)
+    {
+        long occurredAt = mutation.OccurredAtUnixMilliseconds;
+        entity ??= new JobEntity
+        {
+            Id = mutation.JobId,
+            CreatedAtUtc = (mutation.RegisteredAtUtc ?? mutation.OccurredAtUtc).ToUnixTimeMilliseconds(),
+            StartedAtUtc = mutation.StartedAtUtc?.ToUnixTimeMilliseconds(),
+        };
         entity.WorkflowId = mutation.WorkflowId;
         entity.SubmissionId = mutation.SubmissionId;
         entity.SemanticRole = mutation.SemanticRole;
         entity.ParentJobId = mutation.ParentJobId;
-        entity.SourceJobId = mutation.SourceJobId is Guid source && batchRows.SourceJobIds.Contains(source) ? source : null;
+        entity.SourceJobId = sourceJobId;
         entity.ResultJobId = mutation.ResultJobId;
         entity.LastRuntimeId = mutation.RuntimeId;
         entity.LastSequence = mutation.Sequence;
@@ -795,8 +807,8 @@ public sealed class PersistenceWriter(
         entity.SkipReason = mutation.SkipReason;
         entity.CancellationSource = mutation.CancellationSource;
         entity.FailureReason = mutation.FailureReason;
-        entity.FailureMessage = Limit(mutation.FailureMessage);
-        entity.FailureDetail = Limit(mutation.FailureDetail);
+        entity.FailureMessage = Limit(mutation.FailureMessage, maximumFailureTextLength);
+        entity.FailureDetail = Limit(mutation.FailureDetail, maximumFailureTextLength);
         entity.ItemName = mutation.ItemName;
         entity.QueryText = mutation.QueryText;
         entity.SourceDetail = Limit(mutation.SourceDetail, 128);
@@ -812,17 +824,7 @@ public sealed class PersistenceWriter(
         entity.PayloadSchemaVersion = mutation.PayloadSchemaVersion;
         entity.PayloadJson = mutation.PayloadJson?.Value;
 
-        if (mutation.Kind == "Search" && await context.SearchJobs.FindAsync([mutation.JobId], cancellationToken).ConfigureAwait(false) == null)
-        {
-            context.SearchJobs.Add(new SearchJobEntity
-            {
-                JobId = mutation.JobId,
-                Query = mutation.QueryText ?? "",
-                Revision = 0,
-                ResultPersistenceState = "NotPersisted",
-            });
-        }
-        return 1;
+        return entity;
     }
 
     private int ApplyTransfer(TransferPersistenceMutation mutation, BatchRows batchRows)

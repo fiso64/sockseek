@@ -37,7 +37,7 @@
   // resolve again because auto-profiles can depend on the search intent.
   let queryKey = $derived(JSON.stringify([draft.resultMode, draft.profileNames, draft.mode === 'split'
     ? (draft.artist && draft.title ? `${draft.artist} - ${draft.title}` : draft.artist || draft.title)
-    : draft.query.replace(' — ', ' - ')]));
+    : draft.query.replace(/ [—–] /, ' - ')]));
 
   $effect(() => {
     const key = queryKey;

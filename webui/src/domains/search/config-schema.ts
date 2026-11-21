@@ -35,8 +35,8 @@ const albumMatchHelp = [
 export const SEARCH_CONFIG_FIELDS = {
   formats: {
     id: 'formats', modes: 'all', relationship: 'paired',
-    conditions: { label: 'Formats', section: 'quality' },
-    ranking: { label: 'Preferred formats', section: 'quality' },
+    conditions: { label: 'File extensions', section: 'quality' },
+    ranking: { label: 'Preferred file extensions', section: 'quality' },
   },
   minBitrate: {
     id: 'minBitrate', modes: 'all', relationship: 'paired',

@@ -187,6 +187,8 @@ public enum ServerJobFailureReason
     NoSearchResults,
     /// <summary>Soulseek returned results, but none matched the requested filters or projection.</summary>
     NoMatchingResults,
+    /// <summary>The daemon stopped before the job finished.</summary>
+    Interrupted,
 }
 
 /// <summary>
@@ -218,6 +220,8 @@ public enum ServerResourceActionKind
     /// <summary>Resource can be cancelled through the supplied HTTP method and URL.</summary>
     [JsonStringEnumMemberName(ServerProtocol.ResourceActionKinds.Cancel)]
     Cancel,
+    [JsonStringEnumMemberName("retry")]
+    Retry,
 }
 
 /// <summary>

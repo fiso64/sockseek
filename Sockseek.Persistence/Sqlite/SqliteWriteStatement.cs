@@ -50,6 +50,7 @@ internal sealed class SqliteWriteStatement : IDisposable
         Bound(ordinal, value switch
         {
             null or DBNull => raw.sqlite3_bind_null(statement, index),
+            bool flag => raw.sqlite3_bind_int(statement, index, flag ? 1 : 0),
             int number => raw.sqlite3_bind_int(statement, index, number),
             long number => raw.sqlite3_bind_int64(statement, index, number),
             double number when !double.IsNaN(number) => raw.sqlite3_bind_double(statement, index, number),

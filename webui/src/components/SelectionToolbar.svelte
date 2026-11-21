@@ -32,6 +32,7 @@
     onaction = () => {},
   }: Props = $props();
 
+  let toolbarHeight = $state(0);
   let canSelectAll = $derived(Boolean(onselectall));
   let display = $state.raw({ visible: false, label: '', selectAll: false, counting: false });
   $effect(() => {
@@ -56,7 +57,8 @@
 <svelte:window onkeydown={downloadByKey} />
 
 {#if display.visible}
-  <div class="floating-selection-actions" aria-label="Selection actions">
+  <div class="selection-space" style:height={`${toolbarHeight}px`} aria-hidden="true"></div>
+  <div class="floating-selection-actions" aria-label="Selection actions" bind:clientHeight={toolbarHeight}>
     {#if detail}<span class="floating-selection-detail">{detail}</span>{/if}
     {#if display.selectAll}<button type="button" class="button floating-select-action" onclick={onselectall}>Select all</button>{/if}
     <button type="button" class="button floating-deselect-action" onclick={onclear}>Deselect all</button>
@@ -83,6 +85,8 @@
 {/if}
 
 <style>
+  .selection-space { display: none; }
+  @media (max-width: 560px) { .selection-space { display: block; } }
   .floating-download-action { font-variant-numeric: tabular-nums; }
   .floating-download-action.recounting:disabled { opacity: 1; }
 </style>

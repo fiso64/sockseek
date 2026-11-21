@@ -142,14 +142,14 @@ public sealed class UploadCoordinatorTests
         var admission = await coordinator.AdmitAsync(
             "alice",
             new IPEndPoint(IPAddress.Loopback, 1),
-            @"public\track.BIN");
+            @"Public\Track.bin");
         UploadTransferSnapshot completed = await WaitForStateAsync(
             coordinator,
             admission.TransferId!.Value,
             UploadTransferState.Completed);
 
         CollectionAssert.AreEqual("abcdef"u8.ToArray()[startOffset..], protocol.Bytes);
-        Assert.AreEqual(@"public\track.BIN", protocol.RemotePath);
+        Assert.AreEqual(@"Public\Track.bin", protocol.RemotePath);
         Assert.AreEqual(protocol.RemotePath, completed.RemotePath);
         Assert.IsNotNull(completed.Attempt);
         Assert.AreEqual(1, completed.Attempt.Number);

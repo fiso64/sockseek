@@ -83,6 +83,7 @@ public sealed class PlacementPlanner(OutputScope outputScope)
         string parent = Path.GetFullPath(OutputScope.OutputParentDir(output));
         string placementRoot = PlacementRoot(output);
         var occupied = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var nextSuffixByPath = new Dictionary<string, int>(StringComparer.Ordinal);
         var placements = new List<FilePlacement>(plan.Entries.Count);
 
         foreach (var entry in plan.Entries)
@@ -113,7 +114,9 @@ public sealed class PlacementPlanner(OutputScope outputScope)
             }
 
             string resolved = ResolveContainedPath(placementRoot, components, output.InvalidReplaceStr);
-            resolved = ResolveStableCollision(resolved, occupied);
+            // Interactive downloads settle actual filename collisions with the finished bytes.
+            if (!output.PreserveSelectionConflicts)
+                resolved = Utils.ResolvePathCollision(resolved, path => occupied.Add(CollisionKey(path)), nextSuffixByPath);
             placements.Add(new FilePlacement(entry.Target, ToRelativePath(parent, resolved), resolved));
         }
 
@@ -154,24 +157,7 @@ public sealed class PlacementPlanner(OutputScope outputScope)
         string stem = Path.GetFileNameWithoutExtension(safe);
         if (WindowsReservedNames.Contains(stem))
             safe += "_";
-        return safe;
-    }
-
-    private static string ResolveStableCollision(string path, HashSet<string> occupied)
-    {
-        string key = CollisionKey(path);
-        if (occupied.Add(key))
-            return path;
-
-        string directory = Path.GetDirectoryName(path)!;
-        string extension = Path.GetExtension(path);
-        string stem = Path.GetFileNameWithoutExtension(path);
-        for (int suffix = 2; ; suffix++)
-        {
-            string candidate = Path.Combine(directory, $"{stem} ({suffix}){extension}");
-            if (occupied.Add(CollisionKey(candidate)))
-                return candidate;
-        }
+        return Utils.FitPathComponent(safe);
     }
 
     private static string CollisionKey(string path)
@@ -197,6 +183,14 @@ public sealed class PlacementPlanner(OutputScope outputScope)
         OutputSettings output,
         DownloadSettings? settings)
     {
+        // The structural layout keeps the whole leaf, including repeated extensions.
+        // A selected tree can contain thousands of files using this one format.
+        if (output.NameFormat == NameFormatRenderer.FolderAndFilename)
+        {
+            string[] folders = folderName.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                StringSplitOptions.RemoveEmptyEntries);
+            return new RelativeOutputPath([.. folders, RemoteLeaf(target.Filename)]);
+        }
         var context = new NameFormatContext(
             target,
             relativeDirectoryComponents,

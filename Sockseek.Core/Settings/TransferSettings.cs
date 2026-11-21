@@ -11,8 +11,7 @@ public class TransferSettings
     [SettingOption("--uer", "--unknown-error-retries")]
     public int UnknownErrorRetries { get; set; } = 2;
 
-    /// When true, the file is written directly to the final path during download
-    /// rather than to a temporary ".incomplete" path.
+    /// Write directly to the destination during download.
     [SettingOption("--nie", "--no-incomplete-ext")]
     public bool NoIncompleteExt { get; set; }
 

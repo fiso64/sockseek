@@ -32,7 +32,7 @@ namespace Sockseek.Core.Extractors;
             var offset    = extraction.Offset;
             var reverse   = extraction.Reverse;
 
-            var jobs = new List<Job>();  // temporary; always ends up with exactly one item
+            Job result;
             bool isTrack = input.Contains("/track/");
             bool isAlbum = !isTrack && input.Contains("/album/");
             bool isWishlist = !isTrack && !isAlbum && input.Contains("/wishlist");
@@ -56,9 +56,9 @@ namespace Sockseek.Core.Extractors;
 
                 var items = doc.DocumentNode.SelectNodes("//li[contains(@class, 'collection-item-container')]");
 
+                var albumList = new JobList { ItemName = "Bandcamp Wishlist", EnablesIndexByDefault = true };
                 if (items != null)
                 {
-                    var albumList = new JobList { ItemName = "Bandcamp Wishlist", EnablesIndexByDefault = true };
                     int num = 1;
                     foreach (var item in items)
                     {
@@ -79,8 +79,8 @@ namespace Sockseek.Core.Extractors;
                             });
                         }
                     }
-                    jobs.Add(albumList);
                 }
+                result = albumList;
             }
             else if (isArtist)
             {
@@ -127,7 +127,7 @@ namespace Sockseek.Core.Extractors;
                         ItemNumber = num++,
                     });
                 }
-                jobs.Add(albumList);
+                result = albumList;
             }
             else
             {
@@ -166,24 +166,21 @@ namespace Sockseek.Core.Extractors;
                         if (extraction.SetAlbumMaxTrackCount) folderCond.MaxTrackCount = n;
                     }
 
-                    jobs.Add(new AlbumJob(query) { ExtractorFolderCond = folderCond });
+                    result = new AlbumJob(query) { ExtractorFolderCond = folderCond };
                 }
                 else
                 {
                     var album = RequiredText(nameSection, ".//h3[contains(@class, 'albumTitle')]/span/a", "album");
                     var artist = RequiredText(nameSection, ".//h3[contains(@class, 'albumTitle')]/span[last()]/a", "artist");
                     var songQuery = new SongQuery { Artist = artist, Title = name, Album = album };
-                    jobs.Add(new SongJob(songQuery));
+                    result = new SongJob(songQuery);
                 }
             }
 
-            var result = jobs[0];
-
-            if (reverse && result is JobList jl)
+            if (result is JobList jl)
             {
-                jl.ReverseMembers();
-                if (jl.Jobs.Count > offset) jl.RemoveRange(0, offset);
-                else jl.Clear();
+                if (reverse) jl.ReverseMembers();
+                if (offset > 0) jl.RemoveRange(0, Math.Min(offset, jl.Count));
                 if (jl.Jobs.Count > maxTracks) jl.RemoveRange(maxTracks, jl.Jobs.Count - maxTracks);
             }
 

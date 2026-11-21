@@ -26,7 +26,7 @@ internal sealed class DownloadExecutorCoordinator
         songDownloads = new SongDownloadExecutor(context, jobs);
         albumDownloads = new AlbumDownloadExecutor(context, jobs, songDownloads);
         remoteFileDownloads = new RemoteFileDownloadExecutor(context);
-        remoteDirectoryDownloads = new RemoteDirectoryDownloadExecutor(context);
+        remoteDirectoryDownloads = new RemoteDirectoryDownloadExecutor(context, this);
     }
 
     public async Task<JobOutcome> ProcessLeafDownload(Job job, JobContext ctx, CancellationToken parentToken, Job? parentJob)
@@ -58,28 +58,10 @@ internal sealed class DownloadExecutorCoordinator
                     outcome = await albumDownloads.ProcessAlbumDownload(aj, ctx);
                     break;
 
-                case RemoteFileJob remoteFile:
-                    outcome = await remoteFileDownloads.Process(remoteFile, parentJob);
-                    outcome = await OnCompleteExecutor.ExecuteAsync(
-                        remoteFile,
-                        null,
-                        ctx,
-                        outcome,
-                        context.Events,
-                        logger);
-                    JobOutcomeCommitter.Commit(remoteFile, outcome);
-                    break;
-
-                case RemoteDirectoryJob remoteDirectory:
-                    outcome = await remoteDirectoryDownloads.Process(remoteDirectory);
-                    outcome = await OnCompleteExecutor.ExecuteAsync(
-                        remoteDirectory,
-                        null,
-                        ctx,
-                        outcome,
-                        context.Events,
-                        logger);
-                    JobOutcomeCommitter.Commit(remoteDirectory, outcome);
+                case RemoteFileJob or RemoteDirectoryJob:
+                    outcome = await ProcessRemoteDownload(job, ctx, parentJob, parentToken);
+                    JobOutcomeCommitter.Commit(job, outcome);
+                    context.UpdateOutputs(job, ctx);
                     break;
 
                 case SongGroupsJob ag:
@@ -97,6 +79,30 @@ internal sealed class DownloadExecutorCoordinator
             JobOutcomeCommitter.Commit(job, outcome);
             return outcome;
         }
+    }
+
+    internal async Task<JobOutcome> ProcessRemoteDownload(Job job, JobContext ctx, Job? parentJob,
+        CancellationToken parentToken, string? plannedFilePath = null)
+    {
+        JobOutcome outcome;
+        try
+        {
+            outcome = job switch
+            {
+                RemoteFileJob file => await remoteFileDownloads.Process(file, parentJob, plannedFilePath),
+                RemoteDirectoryJob folder => await remoteDirectoryDownloads.Process(folder),
+                _ => throw new ArgumentException("Expected a remote file or directory.", nameof(job)),
+            };
+        }
+        catch (Exception ex)
+        {
+            outcome = ClassifyLeafFailure(job, parentToken, ex);
+        }
+
+        if (job is DirectoryDownloadJob { Retry: { } retry } && (retry.FolderAlreadyCompleted
+            || retry.RequestedFiles != null && !job.Children.All(child => child.IsSuccessfulTerminal)))
+            return outcome;
+        return await songDownloads.RunOnCompleteIfApplicable(job, null, ctx, outcome);
     }
 
     private JobOutcome ClassifyLeafFailure(

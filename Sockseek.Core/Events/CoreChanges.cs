@@ -108,6 +108,13 @@ public sealed record EngineCompletedChange(
     JobReferenceSnapshot Queue)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
 
+public sealed record RootExecutionChanged(
+    long Sequence,
+    DateTimeOffset OccurredAtUtc,
+    Guid WorkflowId,
+    bool Started)
+    : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
+
 public sealed record WorkflowRetiredChange(
     long Sequence,
     DateTimeOffset OccurredAtUtc,
@@ -212,6 +219,7 @@ public enum TransferFailureReason
     PeerFailure,
     Stale,
     Finalization,
+    LocalStorageError,
 }
 
 public enum TransferCancellationReason
@@ -219,6 +227,7 @@ public enum TransferCancellationReason
     Requested,
     ManualSkip,
     Stale,
+    DaemonShutdown,
 }
 
 public enum TransferAttemptSource
@@ -257,7 +266,8 @@ public sealed record TransferAttemptFailedChange(
     Guid AttemptId,
     int AttemptNumber,
     long AttemptRevision,
-    ExceptionSnapshot Exception)
+    ExceptionSnapshot Exception,
+    TransferFailureReason Reason = TransferFailureReason.PeerFailure)
     : CoreChange(Sequence, OccurredAtUtc), IOrderedCoreChange;
 
 public sealed record TransferAttemptCancelledChange(

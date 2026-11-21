@@ -11,6 +11,8 @@ namespace Sockseek.Server;
 /// </summary>
 internal static class TransferReadModel
 {
+    internal static bool IsQueued(string state) => state.StartsWith("Queued", StringComparison.OrdinalIgnoreCase);
+
     public static TransferDeltaDto Difference(TransferStateDto? previous, TransferStateDto current)
     {
         // Identity and file facts are cohesive: changes replace the row rather
@@ -35,7 +37,7 @@ internal static class TransferReadModel
 
     public static TransferStateDto FromDownload(TransferSnapshot transfer, bool isTerminal,
         DateTimeOffset? completedAtUtc, string? failureMessage,
-        TransferStateDto? previous = null, TransferFields fields = TransferFields.All)
+        TransferStateDto? previous = null, TransferFields fields = TransferFields.All, bool retainedHistory = false)
     {
         bool terminal = isTerminal
             || transfer.TerminalOutcome != TransferSnapshotTerminalOutcome.None;
@@ -65,7 +67,9 @@ internal static class TransferReadModel
                 transfer.FailureReason.ToServer(),
                 transfer.CancellationReason.ToServer(),
                 terminal
-                    ? []
+                    ? retainedHistory && transfer.TerminalOutcome == TransferSnapshotTerminalOutcome.Failed
+                        && transfer.Source == TransferSnapshotSource.SoulseekPeer && transfer.JobId.HasValue
+                        && transfer.LocalPath != null ? RetryAction(transfer.Id) : []
                     :
                     [
                         new ResourceActionDto(
@@ -159,6 +163,8 @@ internal static class TransferReadModel
             _ => TransferTerminalOutcome.None,
         };
 
+    private static ResourceActionDto[] RetryAction(Guid id) => [new(ServerResourceActionKind.Retry, "POST", $"/api/transfers/{id:D}/retry")];
+
     public static TransferStateDto FromRetained(PersistedTransfer transfer)
     {
         var outcome = Enum.Parse<TransferTerminalOutcome>(transfer.TerminalOutcome, ignoreCase: true);
@@ -169,7 +175,8 @@ internal static class TransferReadModel
                 transfer.Username, transfer.RemotePath, null, transfer.GroupRef,
                 transfer.GroupDisplayPath, GroupRelativePath: transfer.GroupRelativePath, GroupKind: Enum.Parse<Sockseek.Api.TransferGroupKind>(transfer.GroupKind)),
             new(transfer.State, transfer.LocalPath, transfer.AttemptCount, outcome != TransferTerminalOutcome.None,
-                outcome, failure, PublicCancellationSource(transfer.CancellationSource), [],
+                outcome, failure, PublicCancellationSource(transfer.CancellationSource),
+                transfer.CanRetry ? RetryAction(transfer.Id) : [],
                 transfer.CompletedAtUtc, transfer.FailureMessage, transfer.RemovedAtUtc),
             new(transfer.TransferredBytes, transfer.TotalBytes ?? -1, transfer.BytesPerSecond, transfer.LastProgressAtUtc),
             new(transfer.CreatedAtUtc, transfer.StartedAtUtc), ToFileMetadata(transfer.File), transfer.CreatedAtUtc);
@@ -231,6 +238,8 @@ internal static class TransferReadModel
             Progress = current.Progress with { LastProgressAtUtc = current.Progress.LastProgressAtUtc ?? retained.Progress.LastProgressAtUtc },
             Status = current.Status with
             {
+                AvailableActions = current.Status.IsTerminal && retained.Status.IsTerminal
+                    ? retained.Status.AvailableActions : current.Status.AvailableActions,
                 CompletedAtUtc = current.Status.CompletedAtUtc ?? retained.Status.CompletedAtUtc,
                 FailureMessage = current.Status.FailureMessage ?? retained.Status.FailureMessage,
                 RemovedAtUtc = retained.Status.RemovedAtUtc,
@@ -275,13 +284,16 @@ public sealed class TransferReadSnapshot
     private readonly UploadTransferSnapshot? upload;
     private readonly TransferStateDto? previousWire;
     private readonly TransferFields wireFields;
+    private readonly bool retainedHistory;
     private TransferStateDto? wire;
     internal bool IsReplacement { get; }
     internal TransferFields ChangedFields { get; }
 
     internal TransferReadSnapshot(TransferSnapshot transfer, bool isTerminal = false,
-        DateTimeOffset? completedAtUtc = null, string? failureMessage = null, TransferReadSnapshot? previous = null)
+        DateTimeOffset? completedAtUtc = null, string? failureMessage = null, TransferReadSnapshot? previous = null,
+        bool retainedHistory = false)
     {
+        this.retainedHistory = retainedHistory;
         download = transfer;
         IsTerminal = isTerminal || transfer.TerminalOutcome != TransferSnapshotTerminalOutcome.None;
         CompletedAtUtc = transfer.CompletedAtUtc ?? completedAtUtc;
@@ -346,7 +358,7 @@ public sealed class TransferReadSnapshot
     {
         if (Volatile.Read(ref wire) is { } current) return current;
         var projected = download is not null
-            ? TransferReadModel.FromDownload(download, IsTerminal, CompletedAtUtc, FailureMessage, previousWire, wireFields)
+            ? TransferReadModel.FromDownload(download, IsTerminal, CompletedAtUtc, FailureMessage, previousWire, wireFields, retainedHistory)
             : TransferReadModel.FromUpload(upload!, previousWire, wireFields);
         return Interlocked.CompareExchange(ref wire, projected, null) ?? projected;
     }

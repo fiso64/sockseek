@@ -38,8 +38,6 @@ namespace Sockseek.Core.Extractors;
             this.pathVariables = pathVariables;
         }
 
-        string? csvFilePath = null;
-        int csvColumnCount = -1;
         public static bool InputMatches(string input)
         {
             input = input.ToLower();
@@ -53,7 +51,7 @@ namespace Sockseek.Core.Extractors;
             var offset    = extraction.Offset;
             var reverse   = extraction.Reverse;
 
-            csvFilePath = Utils.ExpandVariables(input, pathVariables);
+            string csvFilePath = Utils.ExpandVariables(input, pathVariables);
 
             if (!File.Exists(csvFilePath))
                 throw new FileNotFoundException($"CSV file '{csvFilePath}' not found");
@@ -78,20 +76,20 @@ namespace Sockseek.Core.Extractors;
             log ??= ExtractorContext.None.Log;
             ValidateTimeFormat(timeUnit);
             var rows = new List<Job>();
-            using var sr = new StreamReader(path, System.Text.Encoding.UTF8);
-            var parser = new SmallestCSV.SmallestCSVParser(sr);
+            using var reader = new SourceRecordReader(File.OpenRead(path));
 
             int index = 1;
-            var header = parser.ReadNextRow();
+            var header = reader.ReadRecord();
             while (header == null || header.Count == 0 || !header.Any(t => t.Trim().Length > 0))
             {
                 if (header == null)
                     return rows;
 
                 index++;
-                header = parser.ReadNextRow();
+                header = reader.ReadRecord();
             }
 
+            string headerHash = reader.Fingerprint();
             string[] cols = [artistCol, albumCol, trackCol, lengthCol, descCol, ytIdCol, trackCountCol];
             string[][] aliases = [
                 ["artist", "artistname", "artists", "artistnames"],
@@ -140,7 +138,7 @@ namespace Sockseek.Core.Extractors;
                 List<string>? values = null;
                 try
                 {
-                    values = parser.ReadNextRow();
+                    values = reader.ReadRecord();
                 }
                 catch (Exception e)
                 {
@@ -149,10 +147,8 @@ namespace Sockseek.Core.Extractors;
 
                 if (values == null) break;
                 if (!values.Any(t => t.Trim().Length > 0)) continue;
-                while (values.Count < foundCount) values.Add("");
-
-                if (csvColumnCount == -1)
-                    csvColumnCount = values.Count;
+                var mutation = SourceMutation.ClearCsvRow(path, index, rows.Count + 1, header.Count, reader.Fingerprint(headerHash));
+                while (values.Count < header.Count) values.Add("");
 
                 string artist = "", title = "", album = "", uri = "", desc = "";
                 int length = -1;
@@ -204,7 +200,7 @@ namespace Sockseek.Core.Extractors;
                     {
                         ItemNumber = itemNumber,
                         LineNumber = index,
-                        SourceMutation = SourceMutation.ClearCsvRow(csvFilePath!, index, itemNumber, csvColumnCount),
+                        SourceMutation = mutation,
                         ExtractorFolderCond = new FolderConditionPatch
                         {
                             MinTrackCount = minAlbumTrackCount >= 0 ? minAlbumTrackCount : null,
@@ -217,7 +213,7 @@ namespace Sockseek.Core.Extractors;
                     var song = await YouTube.ParseSongInfo(title, artist, uri, length, desc, log: log);
                     song.ItemNumber = rows.Count + 1;
                     song.LineNumber = index;
-                    song.SourceMutation = SourceMutation.ClearCsvRow(csvFilePath!, index, song.ItemNumber, csvColumnCount);
+                    song.SourceMutation = mutation;
                     rows.Add(song);
                 }
                 else
@@ -228,7 +224,7 @@ namespace Sockseek.Core.Extractors;
                     {
                         ItemNumber = itemNumber,
                         LineNumber = index,
-                        SourceMutation = SourceMutation.ClearCsvRow(csvFilePath!, index, itemNumber, csvColumnCount),
+                        SourceMutation = mutation,
                     });
                 }
             }
@@ -246,7 +242,9 @@ namespace Sockseek.Core.Extractors;
             duration = LettersRegex().Replace(duration, "");
             var formatParts   = NonWordRegex().Split(format).Where(s => !string.IsNullOrEmpty(s)).ToArray();
             var durationParts = NonWordRegex().Split(duration).Where(s => !string.IsNullOrEmpty(s)).ToArray();
-            if (durationParts.Length < formatParts.Length)
+            if (formatParts is ["m", "s"] && durationParts.Length == 3 && duration.Count(c => c == ':') == 2)
+                formatParts = ["h", "m", "s"];
+            if (durationParts.Length != formatParts.Length)
                 throw new FormatException($"Duration '{duration}' does not match time format '{format}'.");
 
             double totalSeconds = 0;

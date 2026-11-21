@@ -40,8 +40,8 @@ namespace Sockseek.Core.Extractors;
             YouTube.ApiKey = _yt.ApiKey ?? "";
 
             string name;
-            List<SongJob>? deleted = null;
-            List<SongJob> songs = new();
+            List<(string Url, SongJob Song)>? deleted = null;
+            List<Job> songs = [];
 
             if (_yt.GetDeleted || _yt.DeletedOnly)
             {
@@ -59,7 +59,9 @@ namespace Sockseek.Core.Extractors;
                 else
                 {
                     context.Log.Info("Loading playlist");
-                    (name, songs) = await YouTube.GetSongsYtExplode(input, max, off, context.Log);
+                    var playlist = await YouTube.GetSongsYtExplode(input, max, off, context.Log);
+                    name = playlist.Title;
+                    songs.AddRange(playlist.Songs);
                 }
             }
             else
@@ -67,8 +69,20 @@ namespace Sockseek.Core.Extractors;
                 name = await YouTube.GetPlaylistTitle(input);
             }
 
-            if (deleted != null)
-                songs.InsertRange(0, deleted);
+            if (deleted is { Count: > 0 })
+            {
+                // The Data API includes a position for private videos. Put recovered
+                // metadata there when available, including repeated playlist entries.
+                var archived = deleted.ToLookup(entry => entry.Url, entry => entry.Song);
+                var restored = new HashSet<string>();
+                for (int i = 0; i < songs.Count; i++)
+                {
+                    if (songs[i] is not ExtractJob missing || archived[missing.Input].FirstOrDefault() is not { } song) continue;
+                    songs[i] = new SongJob(song.Query) { ItemNumber = missing.ItemNumber, ExtractorInfo = song.ExtractorInfo };
+                    restored.Add(missing.Input);
+                }
+                songs.InsertRange(0, deleted.Where(entry => !restored.Contains(entry.Url)).Select(entry => entry.Song));
+            }
 
             YouTube.StopService();
 
@@ -108,7 +122,7 @@ namespace Sockseek.Core.Extractors;
             }
         }
 
-        public static async Task<(string, List<SongJob>)> GetSongsApi(string url, int max = int.MaxValue, int offset = 0, IJobLog? log = null)
+        public static async Task<(string, List<Job>)> GetSongsApi(string url, int max = int.MaxValue, int offset = 0, IJobLog? log = null)
         {
             log ??= ExtractorContext.None.Log;
             StartService();
@@ -126,55 +140,52 @@ namespace Sockseek.Core.Extractors;
 
             var playlistItemsRequest = service.PlaylistItems.List("snippet,contentDetails");
             playlistItemsRequest.PlaylistId = playlistId;
-            playlistItemsRequest.MaxResults = Math.Min(max, 100);
+            const int pageSize = 50;
+            long end = (long)offset + max;
+            playlistItemsRequest.MaxResults = Math.Min(end, pageSize);
 
-            var songsDict = await GetDictYtExplode(url, max, offset, log);
-            var songs = new List<SongJob>();
+            var (_, playable) = await GetSongsYtExplode(url, max, offset, log);
+            var songsDict = new Dictionary<string, SongJob>();
+            foreach (var song in playable) songsDict[song.Query.URI] = song;
+            var songs = new List<Job>();
             int count = 0;
 
-            while (playlistItemsRequest != null && count < max + offset)
+            while (count < end)
             {
-                var playlistItemsResponse = await playlistItemsRequest.ExecuteAsync();
-                foreach (var playlistItem in playlistItemsResponse.Items)
+                var page = await playlistItemsRequest.ExecuteAsync();
+                foreach (var item in page.Items)
                 {
-                    if (count >= offset)
+                    if (count >= end) break;
+                    int position = ++count;
+                    if (position <= offset) continue;
+
+                    var id = item.Snippet.ResourceId.VideoId;
+                    if (songsDict.TryGetValue(id, out var cached))
                     {
-                        if (songsDict.TryGetValue(playlistItem.Snippet.ResourceId.VideoId, out SongJob? value))
-                        {
-                            songs.Add(value);
-                        }
-                        else
-                        {
-                            var title = "";
-                            var uploader = "";
-                            var length = 0;
-                            var desc = "";
-
-                            var videoRequest = service.Videos.List("contentDetails,snippet");
-                            videoRequest.Id = playlistItem.Snippet.ResourceId.VideoId;
-                            var videoResponse = await videoRequest.ExecuteAsync();
-
-                            title = playlistItem.Snippet.Title;
-                            if (videoResponse.Items.Count == 0) continue;
-                            uploader = videoResponse.Items[0].Snippet.ChannelTitle;
-                            length = (int)XmlConvert.ToTimeSpan(videoResponse.Items[0].ContentDetails.Duration).TotalSeconds;
-                            desc = videoResponse.Items[0].Snippet.Description;
-
-                            var song = await ParseSongInfo(title, uploader, playlistItem.Snippet.ResourceId.VideoId, length, desc, log: log);
-                            song.ItemNumber = count + 1;
-                            songs.Add(song);
-                        }
+                        songs.Add(new SongJob(cached.Query) { ItemNumber = position, ExtractorInfo = cached.ExtractorInfo });
+                        continue;
                     }
 
-                    if (++count >= max + offset)
-                        break;
+                    var request = service.Videos.List("contentDetails,snippet");
+                    request.Id = id;
+                    var response = await request.ExecuteAsync();
+                    if (response.Items.Count == 0)
+                    {
+                        songs.Add(ExtractJob.UnavailablePlaylistEntry($"https://www.youtube.com/watch?v={id}", InputType.YouTube, position));
+                        continue;
+                    }
+
+                    var video = response.Items[0];
+                    var length = (int)XmlConvert.ToTimeSpan(video.ContentDetails.Duration).TotalSeconds;
+                    var song = await ParseSongInfo(item.Snippet.Title, video.Snippet.ChannelTitle,
+                        id, length, video.Snippet.Description, log: log);
+                    song.ItemNumber = position;
+                    songs.Add(song);
                 }
 
-                playlistItemsRequest.PageToken = playlistItemsResponse.NextPageToken;
-                if (playlistItemsRequest.PageToken == null || count >= max + offset)
-                    playlistItemsRequest = null;
-                else
-                    playlistItemsRequest.MaxResults = Math.Min(offset + max - count, 100);
+                if (page.NextPageToken == null || count >= end) break;
+                playlistItemsRequest.PageToken = page.NextPageToken;
+                playlistItemsRequest.MaxResults = Math.Min(end - count, pageSize);
             }
 
             if (songsDict.Count >= 200)
@@ -330,34 +341,6 @@ namespace Sockseek.Core.Extractors;
             youtubeService = null;
         }
 
-        public static async Task<Dictionary<string, SongJob>> GetDictYtExplode(string url, int max = int.MaxValue, int offset = 0, IJobLog? log = null)
-        {
-            log ??= ExtractorContext.None.Log;
-            using var youtube = new YoutubeClient();
-            var playlist = await youtube.Playlists.GetAsync(url);
-            var songs = new Dictionary<string, SongJob>();
-            int count = 0;
-
-            await foreach (var video in youtube.Playlists.GetVideosAsync(playlist.Id))
-            {
-                if (count >= offset && count < offset + max)
-                {
-                    var title = video.Title;
-                    var uploader = video.Author.ChannelTitle;
-                    var ytId = video.Id.Value;
-                    var length = video.Duration.HasValue ? (int)video.Duration.Value.TotalSeconds : -1;
-
-                    var song = await ParseSongInfo(title, uploader, ytId, length, log: log);
-                    song.ItemNumber = count + 1;
-                    songs[ytId] = song;
-                }
-
-                if (count++ >= offset + max) break;
-            }
-
-            return songs;
-        }
-
         public static async Task<string> GetPlaylistTitle(string url)
         {
             using var youtube = new YoutubeClient();
@@ -365,7 +348,7 @@ namespace Sockseek.Core.Extractors;
             return playlist.Title;
         }
 
-        public static async Task<(string, List<SongJob>)> GetSongsYtExplode(string url, int max = int.MaxValue, int offset = 0, IJobLog? log = null)
+        public static async Task<(string Title, List<SongJob> Songs)> GetSongsYtExplode(string url, int max = int.MaxValue, int offset = 0, IJobLog? log = null)
         {
             log ??= ExtractorContext.None.Log;
             using var youtube = new YoutubeClient();
@@ -376,7 +359,7 @@ namespace Sockseek.Core.Extractors;
 
             await foreach (var video in youtube.Playlists.GetVideosAsync(playlist.Id))
             {
-                if (count >= offset && count < offset + max)
+                if (count >= offset && count < (long)offset + max)
                 {
                     var title = video.Title;
                     var uploader = video.Author.ChannelTitle;
@@ -388,7 +371,7 @@ namespace Sockseek.Core.Extractors;
                     songs.Add(song);
                 }
 
-                if (count++ >= offset + max) break;
+                if (++count >= (long)offset + max) break;
             }
 
             return (playlistTitle, songs);
@@ -417,11 +400,11 @@ namespace Sockseek.Core.Extractors;
                 _client.Timeout = TimeSpan.FromSeconds(10);
             }
 
-            public async Task<List<SongJob>> RetrieveDeleted(string url, bool printFailed = true)
+            public async Task<List<(string Url, SongJob Song)>> RetrieveDeleted(string url, bool printFailed = true)
             {
                 int totalCount = 0;
                 int archivedCount = 0;
-                var songs = new ConcurrentBag<SongJob>();
+                var songs = new ConcurrentBag<(string Url, SongJob Song)>();
                 var noArchive = new ConcurrentBag<string>();
                 var failRetrieve = new ConcurrentBag<string>();
 
@@ -458,7 +441,7 @@ namespace Sockseek.Core.Extractors;
                                 {
                                     var song = await ParseSongInfo(title, uploader, waybackUrl, duration, log: _log);
                                     song.ExtractorInfo = $"{{\"t\":\"{title.Trim()}\",\"u\":\"{uploader.Trim()}\"}}";
-                                    songs.Add(song);
+                                    songs.Add((videoUrl, song));
                                     good = true;
                                     break;
                                 }

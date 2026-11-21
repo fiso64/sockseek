@@ -324,6 +324,7 @@ public static class ServerHost
         foreach (Type response in new[] { typeof(StateSnapshotDto), typeof(StateUpdateBatchDto), typeof(TransferTimelineUpdateDto) })
             wireJson.GetTypeInfo(response);
 
+        app.UseForwardedHeaders();
         app.UseResponseCompression();
 
         app.Use(async (context, next) =>
@@ -367,7 +368,7 @@ public static class ServerHost
         AuthenticationEndpoints.Map(app);
         MapEndpoints(app);
         if (!hasWebUi)
-            app.MapGet("/", () => Results.Redirect("/api/server/info"))
+            app.MapGet("/", () => Results.Redirect("api/server/info"))
                 .AllowAnonymous()
                 .ExcludeFromDescription();
         app.Map("/api/{**unmatched}", () => Results.NotFound());

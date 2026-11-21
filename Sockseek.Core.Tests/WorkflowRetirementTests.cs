@@ -30,7 +30,7 @@ public sealed class WorkflowRetirementTests
             File.WriteAllLines(source, targets.Select(target => target.Filename));
             var jobs = targets.Select((target, index) => new RemoteFileJob(target)
             {
-                SourceMutation = SourceMutation.ClearTextLine(source, index + 1),
+                SourceMutation = SourceMutation.ClearTextLine(source, index + 1, target.Filename),
             }).ToArray();
             foreach (var job in jobs)
                 engine.Enqueue(job, new DownloadSettings

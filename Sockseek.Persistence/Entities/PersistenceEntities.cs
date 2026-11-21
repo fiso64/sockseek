@@ -118,6 +118,8 @@ internal sealed class SearchResultEntity
 
 internal sealed class TransferEntity : IRevisionedHistoryRow
 {
+    public bool RecoveryPending { get; set; }
+    public Guid? RetryJobId { get; set; }
     public Guid Id { get; set; }
     public Guid? JobId { get; set; }
     public Guid? WorkflowId { get; set; }

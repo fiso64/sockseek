@@ -8,7 +8,7 @@
   import Icon from '../../components/Icon.svelte';
   import Notice from '../../components/Notice.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
-  import ShareBrowser from '../users/ShareBrowser.svelte';
+  import ShareBrowser from '../users/ShareBrowserView.svelte';
   import type { ShareBrowserSession } from '../users/session';
   import { localShareSource } from '../users/share-source';
   import StatusTab from './StatusTab.svelte';
@@ -113,9 +113,7 @@
     <StatusTab {daemon} {liveStatus} {liveClient} onloadingchange={(loading) => statusLoading = loading} />
   {:else if tab === 'shares'}
     {#if sharing?.catalog.generationId}
-      {#key sharing.catalog.generationId}
-        <ShareBrowser source={localShareSource(sharing.catalog.generationId, sharing.catalog.totalBytes)} session={sharesSession} />
-      {/key}
+      <ShareBrowser source={localShareSource(sharing.catalog.generationId, sharing.catalog.totalBytes)} session={sharesSession} />
     {:else if !sharing}
       <LoadingIndicator />
     {:else}

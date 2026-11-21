@@ -9,7 +9,6 @@ export interface JobDetailInfo {
   counts: string[];
   note?: string;
   progress?: { completed: number; total: number; percent: number };
-  busy: boolean;
 }
 
 /** Extra context only: content cards own file/folder progress and successful results.
@@ -23,7 +22,7 @@ export function jobDetailInfo(job: JobSummaryDto, payload: Schema<'JobPayloadDto
   const stats = job.stats;
   const countsKnown = stats?.completedMemberCount != null && stats.failedMemberCount != null
     && stats.skippedMemberCount != null;
-  const info: JobDetailInfo = { message: '', facts: [], counts: [], busy: !terminal && !hasContent };
+  const info: JobDetailInfo = { message: '', facts: [], counts: [] };
   const childFailuresCounted = job.failureReason === 'ChildJobsFailed' && Number(stats?.failedMemberCount) > 0;
   if (terminal && job.terminalOutcome !== 'Succeeded') {
     info.message = childFailuresCounted && collection ? ''
@@ -70,5 +69,5 @@ export function jobDetailInfo(job: JobSummaryDto, payload: Schema<'JobPayloadDto
     info.message = `No ${job.kind === 'song-groups' ? 'songs' : job.kind === 'album-groups' ? 'albums' : 'jobs'} were produced.`;
   // The label already conveys the state; diagnostics remain in its modal.
   if (info.message === jobStatusLabel(job)) info.message = '';
-  return info.message || info.facts.length || info.counts.length || info.note || info.busy ? info : null;
+  return info.message || info.facts.length || info.counts.length || info.note || (!terminal && !hasContent) ? info : null;
 }

@@ -7,6 +7,7 @@ namespace Sockseek.Core.Jobs;
 /// </summary>
 public abstract class FileDownloadJob : Job
 {
+    internal string? PathBeforeIncompleteMove { get; set; }
     public bool Reused { get; internal set; }
     private string? downloadPath;
     private long bytesTransferred;

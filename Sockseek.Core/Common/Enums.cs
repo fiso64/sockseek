@@ -104,6 +104,7 @@ namespace Sockseek.Core;
         ChildJobsFailed = 8,
         NoSearchResults = 9,
         NoMatchingResults = 10,
+        Interrupted = 11,
     }
 
     public enum SkipMode

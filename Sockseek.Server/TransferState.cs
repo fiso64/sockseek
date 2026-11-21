@@ -57,7 +57,7 @@ internal sealed class TransferState
     {
         if (active.TryGetValue(source.Id, out var previous) && previous.Revision >= source.Revision) return null;
         var row = new TransferReadSnapshot(source, terminal, completedAt,
-            failureMessage ?? (context is TransferOutputChangedChange ? previous?.FailureMessage : null), previous);
+            failureMessage ?? (context is TransferOutputChangedChange ? previous?.FailureMessage : null), previous, retainedHistory: Persistence != null);
         var change = new TransferChange(row);
         UpsertActive(row, change.Added);
         if (Persistence is { } writer)
@@ -323,7 +323,7 @@ internal sealed class TransferState
             return new()
             {
                 Rows = 1, Active = active ? 1 : 0, Downloads = download ? 1 : 0, Uploads = upload ? 1 : 0,
-                Queued = active && row.State.StartsWith("Queued", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
+                Queued = active && TransferReadModel.IsQueued(row.State) ? 1 : 0,
                 Failed = row.TerminalOutcome == TransferTerminalOutcome.Failed ? 1 : 0,
                 DownloadRate = download ? row.BytesPerSecond ?? 0 : 0,
                 UploadRate = upload ? row.BytesPerSecond ?? 0 : 0,

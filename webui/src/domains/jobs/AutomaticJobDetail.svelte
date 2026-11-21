@@ -4,7 +4,8 @@
   import { untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import TransferStateLabel from '../../components/items/TransferStateLabel.svelte';
-  import { audioAttributes, type TransferPresentation } from '../presentation/items';
+  import TransferItemActionButton from '../../components/items/TransferItemActionButton.svelte';
+  import { audioAttributes, basename, type TransferPresentation } from '../presentation/items';
   import { daemonApi, defaultPageSize, nestedPageSize } from '../../api/client';
   import { DaemonApiError } from '../../api/http';
   import type { JobStateDto, JobSummaryDto, Schema } from '../../api/types';
@@ -220,6 +221,23 @@
     ? 'The accepted file plan is not available for this job.' : undefined);
   let activeFileTransfer = $derived(liveTransfers.find((transfer) => transfer.identity.jobId === jobId && !transfer.status.isTerminal));
   let selectedFile = $derived(selectedJobFile(payload, activeFileTransfer));
+  let repeatOptions = $derived(detail?.repeatOptions);
+
+  let retryId = $derived(repeatOptions?.retryTransferId);
+  let missingFiles = $derived(repeatOptions?.canRunAgain ? 0 : Number(repeatOptions?.missingFiles ?? 0));
+  let retryBusy = $state(false);
+
+  async function repeat(submit: () => Promise<JobSummaryDto>) {
+    const owner = jobId;
+    retryBusy = true;
+    try {
+      const next = await submit();
+      if (jobId === owner) onopenjob(next);
+    } catch (cause) {
+      if (jobId === owner) actionError = new Error(String(cause));
+    } finally { retryBusy = false; }
+  }
+
   let selectedPeerUploadSpeed = $derived(activeFileTransfer?.identity.peerUploadSpeed
     ?? (selectedFile?.peer ? selectedFile.peer.uploadSpeed : payload?.kind === 'song' ? payload.resolvedUploadSpeed : null));
   let selectedPeerHasFreeUploadSlot = $derived(activeFileTransfer?.identity.peerHasFreeUploadSlot
@@ -594,6 +612,11 @@
   }
 </script>
 
+{#snippet folderRetry()}
+  <TransferItemActionButton kind="retry-folder" {missingFiles}
+    disabled={retryBusy} onclick={() => repeat(() => daemonApi.retryDirectory(jobId))} />
+{/snippet}
+
 <section class="page page-search redesigned-search-page automatic-job-detail">
   <header class="job-detail-heading">
     <button type="button" class="button quiet icon-button back-button" aria-label={job?.parentJobId ? `Back to ${parentTitle}` : 'Back to jobs'} onclick={() => job?.parentJobId ? onopenjob(parent ?? { jobId: job.parentJobId }) : onback()}>
@@ -618,10 +641,13 @@
       <div class="job-detail-heading-summary">
         {#if job.createdAtUtc}<span class="job-detail-header-fact job-detail-age"><RelativeTime timestamp={job.createdAtUtc} /></span>{/if}
         {#if !info && !hasContent}<TransferStateLabel transfer={detailTransfer} class={`search-status-badge ${jobStatusClass(job)}`}>{statusLabel}</TransferStateLabel>{/if}
+        {#if repeatOptions?.canRunAgain}
+          <button type="button" class="button quiet" data-testid="run-again" disabled={retryBusy} onclick={() => repeat(() => daemonApi.runAgain(jobId))}><Icon name="refresh" />Run again</button>
+        {/if}
         {#if job.availableActions?.some((action) => action.kind === 'cancel')}
-          <button type="button" class="button danger delete-search-button quiet-cancel" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
+          <button type="button" class="button danger delete-search-button quiet-cancel" aria-label="Cancel" title="Cancel job" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
         {:else if canDeleteSubmission(job)}
-          <button type="button" class="button danger delete-search-button" title="Delete submission from history" disabled={deletingSubmissions.has(job.submissionId!)} onclick={() => ondelete(job)}><Icon name="trash" /><span>Delete</span></button>
+          <button type="button" class="button danger delete-search-button" data-testid="delete-submission" aria-label="Delete submission" title="Delete submission from history" disabled={deletingSubmissions.has(job.submissionId!)} onclick={() => ondelete(job)}><Icon name="trash" /><span>Delete submission</span></button>
         {/if}
       </div>
     {/if}
@@ -639,7 +665,6 @@
     <section class="panel job-info-card" class:warning={job.terminalOutcome === 'PartialSuccess'} class:failed={job.terminalOutcome === 'Failed'} data-testid="job-info-card" aria-label="Job information">
       {#if info.message || info.counts.length || !hasContent}
         <div class="job-info-heading">
-          {#if info.busy}<LoadingIndicator label={jobStatusLabel(job)} />{/if}
           {#if info.message || info.counts.length}
             <div class="job-info-copy">
               {#if info.message}<strong>{info.message}</strong>{/if}
@@ -672,26 +697,29 @@
           <span class="job-source-identity">From: {#if target}<UsernameLink username={target.username} actions={userActions} />{:else}{selectedFile.sourceName}{/if}</span>
           {#if target && payload?.kind === 'song'}
             {#if selectedPeerUploadSpeed != null}<span>{(Number(selectedPeerUploadSpeed) / 1_000_000).toFixed(1)} MB/s</span>{/if}
-            {#if selectedPeerHasFreeUploadSlot != null}<span class:available={selectedPeerHasFreeUploadSlot}>{selectedPeerHasFreeUploadSlot ? 'Free slot' : 'No free slot'}</span>{/if}
+            {#if selectedPeerHasFreeUploadSlot != null}<span title="Slot availability when the peer answered the search" class:available={selectedPeerHasFreeUploadSlot}>{selectedPeerHasFreeUploadSlot ? 'Free slot' : 'No free slot'}</span>{/if}
           {/if}
         </div>
       </div>
+      {#snippet fileRetry()}
+        <TransferItemActionButton kind="retry" label={`Retry ${basename(selectedFile.path)}`} disabled={retryBusy} onclick={() => repeat(() => daemonApi.retryTransfer(retryId!))} />
+      {/snippet}
       <FileItemCard path={selectedFile.path} sizeBytes={file.fileSize == null && target?.size == null ? null : Number(file.fileSize ?? target?.size)}
         audio={audioAttributes(target)}
-        transfer={detailTransfer} />
+        transfer={detailTransfer} actions={retryId ? fileRetry : undefined} />
     </section>
   {:else if payload?.kind === 'album' && !skippedOutput}
     {#if payload.resolvedFolderPath || manifest}
       <section class="job-content-section">
         {#if payload.resolvedFolderUsername}<div class="job-source-heading"><div class="job-source-summary"><span class="job-source-identity">From: <UsernameLink username={payload.resolvedFolderUsername} actions={userActions} /></span></div></div>{/if}
-        <FolderItemCard path={(payload.resolvedFolderPath ?? manifest?.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} />
+        <FolderItemCard path={(payload.resolvedFolderPath ?? manifest?.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} actions={missingFiles > 0 ? folderRetry : undefined} />
         {#if moreFolderFiles}<button type="button" class="button job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
       </section>
     {/if}
   {:else if payload?.kind === 'remote-directory'}
     <section class="job-content-section">
       {#if payload.sourceUsername}<div class="job-source-heading"><div class="job-source-summary"><span class="job-source-identity">From: <UsernameLink username={payload.sourceUsername} actions={userActions} /></span></div></div>{/if}
-      <FolderItemCard path={(payload.sourceFolderPath ?? manifest?.displayRoot ?? payload.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} />
+      <FolderItemCard path={(payload.sourceFolderPath ?? manifest?.displayRoot ?? payload.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} actions={missingFiles > 0 ? folderRetry : undefined} />
       {#if moreFolderFiles}<button type="button" class="button job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
     </section>
   {/if}
@@ -716,8 +744,7 @@
             resultState={entry.error || entry.missingResultId && linkedChildren.has(entry.missingResultId)
               ? 'unavailable' : entry.missingResultId ? 'loading' : undefined}
             progressPercent={child.jobId ? childFileProgress.get(child.jobId) : undefined}
-            deleting={deletingSubmissions.has(child.submissionId!)}
-            onopen={onopenjob} oncancel={job => void cancel(job.jobId)} {ondelete} />
+            onopen={onopenjob} oncancel={job => void cancel(job.jobId)} />
           {#if entry.error || entry.missingResultId && linkedChildren.has(entry.missingResultId)}
             <div class="resource-state-notice unavailable" role="alert"><span>Extracted result unavailable: {entry.error?.message ?? linkedChildren.get(entry.missingResultId!)?.error?.message ?? 'The linked job is not retained.'}</span>{#if entry.missingResultId}<button class="button" type="button" onclick={() => void retryChildResult(entry.missingResultId!)}>Retry</button>{/if}</div>
           {/if}

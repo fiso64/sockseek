@@ -102,11 +102,12 @@ namespace Tests.Unit
         }
 
         [TestMethod]
-        [DataRow(false)]
-        [DataRow(true)]
-        public async Task SearchSong_FiltersKnownWrongLength_OnlyWhenRequired(bool requireLength)
+        [DataRow(false, 1000)]
+        [DataRow(false, 0)]
+        [DataRow(true, 1000)]
+        public async Task SearchSong_FiltersKnownWrongLength_OnlyWhenRequired(bool requireLength, int uploadSpeed)
         {
-            var response = new SearchResponse("User", 1, true, 1000, 0,
+            var response = new SearchResponse("User", 1, true, uploadSpeed, 0,
             [
                 TestHelpers.CreateSlFile(@"Music\Artist\Twilight.flac", length: 209),
             ]);
@@ -206,6 +207,28 @@ namespace Tests.Unit
             settings.Search.NecessaryCond.BannedUsers = ["private"];
             Assert.AreEqual(0, (await Discover(print: true)).Count,
                 "Read-only visibility must still respect configured peer conditions.");
+        }
+
+        [TestMethod]
+        public async Task FileSearchPreservesProtocolTermsAndCapsConcurrentReplies()
+        {
+            var client = CreateMockClient([]);
+            string text = "*rossing -live";
+            var native = SearchQuery.FromText(text);
+            client.SearchHandler = (query, receive, options, ct) =>
+            {
+                CollectionAssert.AreEqual(native.Terms.ToArray(), query.Terms.ToArray());
+                CollectionAssert.AreEqual(native.Exclusions.ToArray(), query.Exclusions.ToArray());
+                foreach (string peer in new[] { "first", "second" })
+                    receive(new SearchResponse(peer, 1, true, 0, 0, [TestHelpers.CreateSlFile("Crossing.mp3")]));
+                return Task.FromResult(new Search(query, new SearchScope(SearchScopeType.Network), 1, SearchStates.Completed, 2, 2, 0));
+            };
+            var settings = TestHelpers.CreateDefaultSettings().Download;
+            settings.Search.ResponseLimit = 1;
+            using var searcher = CreateSearcher(client, settings);
+            var job = new SearchJob(text);
+            await searcher.Search(job, settings.Search, CancellationToken.None);
+            Assert.AreEqual(1, job.ResultCount);
         }
 
         [TestMethod]

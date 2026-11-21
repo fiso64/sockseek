@@ -35,6 +35,23 @@ public sealed class JobSettingsSnapshot
     internal RetainedJobSettings Retain(RetainedSettingsWriter? writer = null) => Volatile.Read(ref retained)
         ?? LazyInitializer.EnsureInitialized(ref retained, ref retainLock,
             () => SubmissionSpecification.RetainSettings(settings, writer));
+    internal string? DescribeQueryChange(Job job)
+    {
+        if (job is SongJob song)
+        {
+            var query = Preprocessor.Apply(song.Query, settings.Preprocess);
+            if (ReferenceEquals(query, song.Query)) return null;
+            string text = query.ToString(noInfo: true);
+            return query.Album.Length > 0 && query.Title.Length > 0 ? $"{text} ({query.Album})" : text;
+        }
+        if (job is AlbumJob album)
+        {
+            var query = Preprocessor.Apply(album.Query, settings.Preprocess);
+            if (!ReferenceEquals(query, album.Query)) return query.ToString(noInfo: true);
+        }
+        return null;
+    }
+
     internal SearchDefinition? Describe(Job job) => SubmissionSpecification.CaptureSearch(job, settings.ResolveSearchSettings());
     internal SearchDefinition Describe(SongQueryDefinition query) => SearchDefinition.Create(query, settings.ResolveSearchSettings());
     internal SearchDefinition Describe(AlbumQueryDefinition query) => SearchDefinition.Create(query, settings.ResolveSearchSettings());

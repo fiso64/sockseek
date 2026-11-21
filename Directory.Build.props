@@ -29,8 +29,8 @@
     <Compile Include="$(MSBuildThisFileDirectory)tests/TestPersistenceWriter.cs" Link="TestSupport/TestPersistenceWriter.cs" />
   </ItemGroup>
 
-  <!-- Redirect the lock file to the ignored 'obj' folder during manual publishes -->
-  <PropertyGroup Condition="'$(RuntimeIdentifier)' != '' Or '$(SelfContained)' == 'true' Or '$(PublishSingleFile)' == 'true'">
+  <!-- Runtime-specific restores and publishes must leave the portable lock file intact. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != '' Or '$(RuntimeIdentifiers)' != '' Or '$(SelfContained)' == 'true' Or '$(PublishSingleFile)' == 'true'">
     <NuGetLockFilePath>obj/packages.publish.lock.json</NuGetLockFilePath>
   </PropertyGroup>
 </Project>

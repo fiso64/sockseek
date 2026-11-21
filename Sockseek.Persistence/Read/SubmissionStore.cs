@@ -54,6 +54,8 @@ public sealed record SubmissionDeleteResult(
     int RejectedSubmissionCount,
     string? RejectionReason);
 
+public sealed record DirectoryRetryClaim(Guid DirectoryId, int Attempt, Guid? PreviousRetryId, IReadOnlyList<Guid>? RetriedMembers = null);
+
 public sealed record SubmissionRegistration(
     Guid SubmissionId,
     DateTimeOffset SubmittedAtUtc,
@@ -63,7 +65,8 @@ public sealed record SubmissionRegistration(
     Guid? PreviewId,
     string? ArtifactId,
     string? CommitFingerprint = null,
-    string? CommitReceiptJson = null);
+    string? CommitReceiptJson = null,
+    JobPersistenceMutation? AcceptedRoot = null, Guid? RetryTransferId = null, DirectoryRetryClaim? DirectoryRetry = null);
 
 public sealed record PersistedSubmissionCommitReceipt(
     string? CommitFingerprint,
@@ -96,8 +99,11 @@ public interface ISubmissionStore
 
 public sealed class SubmissionStore(
     IDbContextFactory<SockseekDbContext> contextFactory,
-    PersistenceInbox inbox) : ISubmissionStore
+    PersistenceInbox inbox,
+    PersistenceWriterOptions? writerOptions = null) : ISubmissionStore
 {
+    private readonly int maximumFailureTextLength = (writerOptions ?? new PersistenceWriterOptions()).MaximumFailureTextLength;
+
     public async Task CreateAsync(
         SubmissionRegistration registration,
         CancellationToken cancellationToken = default)
@@ -155,6 +161,46 @@ public sealed class SubmissionStore(
                 CommitReceiptJson = registration.CommitReceiptJson,
                 Revision = 1,
             });
+            if (registration.AcceptedRoot is { } root)
+            {
+                if (registration.DirectoryRetry is { } retry)
+                {
+                    int claimed = await context.Database.ExecuteSqlAsync($"""
+                        UPDATE directory_manifests SET retry_job_id={root.JobId}
+                        WHERE job_id={retry.DirectoryId} AND attempt_number={retry.Attempt}
+                        AND retry_job_id IS {retry.PreviousRetryId}
+                        """, ct);
+                    if (claimed == 0) throw new InvalidOperationException("This folder already has a newer retry.");
+                }
+                if (registration.RetryTransferId is Guid transferId)
+                {
+                    // Claim the original file in the same transaction as its new job.
+                    int claimed = await context.Transfers.Where(t => t.Id == transferId && t.RemovedAtUtc == null
+                        && t.RetryJobId == null && t.Direction == "Download" && t.Source == "SoulseekPeer"
+                        && (t.TerminalOutcome == "Failed" || t.TerminalOutcome == "Interrupted"))
+                        .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RetryJobId, root.JobId)
+                            .SetProperty(t => t.RecoveryPending, false)
+                            .SetProperty(t => t.Revision, t => t.Revision + 1), ct);
+                    if (claimed == 0) throw new InvalidOperationException("This download was already retried or removed.");
+                }
+                if (registration.DirectoryRetry?.RetriedMembers is { Count: > 0 } members)
+                {
+                    var ids = JsonSerializer.Serialize(members.Select(id => id.ToString("D").ToUpperInvariant()));
+                    await context.Database.ExecuteSqlAsync($"""
+                        UPDATE transfers SET retry_job_id={root.JobId}, recovery_pending=0, revision=revision+1
+                        WHERE job_id IN (SELECT value FROM json_each({ids})) AND removed_at_utc IS NULL
+                          AND retry_job_id IS NULL AND terminal_outcome IN ('Failed','Interrupted')
+                          AND direction='Download' AND source='SoulseekPeer'
+                        """, ct);
+                }
+                Guid? sourceId = root.SourceJobId is Guid sourceJobId
+                    && await context.Jobs.AnyAsync(job => job.Id == sourceJobId, ct).ConfigureAwait(false)
+                    ? sourceJobId : null;
+                context.Jobs.Add(PersistenceWriter.ApplyJobFacts(null, root, sourceId,
+                    maximumFailureTextLength));
+                if (root.Kind == "Search")
+                    context.SearchJobs.Add(PersistenceWriter.CreateSearchRow(root));
+            }
             return true;
         }, cancellationToken).ConfigureAwait(false);
     }

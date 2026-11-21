@@ -3,6 +3,7 @@
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onMount, tick, untrack } from 'svelte';
   import Icon from '../../components/Icon.svelte';
+  import Modal from '../../components/Modal.svelte';
   import PageTabs from '../../components/PageTabs.svelte';
   import DownloadOptionsPanel from '../../components/DownloadOptionsPanel.svelte';
   import SearchConfigPanel from '../../components/SearchConfigPanel.svelte';
@@ -23,7 +24,7 @@
   import { jobKindIcon, jobKindLabel } from './kind';
   import { basename } from '../presentation/items';
 
-  let { initialSearch = null, onstarted, oncommittingchange }: { initialSearch?: SearchDraft | null; onstarted: (rootJobId: string) => void; oncommittingchange: (committing: boolean) => void } = $props();
+  let { open, connected, initialSearch = null, onclose, onstarted, oncommittingchange }: { open: boolean; connected: boolean; onclose: (keep: boolean) => void; initialSearch?: SearchDraft | null; onstarted: (rootJobId: string) => void; oncommittingchange: (committing: boolean) => void } = $props();
   const initial = untrack(() => initialSearch);
   let draft = $state(initial ? newJobDraftFromSearch(initial) : createNewJobDraft());
   const initialChoice = untrack(() => draft.choice);
@@ -49,9 +50,11 @@
   let rankingCustomized = $derived(profileSections.ranking || Boolean(conditionSession && JSON.stringify(conditionSession.values.ranking) !== JSON.stringify(conditionSession.baseline.ranking)));
   let downloadValues = $state<DownloadOptions | null>(null);
   let downloadBaseline = $state<DownloadOptions | null>(null);
+  let reviewedDownloadOptions: DownloadOptions | null = null;
   let settingsLoading = $state(false);
   let settingsReady: Promise<void> = Promise.resolve();
   let preparing = $state(false);
+  let closeCount = 0;
   let stopped = false;
   let settingsError = $state<Error | null>(null);
   let settingsRetry = $state(0);
@@ -91,7 +94,20 @@
     page.items.map((node) => [node.ref, Number(node.selectableSubtreeCount)] as const))));
   let selection = $derived(projectPreviewSelection(Number(preview.summary?.selectableNodeCount ?? 0), subtreeCounts, all, selectionRules));
   let selectedCount = $derived(selection.total);
-  let committable = $derived(!needsReview && (preview.summary?.state === 'Ready' || preview.summary?.state === 'PartiallyReady'));
+  let committable = $derived(connected && !needsReview && (preview.summary?.state === 'Ready' || preview.summary?.state === 'PartiallyReady'));
+  $effect(() => {
+    if (open && connected) untrack(() => void controller.recheckReady());
+  });
+  const expiry = $derived(committable ? preview.summary?.expiresAtUtc : null);
+  $effect(() => {
+    if (!open || !expiry) return;
+    const delay = Date.parse(expiry) - Date.now();
+    if (delay > 0) {
+      const timer = setTimeout(() => void controller.recheckReady(), delay);
+      return () => clearTimeout(timer);
+    }
+  });
+
   function previewNodeTitle(node: Schema<'JobPreviewNodeDto'>): string {
     if (node.kind === 'song' && node.songQuery) {
       const title = [node.songQuery.artist, node.songQuery.title].filter(Boolean).join(' — ');
@@ -179,7 +195,7 @@
       if (state.summary && state.summary.previewId !== preview.summary?.previewId) optionsTab = 'review';
       else if (!state.summary && optionsTab === 'review') optionsTab = 'download';
       preview = state;
-      if (automaticStart && (state.summary?.state === 'Ready' || state.summary?.state === 'PartiallyReady')) {
+      if (open && automaticStart && (state.summary?.state === 'Ready' || state.summary?.state === 'PartiallyReady')) {
         automaticStart = false;
         void controller.commit({ mode: 'AllExcept', refs: [] });
       }
@@ -248,11 +264,12 @@
   async function plan(start: boolean): Promise<void> {
     if (busy) return;
     preparing = true;
+    const openedAt = closeCount;
     try {
       // Flush the latest input and freeze editing before awaiting its settings.
       await tick();
       await settingsReady;
-      if (stopped || settingsError || !valid) return;
+      if (stopped || !open || openedAt !== closeCount || settingsError || !valid) return;
       const settings: Schema<'DownloadSettingsPatchDto'> = { ...downloadPatch.downloadSettings, search: carriedSearchSettings };
       if (conditionSession && draft.choice !== 'soulseek-link') {
         const searchEdits = searchConditionsPatchForFamily(family, conditionSession.baseline, conditionSession.values);
@@ -268,14 +285,34 @@
       if (request.job.kind === 'song' && conditionSession) {
         request.job.songQuery.length = searchExpectedLength(conditionSession.values.track.expectedLength) ?? null;
       }
-      // Re-extraction may return different nodes. Review the new tree before
-      // applying any choices; selections belong only to their original preview.
-      all = true;
+      // A rebuilt source can contain different songs at the same positions.
+      // Keep a shortlist unchecked until the user chooses from the new rows.
+      all = !needsReview || (all && selectionRules.length === 0);
       selectionRules = [];
+      reviewedDownloadOptions = downloadValues && { ...downloadValues };
       automaticStart = start;
       void controller.create(request);
     } catch (cause) { error = cause instanceof Error ? cause : new Error(String(cause)); }
     finally { preparing = false; }
+  }
+
+  function startReviewed(): void {
+    if (!downloadValues || !reviewedDownloadOptions) return;
+    const changes = buildDownloadOptionsPatch(downloadValues, reviewedDownloadOptions, downloadCapabilities);
+    const settings = changes.downloadSettings ?? {};
+    if ('outputParentDir' in changes)
+      settings.output = { ...settings.output, parentDir: changes.outputParentDir || downloadBaseline?.outputParentDir };
+    void controller.commit({ mode: all ? 'AllExcept' : 'Only', refs: [] }, selectionRules,
+      Object.keys(settings).length ? settings : undefined);
+  }
+
+  function closeDraft(): void {
+    closeCount++;
+    automaticStart = false;
+    // A ready review is idle. Stop watching an unfinished plan when the editor closes.
+    if ((!preview.summary && preview.loading) || preview.summary?.state === 'Planning') invalidatePreview();
+    onclose(Boolean(initial || draft.choice !== 'song' || valid || draft.artist || draft.album
+      || profileNames.length || filteringCustomized || rankingCustomized || downloadCustomized));
   }
 
   function toggle(ref: string, selected: boolean): void {
@@ -285,6 +322,8 @@
 
 </script>
 
+{#if open}
+<Modal title="Create new job" label="New job" closeLabel="Close new job" wide locked={Boolean(preview.committing)} onclose={closeDraft}>
 <section class="new-job-composer" aria-label="New job">
   <div class="new-job-layout" inert={preparing || preview.committing ? true : undefined}>
     <JobTypeNav value={draft.choice} onchange={choose} />
@@ -309,10 +348,10 @@
                     if (optionsTab === 'import') {
                       importOptions = { ...(importBaseline ?? createImportOptions()) };
                       if (draft.choice === 'csv') csvMapping = { ...(csvBaseline ?? {}) };
+                      invalidatePreview();
                     } else if (downloadBaseline) {
                       downloadValues = { ...downloadBaseline };
                     }
-                    invalidatePreview();
                   }}>Reset</button>
                 {/if}
               </div>
@@ -334,9 +373,7 @@
                   bind:conditions={conditionSession.values} loadDefaults={() => conditionSession!.baseline}
                   section={optionsTab === 'filtering' ? 'conditions' : 'ranking'} embedded automatic singleItem={family !== 'mixed'} />
               {:else if optionsTab === 'download' && downloadValues}
-                <div oninput={invalidatePreview}>
-                  <DownloadOptionsPanel bind:value={downloadValues} capabilities={downloadCapabilities} separators={false} />
-                </div>
+                <DownloadOptionsPanel bind:value={downloadValues} capabilities={downloadCapabilities} separators={false} />
               {/if}
             </div>
           </section>
@@ -345,11 +382,12 @@
         {#if uploading}<p role="status">Uploading source file…</p>{/if}
       </div>
       <footer class="new-job-footer">
+        <button type="button" class="button quiet" disabled={Boolean(preview.committing)} onclick={() => onclose(false)}>Discard draft</button>
         {#if preview.summary}
           <span class="new-job-footer-status">{selectedCount} selected</span>
           <div class="new-job-footer-actions">
             {#if needsReview}<button type="button" class="button new-job-review-button" disabled={!valid || busy} onclick={() => plan(false)}>Review again</button>{/if}
-            <button type="button" class="button primary new-job-start-button" aria-keyshortcuts="Control+Enter" title="Start (Ctrl+Enter)" disabled={!committable || !selectedCount || busy} onclick={() => void controller.commit({ mode: all ? 'AllExcept' : 'Only', refs: [] }, selectionRules)}>{preview.committing ? 'Starting…' : `Start ${selectedCount || ''} ${selectedCount === 1 ? 'job' : 'jobs'}`}</button>
+            <button type="button" class="button primary new-job-start-button" aria-keyshortcuts="Control+Enter" title="Start (Ctrl+Enter)" disabled={!committable || !selectedCount || busy} onclick={startReviewed}>{preview.committing ? 'Starting…' : `Start ${selectedCount} ${selectedCount === 1 ? 'job' : 'jobs'}`}</button>
           </div>
         {:else}
           <span class="new-job-footer-status" role="status">{preview.loading ? 'Planning…' : ''}</span>
@@ -362,6 +400,8 @@
     </div>
   </div>
 </section>
+</Modal>
+{/if}
 
 {#snippet branch(parent: string | null, depth: number)}
   {@const page = preview.branches.get(parent)}
@@ -373,7 +413,12 @@
         <label class="job-preview-row">
           <input type="checkbox" disabled={!count} checked={selected === count && count > 0} indeterminate={selected > 0 && selected < count} onchange={(event) => toggle(node.ref, event.currentTarget.checked)} />
           <span class="job-preview-icon"><Icon name={jobKindIcon(node.kind)} /></span>
-          <strong class="job-preview-title" title={previewNodeTitle(node)}>{previewNodeTitle(node)}</strong>
+          <span class="job-preview-name">
+            <strong class="job-preview-title" title={previewNodeTitle(node)}>{previewNodeTitle(node)}</strong>
+            {#if (node.kind === 'song' || node.kind === 'album') && node.queryText != null}
+              <small>{node.queryText ? `Searches for ${node.queryText}` : 'Search text is empty after cleanup'}</small>
+            {/if}
+          </span>
           <span class="job-preview-details" title={node.failureMessage ?? undefined}>
             {#if node.failureMessage}<span class="job-preview-error">{node.failureMessage}</span><span>·</span>{/if}
             {#if Number(node.directChildCount) > 0}<span>{count} {count === 1 ? 'job' : 'jobs'}</span><span>·</span>{/if}

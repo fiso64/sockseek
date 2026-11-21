@@ -33,6 +33,14 @@ internal sealed class JobPersistence(
             TerminalRevision = job.LifecycleState == JobLifecycleState.Terminal ? job.Revision : null,
         };
         pendingJobs[job.Id] = pending;
+        sink.TryEnqueue(Capture(runtimeId, job, change.Sequence, change.OccurredAtUtc, priority,
+            parentJobId, sourceJobId, resultJobId, pending.StartedAtUtc));
+    }
+
+    internal static JobPersistenceMutation Capture(Guid runtimeId, JobSnapshotHeader job, long sequence,
+        DateTimeOffset occurredAtUtc, PersistenceMutationPriority priority, Guid? parentJobId,
+        Guid? sourceJobId, Guid? resultJobId, DateTimeOffset? startedAtUtc)
+    {
         var payload = job switch
         {
             JobSnapshot full => full.Payload,
@@ -48,10 +56,10 @@ internal sealed class JobPersistence(
         // The writer encodes only the coalesced revision. Capture immutable compact
         // values here, without retaining a runtime Job or its descendant graph.
         var payloadJson = RetainedJobPayloadCodec.Capture(payload);
-        sink.TryEnqueue(new JobPersistenceMutation(
+        return new JobPersistenceMutation(
             runtimeId,
-            change.Sequence,
-            change.OccurredAtUtc,
+            sequence,
+            occurredAtUtc,
             job.Id,
             job.Revision,
             priority,
@@ -77,11 +85,11 @@ internal sealed class JobPersistence(
             job.SubmissionId,
             job.SemanticRole.ToString(),
             job.CreatedAtUtc,
-            pending.StartedAtUtc ?? default,
+            startedAtUtc,
             manifest,
             job.SourceDetail,
             (int)job.PrintOption,
-            job.AppliedProfiles.Count == 0 ? "[]" : JsonSerializer.Serialize(job.AppliedProfiles)));
+            job.AppliedProfiles.Count == 0 ? "[]" : JsonSerializer.Serialize(job.AppliedProfiles));
     }
 
     private bool RetainsResults(Guid jobId)
@@ -122,6 +130,8 @@ internal sealed class JobPersistence(
         handoffs?.BeginRetirement(workflowId, jobs, searches, sources);
         foreach (var entry in entries) pendingJobs.TryRemove(entry.Key, out _);
     }
+
+    internal long? TerminalRevision(Guid jobId) => pendingJobs.GetValueOrDefault(jobId)?.TerminalRevision;
 
     internal int RetainedJobCount => pendingJobs.Count;
 

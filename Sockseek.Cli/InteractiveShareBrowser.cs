@@ -42,7 +42,8 @@ internal sealed class InteractiveShareBrowser
             CachedPage page = await CurrentPageAsync(cancellationToken).ConfigureAwait(false);
             rowIndex = Math.Clamp(rowIndex, 0, Math.Max(0, page.Rows.Count - 1));
             Render(page);
-            ConsoleKeyInfo key = await ReadKeyAsync(cancellationToken).ConfigureAwait(false);
+            ConsoleKeyInfo key = await ReadKeyAsync(cancellationToken, () => Render(page)).ConfigureAwait(false);
+            message = null;
             switch (key.Key)
             {
                 case ConsoleKey.UpArrow:
@@ -71,7 +72,7 @@ internal sealed class InteractiveShareBrowser
                 case ConsoleKey.Spacebar:
                     Toggle(CurrentRow(page));
                     break;
-                case ConsoleKey.Oem2 when key.KeyChar == '/':
+                case var _ when key.KeyChar == '/':
                     await EditFilterAsync(cancellationToken).ConfigureAwait(false);
                     break;
                 case ConsoleKey.D:
@@ -84,7 +85,7 @@ internal sealed class InteractiveShareBrowser
                 }
                 case ConsoleKey.H:
                 case ConsoleKey.F1:
-                case ConsoleKey.Oem2 when key.KeyChar == '?':
+                case var _ when key.KeyChar == '?':
                     message = "Arrows navigate · Enter opens · Backspace returns · Space selects · / filters · D downloads · Q quits";
                     break;
                 case ConsoleKey.Q:
@@ -306,34 +307,40 @@ internal sealed class InteractiveShareBrowser
     private void Render(CachedPage page)
     {
         Console.Clear();
-        int width = TerminalWidth();
-        string breadcrumb = Clip(
-            string.Join(" / ", locations.Select(location => Safe(location.Name))),
-            width);
-        Console.WriteLine(breadcrumb);
-        Console.WriteLine(new string('─', Math.Min(100, Math.Max(20, width))));
-        if (filter is not null) Console.WriteLine($"Filter: {Safe(filter)}");
-        if (page.Rows.Count == 0) Console.WriteLine("  (empty)");
-        for (int index = 0; index < page.Rows.Count; index++)
+        var size = TerminalLiveRenderer.GetTerminalSize();
+        int width = size.Width > 1 ? size.Width - 1 : 79;
+        int height = size.Height > 0 ? size.Height : 24;
+        void Line(string value) => Console.WriteLine(TerminalLiveRenderer.FitText(value, width));
+
+        Line(string.Join(" / ", locations.Select(location => Safe(location.Name))));
+        Line(new string('─', Math.Min(100, width)));
+        if (filter is not null) Line($"Filter: {Safe(filter)}");
+        if (page.Rows.Count == 0) Line("  (empty)");
+
+        // Leave room for the breadcrumb, footer and cursor below the last newline.
+        int visible = Math.Max(1, height - 5 - (filter is null ? 0 : 1) - (message is null ? 0 : 1));
+        int first = Math.Clamp(rowIndex - visible / 2, 0, Math.Max(0, page.Rows.Count - visible));
+        for (int index = first; index < Math.Min(page.Rows.Count, first + visible); index++)
         {
             BrowserRow row = page.Rows[index];
             string cursor = index == rowIndex ? ">" : " ";
-            string marker = cart.Marker(row);
             string kind = row is BrowserRow.Directory ? "D" : "F";
-            Console.WriteLine(
-                $"{cursor}{marker} {kind} {Clip(Safe(row.Name), 44),-44} {Safe(Describe(row))}");
+            string prefix = $"{cursor}{cart.Marker(row)} {kind} ";
+            string detail = TerminalLiveRenderer.FitText(Safe(Describe(row)), width / 3);
+            int nameWidth = Math.Max(1, width - prefix.Length - TerminalLiveRenderer.CellCount(detail) - 2);
+            string name = Safe(row.Name);
+            if (TerminalLiveRenderer.CellCount(name) > nameWidth)
+            {
+                string start = TerminalLiveRenderer.FitText(name, Math.Max(1, nameWidth / 3));
+                name = start + TerminalLiveRenderer.FitText(name,
+                    nameWidth - TerminalLiveRenderer.CellCount(start), keepEnd: true);
+            }
+            Line($"{prefix}{name}  {detail}");
         }
-        Console.WriteLine();
-        Console.WriteLine(
-            $"Selected: {cart.DirectoryCount:N0} folders, {cart.FileCount:N0} files"
-            + $" · page {pageIndex + 1}"
-            + (filter is null ? "" : " · filtered"));
-        Console.WriteLine("↑↓ navigate · Enter open · Backspace up · Space select · / filter · D download · ? help · Q quit");
-        if (!string.IsNullOrEmpty(message))
-        {
-            Console.WriteLine(Safe(message));
-            message = null;
-        }
+
+        Line($"Selected: {cart.DirectoryCount:N0} folders, {cart.FileCount:N0} files · page {pageIndex + 1}");
+        Line("↑↓ move · Enter open · Space select · / filter · D download · ? help · Q quit");
+        if (message is not null) Line(Safe(message));
     }
 
     private BrowserRow? CurrentRow(CachedPage page)
@@ -387,28 +394,18 @@ internal sealed class InteractiveShareBrowser
             _ => "",
         };
 
-    private static string Clip(string value, int width)
+    private static async Task<ConsoleKeyInfo> ReadKeyAsync(CancellationToken cancellationToken, Action? onResize = null)
     {
-        if (value.Length <= width)
-            return value;
-        if (width <= 1)
-            return "…";
-        int length = width - 1;
-        if (length > 0 && char.IsHighSurrogate(value[length - 1]))
-            length--;
-        return value[..length] + "…";
-    }
-
-    private static int TerminalWidth()
-    {
-        try { return Math.Max(20, Console.WindowWidth - 1); }
-        catch (IOException) { return 79; }
-    }
-
-    private static async Task<ConsoleKeyInfo> ReadKeyAsync(CancellationToken cancellationToken)
-    {
+        var size = TerminalLiveRenderer.GetTerminalSize();
         while (!Console.KeyAvailable)
+        {
             await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+            if (onResize is null) continue;
+            var current = TerminalLiveRenderer.GetTerminalSize();
+            if (current == size) continue;
+            size = current;
+            onResize();
+        }
         return Console.ReadKey(intercept: true);
     }
 

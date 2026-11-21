@@ -9,6 +9,7 @@ public class AlbumFolder
     public List<AlbumFile> Files => files.Value;
     public int SearchFileCount { get; }
     public int SearchAudioFileCount { get; }
+    internal ReadOnlyMemory<int> SortedAudioLengths => searchSortedAudioLengths;
     public int[] SearchSortedAudioLengths => searchSortedAudioLengths.ToArray();
     public string? SearchRepresentativeAudioFilename { get; }
     public AlbumAudioQualityCoverage SearchAudioQualityCoverage { get; }

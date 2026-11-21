@@ -32,9 +32,6 @@ internal static partial class ServerLogMessages
     [LoggerMessage(4007, LogLevel.Warning, "Chat retention projection failed")]
     internal static partial void ChatRetentionProjectionFailed(ILogger logger, Exception exception);
 
-    [LoggerMessage(4008, LogLevel.Error, "Persistence drain timed out; runtime {RuntimeId} remains unfinished for startup reconciliation")]
-    internal static partial void PersistenceDrainTimedOut(ILogger logger, Guid? runtimeId);
-
     [LoggerMessage(4009, LogLevel.Information, "Removed expired history in {DurationMilliseconds} ms: {PrunedJobs} jobs, {PrunedSearchResults} results from {SearchesMarkedPruned} searches, {PrunedTransfers} transfers, {PrunedTransferAttempts} attempts and {PrunedChatMessages} chat messages")]
     internal static partial void PersistenceRetentionCompleted(ILogger logger, int prunedJobs, int prunedSearchResults, int searchesMarkedPruned, int prunedTransfers, int prunedTransferAttempts, int prunedChatMessages, long durationMilliseconds);
 
@@ -54,7 +51,7 @@ internal static partial class ServerLogMessages
     internal static partial void TransferGroupReadFailed(ILogger logger, Exception exception,
         string readId, int groupCount, long durationMs, long suppressedCount);
 
-    [LoggerMessage(4500, LogLevel.Warning, "Input artifact storage is unavailable; browser file inputs are disabled while ordinary local inputs remain available")]
+    [LoggerMessage(4500, LogLevel.Warning, "Uploaded inputs are unavailable. Server-local and inline inputs remain available.")]
     internal static partial void InputArtifactUnavailable(ILogger logger, Exception? exception = null);
 
     [LoggerMessage(4501, LogLevel.Information, "Uploaded input file {ArtifactId} ({ByteCount} bytes) in {DurationMs} ms")]

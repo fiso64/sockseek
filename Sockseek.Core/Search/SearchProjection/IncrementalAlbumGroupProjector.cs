@@ -181,8 +181,8 @@ public sealed class IncrementalAlbumGroupProjector
             PeerPathKey key = FolderKey(folder);
             if (!folderOrder.TryGetValue(key, out int index)
                 || !bucketByFolder.ContainsKey(key)
-                || !GetSearchSortedAudioLengths(orderedFolders[index])
-                    .SequenceEqual(GetSearchSortedAudioLengths(folder))
+                || !GetSearchSortedAudioLengths(orderedFolders[index]).Span
+                    .SequenceEqual(GetSearchSortedAudioLengths(folder).Span)
                 || !StringComparer.Ordinal.Equals(
                     RepresentativeAudioFilename(orderedFolders[index]),
                     RepresentativeAudioFilename(folder)))
@@ -274,7 +274,8 @@ public sealed class IncrementalAlbumGroupProjector
 
     private int? Add(AlbumFolder folder)
     {
-        var sortedLengths = GetSearchSortedAudioLengths(folder);
+        var lengths = GetSearchSortedAudioLengths(folder);
+        var sortedLengths = lengths.Span;
         if (sortedLengths.Length == 0)
             return null;
 
@@ -294,10 +295,14 @@ public sealed class IncrementalAlbumGroupProjector
             for (int i = 0; i < candidates.Count; i++)
             {
                 var bucket = candidates[i];
-                if (!Searcher.AlbumLengthsAreSimilar(sortedLengths, bucket.Lengths, maxDiff))
+                var candidateLengths = bucket.Lengths.Span;
+                if (!Searcher.AlbumLengthsAreSimilar(sortedLengths, candidateLengths, maxDiff))
                     continue;
 
-                if (sortedLengths.Length == 1 && !SingleTrackAlbumsMatch(bucket.RepresentativeFolder, folder))
+                // Single tracks and uniform-length previews have no distinctive
+                // running order. Require corroborating artist/title information.
+                if ((sortedLengths[0] == sortedLengths[^1] || candidateLengths[0] == candidateLengths[^1])
+                    && !RepresentativeTracksMatch(bucket.RepresentativeFolder, folder))
                     continue;
 
                 if (matchingBucket == null || bucket.Index < matchingBucket.Index)
@@ -312,7 +317,7 @@ public sealed class IncrementalAlbumGroupProjector
             return matchingBucket.Index;
         }
 
-        var newBucket = new AlbumGroupsBucket(buckets.Count, sortedLengths, folder);
+        var newBucket = new AlbumGroupsBucket(buckets.Count, lengths, folder);
         buckets.Add(newBucket);
         if (!byFirstLength.TryGetValue(firstLengthBand, out var byLength))
         {
@@ -362,7 +367,7 @@ public sealed class IncrementalAlbumGroupProjector
         {
             AlbumGroupsBucket bucket = buckets[^1];
             buckets.RemoveAt(buckets.Count - 1);
-            int firstLengthBand = LengthBand(bucket.Lengths[0]);
+            int firstLengthBand = LengthBand(bucket.Lengths.Span[0]);
             Dictionary<int, List<AlbumGroupsBucket>> byFirstLength =
                 byTrackCountAndFirstLength[bucket.Lengths.Length];
             List<AlbumGroupsBucket> band = byFirstLength[firstLengthBand];
@@ -394,16 +399,16 @@ public sealed class IncrementalAlbumGroupProjector
         return (int)Math.Floor(length / (double)bandSize);
     }
 
-    private static int[] GetSearchSortedAudioLengths(AlbumFolder folder)
+    private static ReadOnlyMemory<int> GetSearchSortedAudioLengths(AlbumFolder folder)
         => folder.HasSearchMetadata
-            ? folder.SearchSortedAudioLengths
+            ? folder.SortedAudioLengths
             : folder.Files
                 .Where(f => !f.IsNotAudio)
                 .Select(f => f.Candidate.Length ?? -1)
                 .OrderBy(x => x)
                 .ToArray();
 
-    private bool SingleTrackAlbumsMatch(AlbumFolder a, AlbumFolder b)
+    private bool RepresentativeTracksMatch(AlbumFolder a, AlbumFolder b)
     {
         SongQuery? q1 = RepresentativeAudioQuery(a);
         SongQuery? q2 = RepresentativeAudioQuery(b);
@@ -435,7 +440,7 @@ public sealed class IncrementalAlbumGroupProjector
     private sealed class AlbumGroupsBucket
     {
         public int Index { get; }
-        public int[] Lengths { get; }
+        public ReadOnlyMemory<int> Lengths { get; }
         public List<AlbumFolder> Versions { get; }
         public AlbumFolder RepresentativeFolder { get; }
         private readonly Dictionary<string, int> userCounts = new(StringComparer.Ordinal);
@@ -466,7 +471,7 @@ public sealed class IncrementalAlbumGroupProjector
         }
 
 
-        public AlbumGroupsBucket(int index, int[] lengths, AlbumFolder folder)
+        public AlbumGroupsBucket(int index, ReadOnlyMemory<int> lengths, AlbumFolder folder)
         {
             Index = index;
             Lengths = lengths;

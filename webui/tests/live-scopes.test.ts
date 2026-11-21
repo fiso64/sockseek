@@ -86,6 +86,23 @@ afterEach(async () => {
   hubs.length = 0;
 });
 
+it('keeps the foreground connection active when the old tab connection finishes closing', async () => {
+  const { client } = fixture();
+  clients.push(client);
+  const statuses: LiveConnectionStatus[] = [];
+  client.onStatus(status => statuses.push(status));
+  await client.startDaemon();
+  const old = hubs[0]!;
+  const closing = deferred<void>();
+  Object.assign(old, { stop: () => closing.promise.then(() => old.closed()) });
+  const stopped = client.stop();
+  await client.startDaemon();
+  closing.resolve();
+  await stopped;
+  expect(statuses).toEqual(['connecting', 'connected', 'offline', 'connecting', 'connected']);
+  expect(hubs[1]!.state).toBe('Connected');
+});
+
 it('keeps global transfer details opt-in and preserves the mode after reconnect', async () => {
   const { api, client } = fixture();
   clients.push(client);
@@ -100,6 +117,26 @@ it('keeps global transfer details opt-in and preserves the mode after reconnect'
   expect(client.serverInfo?.startedAtUtc).toBe('2026-10-23T00:00:00Z');
   expect(hubs[0]!.invoke).toHaveBeenLastCalledWith('SubscribeAll', 'Overview');
   expect(api.getDaemonSnapshot).toHaveBeenLastCalledWith(undefined, 'Overview');
+});
+
+it('refreshes a parked tab on its existing connection and checks daemon identity if the link was lost', async () => {
+  const { api, client } = fixture();
+  clients.push(client);
+  await client.startDaemon();
+  const original = hubs[0]!;
+  await client.suspend();
+  expect(original.invoke).toHaveBeenLastCalledWith('UnsubscribeAll');
+  await client.startDaemon();
+  expect(hubs).toHaveLength(1);
+  expect(original.invoke).toHaveBeenLastCalledWith('SubscribeAll', 'Overview');
+  expect(api.getDaemonSnapshot).toHaveBeenCalledTimes(2);
+  expect(api.getServerInfo).toHaveBeenCalledTimes(1);
+
+  await client.suspend();
+  original.reconnecting();
+  await client.startDaemon();
+  expect(hubs).toHaveLength(2);
+  expect(api.getServerInfo).toHaveBeenCalledTimes(2);
 });
 
 it('shares one subscription/snapshot, replays a buffered update, and releases only its own listeners', async () => {

@@ -121,7 +121,7 @@ public sealed class PersistenceRuntimeHost
             retention = new RetentionService(inbox, retentionOptions);
             TransferHistory = new TransferHistoryReader(readers, inbox);
             TransferAnalytics = new TransferAnalyticsReader(readers);
-            Submissions = new SubmissionStore(readers, inbox);
+            Submissions = new SubmissionStore(readers, inbox, writerOptions);
             writer = new PersistenceWriter(
                 contextFactory,
                 inbox,
@@ -134,7 +134,7 @@ public sealed class PersistenceRuntimeHost
             Chat = new ChatPersistenceStore(readers, inbox);
             await Chat.ReconcilePendingMessagesAsync(cancellationToken).ConfigureAwait(false);
             ApiKeys = new Authentication.ApiKeyStore(readers, inbox);
-            var inputArtifacts = new InputArtifactStore(
+            InputArtifacts = new InputArtifactStore(
                 Path.Combine(
                     Path.GetDirectoryName(sqliteOptions.GetFullDatabasePath())!,
                     "planning",
@@ -144,12 +144,10 @@ public sealed class PersistenceRuntimeHost
                 inbox);
             try
             {
-                await inputArtifacts.InitializeAsync(cancellationToken).ConfigureAwait(false);
-                InputArtifacts = inputArtifacts;
+                await InputArtifacts.InitializeAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception exception)
             {
-                await inputArtifacts.DisposeAsync().ConfigureAwait(false);
                 if (cancellationToken.IsCancellationRequested)
                     throw;
                 PersistenceLogMessages.InputArtifactStorageUnavailable(logger, exception);
@@ -192,8 +190,41 @@ public sealed class PersistenceRuntimeHost
 
     public Task<DatabaseBackupResult> BackupAsync(string backupPath, CancellationToken cancellationToken = default)
         => ExecuteMaintenanceAsync(
-            ct => maintenance!.BackupAsync(backupPath, ct),
-            cancellationToken);
+            async ct =>
+            {
+                await FlushHistoryForBackupAsync(ct).ConfigureAwait(false);
+                return await maintenance!.BackupAsync(backupPath, ct).ConfigureAwait(false);
+            },
+            cancellationToken,
+            recordOperationalFailure: false);
+
+    private async Task FlushHistoryForBackupAsync(CancellationToken cancellationToken)
+    {
+        using var flush = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Health.FailureRecorded += flush.Cancel;
+        try
+        {
+            var health = HealthSnapshot!;
+            if (health.PermanentlyFailedMutationCount > 0 || health.RetryMutationCount > 0)
+                throw IncompleteHistory(health);
+
+            await inbox!.FlushMutationsAsync(flush.Token).ConfigureAwait(false);
+            // A fence can commit in the same batch as surviving rows after one
+            // independent entry failed. Check the writer's reported outcome too.
+            if (HealthSnapshot is { PermanentlyFailedMutationCount: > 0 } failed)
+                throw IncompleteHistory(failed);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw IncompleteHistory(HealthSnapshot!);
+        }
+        finally { Health.FailureRecorded -= flush.Cancel; }
+
+        static PersistenceDatabaseUnavailableException IncompleteHistory(PersistenceHealthSnapshot health)
+            => new($"Backup could not include all submitted history. " +
+                $"Pending retries: {health.RetryMutationCount}. Lost updates: {health.PermanentlyFailedMutationCount}. " +
+                "Check the daemon's persistence status before retrying.");
+    }
 
     public Task<WalCheckpointResult> CheckpointAsync(CancellationToken cancellationToken = default)
         => ExecuteMaintenanceAsync(
@@ -226,7 +257,8 @@ public sealed class PersistenceRuntimeHost
 
     private async Task<TResult> ExecuteMaintenanceAsync<TResult>(
         Func<CancellationToken, Task<TResult>> operation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool recordOperationalFailure = true)
     {
         EnsureStarted();
         await maintenanceGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -238,7 +270,7 @@ public sealed class PersistenceRuntimeHost
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (recordOperationalFailure)
         {
             Health.RecordOperationalFailure(DateTimeOffset.UtcNow, ex);
             throw;

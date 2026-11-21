@@ -808,7 +808,12 @@ public class OpenApiContractTests
             };
             using var root = await noRedirect.GetAsync("/");
             Assert.AreEqual(HttpStatusCode.Redirect, root.StatusCode);
-            Assert.AreEqual("/api/server/info", root.Headers.Location?.OriginalString);
+            Assert.IsNotNull(root.Headers.Location);
+            Assert.AreEqual(new Uri(noRedirect.BaseAddress, "/api/server/info"),
+                new Uri(noRedirect.BaseAddress, root.Headers.Location));
+            // A proxy can strip the public prefix before forwarding this same request.
+            var publicRoot = new Uri(noRedirect.BaseAddress, "/music/");
+            Assert.AreEqual("/music/api/server/info", new Uri(publicRoot, root.Headers.Location).AbsolutePath);
         }
         finally
         {

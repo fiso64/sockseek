@@ -27,7 +27,7 @@ public sealed record ServerStatusDto(
 
 /// <summary>File reload state. Restart-required settings remain at their startup values.</summary>
 public sealed record ConfigurationStatusDto(bool Watching, bool RestartRequired, bool ReloadFailed,
-    string? Error = null, int? ErrorLine = null);
+    string? Error = null, int? ErrorLine = null, int Revision = 0);
 
 public sealed record PersistenceStatusDto(
     bool Enabled,
@@ -271,7 +271,8 @@ public sealed record JobDetailDto(
     JobSummaryDto Summary,
     JobPayloadDto? Payload,
     int ChildCount,
-    bool SourceJobAvailable = false);
+    bool SourceJobAvailable = false,
+    JobRepeatOptionsDto? RepeatOptions = null);
 
 /// <summary>
 /// Workflow list item summarizing related jobs submitted under one workflow id.
@@ -319,3 +320,5 @@ public sealed record JobLookupRequestDto(IReadOnlyList<Guid> JobIds);
 
 /// <summary>Current network session; contains no credentials.</summary>
 public sealed record SoulseekConnectionDto(string? Username, string? ServerAddress, int? ServerPort, string? ServerEndpoint, int? ListenPort);
+
+public sealed record JobRepeatOptionsDto(bool CanRunAgain, int MissingFiles, Guid? RetryTransferId = null);

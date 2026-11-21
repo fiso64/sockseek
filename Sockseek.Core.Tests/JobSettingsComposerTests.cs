@@ -9,6 +9,27 @@ namespace Tests;
 public sealed class JobSettingsComposerTests
 {
     [TestMethod]
+    public void SelectionDefaultAndExplicitTemplateRemainDistinctAfterReplayAndOverrides()
+    {
+        const string format = "{foldername}/{filename}";
+        var composer = new JobSettingsComposer(null, ProfileCatalog.Empty);
+        var song = new SongJob(new SongQuery()) { SelectionSource = JobSelectionSource.ManualSearch };
+        foreach (string requested in new[] { "", format })
+        {
+            var composed = composer.ComposeDetailed(new DownloadSettings(), song, request: new(
+                Download: new SettingsPatch([new("Output.NameFormat", requested)])));
+            var saved = RetainedSettingsCodec.Deserialize(RetainedSettingsCodec.Serialize(composed.Settings));
+            Assert.AreEqual(format, saved.Output.NameFormat);
+            Assert.AreEqual(requested.Length == 0, saved.Output.PreserveSelectionConflicts);
+            var automatic = DefaultJobSettingsResolver.Instance.Resolve(saved, new SongJob(new SongQuery()));
+            Assert.AreEqual(requested, automatic.Output.NameFormat);
+            Assert.IsFalse(automatic.Output.PreserveSelectionConflicts);
+            saved.Output.NameFormat = format;
+            Assert.IsFalse(DefaultJobSettingsResolver.Instance.Resolve(saved, song).Output.PreserveSelectionConflicts);
+        }
+    }
+
+    [TestMethod]
     public void ExplicitFalseOverridesMusicSkippingFromConfigurationAndProfiles()
     {
         var settings = new DownloadSettings { Skip = { SkipExisting = true, SkipMusicDir = "/library" },

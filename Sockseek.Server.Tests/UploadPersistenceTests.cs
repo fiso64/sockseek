@@ -168,10 +168,12 @@ public sealed class UploadPersistenceTests
         Assert.AreEqual(row.TransferId, observed.Current.Items.Single().TransferId);
         state.UpdateUploadTransfer(row with { Revision = 2,
             Username = changeUsername ? "Other" : "Peer", GroupRef = changeUsername ? "Folder" : "Other" });
+        state.FlushStateUpdates();
         Assert.IsTrue(await observed.MoveNextAsync());
         Assert.AreEqual(row.TransferId, observed.Current.RemovedTransferIds.Single());
         Assert.IsNull(observed.Current.NextCursor);
         state.UpdateUploadTransfer(row with { Revision = 3 });
+        state.FlushStateUpdates();
         Assert.IsTrue(await observed.MoveNextAsync());
         Assert.AreEqual(row.TransferId, observed.Current.Items.Single().TransferId);
         Assert.AreEqual("Peer", observed.Current.Items.Single().Identity.Username);
@@ -202,6 +204,7 @@ public sealed class UploadPersistenceTests
             started, UploadTransferState.InProgress, UploadFailureReason.None, UploadCancellationSource.None,
             0, 0, null, new UploadAttemptSnapshot(Guid.NewGuid(), 1, started, null, 0, 0), null);
         state.UpdateUploadTransfer(active);
+        state.FlushStateUpdates();
         Assert.IsTrue(await updates.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.AreEqual("InProgress", updates.Current.Items.Single().Status.State);
         var next = updates.MoveNextAsync().AsTask();
@@ -209,6 +212,7 @@ public sealed class UploadPersistenceTests
         state.UpdateUploadTransfer(active with { Revision = 3, State = UploadTransferState.Completed,
             BytesTransferred = 100, FinishedAtUtc = started.AddSeconds(1) });
         state.RemoveTerminalTransfer(active.TransferId);
+        state.FlushStateUpdates();
         Assert.IsTrue(await next.WaitAsync(TimeSpan.FromSeconds(5)));
         var final = updates.Current.Items.Single();
         Assert.AreEqual(TransferTerminalOutcome.Succeeded, final.Status.TerminalOutcome);

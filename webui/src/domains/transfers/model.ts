@@ -176,7 +176,9 @@ function sameGroupSummary(left: Schema<'TransferGroupSummaryDto'> | undefined,
   // The layout ID already includes the exact group identity. Summary refreshes
   // return new DTOs even for unchanged groups; compare their scalar facts.
   const keys = Object.keys(right) as (keyof typeof right)[];
-  return Object.keys(left).length === keys.length && keys.every(key => key === 'key' || left[key] === right[key]);
+  return left.folderRetry?.missingFiles === right.folderRetry?.missingFiles
+    && left.folderRetry?.completedOnRetry === right.folderRetry?.completedOnRetry
+    && Object.keys(left).length === keys.length && keys.every(key => key === 'key' || key === 'folderRetry' || left[key] === right[key]);
 }
 
 export function arrangeTransferGroups(

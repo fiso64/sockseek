@@ -52,6 +52,7 @@ internal sealed class AlbumDownloadExecutor
             config.Extraction,
             context.LoggerFactory.CreateLogger<FileManager>(),
             ctx.OutputScope);
+        if (job.Retry != null) return await ContinueAlbum(job, ctx, organizer);
         var audioResult = await TryDownloadAlbumAudio(job, ctx, organizer);
         var completion = PrepareAlbumAudioOutcome(job, audioResult, ctx);
         var chosenFiles = completion.ChosenFiles;
@@ -90,6 +91,41 @@ internal sealed class AlbumDownloadExecutor
         JobOutcomeCommitter.Commit(job, finalOutcome);
         context.UpdateOutputs(job, ctx);
         return finalOutcome;
+    }
+
+    private async Task<JobOutcome> ContinueAlbum(AlbumJob job, JobContext ctx, FileManager organizer)
+    {
+        var folder = job.ResolvedTarget!;
+        organizer.SetremoteBaseDir(folder.FolderPath);
+        job.BeginAlbumTransferAttempt(folder);
+        await BoundedAsync.ForEachAsync(job.TrackJobs, context.Runtime.ConcurrentJobLimit, async song =>
+        {
+            if (job.Retry!.RestoreOrDefer(song, song.ResolvedTarget!.Target))
+            {
+                song.Config = job.Config;
+                context.RegisterJob(song, job);
+                organizer.MarkOrganized(song);
+                context.Events.RaiseJobExecutionCompleted(song);
+                return;
+            }
+            await songDownloads.DownloadEmbeddedSong(song, job, job.Config, organizer, job.Cts!,
+                cancelGroupOnFail: false, finalizePlacement: !song.IsNotAudio);
+        });
+
+        if (job.TrackJobs.All(song => song.IsSuccessfulTerminal))
+            await context.OutputFinalizer.RestoreCompletedAlbumFiles(job);
+        var completed = job.TrackJobs.Where(song => song.IsSuccessfulTerminal && song.DownloadPath != null).ToList();
+        if (completed.Count > 0)
+            job.DownloadPath = Utils.GreatestCommonDirectory(completed.Select(song => song.DownloadPath!));
+        var outcome = DirectoryTransferRunner.GroupOutcome(job.TrackJobs);
+        var placed = await context.OutputFinalizer.FinalizeAlbumPlacementAsync(job, organizer, completed,
+            null, outcome, allowOverwrite: !job.Config.Skip.SkipExisting);
+        outcome = DownloadExecutorCoordinator.OutcomeWithCurrentMetadata(job, placed.Outcome);
+        if (!job.Retry!.FolderAlreadyCompleted && (job.Retry.RequestedFiles == null || job.TrackJobs.All(song => song.IsSuccessfulTerminal)))
+            outcome = await songDownloads.RunOnCompleteIfApplicable(job, null, ctx, outcome);
+        JobOutcomeCommitter.Commit(job, outcome);
+        context.UpdateOutputs(job, ctx);
+        return outcome;
     }
 
     AlbumDownloadCompletion PrepareAlbumAudioOutcome(AlbumJob job, AlbumAudioDownloadResult audioResult, JobContext ctx)
@@ -245,7 +281,7 @@ internal sealed class AlbumDownloadExecutor
         public int Index { get; set; }
         public int Tried { get; set; }
         public int TrackCountRetries { get; set; }
-        public bool FailedDownloadCandidate { get; set; }
+        public JobOutcome? LastDownloadFailure { get; set; }
         public AlbumFolder? LastChosenFolder { get; set; }
     }
 
@@ -286,10 +322,8 @@ internal sealed class AlbumDownloadExecutor
                 return new(true, null, job.EnsureTrackJobs(selection.Folder), state.LastChosenFolder);
 
             organizer.SetremoteBaseDir(null);
-            if (selection.WasPreselected || state.Tried >= config.Transfer.MaxDownloadRetries)
-                return selection.WasPreselected
-                    ? ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, state.LastChosenFolder, JobFailureReason.AllDownloadsFailed)
-                    : new(false, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed), null, state.LastChosenFolder);
+            if (state.Tried >= config.Transfer.MaxDownloadRetries || job.Results.Count == 1)
+                return new(false, state.LastDownloadFailure, null, state.LastChosenFolder);
 
             job.ResolvedTarget = null;
             // Completed files from the discarded candidate still own transfer
@@ -297,16 +331,12 @@ internal sealed class AlbumDownloadExecutor
             await songDownloads.CompleteAlbumTransfersAsync(job.TrackJobs);
             job.ClearTrackJobs();
             job.Results.RemoveAt(state.Index);
-            if (job.Results.Count == 0 && state.FailedDownloadCandidate)
-                return new(false, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed), null, state.LastChosenFolder);
 
             // Reset state so the next iteration transitions to Downloading naturally
             job.ResetToPending();
         }
 
-        return state.FailedDownloadCandidate
-            ? new(false, JobOutcome.Failed(JobFailureReason.AllDownloadsFailed), null, state.LastChosenFolder)
-            : new(false, null, null, state.LastChosenFolder);
+        return new(false, state.LastDownloadFailure, null, state.LastChosenFolder);
     }
 
     AlbumCandidateSelection? SelectAlbumCandidate(AlbumJob job, AlbumAudioDownloadState state)
@@ -368,7 +398,7 @@ internal sealed class AlbumDownloadExecutor
             {
                 Info(job, "album track count verification was cancelled; skipping folder");
                 if (selection.WasPreselected)
-                    return new(false, ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, chosenFolder, JobFailureReason.NoMatchingResults));
+                    return new(false, ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, chosenFolder, JobOutcome.Failed(JobFailureReason.NoMatchingResults)));
 
                 job.Results.RemoveAt(state.Index);
                 if (--state.TrackCountRetries <= 0)
@@ -395,7 +425,7 @@ internal sealed class AlbumDownloadExecutor
         if (selection.WasPreselected)
         {
             Info(job, "preselected folder failed album track count condition; skipping album");
-            return new(false, ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, chosenFolder, JobFailureReason.NoMatchingResults));
+            return new(false, ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, chosenFolder, JobOutcome.Failed(JobFailureReason.NoMatchingResults)));
         }
 
         job.Results.RemoveAt(state.Index);
@@ -434,7 +464,7 @@ internal sealed class AlbumDownloadExecutor
             {
                 Info(job, "strict album quality verification was cancelled; skipping folder");
                 if (selection.WasPreselected)
-                    return new(false, ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, chosenFolder, JobFailureReason.NoMatchingResults));
+                    return new(false, ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, chosenFolder, JobOutcome.Failed(JobFailureReason.NoMatchingResults)));
 
                 job.Results.RemoveAt(state.Index);
                 return new(true, null);
@@ -447,7 +477,7 @@ internal sealed class AlbumDownloadExecutor
 
         Info(job, $"strict album quality failed ({qualityCoverage.MatchingFileCount}/{qualityCoverage.AudioFileCount} matching audio files); skipping folder");
         if (selection.WasPreselected)
-            return new(false, ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, chosenFolder, JobFailureReason.NoMatchingResults));
+            return new(false, ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, chosenFolder, JobOutcome.Failed(JobFailureReason.NoMatchingResults)));
 
         job.Results.RemoveAt(state.Index);
         return new(true, null);
@@ -479,8 +509,9 @@ internal sealed class AlbumDownloadExecutor
                 state.RetrievedFolders.Add(chosenFolder.FolderPath);
         }
 
-        if (job.ExcludedFilenames is { Count: > 0 } excluded)
-            chosenFolder.Files.RemoveAll(file => excluded.Contains(file.Filename));
+        if (job.ExcludedFilenames is { Count: > 0 } excluded
+            && chosenFolder.Files.RemoveAll(file => excluded.Contains(file.Filename)) > 0)
+            chosenFolder.IsFullyRetrieved = false;
         job.BeginAlbumTransferAttempt(chosenFolder);
         job.UpdateActivity(JobActivityPhase.Downloading);
 
@@ -515,10 +546,10 @@ internal sealed class AlbumDownloadExecutor
                 return new(false, new(false, outcome, null, state.LastChosenFolder));
             }
 
+            state.LastDownloadFailure = AlbumTrackFailure(job.TrackJobs);
             if (selection.WasPreselected)
-                return new(false, ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, chosenFolder, JobFailureReason.AllDownloadsFailed));
+                return new(false, ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, chosenFolder, state.LastDownloadFailure));
 
-            state.FailedDownloadCandidate = true;
             return new(false, null);
         }
     }
@@ -555,10 +586,10 @@ internal sealed class AlbumDownloadExecutor
         FileManager organizer,
         AlbumAudioDownloadState state,
         AlbumFolder? failedFolder,
-        JobFailureReason finalReason)
+        JobOutcome failure)
     {
         if (job.DownloadBehavior != DownloadBehavior.Manual || job.Cts?.IsCancellationRequested == true)
-            return new(false, JobOutcome.Failed(finalReason), null, failedFolder ?? state.LastChosenFolder);
+            return new(false, failure, null, failedFolder ?? state.LastChosenFolder);
 
         if (failedFolder != null)
             job.Results.RemoveAll(folder => SameAlbumFolder(folder, failedFolder));
@@ -569,7 +600,7 @@ internal sealed class AlbumDownloadExecutor
         organizer.SetremoteBaseDir(null);
 
         if (job.Results.Count == 0)
-            return new(false, JobOutcome.Failed(finalReason), null, failedFolder ?? state.LastChosenFolder);
+            return new(false, failure, null, failedFolder ?? state.LastChosenFolder);
 
         context.UpdateOutputs(job, ctx);
         return new(false, JobOutcome.AwaitingSelection(), null, failedFolder ?? state.LastChosenFolder);
@@ -605,6 +636,9 @@ internal sealed class AlbumDownloadExecutor
             return JobOutcome.Cancelled(source);
         }
 
+        if (tracks.Any(song => !song.IsNotAudio && song.TerminalOutcome == JobTerminalOutcome.Failed))
+            return AlbumTrackFailure(tracks);
+
         var cancelledTracks = tracks
             .Where(song => song.FailureReason == JobFailureReason.Cancelled)
             .ToList();
@@ -615,17 +649,23 @@ internal sealed class AlbumDownloadExecutor
             return JobOutcome.Cancelled(source);
         }
 
-        var failedSong = tracks.FirstOrDefault(song =>
-            !song.IsNotAudio
-            &&
-            song.LifecycleState == JobLifecycleState.Terminal
-            && !JobOrchestrator.IsSuccessfulTerminal(song));
+        return tracks.Any(song => !song.IsNotAudio && song.LifecycleState == JobLifecycleState.Terminal
+            && !JobOrchestrator.IsSuccessfulTerminal(song)) ? AlbumTrackFailure(tracks) : null;
+    }
 
-        return failedSong == null
-            ? null
-            : JobOutcome.Failed(
-                failedSong.FailureReason == JobFailureReason.None ? JobFailureReason.AllDownloadsFailed : failedSong.FailureReason,
-                failedSong.FailureMessage);
+    static JobOutcome AlbumTrackFailure(IReadOnlyList<SongJob> tracks)
+    {
+        var audio = tracks.Where(song => !song.IsNotAudio).ToArray();
+        int complete = audio.Count(JobOrchestrator.IsSuccessfulTerminal);
+        var failed = audio.FirstOrDefault(song => song.TerminalOutcome == JobTerminalOutcome.Failed);
+        if (complete == 0)
+            return JobOutcome.Failed(failed is { FailureReason: not JobFailureReason.None }
+                ? failed.FailureReason : JobFailureReason.AllDownloadsFailed, failed?.FailureMessage, failed?.FailureDetail);
+
+        string message = $"{complete} of {audio.Length} album tracks completed or were already present.";
+        if (failed?.FailureMessage is { Length: > 0 } cause)
+            message += $" {cause}";
+        return JobOutcome.Failed(JobFailureReason.ChildJobsFailed, message, failed?.FailureDetail);
     }
 
     async Task HandleIncompleteAlbumIfNeededAsync(

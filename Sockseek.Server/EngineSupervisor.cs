@@ -16,6 +16,7 @@ using Sockseek.Core.Snapshots;
 using Soulseek;
 using Sockseek.Api;
 using Sockseek.Server.Persistence;
+using Sockseek.Persistence.Write;
 using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Events;
 using Sockseek.Server.Planning;
@@ -103,7 +104,51 @@ public sealed class EngineSupervisor : IDisposable
     public Task RunAsync(CancellationToken ct) => RunAsync(ct, onInitialized: null);
 
     internal Task RunAsync(CancellationToken ct, Action? onInitialized)
-        => Runtime.RunAsync(ct, onInitialized, SuperviseEnginesAsync);
+        => Runtime.RunAsync(ct, onInitialized, async (client, token) =>
+        {
+            using var recoveryLifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+            var recovery = RecoverInterruptedDownloadsAsync(client, recoveryLifetime.Token);
+            try { await SuperviseEnginesAsync(client, token); }
+            finally
+            {
+                await recoveryLifetime.CancelAsync();
+                await recovery;
+            }
+        });
+
+    private async Task RecoverInterruptedDownloadsAsync(SoulseekClientManager client, CancellationToken ct)
+    {
+        if (persistence?.TransferHistory is not { } history) return;
+        try
+        {
+            var ids = await history.GetPendingRecoveryIdsAsync(ct);
+            if (ids.Count == 0) return;
+            try { await client.EnsureConnectedAndLoggedInAsync(engineSettings, ct); }
+            catch (SoulseekConnectionUnavailableException) when (!client.HasFatalError)
+            {
+                // The shared session monitor is already reconnecting.
+                await client.WaitUntilReadyAsync(ct);
+            }
+            foreach (var id in ids)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    if (await Submissions.RetryDownloadAsync(id, ct, recovering: true) is { } job)
+                        logger.LogInformation("Requeued interrupted download {TransferId} as job {JobId}", id, job.JobId);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    logger.LogError(ex, "Could not requeue interrupted download {TransferId}", id);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not load interrupted downloads for restart recovery");
+        }
+    }
 
     private async Task SuperviseEnginesAsync(SoulseekClientManager clientManager, CancellationToken ct)
     {
@@ -205,14 +250,40 @@ public sealed class EngineSupervisor : IDisposable
 
     public bool TryCancelDownloadTransfer(Guid transferId)
     {
-        lock (engineGate)
-            return currentEngine?.TryCancelTransfer(transferId) == true;
+        DownloadEngine? engine;
+        lock (engineGate) engine = currentEngine;
+        if (engine is null) return false;
+        if (engine.TryCancelTransfer(transferId)) return true;
+        // An external downloader runs under the song's cancellation token.
+        var transfer = StateStore.GetLiveTransfer(transferId);
+        return transfer is { Status.IsTerminal: false, Identity.Source: nameof(TransferSnapshotSource.Fallback),
+                Identity.JobId: Guid jobId }
+            && engine.GetJob(jobId) is { IsTerminal: false, ActivityPhase: JobActivityPhase.RunningFallback
+                or JobActivityPhase.DownloadingFallback or JobActivityPhase.ProcessingFallback }
+            && engine.CancelJob(jobId);
     }
 
     public TransferCommandReceiptDto CancelTransfers(
         BulkCancelTransfersRequestDto request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        // A directory starts its next file as slots open. Cancel its owner so
+        // members still waiting for a slot receive the same cancellation.
+        if (request.Direction == TransferCommandDirection.Download && request.Scope == TransferCancellationScope.All
+            && Guid.TryParseExact(request.GroupRef, "D", out Guid directoryId))
+        {
+            DownloadEngine? engine;
+            lock (engineGate) engine = currentEngine;
+            if (engine?.GetJob(directoryId) is DirectoryDownloadJob { IsTerminal: false, ActiveAttempt: { } attempt }
+                && attempt.Plan.RepresentsDirectorySelection
+                && (request.Username == null || request.Username == attempt.Plan.Username))
+            {
+                int count = attempt.FileJobs.Count(file => !file.IsTerminal);
+                if (count > 0 && engine.CancelJob(directoryId))
+                    return new(count, count, 0, 0, 0, []);
+            }
+        }
+
         TransferStateDto[] targets = StateStore.GetCancellableTransferSnapshot()
             .Where(transfer =>
                 !transfer.Status.IsTerminal
@@ -226,10 +297,8 @@ public sealed class EngineSupervisor : IDisposable
                     transfer.Identity.GroupRef, request.GroupRef, StringComparison.Ordinal))
                 && request.Scope switch
                 {
-                    TransferCancellationScope.Queued => string.Equals(
-                        transfer.Status.State, "Queued", StringComparison.OrdinalIgnoreCase),
-                    TransferCancellationScope.InProgress => !string.Equals(
-                        transfer.Status.State, "Queued", StringComparison.OrdinalIgnoreCase),
+                    TransferCancellationScope.Queued => TransferReadModel.IsQueued(transfer.Status.State),
+                    TransferCancellationScope.InProgress => !TransferReadModel.IsQueued(transfer.Status.State),
                     _ => true,
                 })
             .ToArray();
@@ -404,20 +473,40 @@ public sealed class EngineSupervisor : IDisposable
 
     public bool CancelJob(Guid jobId)
     {
+        acceptedRootsAwaitingRegistration.TryGetValue(jobId, out var queued);
+        if (queued is not null && CancelQueued(queued, JobCancellationSource.UserRequestedJob)) return true;
         DownloadEngine? engine;
-        lock (engineGate)
-            engine = currentEngine;
+        lock (engineGate) engine = currentEngine;
+        return engine?.CancelJob(jobId) == true;
+    }
 
-        return engine?.CancelJob(jobId) ?? false;
+    private bool CancelQueued(QueuedSubmission queued, JobCancellationSource source)
+    {
+        var job = queued.Job;
+        if (job.IsTerminal) return false;
+        if (job.TryCancelQueuedRoot(source, () =>
+        {
+            var snapshot = CoreSnapshotFactory.CreateJob(job, job.StateSnapshot.Revision);
+            if (job.Retention != JobRetention.Memory && persistence?.Runtime is { } runtime)
+                persistence.MutationSink?.TryEnqueue(JobPersistence.Capture(runtime.RuntimeId, snapshot, 0,
+                    DateTimeOffset.UtcNow, PersistenceMutationPriority.Terminal, null, queued.SourceJobId, null, null));
+            StateStore.RegisterAcceptedRoot(snapshot, queued.SourceJobId);
+        })) return true;
+        // The scheduler took the execution gate just before registration.
+        // RegisterForExecution carries this request into its new token.
+        if (job.CancellationSource != JobCancellationSource.None || job.IsTerminal) return false;
+        job.Cancel(source);
+        return true;
     }
 
     public bool CancelJobByDisplayId(Guid workflowId, int displayId)
     {
+        var queued = acceptedRootsAwaitingRegistration.Values.FirstOrDefault(item =>
+            item.Job.DisplayId == displayId && item.Job.WorkflowId == workflowId);
+        if (queued is not null && CancelQueued(queued, JobCancellationSource.UserRequestedJob)) return true;
         DownloadEngine? engine;
-        lock (engineGate)
-            engine = currentEngine;
-
-        return engine?.CancelJobByDisplayId(displayId, workflowId) ?? false;
+        lock (engineGate) engine = currentEngine;
+        return engine?.CancelJobByDisplayId(displayId, workflowId) == true;
     }
 
     public int CancelWorkflow(Guid workflowId)
@@ -428,7 +517,9 @@ public sealed class EngineSupervisor : IDisposable
         lock (engineGate)
             engine = currentEngine;
 
-        int cancelled = engine?.CancelWorkflow(workflowId) ?? 0;
+        int cancelled = acceptedRootsAwaitingRegistration.Values.Count(queued =>
+            queued.Job.WorkflowId == workflowId && CancelQueued(queued, JobCancellationSource.UserRequestedWorkflow));
+        cancelled += engine?.CancelWorkflow(workflowId) ?? 0;
         ServerLogMessages.WorkflowCancellationCompleted(logger, workflowId,
             (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds, cancelled);
         return cancelled;
@@ -440,7 +531,9 @@ public sealed class EngineSupervisor : IDisposable
         lock (engineGate)
             engine = currentEngine;
 
-        return engine?.CancelAllJobs() ?? 0;
+        int cancelled = acceptedRootsAwaitingRegistration.Values.Count(queued =>
+            CancelQueued(queued, JobCancellationSource.UserRequestedAllJobs));
+        return cancelled + (engine?.CancelAllJobs() ?? 0);
     }
 
     internal Task WaitForSubmissionExecutionAsync(Guid submissionId, CancellationToken cancellationToken)
@@ -737,19 +830,10 @@ public sealed class EngineSupervisor : IDisposable
     internal bool ReleaseTransientResults(Guid submissionId, out int count)
         => transientResults.Release(submissionId, out count);
 
-    private void EnqueueAccepted(Job job, DownloadSettings settings, Guid? sourceJobId, bool settingsAreFinal)
+    private void EnqueueAccepted(Job job, JobSnapshot accepted, DownloadSettings settings, Guid? sourceJobId, bool settingsAreFinal)
     {
-        // Acceptance and its retry receipt are now committed together, before
-        // runtime work can enqueue unrelated history writes or observe the root.
-        // Materialized Review/rerun roots do not revisit the planner. Publish
-        // their final settings with the pending owner so an immediate View
-        // request can use the live session before engine registration.
-        if (settingsAreFinal)
-            job.Config ??= settings;
         var queued = new QueuedSubmission(job, settings, sourceJobId, settingsAreFinal);
         acceptedRootsAwaitingRegistration[job.Id] = queued;
-        job.EnsureDisplayId();
-        var accepted = CoreSnapshotFactory.CreateJob(job, revision: 0);
         StateStore.RegisterAcceptedRoot(accepted, sourceJobId);
         submissionChannel.Writer.TryWrite(queued);
     }

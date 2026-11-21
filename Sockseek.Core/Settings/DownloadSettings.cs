@@ -99,5 +99,9 @@ public class DownloadSettings
         return new ResolvedIncompleteAlbumAction(kind, path);
     }
 
+    // Before extraction, the input may not yet have supplied its index default.
+    public bool? ResolveWriteIndex(bool? inputDefault = null)
+        => DoNotDownload ? false : Output.WriteIndex ?? (Output.IndexFilePath != null ? true : inputDefault);
+
     public bool HasOnComplete => Output.OnComplete?.Any(x => !string.IsNullOrWhiteSpace(x)) == true;
 }

@@ -36,7 +36,7 @@
     onselectall?: (selected: boolean) => void;
     onselectfile?: (file: FolderItemFile, selected: boolean) => void;
     onselectfiles?: (files: FolderItemFile[], selected: boolean) => void;
-    onselectfolder?: (relativePath: string, selected: boolean) => void;
+    onselectfolder?: (relativePath: string, selected: boolean, partial: boolean) => void;
     isfolderselected?: (relativePath: string) => boolean;
     onloadfullcontents?: () => void;
     onloadmorefiles?: () => void;
@@ -199,7 +199,11 @@
             checked={selected}
             aria-label={`Select all files in ${basename(path)}`}
             indeterminate={partial}
-            onchange={(event) => onselectall?.((event.currentTarget as HTMLInputElement).checked)}
+            onchange={(event) => {
+              event.currentTarget.checked = selected;
+              event.currentTarget.indeterminate = partial;
+              onselectall?.(!selected);
+            }}
           />
           {@render folderIdentity()}
         </label>
@@ -238,7 +242,7 @@
     {/if}
   {/if}
 
-  <div class="folder-files-table" class:tree-layout={fileLayout === 'tree'}>
+  <div class="folder-files-table" class:transfer-files={Boolean(transfer)} class:tree-layout={fileLayout === 'tree'}>
     {#each buildFolderTreeRows(files, selectedFileIds, fileLayout) as row (row.key)}
       {#if row.kind === 'folder'}
         {@const rowSelected = isfolderselected
@@ -264,9 +268,12 @@
               checked={rowSelected}
               aria-label={`Select ${onselectfolder || filesComplete ? 'all matching' : 'loaded'} files in ${row.name}`}
               indeterminate={rowPartial}
-              onchange={(event) => onselectfolder
-                ? onselectfolder(row.relativePath, (event.currentTarget as HTMLInputElement).checked)
-                : selectFolderFiles(row.node, (event.currentTarget as HTMLInputElement).checked)}
+              onchange={(event) => {
+                event.currentTarget.checked = rowSelected;
+                event.currentTarget.indeterminate = rowPartial;
+                if (onselectfolder) onselectfolder(row.relativePath, !rowSelected, rowPartial);
+                else selectFolderFiles(row.node, !rowSelected);
+              }}
             />
           {:else}
             <span class="folder-subfolder-icon"><Icon name="folder" /></span>
@@ -288,7 +295,6 @@
           class:locked={file.locked}
           class:has-transfer={Boolean(file.transfer)}
           class:has-transfer-detail={needsTransferDetail(file.transfer)}
-          class:has-file-action={Boolean(fileActions)}
           class:has-audio={Boolean(file.audio)}
           class:tree-row={fileLayout === 'tree'}
           data-keyboard-item={keyboardChildren ? file.id : undefined}
@@ -324,12 +330,14 @@
             {@const showProgress = showsInlineTransferProgress(file.transfer)}
             <span class="folder-file-transfer-strip">
               {#if showProgress}
-                <strong class="folder-file-transfer-percent">{fileTransferProgressText(file.transfer)}</strong>
-                <span
-                  class={`progress-track folder-file-progress ${file.transfer.tone ?? ''} ${fileDirectionClass}`}
-                  aria-label={`${file.transfer.progressPercent?.toFixed(0)}% complete`}
-                >
-                  <i style={`width:${file.transfer.progressPercent}%`}></i>
+                <span class="folder-file-progress-group">
+                  <strong class="folder-file-transfer-percent">{fileTransferProgressText(file.transfer)}</strong>
+                  <span
+                    class={`progress-track folder-file-progress ${file.transfer.tone ?? ''} ${fileDirectionClass}`}
+                    aria-label={`${file.transfer.progressPercent?.toFixed(0)}% complete`}
+                  >
+                    <i style={`width:${file.transfer.progressPercent}%`}></i>
+                  </span>
                 </span>
               {/if}
               {#if secondaryTransferText}

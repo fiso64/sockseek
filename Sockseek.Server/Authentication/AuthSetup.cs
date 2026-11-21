@@ -97,7 +97,8 @@ internal static class AuthSetup
         });
         services.Configure<ForwardedHeadersOptions>(forwarded =>
         {
-            forwarded.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            forwarded.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+                | ForwardedHeaders.XForwardedPrefix;
             forwarded.ForwardLimit = 1;
         });
         services.AddOptions<ForwardedHeadersOptions>().Configure<IOptions<ServerOptions>>((forwarded, server) =>
@@ -127,7 +128,6 @@ internal static class AuthSetup
 
     public static void UseOperatorAuthentication(this WebApplication app)
     {
-        app.UseForwardedHeaders();
         app.UseRouting();
         app.UseAuthentication();
         app.Use(async (context, next) =>

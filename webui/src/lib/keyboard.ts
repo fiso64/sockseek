@@ -104,6 +104,10 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
     if (rangeMode !== 'select' && start === end) startAt(item);
   }
 
+  function isPageControl(target: EventTarget | null): boolean {
+    return target instanceof Element && root.contains(target) && Boolean(target.closest('[data-keyboard-page]'));
+  }
+
   function clickRow(event: MouseEvent): HTMLElement | null {
     if (!options.beginRange || options.enabled === false || !(event.target instanceof Element) || !root.contains(event.target)) return null;
     const control = event.target.closest('input, button, label, a, select, textarea, [role="button"]');
@@ -119,7 +123,10 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
   function click(event: MouseEvent): void {
     pending = null;
     const row = clickRow(event);
-    if (!row) { startAt(null); return; }
+    if (!row) {
+      if (!isPageControl(event.target)) startAt(null);
+      return;
+    }
     const additive = event.ctrlKey || event.metaKey;
     if (event.shiftKey) {
       if (event.target instanceof HTMLInputElement) {
@@ -153,14 +160,14 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
     if (!pointerDown && item && root.contains(item)) {
       if (item !== current) { startAt(item); mark(item); }
     } else if (current && !current.contains(event.target as Node)) {
-      if (!pointerDown) startAt(null);
+      if (!pointerDown && !isPageControl(event.target)) startAt(null);
       mark(null);
     }
   }
 
   function pointerdown(event: PointerEvent): void {
     pointerDown = true;
-    if (!clickRow(event)) startAt(null);
+    if (!clickRow(event) && !isPageControl(event.target)) startAt(null);
     if (current && event.target instanceof Node && !current.contains(event.target)) {
       pending = null;
       if (document.activeElement instanceof HTMLElement && current.contains(document.activeElement)) document.activeElement.blur();

@@ -89,23 +89,26 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
         }
         try
         {
-            lock (ordinaryGate)
+            try
             {
-                foreach (var item in stateOrder) EnqueueHistory(item, isCritical: false);
-                stateOrder.Clear();
-                pendingStates.Clear();
+                lock (ordinaryGate)
+                {
+                    foreach (var item in stateOrder) EnqueueHistory(item, isCritical: false);
+                    stateOrder.Clear();
+                    pendingStates.Clear();
+                }
+                lock (progressGate)
+                {
+                    foreach (var item in progress.Values) EnqueueHistory(item, isCritical: false);
+                    progress.Clear();
+                }
+                EnqueueHistory(markers[0], isCritical: true);
+                EnqueueHistory(markers[1], isCritical: false);
+                await EnqueueSearchWithBackpressureAsync(markers[2], cancellationToken).ConfigureAwait(false);
             }
-            lock (progressGate)
-            {
-                foreach (var item in progress.Values) EnqueueHistory(item, isCritical: false);
-                progress.Clear();
-            }
-            EnqueueHistory(markers[0], isCritical: true);
-            EnqueueHistory(markers[1], isCritical: false);
-            await EnqueueSearchWithBackpressureAsync(markers[2]).ConfigureAwait(false);
+            finally { EndAdmission(); }
+            await Task.WhenAll(markers.Select(item => item.Completion.Task)).WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-        finally { EndAdmission(); }
-        try { await Task.WhenAll(markers.Select(item => item.Completion.Task)).WaitAsync(cancellationToken).ConfigureAwait(false); }
         finally { lock (lifecycleGate) foreach (var marker in markers) fences.Remove(marker); }
     }
 
@@ -672,11 +675,11 @@ public sealed class PersistenceInbox : IPersistenceMutationSink
         return observedAt - observedAt % PersistenceWriter.AccountingBucketMilliseconds;
     }
 
-    private async ValueTask<bool> EnqueueSearchWithBackpressureAsync(PersistenceMutation mutation)
+    private async ValueTask<bool> EnqueueSearchWithBackpressureAsync(PersistenceMutation mutation, CancellationToken cancellationToken = default)
     {
         try
         {
-            await search.Writer.WriteAsync(mutation).ConfigureAwait(false);
+            await search.Writer.WriteAsync(mutation, cancellationToken).ConfigureAwait(false);
             Interlocked.Increment(ref searchDepth);
             if (mutation is SearchResultsPersistenceMutation results)
                 Interlocked.Add(ref bufferedSearchResultCount, results.Results.Count);

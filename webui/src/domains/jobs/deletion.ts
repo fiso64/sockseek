@@ -1,13 +1,8 @@
 import type { JobSummaryDto, Schema } from '../../api/types';
 
-export function canDeleteRoot(job: JobSummaryDto): boolean {
-  return canDeleteSubmission(job) && !job.parentJobId && job.role === 'user-root';
-}
-
 export function canDeleteSubmission(job: JobSummaryDto): boolean {
-  // Remove targets the owning submission even when invoked from a terminal
-  // child. The daemon validates that the whole submission is terminal.
-  return Boolean(job.submissionId && job.jobId && job.lifecycleState === 'Terminal');
+  return Boolean(job.submissionId && job.jobId && !job.parentJobId
+    && job.role === 'user-root' && job.lifecycleState === 'Terminal');
 }
 
 export function requireDeleted(receipt: Schema<'DeleteSubmissionResponseDto'>): void {

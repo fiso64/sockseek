@@ -3,7 +3,7 @@ using System.Runtime.ExceptionServices;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Sockseek.Core.Settings;
-using FileAttributeType = Soulseek.FileAttributeType;
+using Sockseek.Core.Services;
 
 namespace Sockseek.Core.Sharing;
 
@@ -214,24 +214,22 @@ public sealed class ShareScanner
         foreach (var configured in settings.Roots)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            string? rootError = null;
             try
             {
-                FileAttributes rootAttributes = File.GetAttributes(configured.LocalPath);
-                if ((rootAttributes & FileAttributes.Directory) == 0
-                    || (rootAttributes & FileAttributes.ReparsePoint) != 0)
-                {
-                    throw new IOException("The configured path is not a safe directory.");
-                }
+                var attributes = File.GetAttributes(configured.LocalPath);
+                if ((attributes & FileAttributes.Directory) == 0)
+                    rootError = "The configured root is not a directory.";
             }
             catch (Exception ex) when (IsExpectedIo(ex))
             {
+                rootError = $"Configured root could not be read ({ex.GetType().Name}).";
+            }
+            if (rootError != null)
+            {
                 Interlocked.Increment(ref counters.IoFailures);
                 Interlocked.Increment(ref counters.EntriesSkipped);
-                Record(
-                    errors,
-                    "root-unavailable",
-                    configured.EffectiveAlias,
-                    $"Configured root could not be read ({ex.GetType().Name}).");
+                Record(errors, "root-unavailable", configured.EffectiveAlias, rootError);
                 progress.Report();
                 continue;
             }
@@ -431,7 +429,7 @@ public sealed class ShareScanner
                 {
                     try
                     {
-                        attributes = ReadAudioAttributes(
+                        attributes = ShareAudioMetadata.Read(
                             candidate.RelativePath,
                             opened.Stream);
                     }
@@ -472,30 +470,6 @@ public sealed class ShareScanner
                 RecordIo(counters, errors, candidate.RelativePath, ex);
             }
         }
-    }
-
-    private static IReadOnlyList<ShareFileAttribute> ReadAudioAttributes(
-        string name,
-        Stream stream)
-    {
-        stream.Position = 0;
-        var abstraction = new ReadOnlyFileAbstraction(name, stream);
-        using var file = TagLib.File.Create(abstraction, TagLib.ReadStyle.Average);
-        var properties = file.Properties;
-        if (properties is null)
-            return [];
-
-        var attributes = new List<ShareFileAttribute>(5);
-        if (properties.AudioBitrate > 0)
-            attributes.Add(new((int)FileAttributeType.BitRate, properties.AudioBitrate));
-        if (properties.Duration > TimeSpan.Zero)
-            attributes.Add(new((int)FileAttributeType.Length, checked((int)properties.Duration.TotalSeconds)));
-        attributes.Add(new((int)FileAttributeType.VariableBitRate, properties.BitsPerSample > 0 ? 1 : 0));
-        if (properties.AudioSampleRate > 0)
-            attributes.Add(new((int)FileAttributeType.SampleRate, properties.AudioSampleRate));
-        if (properties.BitsPerSample > 0)
-            attributes.Add(new((int)FileAttributeType.BitDepth, properties.BitsPerSample));
-        return attributes;
     }
 
     private static async Task WriteRecordsAsync(
@@ -564,8 +538,11 @@ public sealed class ShareScanner
                            | FileAttributes.System
                            | FileAttributes.ReparsePoint)) != 0)
             return true;
-        return !OperatingSystem.IsWindows()
-               && Path.GetFileName(path).StartsWith(".", StringComparison.Ordinal);
+        string name = Path.GetFileName(path);
+        if (isDirectory && name.Equals(OutputStaging.DirectoryName, StringComparison.OrdinalIgnoreCase)
+            || !isDirectory && name.EndsWith(OutputStaging.IncompleteExtension, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return !OperatingSystem.IsWindows() && name.StartsWith(".", StringComparison.Ordinal);
     }
 
     private static bool IsFiltered(Regex[] filters, string remotePath)
@@ -722,13 +699,4 @@ public sealed class ShareScanner
         }
     }
 
-    private sealed class ReadOnlyFileAbstraction(
-        string name,
-        Stream stream) : TagLib.File.IFileAbstraction
-    {
-        public string Name { get; } = name;
-        public Stream ReadStream => stream;
-        public Stream WriteStream => throw new NotSupportedException();
-        public void CloseStream(Stream _) { }
-    }
 }

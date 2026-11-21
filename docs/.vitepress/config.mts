@@ -1,12 +1,16 @@
+import { posix } from 'node:path'
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Sockseek',
   description: 'Manual for the Sockseek Soulseek client, daemon and CLI',
-  base: '/docs/',
+  base: './',
   srcDir: 'pages',
   vite: { publicDir: '../../webui/public' },
-  head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/docs/sockseek-favicon.svg' }]],
+  transformHead({ pageData }) {
+    const href = posix.relative(posix.dirname(pageData.relativePath), 'sockseek-favicon.svg')
+    return [['link', { rel: 'icon', type: 'image/svg+xml', href }]]
+  },
   themeConfig: {
     search: { provider: 'local' },
     socialLinks: [{ icon: 'github', link: 'https://github.com/fiso64/sockseek', ariaLabel: 'Sockseek on GitHub' }],

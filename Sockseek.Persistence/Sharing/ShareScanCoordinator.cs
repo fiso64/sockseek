@@ -84,6 +84,9 @@ public sealed class ShareScanCoordinator
 
         try
         {
+            // Publish the scan ID to the caller before any synchronous SQLite or directory I/O.
+            // An offline share root can block enumeration while unrelated jobs run.
+            await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
             await using var writer = await SqliteShareCatalogBuilder.CreateAsync(
                 paths.DatabasePath,
                 linked.Token).ConfigureAwait(false);

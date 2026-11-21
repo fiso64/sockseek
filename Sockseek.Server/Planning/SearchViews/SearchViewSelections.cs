@@ -1,9 +1,12 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using Sockseek.Core;
 using Sockseek.Api;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
+using Sockseek.Core.Transfers.Downloads.Skipping;
 using Sockseek.Persistence.Planning;
 using Sockseek.Server.Persistence;
 
@@ -88,6 +91,61 @@ public sealed class SearchViewSelections
                 return receipt;
             },
             cancellationToken).ConfigureAwait(false);
+    }
+
+    // File/tag enumeration belongs to a single view and is shared by its pages and revisions.
+    private readonly ConditionalWeakTable<SearchViewDefinition, Dictionary<(string, SkipMode, bool), TrackSkipper>> librarySkippers = new();
+
+    public async Task<string[]?> LibraryMatchesAsync(Guid viewId, SearchViewLibraryMatchesRequestDto request,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(request.GroupRefs);
+        var snapshot = FindSnapshot(viewId, request.Revision, token);
+        if (snapshot == null) return null;
+        var kind = snapshot.View.ProjectionKind;
+        if (kind is not (SearchViewProjectionKind.TrackGroups or SearchViewProjectionKind.AlbumGroups))
+            throw new ArgumentException("Library matches require song or album groups.");
+
+        Job sample = kind == SearchViewProjectionKind.TrackGroups ? new SongJob(new()) : new AlbumJob(new());
+        var config = submissions.PrepareSearchViewSelectionJob(sample, request.Options, submissions.SettingsResolver);
+        var ctx = new JobContext();
+        var skippers = librarySkippers.GetOrCreateValue(snapshot.View.Definition);
+        lock (skippers) JobPreparer.SetupSkippers(config, ctx, skippers);
+        var search = config.ResolveSearchSettings();
+        if (kind == SearchViewProjectionKind.TrackGroups && config.Skip.SkipMode == SkipMode.Index)
+        {
+            // A history entry within this view's duration tolerance belongs to the same song group.
+            search.GroupResults = true;
+            search.GroupLengthTol = snapshot.View.Definition.ResolveSettings().GroupLengthTol;
+        }
+        var context = TrackSkipperContext.From(ctx, config.Skip, search);
+        context.checkFileExists = true;
+        var indexes = new Dictionary<string, DownloadOutputFile>();
+        var owner = new JobList();
+        List<string> matches = [];
+        foreach (var reference in request.GroupRefs.Distinct(StringComparer.Ordinal))
+        {
+            token.ThrowIfCancellationRequested();
+            var item = SearchViewSnapshot.TopItem(snapshot, kind, reference);
+            Job job = item switch
+            {
+                { TrackGroup: { } song } => new SongJob(song.Query),
+                { AlbumGroup: { } album } => new AlbumJob(album.Query),
+                _ => throw new ArgumentException("Unknown group reference."),
+            };
+            job.Config = config;
+            if (config.Skip.SkipMode == SkipMode.Index)
+            {
+                var path = JobPreparer.IndexPath(job, owner, ctx.OutputScope, config.Output);
+                if (!indexes.TryGetValue(path, out var index))
+                    indexes[path] = index = new DownloadOutputFile(path, owner, OutputFileKind.Index, true, readOnly: true);
+                context.indexEditor = index;
+            }
+            var match = await SkipEvaluationCoordinator.FindExistingAsync(ctx, job, context, token);
+            if (match != null && (job is SongJob || Directory.Exists(match.Path)))
+                matches.Add(reference);
+        }
+        return matches.ToArray();
     }
 
     public ResolveSearchViewSelectionSettingsResponseDto? ResolveSelectionSettings(Guid viewId, ResolveSearchViewSelectionSettingsRequestDto request, CancellationToken cancellationToken)
@@ -210,6 +268,8 @@ public sealed class SearchViewSelections
             var topRefs = new HashSet<string>(request.Selection.Refs, StringComparer.Ordinal);
             var includedRefs = new HashSet<string>(request.IncludedFileRefs ?? [], StringComparer.Ordinal);
             var excludedRefs = new HashSet<string>(request.ExcludedFileRefs ?? [], StringComparer.Ordinal);
+            var excludedIdentities = request.ExcludedFileIdentities?.Values
+                .Select(identity => new PeerPathKey(identity.Username, identity.Filename)).ToHashSet();
             long adjustedPublic = baseline.PublicFileCount;
             long adjustedLocked = baseline.LockedFileCount;
             long adjustedItems = baseline.SelectedItemCount;
@@ -232,6 +292,16 @@ public sealed class SearchViewSelections
                     long delta = after ? 1 : -1;
                     if (file.Visibility == SearchResultVisibility.Locked) adjustedLocked += delta;
                     else adjustedPublic += delta;
+                }
+                if (rules.Any(rule => rule.IncludeFilteredFiles))
+                {
+                    var directory = snapshot.Directories[directoryRef].Value;
+                    foreach (var file in SelectedFilteredFiles(snapshot, directory, rules, cancellationToken))
+                    {
+                        if (excludedIdentities?.Contains(new(file.Username, file.Filename)) == true) continue;
+                        anyAfter = true;
+                        adjustedPublic++;
+                    }
                 }
                 if (!rootSelected)
                     adjustedItems += (anyAfter ? 1 : 0) - individuallyIncludedBefore;
@@ -759,6 +829,10 @@ public sealed class SearchViewSelections
                         || request.IncludedFileRefs?.Contains(child.Ref) == true)
                         observed.Add(target);
                 }
+                if (directoryPathRules?.Any(rule => rule.IncludeFilteredFiles) == true)
+                    foreach (var hidden in SelectedFilteredFiles(snapshot, directory, directoryPathRules, cancellationToken))
+                        if (excluded?.Contains(hidden.Filename) != true)
+                            observed.Add(hidden.ToFileCandidate().Target);
                 if (observed.Count == 0)
                     return (null, "empty-selection");
                 var identity = new PeerDirectoryIdentity(directory.Username, directory.FolderPath);
@@ -866,11 +940,15 @@ public sealed class SearchViewSelections
                     if (!selectedFileRefs.SetEquals(matchedFileRefs))
                         throw new ArgumentException("An album file ref is not in the chosen directory and revision.");
                 }
+                bool complete = option.IsFullyRetrieved;
                 foreach (SearchViewDirectoryFile child in snapshot.ReadPublicDirectoryFiles(option.Ref, cancellationToken))
                 {
                     if (albumFileSelection != null &&
                         (albumFileSelection.Mode == RefSelectionMode.Only) != selectedFileRefs!.Contains(child.Ref))
+                    {
+                        complete = false;
                         continue;
+                    }
                     FileCandidate candidate = child.File.Input.ToFileCandidate();
                     files.Add(AlbumFile.WithLazyQuery(
                         () => Searcher.InferSongQuery(
@@ -885,7 +963,7 @@ public sealed class SearchViewSelections
                     option.FolderPath,
                     files)
                 {
-                    IsFullyRetrieved = option.IsFullyRetrieved,
+                    IsFullyRetrieved = complete,
                 });
             }
             if (folders.Count == 0)
@@ -932,8 +1010,9 @@ public sealed class SearchViewSelections
         foreach (SearchViewDirectoryPathRuleDto rule in rules)
         {
             if (rule == null || string.IsNullOrWhiteSpace(rule.DirectoryRef)
-                || string.IsNullOrEmpty(rule.RelativePath) || rule.RelativePath.Contains('\\')
-                || rule.RelativePath.Split('/').Any(part => part is "" or "." or "..")
+                || rule.RelativePath == null || rule.IncludeFilteredFiles && !rule.Selected
+                || (rule.RelativePath.Length == 0 ? !rule.IncludeFilteredFiles
+                    : rule.RelativePath.Contains('\\') || rule.RelativePath.Split('/').Any(part => part is "" or "." or ".."))
                 || !paths.Add((rule.DirectoryRef, rule.RelativePath)))
                 throw new ArgumentException("Directory path rules must identify distinct relative subfolders.");
         }
@@ -943,16 +1022,26 @@ public sealed class SearchViewSelections
                 StringComparer.Ordinal);
     }
 
+    private static IEnumerable<SearchProjectionInput> SelectedFilteredFiles(SearchViewSnapshot snapshot,
+        SearchViewDirectory directory, IReadOnlyList<SearchViewDirectoryPathRuleDto> rules, CancellationToken token)
+    {
+        foreach (var file in snapshot.ReadFilteredFiles(directory, token))
+        {
+            string path = SearchViewCache.RelativePath(directory.FolderPath, file.Filename);
+            if (IsSelectedDirectoryFile(path, false, rules, filtered: true)) yield return file;
+        }
+    }
+
     private static bool IsSelectedDirectoryFile(
         string relativePath,
         bool rootSelected,
-        IReadOnlyList<SearchViewDirectoryPathRuleDto>? rules)
+        IReadOnlyList<SearchViewDirectoryPathRuleDto>? rules, bool filtered = false)
     {
         if (rules == null) return rootSelected;
         string normalizedPath = relativePath.Replace('\\', '/');
         foreach (SearchViewDirectoryPathRuleDto rule in rules)
-            if (normalizedPath.StartsWith(rule.RelativePath + "/", StringComparison.Ordinal))
-                return rule.Selected;
+            if (rule.RelativePath.Length == 0 || normalizedPath.StartsWith(rule.RelativePath + "/", StringComparison.Ordinal))
+                return rule.Selected && (!filtered || rule.IncludeFilteredFiles);
         return rootSelected;
     }
 

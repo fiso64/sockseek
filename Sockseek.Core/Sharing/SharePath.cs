@@ -32,33 +32,22 @@ public sealed class RemotePathKey : IEquatable<RemotePathKey>
         if (remotePath[0] is '\\' or '/')
             throw Invalid("Remote path cannot be rooted.");
 
-        var rawSegments = remotePath
-            .Replace('/', '\\')
-            .Split('\\', StringSplitOptions.None);
+        var wirePath = remotePath.Replace('/', '\\');
+        var rawSegments = wirePath.Split('\\', StringSplitOptions.None);
 
         if (rawSegments.Any(static segment => segment.Length == 0))
             throw Invalid("Remote path cannot contain empty segments.");
 
-        var normalizedSegments = rawSegments.Select(NormalizeSegment).ToArray();
-        string normalizedPath = string.Join('\\', normalizedSegments);
-        var folded = new StringBuilder(normalizedPath.Length);
+        foreach (string segment in rawSegments)
+            ValidateSegment(segment);
 
-        foreach (var rune in normalizedPath.EnumerateRunes())
-            folded.Append(Rune.ToUpperInvariant(rune).ToString());
-
-        return new RemotePathKey(Encoding.UTF8.GetBytes(folded.ToString()));
+        return new RemotePathKey(Encoding.UTF8.GetBytes(wirePath));
     }
 
     public static RemotePathKey CreateAlias(string alias)
     {
         ValidateAlias(alias);
         return Create(alias);
-    }
-
-    public static string NormalizeAlias(string alias)
-    {
-        ValidateAlias(alias);
-        return alias.Normalize(NormalizationForm.FormC);
     }
 
     public static void ValidateAlias(string alias)
@@ -87,15 +76,13 @@ public sealed class RemotePathKey : IEquatable<RemotePathKey>
 
     public override string ToString() => Convert.ToHexString(bytes);
 
-    private static string NormalizeSegment(string segment)
+    private static void ValidateSegment(string segment)
     {
         ValidateWellFormedUnicode(segment, "Remote path segment");
         if (segment is "." or "..")
             throw Invalid("Remote path cannot contain '.' or '..' segments.");
         if (segment.Contains('\0'))
             throw Invalid("Remote path cannot contain NUL characters.");
-
-        return segment.Normalize(NormalizationForm.FormC);
     }
 
     private static void ValidateWellFormedUnicode(string value, string label)

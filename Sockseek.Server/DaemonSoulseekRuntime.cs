@@ -22,7 +22,8 @@ public sealed class DaemonSoulseekRuntime : IAsyncDisposable
         Func<EngineSettings, ISoulseekClient>? clientFactory = null,
         LocalUserProfile? localProfile = null,
         ILogger<SoulseekClientManager>? logger = null,
-        PeerRestrictionPolicy? restrictions = null)
+        PeerRestrictionPolicy? restrictions = null,
+        Func<ISoulseekClient, ISoulseekClient>? clientDecorator = null)
     {
         this.settings = settings ?? throw new ArgumentNullException(nameof(settings));
         this.logger = logger;
@@ -37,7 +38,8 @@ public sealed class DaemonSoulseekRuntime : IAsyncDisposable
             clientFactory?.Invoke(settings),
             InboundRequests,
             LocalProfile,
-            logger);
+            logger,
+            clientDecorator);
     }
 
     public SoulseekClientManager ClientManager { get; }
@@ -47,13 +49,13 @@ public sealed class DaemonSoulseekRuntime : IAsyncDisposable
 
     public async Task<bool> ReloadProfileAsync(EngineSettings candidate, CancellationToken cancellationToken = default)
     {
-        string description = UserProfileText.NormalizeDescription(candidate.UserDescription);
-        if (profilePicturePath == candidate.UserPicturePath && LocalProfile.Description == description)
-            return false;
-        LocalProfile = profilePicturePath == candidate.UserPicturePath
-            ? LocalProfile with { Description = description }
-            : await LocalUserProfile.LoadAsync(candidate, cancellationToken, logger).ConfigureAwait(false);
+        var profile = await LocalUserProfile.LoadAsync(candidate, cancellationToken, logger).ConfigureAwait(false);
+        if (profile.Picture == null && candidate.UserPicturePath != null && candidate.UserPicturePath == profilePicturePath)
+            profile = profile with { Picture = LocalProfile.Picture };
         profilePicturePath = candidate.UserPicturePath;
+        if (LocalProfile.Description == profile.Description && LocalProfile.Picture?.ETag == profile.Picture?.ETag)
+            return false;
+        LocalProfile = profile;
         return true;
     }
 

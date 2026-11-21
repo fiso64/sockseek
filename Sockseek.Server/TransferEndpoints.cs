@@ -263,13 +263,29 @@ internal static class TransferEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status409Conflict)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
+        app.MapPost("/api/transfers/{transferId:guid}/retry", async (Guid transferId,
+            EngineSupervisor supervisor, CancellationToken ct) =>
+        {
+            try
+            {
+                var job = await supervisor.Submissions.RetryDownloadAsync(transferId, ct);
+                return job == null ? Results.NotFound() : Results.Ok(job);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new ApiErrorDto(ex.Message, "TransferNotRetryable"));
+            }
+        }).WithTags("Transfers").WithSummary("Retry one failed or interrupted download from its original peer.")
+            .Produces<JobSummaryDto>().Produces(StatusCodes.Status404NotFound)
+            .Produces<ApiErrorDto>(StatusCodes.Status409Conflict);
+
         app.MapPost("/api/transfers/cancel", (
             BulkCancelTransfersRequestDto request,
             EngineSupervisor supervisor) =>
             Results.Ok(supervisor.CancelTransfers(request)))
             .WithTags("Transfers")
             .WithSummary("Cancels a snapshot of transfers by direction, queue state, and optional exact peer/group.")
-            .WithDescription("Targets are resolved once, then cancelled independently. Races and per-transfer failures are reported in a fixed-size receipt.")
+            .WithDescription("For an exact directory download group, All cancels its unfinished files, including those still waiting for a transfer slot. Other scopes cancel a snapshot of matching transfers.")
             .Produces<TransferCommandReceiptDto>();
 
         app.MapDelete("/api/transfers/{transferId:guid}", async (

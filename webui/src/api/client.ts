@@ -3,6 +3,9 @@ import type { Schema } from './types';
 import type {
   CommitSearchViewSelectionResponseDto,
   DashboardAnalyticsDto,
+  EffectiveSettingsRequest,
+  SearchViewRequest,
+  TrackSearchRequest,
   JobSummaryDto,
   SearchViewAlbumGroupPageDto,
   SearchViewTrackGroupPageDto,
@@ -103,8 +106,12 @@ export class DaemonApiClient {
     return this.http.post('/user-browses/download-settings', options, signal);
   }
 
-  resolveEffectiveSettings(request: Schema<'ResolveEffectiveSettingsRequestDto'>, signal?: AbortSignal): Promise<Schema<'ResolveEffectiveSettingsResponseDto'>> {
+  resolveEffectiveSettings(request: EffectiveSettingsRequest, signal?: AbortSignal): Promise<Schema<'ResolveEffectiveSettingsResponseDto'>> {
     return this.http.post('/jobs/effective-settings', request, signal);
+  }
+
+  getSearchViewLibraryMatches(viewId: string, request: Schema<'SearchViewLibraryMatchesRequestDto'>, signal: AbortSignal): Promise<string[]> {
+    return this.http.post(`/search-views/${encodeURIComponent(viewId)}/library-matches`, request, signal);
   }
 
   resolveSearchViewSelectionSettings(viewId: string, request: Schema<'ResolveSearchViewSelectionSettingsRequestDto'>, signal?: AbortSignal): Promise<Schema<'ResolveSearchViewSelectionSettingsResponseDto'>> {
@@ -149,10 +156,9 @@ export class DaemonApiClient {
       const request: Schema<'SubmitSearchJobRequestDto'> = { queryText: query, options };
       job = await this.http.post('/jobs/search', request, signal);
     } else if (draft.resultMode === 'track' || draft.resultMode === 'song-groups') {
-      const request: Schema<'SubmitTrackSearchJobRequestDto'> = {
+      const request: TrackSearchRequest = {
         options,
         songQuery: songQuery(draft),
-        includeFullResults: true,
         groupResults: draft.resultMode === 'song-groups',
       };
       job = await this.http.post('/jobs/search/tracks', request, signal);
@@ -166,7 +172,7 @@ export class DaemonApiClient {
     }
 
     if (!job.jobId) throw new Error('The daemon accepted the search without returning a job ID.');
-    const create: Schema<'CreateSearchViewRequestDto'> = {
+    const create: SearchViewRequest = {
       kind: searchViewKind(draft.resultMode),
       songQuery: draft.resultMode === 'track' || draft.resultMode === 'song-groups'
         ? songQuery(draft)
@@ -174,13 +180,12 @@ export class DaemonApiClient {
       albumQuery: draft.resultMode === 'album' || draft.resultMode === 'album-groups'
         ? albumQuery(draft)
         : null,
-      includeFullResults: draft.resultMode === 'track' || draft.resultMode === 'song-groups',
     };
     const view = await this.createSearchView(job.jobId, create, signal);
     return { job, view, draft: { ...draft } };
   }
 
-  createSearchView(jobId: string, request: Schema<'CreateSearchViewRequestDto'> = { includeFullResults: false }, signal?: AbortSignal): Promise<SearchViewSummaryDto> {
+  createSearchView(jobId: string, request: SearchViewRequest = {}, signal?: AbortSignal): Promise<SearchViewSummaryDto> {
     return this.http.post(
       `/jobs/${encodeURIComponent(jobId)}/search-views`,
       request,
@@ -197,9 +202,6 @@ export class DaemonApiClient {
     if (!job.jobId) throw new Error('The search job has no ID.');
     const detail = knownDetail ?? await this.getJob(job.jobId, signal);
     const payload = detail.payload?.kind === 'search' ? detail.payload : null;
-    // The retained search payload is authoritative. A track search can admit
-    // full rows even when its necessary conditions fail; creating the view
-    // before reading that flag silently drops those rows on a reopened URL.
     const defaultMode: SearchResultMode | null = payload?.defaultProjection === 'Track'
       ? (payload.groupResults ? 'song-groups' : 'track')
       : payload?.defaultProjection === 'Album'
@@ -214,8 +216,6 @@ export class DaemonApiClient {
       ? requestedMode : defaultMode;
     const view = await this.createSearchView(job.jobId, {
       kind: mode ? searchViewKind(mode) : undefined,
-      // ServerPrintOption.Full: print-only execution jobs have no search payload.
-      includeFullResults: payload?.includeFullResults ?? Boolean((detail.summary?.printOption ?? job.printOption ?? 0) & 4),
     }, signal);
     return { job: detail.summary, view, draft: searchDraftFromDetail(detail, view.kind) };
   }
@@ -225,19 +225,15 @@ export class DaemonApiClient {
       throw new Error('This search has no retained submission to replay.');
     }
     const detail = await this.getJob(job.jobId, signal);
-    const payload = detail.payload?.kind === 'search' ? detail.payload : null;
-    if (!payload) throw new Error('The retained job has no search definition.');
+    if (detail.payload?.kind !== 'search') throw new Error('The retained job has no search definition.');
     const endpoint = canReplaySearchRoot(job)
       ? `/submissions/${encodeURIComponent(job.submissionId)}/rerun`
-      : `/jobs/${encodeURIComponent(job.jobId)}/rerun-search`;
+      : `/jobs/${encodeURIComponent(job.jobId)}/rerun`;
     const rerun = await this.http.post<JobSummaryDto>(endpoint, undefined, signal);
     if (!rerun.jobId || rerun.kind !== 'search') {
       throw new Error('The daemon did not return a replayed search job.');
     }
-    const nextView = await this.createSearchView(rerun.jobId, {
-      kind: view.kind,
-      includeFullResults: payload.includeFullResults,
-    }, signal);
+    const nextView = await this.createSearchView(rerun.jobId, { kind: view.kind }, signal);
     return { job: rerun, view: nextView, draft: searchDraftFromDetail(detail, nextView.kind) };
   }
 
@@ -247,6 +243,18 @@ export class DaemonApiClient {
 
   deleteSubmission(submissionId: string, signal?: AbortSignal): Promise<Schema<'DeleteSubmissionResponseDto'>> {
     return this.http.delete(`/submissions/${encodeURIComponent(submissionId)}`, signal);
+  }
+
+  runAgain(jobId: string): Promise<JobSummaryDto> {
+    return this.http.post(`/jobs/${encodeURIComponent(jobId)}/rerun`);
+  }
+
+  retryDirectory(jobId: string, memberJobId?: string): Promise<JobSummaryDto> {
+    return this.http.post(`/jobs/${encodeURIComponent(jobId)}/retry-directory${queryString({ memberJobId })}`);
+  }
+
+  retryTransfer(transferId: string): Promise<JobSummaryDto> {
+    return this.http.post(`/transfers/${encodeURIComponent(transferId)}/retry`, undefined);
   }
 
   cancelTransfer(transferId: string, signal?: AbortSignal): Promise<Schema<'TransferStateDto'>> {
@@ -280,8 +288,8 @@ export class DaemonApiClient {
     return this.http.delete(`/transfers/${encodeURIComponent(transferId)}`, signal);
   }
 
-  removeTransfers(direction: 'download' | 'upload', group?: { username: string | null; groupRef: string }, signal?: AbortSignal): Promise<TransferCommandReceiptDto> {
-    const request: Schema<'RemoveTransfersRequestDto'> = { direction, ...group };
+  removeTransfers(direction: 'download' | 'upload', filter: Pick<Schema<'RemoveTransfersRequestDto'>, 'username' | 'groupRef' | 'terminalOutcome'>, signal?: AbortSignal): Promise<TransferCommandReceiptDto> {
+    const request: Schema<'RemoveTransfersRequestDto'> = { direction, ...filter };
     return this.http.post('/transfers/remove', request, signal);
   }
 
@@ -400,6 +408,10 @@ export class DaemonApiClient {
 
   deleteConversation(conversationId: string, signal?: AbortSignal): Promise<void> {
     return this.http.delete(`/chat/conversations/${encodeURIComponent(conversationId)}`, signal);
+  }
+
+  getSearchViewRevisionLifetime(viewId: string, revision: number | string, signal: AbortSignal): Promise<Schema<'SearchViewRevisionLifetimeDto'>> {
+    return this.http.get(`/search-views/${encodeURIComponent(viewId)}/revisions/${revision}/lifetime`, signal);
   }
 
   getSearchViewUpdate(viewId: string, afterRevision: number | string, signal?: AbortSignal,

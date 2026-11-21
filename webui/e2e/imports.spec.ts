@@ -69,4 +69,9 @@ test('folds a running text extraction into one source-labelled root and opens it
   await page.goto(`/jobs/${imported.jobId}`);
   await expect(page).toHaveURL(new RegExp(`/jobs/${imported.resultJobId}$`));
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Fixture song');
+  await expect(page.getByTestId('delete-submission')).toHaveCount(0);
+  await page.goto('/jobs?tab=downloads');
+  await row.getByTestId('job-remove').click();
+  await expect(row).toHaveCount(0);
+  expect((await page.request.get(`/api/jobs/${imported.jobId}`)).status()).toBe(404);
 });

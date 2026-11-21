@@ -2,6 +2,13 @@ import type { components } from './generated';
 
 export type Schema<Name extends keyof components['schemas']> = components['schemas'][Name];
 
+// The full-results diagnostic belongs to the CLI. Browser searches use the daemon's filtered default.
+type FilteredRequest<T> = T extends { includeFullResults: boolean } ? Omit<T, 'includeFullResults'> : T;
+export type SearchViewRequest = FilteredRequest<Schema<'CreateSearchViewRequestDto'>>;
+export type TrackSearchRequest = FilteredRequest<Schema<'SubmitTrackSearchJobRequestDto'>>;
+export type JobDraft = FilteredRequest<Schema<'JobDraftDto'>>;
+export type EffectiveSettingsRequest = Omit<Schema<'ResolveEffectiveSettingsRequestDto'>, 'job'> & { job: JobDraft };
+
 export type ApiErrorDto = Schema<'ApiErrorDto'>;
 export type ServerInfoDto = Schema<'ServerInfoDto'>;
 export type StateSnapshotDto = Schema<'StateSnapshotDto'>;

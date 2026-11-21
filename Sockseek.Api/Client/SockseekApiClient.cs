@@ -307,6 +307,11 @@ public sealed class SockseekApiClient
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewSummaryDto>($"api/search-views/{viewId}", ct);
 
+    public Task<SearchViewRevisionLifetimeDto?> GetSearchViewRevisionLifetimeAsync(
+        Guid viewId, long revision, CancellationToken ct = default)
+        => GetOptionalAsync<SearchViewRevisionLifetimeDto>(
+            $"api/search-views/{viewId}/revisions/{revision}/lifetime", ct);
+
     public Task<SearchViewDefinitionDto?> GetSearchViewDefinitionAsync(
         Guid viewId,
         CancellationToken ct = default)
@@ -731,6 +736,15 @@ public sealed class SockseekApiClient
         => await PostWithoutBodyAsync<ShareScanStateDto>(
             $"api/sharing/scans/{scanId}/cancel",
             ct);
+
+    public Task<JobSummaryDto> RunJobAgainAsync(Guid jobId, CancellationToken ct = default)
+        => PostWithoutBodyAsync<JobSummaryDto>($"api/jobs/{jobId}/rerun", ct);
+
+    public Task<JobSummaryDto> RetryDirectoryAsync(Guid jobId, CancellationToken ct = default)
+        => PostWithoutBodyAsync<JobSummaryDto>($"api/jobs/{jobId}/retry-directory", ct);
+
+    public Task<JobSummaryDto> RetryTransferAsync(Guid transferId, CancellationToken ct = default)
+        => PostWithoutBodyAsync<JobSummaryDto>($"api/transfers/{transferId}/retry", ct);
 
     public async Task<TransferStateDto> CancelTransferAsync(
         Guid transferId,

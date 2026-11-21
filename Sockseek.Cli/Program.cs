@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
@@ -494,7 +495,6 @@ internal static partial class Program
 
         try
         {
-            await backend.SubscribeWorkflowAsync(workflowId, cts.Token);
             using var terminalUpdateObserver = new WorkflowTerminalUpdateObserver(backend, workflowId);
 
             InteractiveCliCoordinator? interactiveCoordinator = null;
@@ -524,8 +524,9 @@ internal static partial class Program
             if (interactiveCoordinator != null)
                 await backend.AwaitLiveAsync(interactiveCoordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token));
 
-            await backend.AwaitLiveAsync(terminalUpdateObserver.TerminalJobs.WaitAsync(cts.Token));
-            var jobs = await terminalUpdateObserver.TerminalJobs;
+            var terminalJobs = terminalUpdateObserver.WaitAsync(cts.Token);
+            await backend.AwaitLiveAsync(terminalJobs);
+            var jobs = await terminalJobs;
             var summary = DownloadRunSummary.FromJobs(jobs);
             if (!rootSettings.DoNotDownload)
                 summary.Print();
@@ -831,9 +832,26 @@ internal static partial class Program
     {
         private readonly ICliBackend backend;
         private readonly Guid workflowId;
-        private readonly TaskCompletionSource<IReadOnlyList<JobSummaryDto>> terminalUpdateSeen = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Terminal live rows can be evicted before the command returns from Submit.
+        // Keep them at receipt. An empty reconnect snapshot asks the reader to use history.
+        private readonly Channel<IReadOnlyList<JobSummaryDto>?> updates =
+            Channel.CreateUnbounded<IReadOnlyList<JobSummaryDto>?>(new() { SingleReader = true });
+        private bool receivedSnapshot;
 
-        public Task<IReadOnlyList<JobSummaryDto>> TerminalJobs => terminalUpdateSeen.Task;
+        public async Task<IReadOnlyList<JobSummaryDto>> WaitAsync(CancellationToken ct)
+        {
+            while (true)
+            {
+                var liveJobs = await updates.Reader.ReadAsync(ct);
+                if (liveJobs is not null) return liveJobs;
+
+                var workflow = await backend.GetWorkflowAsync(workflowId, ct);
+                if (workflow is null)
+                    throw new InvalidOperationException($"Workflow {workflowId} is no longer available after reconnect.");
+                if (workflow.Summary.State is ServerWorkflowState.Completed or ServerWorkflowState.Failed)
+                    return await backend.GetJobsAsync(new JobQuery(null, null, null, workflowId, IncludeAll: true), ct);
+            }
+        }
 
         public WorkflowTerminalUpdateObserver(ICliBackend backend, Guid workflowId)
         {
@@ -847,16 +865,16 @@ internal static partial class Program
 
         private void OnStateUpdated(DaemonClientUpdate update)
         {
-            if (update.Status != DaemonClientApplyStatus.Applied)
+            if (update.Status != DaemonClientApplyStatus.Applied || update.Scope.WorkflowId != workflowId)
                 return;
 
-            var workflow = update.ChangedWorkflows.FirstOrDefault(workflow =>
-                workflow.WorkflowId == workflowId
-                && workflow.State is ServerWorkflowState.Completed or ServerWorkflowState.Failed);
-            if (workflow == null)
-                return;
+            var workflow = update.ChangedWorkflows.FirstOrDefault(row => row.WorkflowId == workflowId);
+            if (workflow?.State is ServerWorkflowState.Completed or ServerWorkflowState.Failed)
+                updates.Writer.TryWrite(backend.ClientStore.GetWorkflowJobs(workflowId));
+            else if (update.IsSnapshot && receivedSnapshot && workflow is null)
+                updates.Writer.TryWrite(null);
 
-            terminalUpdateSeen.TrySetResult(backend.ClientStore.GetWorkflowJobs(workflowId));
+            if (update.IsSnapshot) receivedSnapshot = true;
         }
     }
 

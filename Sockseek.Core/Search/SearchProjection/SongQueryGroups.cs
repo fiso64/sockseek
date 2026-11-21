@@ -2,11 +2,10 @@ using Sockseek.Core.Models;
 
 namespace Sockseek.Core.Services;
 
-// Duration tolerance is not an equivalence relation: 417 and 423 can form
-// separate groups while 420 matches both. A hash table using that comparison
-// also puts every duration of one title in the same collision chain.
-// Index exact text first, then seek duration roots. Preserve greedy admission:
-// the most recently created matching root wins, as in Dictionary/GroupBy.
+// Each group's first offer supplies its reference duration. With a 3-second
+// tolerance, if 12 arrives first, both 10 and 14 join it. If 10 and 14 arrive
+// first, they form separate groups and 12 joins the more recently created one.
+// Arrival order can therefore affect which groups reach the minimum peer count.
 internal sealed class SongQueryGroups<T>(int lengthTolerance, Func<SongQuery, int, T> create)
 {
     private readonly Dictionary<SongQuery, LengthGroups> identities =

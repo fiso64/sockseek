@@ -20,7 +20,7 @@ namespace Sockseek.Core.Models;
         {
             try
             {
-                using var tagFile = TagLib.File.Create(path);
+                using var tagFile = TagLib.File.Create(path, Utils.AudioMetadataReadStyle);
                 Path = tagFile.Name;
                 SetFromTagLib(tagFile);
             }
@@ -36,9 +36,10 @@ namespace Sockseek.Core.Models;
             Artists = file.Tag.JoinedPerformers;
             Title = file.Tag.Title;
             Album = file.Tag.Album;
-            Length = (int)file.Length;
-            Bitrate = file.Properties.AudioBitrate;
-            Samplerate = file.Properties.AudioSampleRate;
-            Bitdepth = file.Properties.BitsPerSample;
+            var properties = ConditionFile.From(file);
+            Length = properties.Length;
+            Bitrate = properties.Bitrate;
+            Samplerate = properties.SampleRate;
+            Bitdepth = properties.BitDepth;
         }
     }

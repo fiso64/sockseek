@@ -52,14 +52,24 @@ public sealed record SearchViewProjectionDefinition(
     AlbumQuery? AlbumQuery = null,
     bool IncludeFullResults = false,
     string? FilterText = null,
-    SearchViewSortOrder SortOrder = SearchViewSortOrder.Relevance)
+    SearchViewSortOrder SortOrder = SearchViewSortOrder.Relevance,
+    IReadOnlyList<PeerFileIdentity>? KeepVisibleFiles = null)
 {
+    internal Func<SearchProjectionInput, bool> CreateFileFilter()
+    {
+        string? filter = FilterText?.Trim();
+        var retained = Kind == SearchViewProjectionKind.GenericDirectories && filter?.Length > 0
+            ? KeepVisibleFiles?.Select(file => new PeerPathKey(file.Username, file.Filename)).ToHashSet() : null;
+        return input => MatchesFileInput(input, filter)
+            || (retained?.Contains(new PeerPathKey(input.Username, input.Filename)) ?? false);
+    }
+
     public static bool MatchesFileInput(SearchProjectionInput input, string? normalizedFilter)
     {
         ArgumentNullException.ThrowIfNull(input);
         return string.IsNullOrEmpty(normalizedFilter)
-            || input.Username.Contains(normalizedFilter, StringComparison.OrdinalIgnoreCase)
-            || input.Filename.Contains(normalizedFilter, StringComparison.OrdinalIgnoreCase);
+            || Utils.ContainsDisplayText(input.Username, normalizedFilter)
+            || Utils.ContainsDisplayText(input.Filename, normalizedFilter);
     }
 
     public void Validate()
@@ -124,9 +134,11 @@ public sealed record SearchViewKernelUpdate(
     IReadOnlyList<PeerDirectoryIdentity>? RemovedDirectories = null,
     IReadOnlyList<SearchViewProjectedTrackGroup>? ChangedTrackGroups = null,
     IReadOnlyList<SearchViewProjectedAlbumGroup>? ChangedAlbumGroups = null,
-    IReadOnlyList<PeerDirectoryIdentity>? RemovedAlbumGroups = null)
+    IReadOnlyList<PeerDirectoryIdentity>? RemovedAlbumGroups = null,
+    IReadOnlyList<SearchProjectionInput>? FilteredFiles = null)
 {
     public bool HasProjectionChanges => ChangedFiles.Count > 0
+        || FilteredFiles is { Count: > 0 }
         || (ChangedDirectories?.Count ?? 0) > 0
         || (RemovedDirectories?.Count ?? 0) > 0
         || (ChangedTrackGroups?.Count ?? 0) > 0
@@ -164,6 +176,7 @@ public sealed class SearchViewKernel
     private readonly IncrementalAlbumGroupProjector? albumGroupProjector;
     private readonly SearchViewProjectionKind projectionKind;
     private readonly string? filterText;
+    private readonly Func<SearchProjectionInput, bool> fileFilter;
     private readonly Dictionary<PeerPathKey, DirectoryState> directories = [];
     private readonly Dictionary<string, SortedSet<string>> directoryPathsByPeer =
         new(StringComparer.Ordinal);
@@ -238,6 +251,7 @@ public sealed class SearchViewKernel
                 nameof(trackPeerIdentities));
         this.trackPeerIdentities = trackPeerIdentities;
         projectionKind = projection.Kind;
+        fileFilter = projection.CreateFileFilter();
         filterText = string.IsNullOrWhiteSpace(projection.FilterText)
             ? null : projection.FilterText.Trim();
         if (projectionKind is not (SearchViewProjectionKind.Files
@@ -357,6 +371,7 @@ public sealed class SearchViewKernel
             }
             consumedSequence = nextSequence;
 
+            List<SearchProjectionInput>? filteredFiles = null;
             IReadOnlyList<ProjectedFileCandidate> changed;
             IReadOnlyList<SearchViewProjectedDirectory>? changedDirectories = null;
             IReadOnlyList<PeerDirectoryIdentity>? removedDirectories = null;
@@ -427,8 +442,15 @@ public sealed class SearchViewKernel
             }
             else
             {
-                changed = sorter!.AddRangeAndGetProjected(
-                    fresh.Where(MatchesFileInput));
+                bool keepFiltered = projectionKind == SearchViewProjectionKind.GenericDirectories && filterText != null;
+                bool Visible(SearchProjectionInput input)
+                {
+                    if (fileFilter(input)) return true;
+                    if (keepFiltered && input.Visibility == SearchResultVisibility.Public && sorter!.WouldProject(input))
+                        (filteredFiles ??= []).Add(input);
+                    return false;
+                }
+                changed = sorter!.AddRangeAndGetProjected(fresh.Where(Visible));
                 foreach (ProjectedFileCandidate file in changed)
                 {
                     CountProjectedFile(file);
@@ -458,7 +480,7 @@ public sealed class SearchViewKernel
                 removedDirectories,
                 changedTrackGroups,
                 changedAlbumGroups,
-                removedAlbumGroups);
+                removedAlbumGroups, filteredFiles);
         }
     }
 
@@ -510,10 +532,7 @@ public sealed class SearchViewKernel
 
     private bool ContainsFilter(string? value)
         => filterText != null
-            && value?.Contains(filterText, StringComparison.OrdinalIgnoreCase) == true;
-
-    private bool MatchesFileInput(SearchProjectionInput input)
-        => SearchViewProjectionDefinition.MatchesFileInput(input, filterText);
+            && value != null && Utils.ContainsDisplayText(value, filterText);
 
     private bool MatchesAlbumFolder(AlbumFolder folder)
         => filterText == null

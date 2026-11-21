@@ -1,7 +1,7 @@
 import type { AppIconName } from '../../app/icons';
 
 const audioFileExtensions = new Set([
-  'FLAC', 'MP3', 'WAV', 'OGG', 'OPUS', 'M4A', 'AAC', 'ALAC', 'APE', 'AIFF', 'AIF', 'WMA',
+  'FLAC', 'MP3', 'WAV', 'OGG', 'OPUS', 'M4A', 'M4B', 'AAC', 'ALAC', 'APE', 'AIFF', 'AIF', 'WMA',
 ]);
 
 function normalizeExtension(value: string | null | undefined): string {

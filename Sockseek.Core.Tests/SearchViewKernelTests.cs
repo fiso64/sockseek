@@ -172,7 +172,7 @@ public sealed class SearchViewKernelTests
         SearchProjectionInput[] inputs =
         [
             Input(1, "Peer", @"Share\One\Track.flac", 900, SearchResultVisibility.Public),
-            Input(2, "Peer", @"Share\Two\Target.flac", 900, SearchResultVisibility.Public),
+            Input(2, "Peer", @"Share\Twó\Tárget.flac", 900, SearchResultVisibility.Public),
         ];
         var files = new SearchViewKernel(
             new SearchViewProjectionDefinition(
@@ -196,7 +196,18 @@ public sealed class SearchViewKernelTests
         directories.Apply(inputs, 2, false);
         Assert.AreEqual(2L, directories.Snapshot().Counters.PublicFileCount);
         Assert.AreEqual(1L, directories.Snapshot().Counters.ProjectedFileCount);
-        Assert.AreEqual(@"Share\Two", directories.Snapshot().Directories!.Single().Directory.FolderPath);
+        Assert.AreEqual(@"Share\Twó", directories.Snapshot().Directories!.Single().Directory.FolderPath);
+
+        var checkedFiles = new SearchViewKernel(new SearchViewProjectionDefinition(
+            SearchViewProjectionKind.GenericDirectories, new SongQuery(), FilterText: "two",
+            KeepVisibleFiles: [new("Peer", inputs[0].Filename), new("Peer", @"Share\One\Promo.mp3")]),
+            new SearchSettings { NecessaryCond = new FileConditions { Formats = ["flac"] }, PreferredCond = new() });
+        var accepted = checkedFiles.Apply([..inputs,
+            Input(3, "Peer", @"Share\One\Promo.mp3", 128, SearchResultVisibility.Public),
+            Input(4, "Other", inputs[0].Filename, 900, SearchResultVisibility.Public)], 4, true);
+        Assert.AreEqual(4L, checkedFiles.Snapshot().Counters.PublicFileCount);
+        CollectionAssert.AreEquivalent(inputs.Select(file => file.Filename).ToArray(),
+            accepted.ChangedFiles.Select(file => file.Input.Filename).ToArray());
     }
 
     [TestMethod]

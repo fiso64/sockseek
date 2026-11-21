@@ -17,6 +17,8 @@ namespace Tests.EndToEnd
         [DataRow(true, true, "history")]
         [DataRow(false, false, "history")]
         [DataRow(false, true, "library")]
+        [DataRow(false, true, "moved")]
+        [DataRow(false, true, "playlist")]
         [DataRow(true, true, "library")]
         [DataRow(false, false, "library")]
         [DataRow(false, true, "not-found")]
@@ -32,7 +34,7 @@ namespace Tests.EndToEnd
                     string output = Path.Combine(root, albumMode ? "album" : "song");
                     string library = Path.Combine(output, "library", "Artist", "Album");
                     Directory.CreateDirectory(library);
-                    if (evidence == "library")
+                    if (evidence is "library" or "moved")
                         File.WriteAllBytes(Path.Combine(library, "Artist - Song.mp3"), TestHelpers.EmptyMp3Bytes);
                     var query = new SongQuery { Artist = "Artist", Album = "Album", Title = "Song" };
                     var albumQuery = new AlbumQuery { Artist = "Artist", Album = "Album" };
@@ -55,8 +57,8 @@ namespace Tests.EndToEnd
                         : new SongJob(query) { Candidates = [candidate], ExactTarget = exact ? candidate.Target : null };
                     var settings = new DownloadSettings
                     {
-                        Output = { ParentDir = output, IndexFilePath = indexPath, WriteIndex = false },
-                        Skip = { SkipExisting = skipExisting, SkipMusicDir = Path.Combine(output, "library"), SkipNotFound = true },
+                        Output = { ParentDir = output, IndexFilePath = indexPath, WriteIndex = false, WritePlaylist = evidence == "playlist" },
+                        Skip = { SkipExisting = skipExisting, SkipMusicDir = evidence is "library" or "moved" ? Path.Combine(output, "library") : null, SkipNotFound = true },
                         Search = { NoBrowseFolder = true },
                     };
                     // Accepted intent survives persistence/replay, rather than depending on UI state.
@@ -76,7 +78,7 @@ namespace Tests.EndToEnd
                     if (skipped)
                     {
                         Assert.AreEqual(evidence == "not-found" ? JobSkipReason.NotFoundLastTime : JobSkipReason.AlreadyExists, requested.SkipReason);
-                        Assert.AreEqual(evidence == "not-found" ? null : evidence == "history"
+                        Assert.AreEqual(evidence == "not-found" ? null : evidence is "history" or "moved" or "playlist"
                             ? ExistingFileSource.CompletionHistory : ExistingFileSource.Library, requested.ExistingFileSource);
                     }
                 }
@@ -216,8 +218,9 @@ namespace Tests.EndToEnd
                 Assert.IsNotNull(aggJob3);
                 Assert.AreEqual(1, aggJob3.Songs.Count);
                 Assert.AreEqual(JobTerminalOutcome.Succeeded, aggJob3.Songs[0].TerminalOutcome, "Song Groups job should NOT skip if the length is outside the group tolerance.");
-                int linesRun3 = File.ReadAllLines(dl.Output.IndexFilePath).Length;
-                Assert.IsTrue(linesRun3 > linesRun2, "Index file should append new entry for track outside tolerance.");
+                var index = new DownloadOutputFile(dl.Output.IndexFilePath, new JobList(), OutputFileKind.Index, true);
+                Assert.IsNull(index.PreviousRunResult(aggJob1.Songs[0], dl.Search));
+                Assert.AreEqual(aggJob3.Songs[0].DownloadPath, index.PreviousRunResult(aggJob3.Songs[0], dl.Search)?.DownloadPath);
             }
             finally
             {

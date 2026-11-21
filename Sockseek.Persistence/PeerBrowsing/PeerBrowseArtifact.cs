@@ -1,3 +1,4 @@
+using Sockseek.Core;
 using System.Buffers.Binary;
 using System.Globalization;
 using System.IO.Compression;
@@ -314,7 +315,7 @@ public sealed class PeerBrowseArtifact
             var entry = directories[index];
             if (parentIdentity is not null && !PeerBrowsePath.IsDescendant(identities[index], parentIdentity))
                 continue;
-            if (!string.IsNullOrEmpty(query) && !entry.DisplayPath.Contains(query, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(query) && !Utils.ContainsDisplayText(entry.DisplayPath, query))
                 continue;
             if (afterKey is not null && CompareKey(entry.DisplayPath, entry.DirectoryId, afterKey, afterId!.Value) <= 0)
                 continue;
@@ -332,7 +333,7 @@ public sealed class PeerBrowseArtifact
         foreach (int index in Valid(directoryId, directories.Length) ? directoryFiles[(int)directoryId - 1] : [])
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!string.IsNullOrEmpty(query) && !fileNames[index].Contains(query, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(query) && !Utils.ContainsDisplayText(fileNames[index], query))
                 continue;
             if (afterKey is not null && CompareKey(fileNames[index], index + 1L, afterKey, afterId!.Value) <= 0)
                 continue;
@@ -353,6 +354,7 @@ public sealed class PeerBrowseArtifact
     public PeerBrowseSearchPage Search(string query, string? afterPath, PeerBrowseSearchEntryKind? afterKind,
         long? afterId, int limit, CancellationToken cancellationToken)
     {
+        query = Utils.FoldDisplayText(query);
         int separator = query.LastIndexOf('\\');
         var included = new bool[directories.Length];
         var directMatches = new bool[directories.Length];
@@ -360,9 +362,9 @@ public sealed class PeerBrowseArtifact
         var counts = new Counts[directories.Length];
         for (int i = 0; i < directories.Length; i++)
         {
-            directMatches[i] = included[i] = directories[i].DisplayPath.Contains(query, StringComparison.OrdinalIgnoreCase);
+            directMatches[i] = included[i] = Utils.ContainsDisplayText(directories[i].DisplayPath, query);
             if (separator >= 0)
-                crossingMatches[i] = directories[i].DisplayPath.AsSpan().EndsWith(query.AsSpan(0, separator), StringComparison.OrdinalIgnoreCase);
+                crossingMatches[i] = Utils.FoldDisplayText(directories[i].DisplayPath).AsSpan().EndsWith(query.AsSpan(0, separator), StringComparison.OrdinalIgnoreCase);
         }
         var page = new PriorityQueue<SearchReference, SearchReference>(SearchReference.Descending);
         void Offer(int index, PeerBrowseSearchEntryKind kind, string prefix, string name)
@@ -386,8 +388,8 @@ public sealed class PeerBrowseArtifact
             ref readonly File file = ref data.Files[i];
             int directory = file.Directory - 1;
             bool match = directMatches[directory] || (separator < 0
-                ? fileNames[i].Contains(query, StringComparison.OrdinalIgnoreCase)
-                : crossingMatches[directory] && fileNames[i].AsSpan().StartsWith(query.AsSpan(separator + 1), StringComparison.OrdinalIgnoreCase));
+                ? Utils.ContainsDisplayText(fileNames[i], query)
+                : crossingMatches[directory] && Utils.FoldDisplayText(fileNames[i]).AsSpan().StartsWith(query.AsSpan(separator + 1), StringComparison.OrdinalIgnoreCase));
             if (!match)
                 continue;
             total.Add(file);

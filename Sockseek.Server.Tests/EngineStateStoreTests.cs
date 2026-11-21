@@ -2101,6 +2101,10 @@ public class EngineStateStoreTests
         var done = new SongJob(new SongQuery { Title = "Done" }) { WorkflowId = list.WorkflowId };
         var failed = new SongJob(new SongQuery { Title = "Failed" }) { WorkflowId = list.WorkflowId };
 
+        var events = new DownloadEvents();
+        store.AttachEvents(events);
+        events.RaiseRootExecution(list.WorkflowId, started: true);
+        events.RaiseRootExecution(list.WorkflowId, started: true);
         Register(store, list);
         Register(store, done, list);
         Register(store, failed, list);
@@ -2120,6 +2124,12 @@ public class EngineStateStoreTests
         UpdateState(store, failed);
         list.SetDone();
         UpdateState(store, list);
+
+        events.RaiseRootExecution(list.WorkflowId, started: false);
+        var finalizing = store.GetWorkflowSummary(list.WorkflowId)!;
+        Assert.AreEqual(0, finalizing.ActiveJobCount);
+        Assert.AreEqual(ServerWorkflowState.Active, finalizing.State);
+        events.RaiseRootExecution(list.WorkflowId, started: false);
 
         var terminal = store.GetWorkflowSummary(list.WorkflowId);
         Assert.IsNotNull(terminal);

@@ -114,7 +114,7 @@ namespace Sockseek.Core.Extractors;
                     EnablesIndexByDefault   = true,
                     LineNumber              = i + 1,
                     ItemNumber              = offset + added + 1,
-                    SourceMutation          = SourceMutation.ClearTextLine(listFilePath!, i + 1, offset + added + 1),
+                    SourceMutation          = SourceMutation.ClearTextLine(listFilePath!, i + 1, lines[i], offset + added + 1),
                 };
 
                 result.Add(ej);

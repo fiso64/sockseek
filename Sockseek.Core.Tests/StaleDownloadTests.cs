@@ -72,7 +72,10 @@ public class StaleDownloadTests
     }
 
     [TestMethod]
-    public async Task SongDownload_QueuedResultFailsAfterMaxStaleTimeWithoutActivity()
+    [DataRow(null)]
+    [DataRow(JobSelectionSource.ManualSearch)]
+    [DataRow(JobSelectionSource.PeerShares)]
+    public async Task OnlyHandPickedFilesRenewTheWaitOnQueueConfirmation(JobSelectionSource? source)
     {
         var outputDir = CreateOutputDir();
         var (response, candidate) = CreateCandidate("queued-user", @"Music\Test Artist - Queued Song.mp3");
@@ -90,12 +93,16 @@ public class StaleDownloadTests
             },
         };
 
+        int checks = 0;
+        client.QueuePosition = (username, filename) =>
+            username == candidate.Username && filename == candidate.Filename && ++checks == 1 ? 0 : -1;
+
         var clock = new ManualTimeProvider();
         var engineSettings = CreateEngineSettings();
         var settings = CreateSettings(outputDir);
         var song = new SongJob(new SongQuery { Artist = "Test Artist", Title = "Queued Song" })
         {
-            ResolvedTarget = candidate,
+            ResolvedTarget = candidate, SelectionSource = source,
         };
         var engine = CreateEngine(engineSettings, client, clock);
         string? attemptExceptionType = null;
@@ -110,7 +117,14 @@ public class StaleDownloadTests
 
             Assert.AreEqual(0, engine.RunStaleDownloadCheckForTesting());
             clock.Advance(MaxStaleTime);
-            Assert.AreEqual(1, engine.RunStaleDownloadCheckForTesting());
+            engine.RunStaleDownloadCheckForTesting();
+            Assert.AreEqual(source.HasValue ? 1 : 0, checks);
+            if (source.HasValue)
+            {
+                Assert.IsFalse(runTask.IsCompleted);
+                clock.Advance(MaxStaleTime);
+                engine.RunStaleDownloadCheckForTesting();
+            }
 
             await runTask.WaitAsync(SignalTimeout);
             AssertFailed(song, JobFailureReason.AllDownloadsFailed);

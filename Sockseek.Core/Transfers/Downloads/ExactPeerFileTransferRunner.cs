@@ -63,14 +63,17 @@ public sealed class ExactPeerFileTransferRunner
     private readonly DownloadFileOperations fileOperations;
     private readonly ILogger<ExactPeerFileTransferRunner> logger;
 
+    private readonly CancellationToken shutdown;
+
     internal ExactPeerFileTransferRunner(ISoulseekClient client,
                         SoulseekClientManager clientManager,
                         ActiveDownloadTracker activeDownloads,
                         DownloadEvents events,
                         StaleDownloadCoordinator staleDownloads,
                         DownloadFileOperations fileOperations,
-                        ILogger<ExactPeerFileTransferRunner>? logger = null)
+                        ILogger<ExactPeerFileTransferRunner>? logger = null, CancellationToken shutdown = default)
     {
+        this.shutdown = shutdown;
         this.client = client;
         this.clientManager = clientManager;
         this.activeDownloads = activeDownloads;
@@ -99,6 +102,8 @@ public sealed class ExactPeerFileTransferRunner
         if (maxStaleTimeMs <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxStaleTimeMs));
 
+        // Music selections use their organizer to resolve the final path after transfer.
+        bool selectionLayout = owner is RemoteFileJob && owner.Config?.Output.PreserveSelectionConflicts == true;
         CancellationToken cancellationToken = ct ?? CancellationToken.None;
         using var outputClaim = await fileOperations.ClaimOutputPathAsync(
             outputPath,
@@ -109,13 +114,19 @@ public sealed class ExactPeerFileTransferRunner
         if (!clientManager.IsConnectedAndLoggedIn || (allowReuse && fileOperations.MayHaveReusable(target, owner.WorkflowId)))
         {
             var reused = await fileOperations.TryReuseAsync(target, outputPath, owner.Id, owner.WorkflowId,
-                publishToDuplicateCache, allowOverwrite, allowReuse);
+                publishToDuplicateCache, allowOverwrite, allowReuse, owner as SongJob, selectionLayout);
             if (reused != null) return reused;
         }
 
         await clientManager.WaitUntilReadyAsync(cancellationToken);
-        string incompleteOutputPath = transfer.NoIncompleteExt ? outputPath : outputPath + ".incomplete";
         var transferId = TransferIds.New();
+        string directory = Path.GetDirectoryName(outputPath)!;
+        string partialName = selectionLayout ? transferId.ToString("N") : Path.GetFileName(outputPath);
+        // --no-incomplete-ext writes directly to the destination. A crash can leave
+        // a partial file there, including when replacing an existing download.
+        string incompleteOutputPath = transfer.NoIncompleteExt
+            ? outputPath
+            : Path.Combine(directory, Utils.FitPathComponent(partialName + OutputStaging.IncompleteExtension));
         int attemptCount = 0;
         Guid currentAttemptId = Guid.Empty;
         long totalBytes = target.Size ?? 0;
@@ -131,6 +142,16 @@ public sealed class ExactPeerFileTransferRunner
                 {
                     totalBytes = negotiatedSize;
                     owner.FileSize = negotiatedSize;
+                }
+                // The peer can finish before local writes, placement, or an attempt retry.
+                // Only the owner of the output publishes the download’s terminal state.
+                if (state.Transfer.State.HasFlag(TransferStates.Completed))
+                {
+                    owner.BytesTransferred = state.Transfer.BytesTransferred;
+                    if (owner.BytesTransferred > 0)
+                        events.RaiseDownloadProgress(transferId, owner, target, outputPath,
+                            owner.BytesTransferred, totalBytes, state.Transfer.AverageSpeed);
+                    return;
                 }
                 events.RaiseDownloadStateChanged(
                     transferId,
@@ -194,8 +215,9 @@ public sealed class ExactPeerFileTransferRunner
         }
 
         var prepared = await fileOperations.PrepareAsync(target, outputPath, incompleteOutputPath, owner.Id, owner.WorkflowId,
-            publishToDuplicateCache, allowOverwrite, allowReuse);
+            publishToDuplicateCache, allowOverwrite, allowReuse, owner as SongJob, selectionLayout);
         if (prepared.Reused != null) return prepared.Reused;
+        incompleteOutputPath = prepared.Output!.Path;
 
         try
         {
@@ -203,8 +225,7 @@ public sealed class ExactPeerFileTransferRunner
                 ? CancellationTokenSource.CreateLinkedTokenSource((CancellationToken)ct)
                 : new CancellationTokenSource();
 
-            await using var output = new DownloadOutput(
-                prepared.Output!, fileOperations);
+            await using var output = prepared.Output!;
             Stream outputStream = output.Stream;
 
             owner.UpdateActivity(JobActivityPhase.Downloading);
@@ -238,6 +259,8 @@ public sealed class ExactPeerFileTransferRunner
                             staleActivity = activity;
                             try
                             {
+                                // Resume from the same peer to preserve progress. We accept that
+                                // a same-size replacement at this path can mix two revisions.
                                 return await client.DownloadAsync(target.Username, target.Filename,
                                     () => Task.FromResult((Stream)outputStream),
                                     target.Size,
@@ -249,12 +272,16 @@ public sealed class ExactPeerFileTransferRunner
                             {
                                 staleActivity = null;
                             }
-                        });
+                        }, client);
                     if (completed.Size is { } completedSize && completedSize != target.Size)
                     {
                         target = target.WithSize(completedSize);
                         owner.FileSize = totalBytes = completedSize;
                     }
+                    if (target.Size is >= 0 && outputStream.Position != target.Size.Value)
+                        throw new EndOfStreamException(
+                            $"Received {outputStream.Position} of {target.Size.Value} expected bytes.");
+                    await output.DisposeAsync();
                     events.RaiseTransferAttemptCompleted(
                         transferId,
                         currentAttemptId,
@@ -287,7 +314,7 @@ public sealed class ExactPeerFileTransferRunner
                         owner,
                         target,
                         outputPath,
-                        e);
+                        e, FailureReason(e));
                     events.RaiseDownloadAttemptFailed(transferId, owner, target, outputPath, incompleteOutputPath, attemptCount, maxRetries, e);
 
                     if (!canRetry)
@@ -304,10 +331,9 @@ public sealed class ExactPeerFileTransferRunner
                         // TODO: Soulseek.NET also rejects malformed zero sizes
                         // from some peers. Nicotine retains the known size in that
                         // case; we need upstream negotiation support to do so safely.
-                        outputStream.SetLength(0);
-                        outputStream.Position = 0;
                         target = target.WithSize(sizeChange!.RemoteSize);
                         owner.FileSize = totalBytes = sizeChange.RemoteSize;
+                        await fileOperations.ResetPartialAsync(outputStream);
                         owner.BytesTransferred = 0;
                         lastProgressPublished = long.MinValue;
                         correctedSize = true;
@@ -341,6 +367,10 @@ public sealed class ExactPeerFileTransferRunner
         }
         catch (Exception ex)
         {
+            bool stopped = ex is OperationCanceledException && shutdown.IsCancellationRequested
+                && activeDownload?.UserCancelled != true
+                && owner.CancellationSource == JobCancellationSource.None
+                && (parentJob is null || parentJob.CancellationSource == JobCancellationSource.None);
             await DeleteIncompleteDownloadAfterFailureAsync();
 
             if (activeDownloads.TryRemove(transferId, out var ad) && ad.IsManuallySkipped)
@@ -352,7 +382,7 @@ public sealed class ExactPeerFileTransferRunner
             if (ex is OperationCanceledException cancelled
                 && (activeDownload?.Cts.IsCancellationRequested == true || ct?.IsCancellationRequested == true))
             {
-                CancelTransfer(TransferCancellationReason.Requested);
+                CancelTransfer(stopped ? TransferCancellationReason.DaemonShutdown : TransferCancellationReason.Requested);
                 if (ct?.IsCancellationRequested != true)
                     throw new DownloadCancelledException(cancelled);
             }
@@ -377,7 +407,7 @@ public sealed class ExactPeerFileTransferRunner
                     owner.BytesTransferred,
                     totalBytes,
                     Math.Max(attemptCount, 1),
-                    TransferFailureReason.PeerFailure,
+                    FailureReason(ex),
                     ex);
             }
 
@@ -388,54 +418,56 @@ public sealed class ExactPeerFileTransferRunner
         long completedBytes;
         long PublishOutput(DownloadFileOperations.Cache cache)
         {
-            if (!transfer.NoIncompleteExt)
+            if (selectionLayout)
+            {
+                var placed = cache.PlaceFile(incompleteOutputPath, outputPath, directory);
+                if (placed.Matched && !DownloadFileOperations.PathEquals(incompleteOutputPath, placed.Path))
+                    Utils.DeleteFileAndParentsIfEmpty(incompleteOutputPath, directory);
+                outputPath = placed.Path;
+            }
+            else
             {
                 cache.InvalidatePath(outputPath);
-                Utils.Move(incompleteOutputPath, outputPath);
+                Utils.MoveAndDeleteParent(incompleteOutputPath, outputPath, directory);
             }
             if (publishToDuplicateCache) cache.Publish(outputPath, target, owner.WorkflowId);
             return !deferTerminalCompletion && File.Exists(outputPath)
                 ? new FileInfo(outputPath).Length : target.Size ?? owner.BytesTransferred;
         }
-        if (!transfer.NoIncompleteExt)
+        try
         {
+            completedBytes = await fileOperations.WithCacheAsync(PublishOutput);
+        }
+        catch (Exception ex)
+        {
+            activeDownloads.TryRemove(transferId, out _);
             try
             {
-                completedBytes = await fileOperations.WithCacheAsync(PublishOutput);
+                await fileOperations.DeleteIncompleteAsync(incompleteOutputPath, Path.GetDirectoryName(outputPath));
             }
-            catch (Exception ex)
+            catch (Exception cleanupEx)
             {
-                activeDownloads.TryRemove(transferId, out _);
-                try
-                {
-                    await fileOperations.DeleteIncompleteAsync(incompleteOutputPath);
-                }
-                catch (Exception cleanupEx)
-                {
-                    DownloadLogMessages.CleanupFailed(
-                        logger,
-                        "finalization-incomplete-transfer",
-                        cleanupEx.GetType().Name);
-                }
-
-                var finalizationException = new IOException(
-                    $"Failed to rename incomplete file from '{incompleteOutputPath}' to '{outputPath}'.",
-                    ex);
-                events.RaiseTransferFailed(
-                    transferId,
-                    owner,
-                    target,
-                    outputPath,
-                    owner.BytesTransferred,
-                    totalBytes,
-                    Math.Max(attemptCount, 1),
-                    TransferFailureReason.Finalization,
-                    finalizationException);
-                throw finalizationException;
+                DownloadLogMessages.CleanupFailed(
+                    logger,
+                    "finalization-incomplete-transfer",
+                    cleanupEx.GetType().Name);
             }
-        }
 
-        else completedBytes = await fileOperations.WithCacheAsync(PublishOutput);
+            var finalizationException = new IOException(
+                $"Failed to rename incomplete file from '{incompleteOutputPath}' to '{outputPath}'.",
+                ex);
+            events.RaiseTransferFailed(
+                transferId,
+                owner,
+                target,
+                outputPath,
+                owner.BytesTransferred,
+                totalBytes,
+                Math.Max(attemptCount, 1),
+                TransferFailureReason.Finalization,
+                finalizationException);
+            throw finalizationException;
+        }
 
         var result = new ExactFileTransferResult(outputPath, target, transferId, Math.Max(attemptCount, 1));
         activeDownloads.TryRemove(transferId, out _);
@@ -457,6 +489,13 @@ public sealed class ExactPeerFileTransferRunner
         return ExactFileTransferOutcome.Completed(result);
     }
 
+    private static TransferFailureReason FailureReason(Exception exception)
+    {
+        for (Exception? cause = exception; cause != null; cause = cause.InnerException)
+            if (cause is DownloadDestinationException) return TransferFailureReason.LocalStorageError;
+        return TransferFailureReason.PeerFailure;
+    }
+
     private static bool IsRetryableTransferFailure(Exception exception)
     {
         // Soulseek.NET wraps stream/open failures. Retrying the same unavailable
@@ -465,35 +504,18 @@ public sealed class ExactPeerFileTransferRunner
         {
             if (cause is OperationCanceledException or FileNotFoundException or DirectoryNotFoundException
                 or UnauthorizedAccessException or UserNotFoundException or TransferRejectedException
-                or TransferSizeMismatchException or TransferStreamException or StaleDownloadException)
+                or TransferSizeMismatchException or TransferStreamException or StaleDownloadException or DownloadDestinationException)
                 return false;
         }
         return true;
     }
-
-    private sealed class DownloadOutput(Stream stream, DownloadFileOperations files) : IAsyncDisposable
-    {
-        public Stream Stream { get; } = stream;
-
-        public ValueTask DisposeAsync()
-        {
-            if (!Stream.CanWrite)
-                return ValueTask.CompletedTask;
-
-            // Native close can block even through FileStream.DisposeAsync.
-            // Reuse the run's isolated workers and await close before cleanup,
-            // rename or terminal publication.
-            return files.CloseAsync(Stream);
-        }
-    }
-
 
     private static string CleanupRootForIncompletePath(string path, string? parentDir)
     {
         if (string.IsNullOrWhiteSpace(parentDir))
             return "";
 
-        var stagingRoot = Path.Join(parentDir, ".sockseek-staging");
+        var stagingRoot = Path.Join(parentDir, OutputStaging.DirectoryName);
         return Utils.IsInDirectory(path, stagingRoot, strict: true)
             ? stagingRoot
             : parentDir;

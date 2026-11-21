@@ -763,8 +763,13 @@ namespace Tests.EndToEnd
                 var lines = File.ReadAllLines(settings.Output.IndexFilePath);
                 Assert.AreEqual("filepath,artist,album,title,length,tracktype,state,failurereason", lines[0]);
                 var normalizedLines = lines.Select(line => line.Replace('\\', '/')).ToList();
-                Assert.IsTrue(normalizedLines.Any(line => line == "./Renamed/Test Album,Test Artist,Test Album,,-1,1,1,0"),
+                Assert.IsTrue(normalizedLines.Any(line => line == "./Renamed/Test Album,Test Artist,Test Album,,-1,2,1,0"),
                     string.Join("\n", lines));
+                var index = new DownloadOutputFile(settings.Output.IndexFilePath, new JobList(), OutputFileKind.Index, true, readOnly: true);
+                var album = new AlbumJob(new AlbumQuery { Artist = "Test Artist", Album = "Test Album" }) { Config = new DownloadSettings() };
+                Assert.IsNull(index.PreviousRunResult(album));
+                album.Config.Search.NoBrowseFolder = true;
+                Assert.AreEqual(IndexEntryKind.SearchResultsAlbum, index.PreviousRunResult(album)?.Kind);
                 Assert.IsFalse(lines.Any(line => line.Contains("First.mp3") || line.Contains("Second.mp3")),
                     "Album child songs should not be written as index entries.");
             }
@@ -875,7 +880,7 @@ namespace Tests.EndToEnd
                     "The already-downloaded album file should have been moved by the incomplete album action.");
 
                 var lines = File.ReadAllLines(settings.Output.IndexFilePath);
-                Assert.IsTrue(lines.Any(line => line == ",Test Artist,Test Album,,-1,1,2,4"),
+                Assert.IsTrue(lines.Any(line => line == $",Test Artist,Test Album,,-1,1,2,{(int)JobFailureReason.ChildJobsFailed}"),
                     string.Join("\n", lines));
                 Assert.IsFalse(lines.Any(line => line.Contains(failedDir) || line.Contains("First.mp3")),
                     "Failed album index entry should record only album failure, not incomplete-album-action path or child files.");
@@ -1079,6 +1084,8 @@ namespace Tests.EndToEnd
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
+                Assert.AreEqual(JobTerminalOutcome.Failed, album.TerminalOutcome);
+                Assert.AreEqual(JobFailureReason.ChildJobsFailed, album.FailureReason);
                 await assert(completedPath, actionDir, settings);
             }
             finally

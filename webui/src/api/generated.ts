@@ -1862,6 +1862,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search-views/{viewId}/revisions/{revision}/lifetime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Checks how long a result revision remains available without extending its lifetime. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    viewId: string;
+                    revision: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SearchViewRevisionLifetimeDto"];
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/search-views/{viewId}/definition": {
         parameters: {
             query?: never;
@@ -2879,6 +2941,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/search-views/{viewId}/library-matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Returns song or album group references with a matching local copy. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    viewId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SearchViewLibraryMatchesRequestDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string[];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/search-views/{viewId}/selection-settings": {
         parameters: {
             query?: never;
@@ -3313,6 +3467,15 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
                 };
             };
         };
@@ -6374,7 +6537,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/jobs/{jobId}/rerun-search": {
+    "/api/jobs/{jobId}/rerun": {
         parameters: {
             query?: never;
             header?: never;
@@ -6384,8 +6547,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Replays only one planned search job from its retained execution settings.
-         * @description Replays the selected search while leaving sibling jobs in their current state.
+         * Runs one accepted job again using its saved command and settings.
+         * @description A child runs independently of its siblings.
          */
         post: {
             parameters: {
@@ -6443,6 +6606,76 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{jobId}/retry-directory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retries missing members of one retained peer selection. */
+        post: {
+            parameters: {
+                query?: {
+                    memberJobId?: string;
+                };
+                header?: never;
+                path: {
+                    jobId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["JobSummaryDto"];
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
                 };
             };
         };
@@ -6835,7 +7068,7 @@ export interface paths {
         };
         /**
          * Gets raw search responses for a search job.
-         * @description Use afterSequence to incrementally fetch raw responses after the last seen sequence.
+         * @description Use afterSequence to fetch responses after the last seen sequence. HTTP 404 with code SearchResultsUnavailable means the job has no available raw result history.
          */
         get: {
             parameters: {
@@ -8971,6 +9204,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/transfers/{transferId}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry one failed or interrupted download from its original peer. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    transferId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["JobSummaryDto"];
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/transfers/cancel": {
         parameters: {
             query?: never;
@@ -8982,7 +9283,7 @@ export interface paths {
         put?: never;
         /**
          * Cancels a snapshot of transfers by direction, queue state, and optional exact peer/group.
-         * @description Targets are resolved once, then cancelled independently. Races and per-transfer failures are reported in a fixed-size receipt.
+         * @description For an exact directory download group, All cancels its unfinished files, including those still waiting for a transfer slot. Other scopes cancel a snapshot of matching transfers.
          */
         post: {
             parameters: {
@@ -10609,6 +10910,7 @@ export interface components {
             /** Format: uuid */
             idempotencyKey: string;
             subtreeOverrides?: null | components["schemas"]["JobPreviewSelectionOverrideDto"][];
+            downloadOverrides?: null | components["schemas"]["DownloadSettingsPatchDto"];
         };
         CommitJobPreviewResponseDto: {
             /** Format: uuid */
@@ -10682,6 +10984,11 @@ export interface components {
             error?: null | string;
             /** Format: int32 */
             errorLine?: null | number | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            revision: number | string;
         };
         ConversationPageDto: {
             items: components["schemas"]["ConversationSummaryDto"][];
@@ -10751,6 +11058,7 @@ export interface components {
             filterText?: null | string;
             sortOrder?: null | components["schemas"]["ServerSearchViewSortOrder"];
             profileNames?: null | string[];
+            keepVisibleFiles?: null | components["schemas"]["FileCandidateRefDto"][];
         };
         CsvSettingsPatchDto: {
             artistCol?: null | string;
@@ -11185,6 +11493,11 @@ export interface components {
             clearMinTrackCount?: null | boolean;
             clearMaxTrackCount?: null | boolean;
         };
+        FolderRetryStatusDto: {
+            /** Format: int32 */
+            missingFiles: number | string;
+            completedOnRetry: boolean;
+        };
         IncompleteAlbumActionSettingsPatchDto: {
             kind?: null | components["schemas"]["ServerIncompleteAlbumActionKind"];
             path?: null | string;
@@ -11221,6 +11534,7 @@ export interface components {
             childCount: number | string;
             /** @default false */
             sourceJobAvailable: boolean;
+            repeatOptions?: null | components["schemas"]["JobRepeatOptionsDto"];
         };
         JobDiscoveryFieldsDto: {
             /** Format: int32 */
@@ -11467,7 +11781,7 @@ export interface components {
                             }[];
                             availableActions: {
                                 /** @enum {unknown} */
-                                kind: "cancel";
+                                kind: "cancel" | "retry";
                                 method: string;
                                 href: string;
                             }[];
@@ -11498,7 +11812,7 @@ export interface components {
                             }[];
                             availableActions: {
                                 /** @enum {unknown} */
-                                kind: "cancel";
+                                kind: "cancel" | "retry";
                                 method: string;
                                 href: string;
                             }[];
@@ -11555,6 +11869,11 @@ export interface components {
                         error?: null | string;
                         /** Format: int32 */
                         errorLine?: null | number | string;
+                        /**
+                         * Format: int32
+                         * @default 0
+                         */
+                        revision: number | string;
                     };
                 };
                 workflows: {
@@ -11623,14 +11942,14 @@ export interface components {
                             /** @enum {unknown} */
                             skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
                             /** @enum {unknown} */
-                            failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                            failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                             failureMessage?: null | string;
                             failureDetail?: null | string;
                             /** @enum {unknown} */
                             cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                             availableActions: {
                                 /** @enum {unknown} */
-                                kind: "cancel";
+                                kind: "cancel" | "retry";
                                 method: string;
                                 href: string;
                             }[];
@@ -11717,14 +12036,14 @@ export interface components {
                         /** @enum {unknown} */
                         skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
                         /** @enum {unknown} */
-                        failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                        failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                         failureMessage?: null | string;
                         failureDetail?: null | string;
                         /** @enum {unknown} */
                         cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                         availableActions: {
                             /** @enum {unknown} */
-                            kind: "cancel";
+                            kind: "cancel" | "retry";
                             method: string;
                             href: string;
                         }[];
@@ -11837,7 +12156,7 @@ export interface components {
                              * @default None
                              * @enum {unknown}
                              */
-                            failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
+                            failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown" | "LocalStorageError";
                             /**
                              * @default None
                              * @enum {unknown}
@@ -11850,7 +12169,7 @@ export interface components {
                             removedAtUtc?: null | string;
                             availableActions?: {
                                 /** @enum {unknown} */
-                                kind: "cancel";
+                                kind: "cancel" | "retry";
                                 method: string;
                                 href: string;
                             }[] | null;
@@ -11911,7 +12230,7 @@ export interface components {
                          * @default None
                          * @enum {unknown}
                          */
-                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
+                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown" | "LocalStorageError";
                         /**
                          * @default None
                          * @enum {unknown}
@@ -11924,7 +12243,7 @@ export interface components {
                         removedAtUtc?: null | string;
                         availableActions?: {
                             /** @enum {unknown} */
-                            kind: "cancel";
+                            kind: "cancel" | "retry";
                             method: string;
                             href: string;
                         }[] | null;
@@ -12401,6 +12720,13 @@ export interface components {
             resultJobId?: null | string;
             /** Format: uuid */
             sourceJobId?: null | string;
+        };
+        JobRepeatOptionsDto: {
+            canRunAgain: boolean;
+            /** Format: int32 */
+            missingFiles: number | string;
+            /** Format: uuid */
+            retryTransferId?: null | string;
         };
         JobStateDto: {
             /** Format: uuid */
@@ -13029,11 +13355,14 @@ export interface components {
             peer: components["schemas"]["PeerInfoDto"];
             bestChild: components["schemas"]["SearchViewFileDto"];
             initialFiles?: null | components["schemas"]["SearchViewDirectoryFilePreviewDto"];
+            /** @default false */
+            hasFilteredFiles: boolean;
         };
         SearchViewDirectoryFileDto: {
             ref: string;
             relativePath: string;
             file: components["schemas"]["SearchViewFileDto"];
+            deepestFilteredFolder?: null | string;
         };
         SearchViewDirectoryFilePageDto: {
             revision: components["schemas"]["SearchViewRevisionDto"];
@@ -13055,6 +13384,8 @@ export interface components {
             directoryRef: string;
             relativePath: string;
             selected: boolean;
+            /** @default false */
+            includeFilteredFiles: boolean;
         };
         /** @enum {unknown} */
         SearchViewDirectoryRetrievalState: "SearchResultsOnly" | "Complete" | "Incomplete";
@@ -13076,6 +13407,12 @@ export interface components {
             items: components["schemas"]["SearchViewFileDto"][];
             nextCursor?: null | string;
         };
+        SearchViewLibraryMatchesRequestDto: {
+            /** Format: int64 */
+            revision: number | string;
+            groupRefs: string[];
+            options?: null | components["schemas"]["SubmissionOptionsDto"];
+        };
         /** @enum {unknown} */
         SearchViewRetentionState: "Live" | "Complete" | "Incomplete" | "Interrupted" | "Pruned";
         SearchViewRevisionDto: {
@@ -13090,6 +13427,10 @@ export interface components {
             isComplete: boolean;
             retentionState: components["schemas"]["SearchViewRetentionState"];
             counters: components["schemas"]["SearchViewCountersDto"];
+        };
+        SearchViewRevisionLifetimeDto: {
+            /** Format: int64 */
+            remainingMilliseconds: number | string;
         };
         SearchViewSelectionSettingsVariantDto: {
             jobKind: components["schemas"]["ServerJobKind"];
@@ -13193,7 +13534,7 @@ export interface components {
         /** @enum {unknown} */
         ServerJobCancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
         /** @enum {unknown} */
-        ServerJobFailureReason: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+        ServerJobFailureReason: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
         /** @enum {unknown} */
         ServerJobKind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
         /** @enum {unknown} */
@@ -13206,7 +13547,7 @@ export interface components {
         ServerJobTerminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
         ServerPrintOption: number;
         /** @enum {unknown} */
-        ServerResourceActionKind: "cancel";
+        ServerResourceActionKind: "cancel" | "retry";
         /** @enum {unknown} */
         ServerSearchDefaultProjectionKind: "GenericFile" | "Track" | "Album" | null;
         /** @enum {unknown} */
@@ -13369,6 +13710,7 @@ export interface components {
              */
             csvColumnCount: number | string;
             trackUri?: null | string;
+            recordHash?: null | string;
         };
         SpotifySettingsPatchDto: {
             clientId?: null | string;
@@ -13473,7 +13815,7 @@ export interface components {
                         }[];
                         availableActions: {
                             /** @enum {unknown} */
-                            kind: "cancel";
+                            kind: "cancel" | "retry";
                             method: string;
                             href: string;
                         }[];
@@ -13504,7 +13846,7 @@ export interface components {
                         }[];
                         availableActions: {
                             /** @enum {unknown} */
-                            kind: "cancel";
+                            kind: "cancel" | "retry";
                             method: string;
                             href: string;
                         }[];
@@ -13561,6 +13903,11 @@ export interface components {
                     error?: null | string;
                     /** Format: int32 */
                     errorLine?: null | number | string;
+                    /**
+                     * Format: int32
+                     * @default 0
+                     */
+                    revision: number | string;
                 };
             };
             workflows: {
@@ -13629,14 +13976,14 @@ export interface components {
                         /** @enum {unknown} */
                         skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
                         /** @enum {unknown} */
-                        failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                        failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                         failureMessage?: null | string;
                         failureDetail?: null | string;
                         /** @enum {unknown} */
                         cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                         availableActions: {
                             /** @enum {unknown} */
-                            kind: "cancel";
+                            kind: "cancel" | "retry";
                             method: string;
                             href: string;
                         }[];
@@ -13723,14 +14070,14 @@ export interface components {
                     /** @enum {unknown} */
                     skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
                     /** @enum {unknown} */
-                    failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                    failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                     failureMessage?: null | string;
                     failureDetail?: null | string;
                     /** @enum {unknown} */
                     cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                     availableActions: {
                         /** @enum {unknown} */
-                        kind: "cancel";
+                        kind: "cancel" | "retry";
                         method: string;
                         href: string;
                     }[];
@@ -13843,7 +14190,7 @@ export interface components {
                          * @default None
                          * @enum {unknown}
                          */
-                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
+                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown" | "LocalStorageError";
                         /**
                          * @default None
                          * @enum {unknown}
@@ -13856,7 +14203,7 @@ export interface components {
                         removedAtUtc?: null | string;
                         availableActions?: {
                             /** @enum {unknown} */
-                            kind: "cancel";
+                            kind: "cancel" | "retry";
                             method: string;
                             href: string;
                         }[] | null;
@@ -13917,7 +14264,7 @@ export interface components {
                      * @default None
                      * @enum {unknown}
                      */
-                    failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
+                    failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown" | "LocalStorageError";
                     /**
                      * @default None
                      * @enum {unknown}
@@ -13930,7 +14277,7 @@ export interface components {
                     removedAtUtc?: null | string;
                     availableActions?: {
                         /** @enum {unknown} */
-                        kind: "cancel";
+                        kind: "cancel" | "retry";
                         method: string;
                         href: string;
                     }[] | null;
@@ -14232,7 +14579,7 @@ export interface components {
                             }[];
                             availableActions: {
                                 /** @enum {unknown} */
-                                kind: "cancel";
+                                kind: "cancel" | "retry";
                                 method: string;
                                 href: string;
                             }[];
@@ -14263,7 +14610,7 @@ export interface components {
                             }[];
                             availableActions: {
                                 /** @enum {unknown} */
-                                kind: "cancel";
+                                kind: "cancel" | "retry";
                                 method: string;
                                 href: string;
                             }[];
@@ -14320,6 +14667,11 @@ export interface components {
                         error?: null | string;
                         /** Format: int32 */
                         errorLine?: null | number | string;
+                        /**
+                         * Format: int32
+                         * @default 0
+                         */
+                        revision: number | string;
                     };
                 };
                 workflows: {
@@ -14388,14 +14740,14 @@ export interface components {
                             /** @enum {unknown} */
                             skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
                             /** @enum {unknown} */
-                            failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                            failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                             failureMessage?: null | string;
                             failureDetail?: null | string;
                             /** @enum {unknown} */
                             cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                             availableActions: {
                                 /** @enum {unknown} */
-                                kind: "cancel";
+                                kind: "cancel" | "retry";
                                 method: string;
                                 href: string;
                             }[];
@@ -14482,14 +14834,14 @@ export interface components {
                         /** @enum {unknown} */
                         skipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
                         /** @enum {unknown} */
-                        failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | null;
+                        failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                         failureMessage?: null | string;
                         failureDetail?: null | string;
                         /** @enum {unknown} */
                         cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                         availableActions: {
                             /** @enum {unknown} */
-                            kind: "cancel";
+                            kind: "cancel" | "retry";
                             method: string;
                             href: string;
                         }[];
@@ -14602,7 +14954,7 @@ export interface components {
                              * @default None
                              * @enum {unknown}
                              */
-                            failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
+                            failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown" | "LocalStorageError";
                             /**
                              * @default None
                              * @enum {unknown}
@@ -14615,7 +14967,7 @@ export interface components {
                             removedAtUtc?: null | string;
                             availableActions?: {
                                 /** @enum {unknown} */
-                                kind: "cancel";
+                                kind: "cancel" | "retry";
                                 method: string;
                                 href: string;
                             }[] | null;
@@ -14676,7 +15028,7 @@ export interface components {
                          * @default None
                          * @enum {unknown}
                          */
-                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
+                        failureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown" | "LocalStorageError";
                         /**
                          * @default None
                          * @enum {unknown}
@@ -14689,7 +15041,7 @@ export interface components {
                         removedAtUtc?: null | string;
                         availableActions?: {
                             /** @enum {unknown} */
-                            kind: "cancel";
+                            kind: "cancel" | "retry";
                             method: string;
                             href: string;
                         }[] | null;
@@ -15133,7 +15485,7 @@ export interface components {
          * @default None
          * @enum {unknown}
          */
-        TransferFailureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown";
+        TransferFailureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown" | "LocalStorageError";
         TransferGroupKeyDto: {
             direction: components["schemas"]["TransferCommandDirection"];
             username?: null | string;
@@ -15180,6 +15532,7 @@ export interface components {
             cancelledCount: number | string;
             /** Format: int64 */
             interruptedCount: number | string;
+            folderRetry?: null | components["schemas"]["FolderRetryStatusDto"];
         };
         TransferIdentityFieldsDto: {
             /** Format: uuid */

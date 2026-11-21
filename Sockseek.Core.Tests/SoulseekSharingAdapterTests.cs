@@ -194,11 +194,12 @@ public sealed class SoulseekSharingAdapterTests
             1,
             new SearchQuery("allowed")));
         Assert.AreEqual(0, reader.SearchCount);
-        await Assert.ThrowsExactlyAsync<DownloadEnqueueException>(
+        var rejection = await Assert.ThrowsExactlyAsync<DownloadEnqueueException>(
             () => adapter.EnqueueUploadAsync(
                 "alice",
                 endpoint,
                 @"Public\allowed track.flac"));
+        Assert.AreEqual("Uploads are disabled on this peer.", rejection.Message);
         Assert.IsNull(await adapter.ResolvePlaceInQueueAsync(
             "alice",
             endpoint,

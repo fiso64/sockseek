@@ -132,14 +132,22 @@ public partial class Searcher : IDisposable
         {
             // Interactive SearchJob views can relax conditions later. Preserve
             // all observations here; sorting/filtering belongs to requested projections.
-            SearchOptions OptionsForAttempt(SearchAttempt attempt)
-                => CreateSearchOptions(search, attempt.Timeout, requireDownloadablePeer: false,
+            SearchOptions Options(int timeout)
+                => CreateSearchOptions(search, timeout, requireDownloadablePeer: false,
                     responseFilter: _ => true,
                     fileFilter: _ => true);
 
             activityJob.UpdateActivity(JobActivityPhase.WaitingForSearchConcurrency);
             await concurrencySemaphore.WaitAsync(ct);
-            try { await RunSearchAttempts(job.NetworkQuery, session, OptionsForAttempt, session.AddResponse, search, ct, activityJob, onSearch); }
+            try
+            {
+                if (job.DefaultFileProjection == null && job.DefaultFolderProjection == null)
+                    await RunSearchAttempt(SearchQuery.FromText(job.QueryText), Options(search.SearchTimeout),
+                        session.AddResponse, ct, activityJob, onSearch);
+                else
+                    await RunSearchAttempts(job.NetworkQuery, session, attempt => Options(attempt.Timeout),
+                        session.AddResponse, search, ct, activityJob, onSearch);
+            }
             finally { concurrencySemaphore.Release(); }
 
             activityJob.UpdateActivity(JobActivityPhase.ProcessingSearchResults);
@@ -343,19 +351,18 @@ public partial class Searcher : IDisposable
     // can deliberately relax conditions; counting all raw hits would change them.
     // It also avoids retaining/persisting unusable hits solely for automatic work.
     // Interactive searches and whole-folder album projections intentionally differ.
-    // Print-only discovery can show locked-only peers and unknown upload speeds;
-    // these observations must neither enable automatic nor provisional downloads.
+    // A new peer may advertise zero speed until its first completed upload.
     private static SearchOptions TrackSearchOptions(
         SearchSettings search, int timeout, FileConditions necessary, SongQuery query, bool readOnly)
         => CreateSearchOptions(search, timeout, requireDownloadablePeer: !readOnly,
-            responseFilter: response => (readOnly || response.UploadSpeed > 0) && necessary.UserSatisfies(response),
+            responseFilter: response => necessary.UserSatisfies(response),
             fileFilter: file => ConditionSatisfactionPolicy.SearchFileSatisfies(necessary, null, file, query));
 
     private static SearchOptions CreateSearchOptions(SearchSettings search, int timeout, bool requireDownloadablePeer,
         Func<SearchResponse, bool> responseFilter, Func<SlFile, bool> fileFilter)
         => new(
             minimumResponseFileCount: requireDownloadablePeer ? 1 : 0,
-            minimumPeerUploadSpeed: requireDownloadablePeer ? 1 : 0,
+            minimumPeerUploadSpeed: 0,
             searchTimeout: timeout,
             responseLimit: search.ResponseLimit,
             removeSingleCharacterSearchTerms: search.RemoveSingleCharSearchTerms,

@@ -1,9 +1,9 @@
 <script lang="ts">
   import HelpPopover from '../../components/HelpPopover.svelte';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { keyboardList } from '../../lib/keyboard';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
-  import type { JobStateDto, Schema } from '../../api/types';
+  import type { JobStateDto, Schema, SearchViewRequest } from '../../api/types';
   import { searchViewUnavailable } from './controller';
   import { allSearchResultsSelected, selectionUsesEarlierRevision as usesEarlierRevision, type GroupOption } from './selection';
   import { DaemonApiError } from '../../api/http';
@@ -37,6 +37,8 @@
 
   interface Props {
     userActions: UserLinkActions;
+    connected: boolean;
+    configurationRevision?: number;
     daemonOffline?: boolean;
     viewState: SearchViewState;
     liveJob?: JobStateDto | null;
@@ -51,13 +53,15 @@
     selectedCount: number;
     onbeginrange: (additive: boolean) => (items: SearchRangeItem[], selected: boolean) => void;
     ontoggle: (ref: string, selected: boolean, parentRef?: string) => void;
-    onselectfolder: (directoryRef: string, relativePath: string, selected: boolean) => void;
-    isfolderselected: (directoryRef: string, relativePath: string) => boolean;
+    onselectfolder: (directoryRef: string, relativePath: string, selected: boolean, includeFiltered?: boolean) => void;
+    isfolderselected: (directoryRef: string, relativePath: string, filtered?: boolean) => boolean;
     onselectall: (selected: boolean) => void;
     ondownload: (options?: Schema<'SubmissionOptionsDto'>) => void;
+    onlibrarymatches: (id: string, request: Schema<'SearchViewLibraryMatchesRequestDto'>, signal: AbortSignal) => Promise<string[]>;
     onresolvesettings: (options?: Schema<'SubmissionOptionsDto'>) => Promise<Schema<'ResolveSearchViewSelectionSettingsResponseDto'>>;
+    oncheckrevision: (viewId: string, revision: number | string, signal: AbortSignal) => Promise<Schema<'SearchViewRevisionLifetimeDto'>>;
     onloaddefinition: (viewId: string) => Promise<Schema<'SearchViewDefinitionDto'>>;
-    onrefine: (request: Schema<'CreateSearchViewRequestDto'>, resetSelection?: boolean) => Promise<boolean>;
+    onrefine: (request: SearchViewRequest, resetSelection?: boolean) => Promise<boolean>;
     onsort: (order: Schema<'ServerSearchViewSortOrder'>) => Promise<boolean>;
     onloadmore: () => void;
     onretry: () => void;
@@ -77,6 +81,8 @@
 
   let {
     userActions,
+    connected,
+    configurationRevision,
     daemonOffline = false,
     viewState,
     liveJob = null,
@@ -95,7 +101,9 @@
     isfolderselected,
     onselectall,
     ondownload,
+    onlibrarymatches,
     onresolvesettings,
+    oncheckrevision,
     onloaddefinition,
     onrefine,
     onsort,
@@ -161,12 +169,45 @@
       detail: 'Only results retained before the interruption are available. Search again to get fresh results.' },
   };
   let retentionNotice = $derived(viewState.summary ? retainedResultNotices[viewState.summary.retentionState] ?? null : null);
+  let revisionError = $state<Error | null>(null);
+  let checkingRevision = $state(false);
+  let revisionRetry = $state(0);
+  let checkedView = $derived(connected && selectedCount > 0 && !searchViewUnavailable(viewState)
+    ? viewState.summary?.viewId : undefined);
+  let checkedRevision = $derived(viewState.selectionRevision ?? viewState.summary?.revision);
+  $effect(() => {
+    const viewId = checkedView;
+    const revision = checkedRevision;
+    revisionRetry;
+    revisionError = null;
+    checkingRevision = false;
+    if (!viewId || revision == null) return;
+    const request = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const check = async () => {
+      checkingRevision = true;
+      try {
+        const lifetime = await oncheckrevision(viewId, revision, request.signal);
+        if (!request.signal.aborted)
+          timer = setTimeout(check, Math.min(Number(lifetime.remainingMilliseconds), 2_147_483_647));
+      } catch (error) {
+        if (!request.signal.aborted) revisionError = error instanceof Error ? error : new Error(String(error));
+      } finally {
+        if (!request.signal.aborted) checkingRevision = false;
+      }
+    };
+    void check();
+    return () => { request.abort(); clearTimeout(timer); };
+  });
+
   let viewUnavailable = $derived(!daemonOffline && (searchViewUnavailable(viewState)
+    || (revisionError instanceof DaemonApiError && revisionError.status === 404)
     || (configurationError instanceof DaemonApiError && configurationError.status === 404)));
   let hasBareFileGroups = $derived(genericMode && viewState.rows.some(row =>
     row.kind === 'directory' && row.value.ref.folderPath.length === 0));
   let selectionUsesEarlierRevision = $derived(usesEarlierRevision(viewState));
-  let selectionReadOnly = $derived(selectionUsesEarlierRevision || viewState.selectionNeedsReview);
+  let selectionReadOnly = $derived(selectionUsesEarlierRevision || viewState.selectionNeedsReview
+    || viewUnavailable || viewState.refining);
   // Generic directory jobs group transfers internally. For a fully accepted
   // revision-bound selection, report the public file count the user reviewed.
   let mutationDownloadCount = $derived(viewState.receipt && genericMode
@@ -239,16 +280,19 @@
         return;
       }
       const submitted = profilesChanged ? $state.snapshot(conditions) : null;
-      const request: Schema<'CreateSearchViewRequestDto'> = {
-        ...baseline.projection,
+      const request: SearchViewRequest = {
+        kind: baseline.projection.kind,
+        songQuery: baseline.projection.songQuery,
+        albumQuery: baseline.projection.albumQuery,
         profileNames: viewProfileNames.length ? [...viewProfileNames] : undefined,
         filterText,
         sortOrder: currentSortOrder(),
         refinementSettings: editedSearchSettings(viewState.draft!.resultMode, baseline.projection.refinementSettings,
           baselineConditions, conditions, inheritedConditions),
       };
-      if (searchModeFamily(viewState.draft!.resultMode) === 'track' && request.songQuery)
+      if (searchModeFamily(viewState.draft!.resultMode) === 'track' && request.songQuery) {
         request.songQuery = { ...request.songQuery, length: searchExpectedLength(conditions.track.expectedLength) ?? null };
+      }
       localRefinementError = null;
       lastRequestedFingerprint = fingerprint;
       if (!await onrefine(request, resetSelection) || version !== refinementRequest) return;
@@ -402,7 +446,7 @@
     [...viewState.selectionRefs].sort(),
     [...viewState.includedFiles.keys()].sort(),
     [...viewState.excludedFiles.keys()].sort(),
-    viewState.directoryPathRules.map(rule => [rule.directoryRef, rule.relativePath, rule.selected]).sort(),
+    viewState.directoryPathRules.map(rule => [rule.directoryRef, rule.relativePath, rule.selected, rule.includeFilteredFiles]).sort(),
     [...viewState.chosenOptions].map(([groupRef, option]) => [groupRef, option.ref]).sort(),
     [...viewState.albumFileSelections].map(([ref, selection]) =>
       [ref, selection.mode, [...selection.refs].sort()]).sort(),
@@ -416,6 +460,30 @@
     ...viewState.includedFiles.values(),
     ...viewState.directoryPathRules.filter(rule => rule.selected).map(rule => rule.directoryRef),
   ]));
+
+  const emptyPaths: ReadonlySet<string> = new Set();
+  let filteredSelectionPaths = $derived.by(() => {
+    const byDirectory = new Map<string, string[]>();
+    for (const rule of viewState.directoryPathRules) {
+      if (!rule.selected || rule.includeFilteredFiles || !rule.relativePath) continue;
+      const paths = byDirectory.get(rule.directoryRef);
+      if (paths) paths.push(rule.relativePath);
+      else byDirectory.set(rule.directoryRef, [rule.relativePath]);
+    }
+    return byDirectory;
+  });
+
+  function filteredSubfolders(folders: (string | null | undefined)[]): Set<string> {
+    const paths = new Set<string>();
+    for (let path of folders) {
+      while (path && !paths.has(path)) {
+        paths.add(path);
+        const end = path.lastIndexOf('/');
+        path = end < 0 ? null : path.slice(0, end);
+      }
+    }
+    return paths;
+  }
 
   function ordinaryDirectorySelection(ref: string, fileCount: number, selectedFileCount: number): { selected: boolean; partial: boolean } {
     const rootSelected = isselected(ref);
@@ -444,6 +512,35 @@
   });
   let downloadCustomized = $derived(Boolean(downloadPatch && Object.keys(downloadPatch).length));
 
+  let libraryMatches = $state<ReadonlySet<string>>(new Set());
+  let libraryStatus = $state('');
+  let libraryRetry = $state(0);
+  let resultRows = $derived(viewState.rows);
+  let libraryRows = $derived(resultRows[0]?.kind === 'track-group' || resultRows[0]?.kind === 'album-group' ? resultRows : []);
+  let libraryViewId = $derived(viewState.summary?.viewId);
+  let libraryRevision = $derived(viewState.summary?.revision);
+  $effect(() => {
+    configurationRevision;
+    libraryRetry;
+    const id = libraryViewId;
+    const revision = libraryRevision;
+    const rows = libraryRows;
+    libraryMatches = new Set();
+    libraryStatus = '';
+    if (!connected || !id || revision == null || !rows.length || downloadOptionsOpen) return;
+
+    const controller = new AbortController();
+    onlibrarymatches(id, { revision, groupRefs: rows.map(row => row.ref), options: downloadPatch }, controller.signal)
+      .then(matches => {
+        if (controller.signal.aborted) return;
+        libraryMatches = new Set(matches);
+        libraryStatus = '';
+      }).catch(() => {
+        if (!controller.signal.aborted) libraryStatus = 'Library check unavailable';
+      });
+    return () => controller.abort();
+  });
+
   async function loadDownloadOptions(): Promise<void> {
     const request = ++optionsRequest;
     downloadOptionsLoading = true;
@@ -469,6 +566,19 @@
       if (request === optionsRequest) downloadOptionsLoading = false;
     }
   }
+
+  // Keep the original options until a lost download receipt can be recovered.
+  let awaitingDownloadReceipt = $derived(viewState.canRetryPendingCommit || viewState.committing);
+  let refreshedConfiguration: number | undefined;
+  $effect(() => {
+    const revision = configurationRevision ?? 0;
+    if (!connected) { refreshedConfiguration = undefined; return; }
+    if (refreshedConfiguration === revision || awaitingDownloadReceipt) return;
+    refreshedConfiguration = revision;
+    untrack(() => {
+      if (downloadDefaults || downloadOptionsOpen) void loadDownloadOptions();
+    });
+  });
 
   function toggleDownloadOptions(): void {
     downloadOptionsOpen = !downloadOptionsOpen;
@@ -632,13 +742,25 @@
   </div>
 {/snippet}
 
+{#snippet groupIdentity(row: Extract<SearchRow, { kind: 'track-group' | 'album-group' }>)}
+  <span class="group-result-title">
+    <strong>{@render matchedText(row.kind === 'track-group' ? row.value.query.title ?? 'Untitled track' : row.value.query.album ?? 'Untitled album', highlight)}</strong>
+    {#if libraryMatches.has(row.ref)}
+      <span id={`library-${row.ref}`} class="status-label complete" title={row.kind === 'track-group'
+        ? 'A matching song was found locally. Download requests this peer’s file.'
+        : 'A matching album was found locally. Download requests the selected files from this peer.'}>In library</span>
+    {/if}
+  </span>
+  {#if row.value.query.artist}<small>{@render matchedText(row.value.query.artist, highlight)}</small>{/if}
+{/snippet}
+
 {#snippet groupGroupCard(row: Extract<SearchRow, { kind: 'track-group' | 'album-group' }>)}
   {#if row.kind === 'track-group'}
     {@const representative = trackRepresentative(row.ref, row.value.representative)}
     <section class:selected={isselected(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} data-range-disabled={representative.visibility === 'Locked' || undefined} tabindex="-1">
       <header class="group-result-header">
-        <button type="button" class="group-header-select-button group-result-identity" data-range-toggle disabled={selectionReadOnly || representative.visibility === 'Locked'} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}>
-          <strong>{@render matchedText(row.value.query.title ?? 'Untitled track', highlight)}</strong>{#if row.value.query.artist}<small>{@render matchedText(row.value.query.artist, highlight)}</small>{/if}
+        <button type="button" class="group-header-select-button group-result-identity" data-range-toggle disabled={selectionReadOnly || representative.visibility === 'Locked'} aria-describedby={libraryMatches.has(row.ref) ? `library-${row.ref}` : undefined} aria-label={`${isselected(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.title ?? 'track'}`} aria-pressed={isselected(row.ref)} onclick={() => ontoggle(row.ref, !isselected(row.ref))}>
+          {@render groupIdentity(row)}
         </button>
         <div class="group-result-source">{@render groupPeerSummary(representative.peer, highlight)}</div>
         {@render groupOptionControls(row.ref, row.value.optionCount)}
@@ -666,8 +788,8 @@
     {@const retrieval = viewState.retrievals.get(directory.ref.ref)}
     <section class:selected={albumFull(row.ref)} class:partial={albumPartial(row.ref)} class="panel group-result-group" data-keyboard-item={row.ref} data-range-disabled={directory.visibility === 'Locked' || undefined} tabindex="-1">
       <header class="group-result-header">
-        <button type="button" class="group-header-select-button group-result-identity" data-range-toggle disabled={selectionReadOnly || directory.visibility === 'Locked'} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}>
-          <strong>{@render matchedText(row.value.query.album ?? 'Untitled album', highlight)}</strong>{#if row.value.query.artist}<small>{@render matchedText(row.value.query.artist, highlight)}</small>{/if}
+        <button type="button" class="group-header-select-button group-result-identity" data-range-toggle disabled={selectionReadOnly || directory.visibility === 'Locked'} aria-describedby={libraryMatches.has(row.ref) ? `library-${row.ref}` : undefined} aria-label={`${albumFull(row.ref) ? 'Deselect' : 'Select'} ${row.value.query.album ?? 'album'}`} aria-pressed={albumFull(row.ref)} onclick={() => ontoggle(row.ref, !albumFull(row.ref))}>
+          {@render groupIdentity(row)}
         </button>
         <div class="group-result-source">{@render groupPeerSummary(directory.peer, highlight)}</div>
         {@render groupOptionControls(row.ref, row.value.optionCount)}
@@ -773,11 +895,11 @@
     </div>
   {/if}
 
-  {#if (viewState.error || liveJobError) && !viewUnavailable}
+  {#if (viewState.error || revisionError || liveJobError) && !viewUnavailable}
     <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'}`} class:blocking={viewState.phase === 'failed'} role="alert">
       <span class="resource-state-dot"></span>
-      <span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : viewState.error ? 'Search results could not be refreshed' : 'Job updates could not be refreshed'}</strong><small>{daemonOffline ? 'This resource cannot be loaded while the daemon is offline.' : (viewState.error ?? liveJobError)?.message}</small></span>
-      {#if !daemonOffline}<button class="button" type="button" onclick={onretry}>Retry</button>{/if}
+      <span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : revisionError ? 'Selected results could not be checked' : viewState.error ? 'Search results could not be refreshed' : 'Job updates could not be refreshed'}</strong><small>{daemonOffline ? 'This resource cannot be loaded while the daemon is offline.' : (revisionError ?? viewState.error ?? liveJobError)?.message}</small></span>
+      {#if !daemonOffline}<button class="button" type="button" onclick={() => { if (revisionError) revisionRetry++; else onretry(); }}>Retry</button>{/if}
     </div>
   {/if}
 
@@ -850,25 +972,7 @@
     </div>
   {/if}
 
-  <SelectionToolbar
-    {selectedCount}
-    visible={selectedCount > 0 || viewState.selectionNeedsReview || viewState.canRetryPendingCommit}
-    countPending={viewState.selectionCountsLoading && !viewState.canRetryPendingCommit}
-    floatingLabel={viewState.committing ? 'Requesting…' : viewState.canRetryPendingCommit ? 'Retry download request'
-      : viewState.selectionCountsLoading ? 'Counting files…' : viewState.selectionCounts
-      && BigInt(viewState.selectionCounts.publicFileCount) > 0n
-      ? `Download ${formatCount(viewState.selectionCounts.publicFileCount)}` : 'Download selected'}
-    detail={viewState.selectionCountsError?.message}
-    actionDisabled={downloadOptionsLoading || Boolean(downloadOptionsError) || viewState.committing || (!viewState.canRetryPendingCommit && (refinementPending
-      || hasUnreadySelectedChoice()
-      || Boolean(viewState.selectionCountsError) || selectedCount === 0))}
-    optionsOpen={downloadOptionsOpen}
-    optionsCustomized={downloadCustomized}
-    onclear={() => onselectall(false)}
-    onselectall={selectedCount && !selectionReadOnly && !viewState.committing && !allSearchResultsSelected(viewState) ? () => onselectall(true) : undefined}
-    onoptions={selectedCount ? toggleDownloadOptions : undefined}
-    onaction={() => ondownload(downloadCustomized ? downloadPatch : undefined)}
-  />
+
 
   {#if selectedCount && downloadOptionsOpen}
     <button type="button" class="floating-options-backdrop" aria-label="Close download options" onclick={() => (downloadOptionsOpen = false)}></button>
@@ -923,6 +1027,11 @@
       <div class="search-results-empty"><strong>{emptyResultsHeading()}</strong>{#if retentionNotice || searching || (viewState.summary?.isComplete && !viewState.refining)}<span>{emptyResultsDetail()}</span>{/if}</div>
     {/if}
   {:else if viewState.draft?.resultMode === 'song-groups' || viewState.draft?.resultMode === 'album-groups'}
+    {#if libraryStatus}
+      <div class="resource-state-notice" role="status">{libraryStatus}
+        {#if libraryStatus === 'Library check unavailable'}<button class="button" onclick={() => libraryRetry++}>Retry library check</button>{/if}
+      </div>
+    {/if}
     <div class="group-results-list">
       {#each viewState.rows as row (row.ref)}
         {#if row.kind === 'track-group' || row.kind === 'album-group'}
@@ -982,6 +1091,11 @@
                     {@const files = children ? children.items.map((child) => folderFile(child.file, child.relativePath)) : [folderFile(row.value.bestChild)]}
                     {@const selectedFileIds = new Set(files.filter((file) => !file.locked && isselected(file.id, row.ref)).map((file) => file.id))}
                     {@const folderSelection = ordinaryDirectorySelection(row.ref, files.filter(file => !file.locked).length, selectedFileIds.size)}
+                    {@const hidden = genericMode && (children?.directorySummary ?? row.value).hasFilteredFiles}
+                    {@const hiddenPaths = hidden && children ? filteredSubfolders(children.items.map(file => file.deepestFilteredFolder)) : emptyPaths}
+                    {@const selectedPaths = hiddenPaths.size ? filteredSelectionPaths.get(row.ref) : undefined}
+                    {@const partialPaths = selectedPaths ? filteredSubfolders(selectedPaths.filter(path => hiddenPaths.has(path))) : emptyPaths}
+                    {@const filteredOnly = hidden && folderSelection.selected && (!isfolderselected(row.ref, '', true) || partialPaths.size > 0)}
                     {@const totals = directoryTotals(row.value)}
                     {@const retrieval = viewState.retrievals.get(row.ref)}
                     <FolderItemCard {highlight}
@@ -996,15 +1110,16 @@
                       fileLayout={genericMode ? 'tree' : 'flat'}
                       dataStateLabel={retrieval?.error?.message ?? children?.error?.message ?? (children?.loading && !children.refreshing ? 'Loading matching files…' : undefined)}
                       locked={row.value.visibility === 'Locked'}
-                      selected={folderSelection.selected}
-                      partial={folderSelection.partial}
+                      selected={folderSelection.selected && !filteredOnly}
+                      partial={folderSelection.partial || filteredOnly}
                       preferred={tier === 'Preferred'}
                       selectable={!selectionReadOnly}
                       {selectedFileIds}
-                      onselectall={(checked) => ontoggle(row.ref, checked)}
+                      onselectall={(checked) => hidden && checked && (folderSelection.partial || filteredOnly)
+                        ? onselectfolder(row.ref, '', true, true) : ontoggle(row.ref, checked)}
                       onselectfile={(file, checked) => ontoggle(file.id, checked, row.ref)}
-                      onselectfolder={genericMode && !selectionReadOnly ? (path, checked) => onselectfolder(row.ref, path, checked) : undefined}
-                      isfolderselected={genericMode ? (path) => isfolderselected(row.ref, path) : undefined}
+                      onselectfolder={genericMode && !selectionReadOnly ? (path, checked, partial) => onselectfolder(row.ref, path, checked, checked && partial && hiddenPaths.has(path)) : undefined}
+                      isfolderselected={genericMode ? (path) => isfolderselected(row.ref, path) && (!hiddenPaths.has(path) || isfolderselected(row.ref, path, true) && !partialPaths.has(path)) : undefined}
                     />
                     {#if !children || (children.loading && !children.refreshing) || children.error || children.nextCursor}
                       <div class="load-more-row"><button class="button" type="button" disabled={children?.loading} onclick={() => onloaddirectory(row.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more' : 'Load matching files'}</button></div>
@@ -1019,6 +1134,25 @@
 
   {#if viewState.nextCursor}<div data-keyboard-page="results" data-loading={viewState.loadingMore} data-failed={Boolean(viewState.error)}><LoadMoreButton loading={viewState.loadingMore} disabled={viewState.refining} onclick={onloadmore}/></div>{/if}
   {/if}
+  <SelectionToolbar
+    {selectedCount}
+    visible={selectedCount > 0 || viewState.selectionNeedsReview || viewState.canRetryPendingCommit}
+    countPending={viewState.selectionCountsLoading && !viewState.canRetryPendingCommit}
+    floatingLabel={viewState.committing ? 'Requesting…' : viewState.canRetryPendingCommit ? 'Retry download request'
+      : viewState.selectionCountsLoading ? 'Counting files…' : viewState.selectionCounts
+      && BigInt(viewState.selectionCounts.publicFileCount) > 0n
+      ? `Download ${formatCount(viewState.selectionCounts.publicFileCount)}` : 'Download selected'}
+    detail={viewState.selectionCountsError?.message}
+    actionDisabled={!connected || downloadOptionsLoading || Boolean(downloadOptionsError) || viewState.committing || (!viewState.canRetryPendingCommit && (viewUnavailable || checkingRevision || Boolean(revisionError) || refinementPending
+      || hasUnreadySelectedChoice()
+      || Boolean(viewState.selectionCountsError) || selectedCount === 0))}
+    optionsOpen={downloadOptionsOpen}
+    optionsCustomized={downloadCustomized}
+    onclear={() => onselectall(false)}
+    onselectall={selectedCount && !selectionReadOnly && !viewState.committing && !allSearchResultsSelected(viewState) ? () => onselectall(true) : undefined}
+    onoptions={selectedCount ? toggleDownloadOptions : undefined}
+    onaction={() => ondownload(downloadCustomized ? downloadPatch : undefined)}
+  />
 </section>
 
 {#if viewState.groupOptions}

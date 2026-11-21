@@ -75,9 +75,79 @@ public sealed class YtDlpClient : IYtDlpClient
     public async Task<string> DownloadAsync(string id, string savePathNoExt, string ytdlpArgument, IJobLog? log, CancellationToken ct, Action? processing = null)
     {
         ct.ThrowIfCancellationRequested();
-        var path = await YtDlpCommand.DownloadAsync(id, savePathNoExt, ytdlpArgument, log, ct, processing);
-        ct.ThrowIfCancellationRequested();
-        return path;
+        string destination = Path.GetDirectoryName(Path.GetFullPath(savePathNoExt))!;
+        string root = Path.Combine(destination, OutputStaging.DirectoryName);
+        Directory.CreateDirectory(root);
+        string key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(string.Join('\0', id, Path.GetFileName(savePathNoExt), ytdlpArgument))));
+        string stage = Path.Combine(root, key);
+        // Concurrent requests for the same output must never append to the same partial.
+        using var lease = TryClaim(stage + ".lock");
+        if (lease == null) stage = Path.Combine(root, Guid.NewGuid().ToString("N"));
+        CleanPartialDownloads(stage, keepHttp: lease != null);
+        Directory.CreateDirectory(stage);
+        bool publishing = false;
+        try
+        {
+            // yt-dlp knows the actual protocol and format only after selecting the media.
+            string prefix = Path.Combine(stage, "%(protocol)s-%(format_id)s", Path.GetFileName(savePathNoExt));
+            string media = Path.GetFullPath(await YtDlpCommand.DownloadAsync(id, prefix, ytdlpArgument, log, ct, processing));
+            ct.ThrowIfCancellationRequested();
+            publishing = true;
+            string finalMedia = media;
+            foreach (string format in Directory.EnumerateDirectories(stage))
+            {
+                foreach (string file in Directory.EnumerateFiles(format, "*", SearchOption.AllDirectories))
+                {
+                    if (file == media || file.EndsWith(".part", StringComparison.Ordinal)) continue;
+                    string target = Path.Combine(destination, Path.GetRelativePath(format, file));
+                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                    Utils.Move(file, target);
+                }
+                if (Utils.IsInDirectory(media, format, strict: true))
+                    finalMedia = Path.Combine(destination, Path.GetRelativePath(format, media));
+            }
+            if (finalMedia != media)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(finalMedia)!);
+                Utils.Move(media, finalMedia);
+            }
+            Directory.Delete(stage, recursive: true);
+            return finalMedia;
+        }
+        finally
+        {
+            if (!publishing) CleanPartialDownloads(stage, keepHttp: lease != null);
+        }
+    }
+
+    private static FileStream? TryClaim(string path)
+    {
+        try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose); }
+        catch (IOException) when (File.Exists(path)) { return null; }
+    }
+
+    private static void CleanPartialDownloads(string stage, bool keepHttp)
+    {
+        if (!Directory.Exists(stage)) return;
+        foreach (string format in Directory.GetDirectories(stage))
+        {
+            // Resume a plain HTTP file by byte offset. Restart segmented formats
+            // because their fragment checkpoint can disagree with the partial media.
+            string name = Path.GetFileName(format);
+            if (keepHttp && (name.StartsWith("http-", StringComparison.Ordinal) || name.StartsWith("https-", StringComparison.Ordinal)))
+            {
+                bool hasPartial = false;
+                foreach (string file in Directory.EnumerateFiles(format, "*", SearchOption.AllDirectories))
+                {
+                    if (file.EndsWith(".part", StringComparison.Ordinal)) hasPartial = true;
+                    else File.Delete(file);
+                }
+                if (hasPartial) continue;
+            }
+            Directory.Delete(format, recursive: true);
+        }
+        if (!Directory.EnumerateFileSystemEntries(stage).Any()) Directory.Delete(stage);
     }
 }
 
@@ -199,7 +269,7 @@ internal static class YtDlpCommand
     internal static string BuildDownloadArguments(string id, string savePathNoExt, string ytdlpArgument = "")
     {
         if (ytdlpArgument.Length == 0)
-            ytdlpArgument = "\"{id}\" -f bestaudio/best -ci -o \"{savepath-noext}.%(ext)s\" -x";
+            ytdlpArgument = "\"{id}\" -f bestaudio/best -o \"{savepath-noext}.%(ext)s\" -x";
 
         return ytdlpArgument
             .Replace("{id}", id)

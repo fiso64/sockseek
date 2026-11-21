@@ -24,7 +24,7 @@ public sealed class PlannedJobNode
     public Guid PlanningJobId { get; }
     public JobSnapshotKind Kind => command.Kind;
     public string? Input => command.Input;
-    public string? QueryText => command.QueryText;
+    public string? QueryText { get; }
     public InputType? SourceInputType => command.SourceInputType;
     public string? PreviewTitle { get; }
     public IReadOnlyList<Sockseek.Core.Settings.AppliedProfile> AppliedProfiles { get; }
@@ -53,6 +53,7 @@ public sealed class PlannedJobNode
         SourceRevision = sourceRevision;
         // The preparation owner freezes this once for both execution and Review.
         settings = job.PlannedSettings;
+        QueryText = command.QueryText ?? settings?.DescribeQueryChange(job);
         AppliedProfiles = settings?.AppliedProfiles ?? [];
         search = command.SearchDefinition;
     }

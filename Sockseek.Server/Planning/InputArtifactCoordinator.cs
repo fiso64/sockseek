@@ -11,29 +11,22 @@ public sealed class InputArtifactUnavailableException(string message, Exception?
 
 public sealed class InputArtifactCoordinator(
     PersistenceCoordinator persistence,
-    ILogger<InputArtifactCoordinator> logger) : IHostedService, IAsyncDisposable
+    ILogger<InputArtifactCoordinator> logger) : IHostedService
 {
-    private InputArtifactStore? store;
-    private Exception? initializationFailure;
-
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         InputArtifactStore? candidate = persistence.InputArtifacts;
         if (candidate is null)
         {
-            initializationFailure = new InvalidOperationException(
-                "The shared persistence runtime or artifact blob directory is unavailable.");
             ServerLogMessages.InputArtifactUnavailable(logger);
             return;
         }
         try
         {
             await candidate.PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
-            store = candidate;
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            initializationFailure = exception;
             ServerLogMessages.InputArtifactUnavailable(logger, exception);
         }
     }
@@ -91,9 +84,8 @@ public sealed class InputArtifactCoordinator(
             lease.Artifact.CreatedAtUtc);
 
     private InputArtifactStore RequiredStore()
-        => store ?? throw new InputArtifactUnavailableException(
-            "Input artifacts are unavailable; ordinary local-path and text inputs remain available.",
-            initializationFailure);
+        => persistence.InputArtifacts ?? throw new InputArtifactUnavailableException(
+            "Input artifacts are unavailable; ordinary local-path and text inputs remain available.");
 
     private static InputArtifactDto ToDto(StoredInputArtifact artifact)
         => new(
@@ -104,9 +96,4 @@ public sealed class InputArtifactCoordinator(
             artifact.ExpiresAtUtc,
             artifact.OriginalName);
 
-    public ValueTask DisposeAsync()
-    {
-        store = null;
-        return ValueTask.CompletedTask;
-    }
 }

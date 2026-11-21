@@ -1,3 +1,4 @@
+import { appPath } from '../app/paths';
 import type { ApiErrorDto } from './types';
 import { browserSession } from './session.svelte';
 
@@ -26,7 +27,7 @@ export function queryString(values: Record<string, string | number | boolean | n
 }
 
 export class DaemonHttpClient {
-  constructor(private readonly basePath = '/api') {}
+  constructor(private readonly basePath = appPath('/api')) {}
 
   get<T>(path: string, signal?: AbortSignal): Promise<T> {
     return this.request<T>(path, { method: 'GET', signal });

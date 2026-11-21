@@ -137,12 +137,14 @@ public sealed class PersistenceWriterTests
         var retry = failed with { TransferId = Guid.NewGuid(), Sequence = 3, Revision = 1,
             State = "Queued", TerminalOutcome = "None", Priority = PersistenceMutationPriority.Structural,
             RequestedAtUtc = requested, FailureMessage = null };
+        var delivered = failed with { TransferId = Guid.NewGuid(), State = "Completed", TerminalOutcome = "Succeeded",
+            RequestedAtUtc = requested.AddMinutes(-1), FailureMessage = null };
         var otherPeer = failed with { TransferId = Guid.NewGuid(), Username = "User" };
         var otherPath = failed with { TransferId = Guid.NewGuid(), RemotePath = "Remote" };
         var download = failed with { TransferId = Guid.NewGuid(), Direction = "Download" };
         var observer = new RecordingMutationObserver();
         Assert.AreEqual(0L, (await RunCompletedWriterAsync(database,
-            [otherPeer, otherPath, download, oldArrivesLate ? retry : failed], observer)).PermanentlyFailedMutationCount);
+            [delivered, otherPeer, otherPath, download, oldArrivesLate ? retry : failed], observer)).PermanentlyFailedMutationCount);
         Assert.AreEqual(0L, (await RunCompletedWriterAsync(database,
             [oldArrivesLate ? failed : retry], observer)).PermanentlyFailedMutationCount);
         await using var read = await database.Factory.CreateDbContextAsync();
@@ -771,6 +773,51 @@ public sealed class PersistenceWriterTests
         Assert.AreEqual(502, added.Items.Single().Ordinal);
         Assert.AreEqual(appended, added.Items.Single().ChildJobId);
         Assert.IsNull(added.NextOrdinal);
+    }
+
+    [TestMethod]
+    public async Task Restart_ReconcilesInterruptedFolderFromCurrentAttemptIncludingSupplementalFiles()
+    {
+        await using var database = new WriterDatabase();
+        var runtime = (await new PersistenceRuntimeSession(database.Factory).StartAsync("before")).Runtime;
+        Guid folder = Guid.NewGuid();
+        Guid downloaded = Guid.NewGuid(), skipped = Guid.NewGuid(), interrupted = Guid.NewGuid(), reused = Guid.NewGuid();
+        var target = new PeerFileTarget(new("Peer", "Disc/track"), 100, ".flac", null, null, null, null, null);
+        var plan = new DirectoryTransferPlanSnapshot("Disc", [new(target, []), new(target, []), new(target, [])], 300);
+        var parent = Job(runtime.RuntimeId, folder, 1, PersistenceMutationPriority.Structural, kind: "Album") with
+        {
+            DirectoryManifest = new(2, plan, true, [downloaded, skipped, interrupted], [reused]),
+            PayloadJson = new(() => """{"Directory":{"AttemptNumber":2}}"""),
+        };
+        JobPersistenceMutation Member(Guid id, string outcome, long bytes, bool reuse = false) =>
+            Job(runtime.RuntimeId, id, 1, outcome == "None" ? PersistenceMutationPriority.Structural : PersistenceMutationPriority.Terminal,
+                terminal: outcome != "None", kind: "RemoteFile") with
+            {
+                WorkflowId = parent.WorkflowId, ParentJobId = folder, TerminalOutcome = outcome,
+                SkipReason = outcome == "Skipped" ? "AlreadyExists" : "None",
+                PayloadJson = new(() => System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    File = new { FileSize = 100, BytesTransferred = bytes, Reused = reuse },
+                })),
+            };
+        await RunCompletedWriterAsync(database, [
+            parent, Member(downloaded, "Succeeded", 100), Member(skipped, "Skipped", 0),
+            Member(interrupted, "None", 20), Member(reused, "Succeeded", 0, reuse: true),
+            Member(Guid.NewGuid(), "Succeeded", 100), // A child from another attempt.
+        ]);
+        await new PersistenceRuntimeSession(database.Factory).StartAsync("after");
+        var retained = await new JobHistoryReader(database.Factory).GetJobAsync(folder);
+        using var json = System.Text.Json.JsonDocument.Parse(retained!.PayloadJson!);
+        var state = json.RootElement.GetProperty("Directory");
+        Assert.AreEqual(4, state.GetProperty("TerminalFileCount").GetInt32());
+        Assert.AreEqual(3, state.GetProperty("SuccessfulFileCount").GetInt32());
+        Assert.AreEqual(1, state.GetProperty("FailedFileCount").GetInt32());
+        Assert.AreEqual(1, state.GetProperty("DownloadedFileCount").GetInt32());
+        Assert.AreEqual(1, state.GetProperty("SkippedFileCount").GetInt32());
+        Assert.AreEqual(1, state.GetProperty("ReusedFileCount").GetInt32());
+        Assert.AreEqual(120, state.GetProperty("BytesTransferred").GetInt64());
+        Assert.AreEqual(400, state.GetProperty("TotalKnownBytes").GetInt64());
+        Assert.AreEqual(0.8, state.GetProperty("Progress").GetDouble(), 0.00001);
     }
 
     [TestMethod]
@@ -1447,6 +1494,13 @@ public sealed class PersistenceWriterTests
         [
             new TransferTerminalPersistenceMutation(download, null, null),
             new TransferTerminalPersistenceMutation(upload, null, null),
+            new TransferTerminalPersistenceMutation(upload with
+            {
+                TransferId = Guid.NewGuid(),
+                Username = "SecondListener",
+                GroupRef = Guid.NewGuid().ToString("N"),
+                AccountingObservations = [new(Guid.NewGuid(), 2, start.AddMinutes(8), 40)],
+            }, null, null),
             new TransferTerminalPersistenceMutation(failed, failedAttempt, null),
         ];
 
@@ -1456,24 +1510,25 @@ public sealed class PersistenceWriterTests
         var analytics = await new TransferAnalyticsReader(database.Factory).GetAsync(
             new TransferAnalyticsQuery(start, start.AddMinutes(30), TimeSpan.FromMinutes(5)));
         Assert.AreEqual(30L, analytics.DownloadBytes);
-        Assert.AreEqual(40L, analytics.UploadBytes);
+        Assert.AreEqual(80L, analytics.UploadBytes);
         Assert.AreEqual(1, analytics.DownloadedFiles);
-        Assert.AreEqual(1, analytics.UploadedFiles);
-        Assert.AreEqual(2, analytics.DistinctPeers);
+        Assert.AreEqual(2, analytics.UploadedFiles);
+        Assert.AreEqual(3, analytics.DistinctPeers);
         Assert.AreEqual(6, analytics.Buckets.Count);
         Assert.AreEqual(30L, analytics.Peers.Single(peer => peer.Username == "ExactPeer").Bytes);
-        Assert.AreEqual(1, analytics.Content.Single().DownloadCount);
-        Assert.AreEqual(@"Music\Artist\Album", analytics.Content.Single().Identity);
+        Assert.AreEqual(2, analytics.Content.Single().DownloadCount);
+        Assert.AreEqual(2, analytics.Content.Single().DistinctPeerCount);
+        Assert.AreEqual(@"Public Music\Artist\Album", analytics.Content.Single().Identity);
         Assert.AreEqual(@"Public Music\Artist\Album", analytics.Content.Single().DisplayPath);
         Assert.AreEqual("NotShared", analytics.Errors.Single().Reason);
         Assert.AreEqual(1, analytics.Errors.Single().Count);
         var comparison = await new TransferAnalyticsReader(database.Factory).GetAsync(
             new TransferAnalyticsQuery(start, start.AddMinutes(30), TimeSpan.FromMinutes(5), IncludeRankings: false));
         Assert.AreEqual(30L, comparison.DownloadBytes);
-        Assert.AreEqual(40L, comparison.UploadBytes);
+        Assert.AreEqual(80L, comparison.UploadBytes);
         Assert.AreEqual(1, comparison.DownloadedFiles);
-        Assert.AreEqual(1, comparison.UploadedFiles);
-        Assert.AreEqual(2, comparison.DistinctPeers);
+        Assert.AreEqual(2, comparison.UploadedFiles);
+        Assert.AreEqual(3, comparison.DistinctPeers);
         CollectionAssert.AreEqual(analytics.Buckets.ToArray(), comparison.Buckets.ToArray());
         Assert.AreEqual(0, comparison.Peers.Count);
         Assert.AreEqual(0, comparison.Content.Count);

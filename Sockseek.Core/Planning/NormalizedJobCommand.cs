@@ -12,10 +12,20 @@ namespace Sockseek.Core.Planning;
 /// </summary>
 public sealed record NormalizedJobCommand
 {
+    [JsonIgnore]
+    public bool CanRunAgain => SelectionSource == null && DirectoryRetry == null
+        && Kind is JobSnapshotKind.Extract or JobSnapshotKind.JobList or JobSnapshotKind.SongGroups or JobSnapshotKind.AlbumGroups
+            or JobSnapshotKind.Search or JobSnapshotKind.Song or JobSnapshotKind.Album
+        && PeerFile == null && SelectedSong == null && SelectedAlbum == null && SelectedAlbumOption == null;
+
     public required JobSnapshotKind Kind { get; init; }
     // Identifies a captured child before acceptance rebinds its runtime identity,
     // without relying on its position or re-running its parent extractor.
     public Guid? AcceptedJobId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? InheritedFolders { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DirectoryRetry? DirectoryRetry { get; init; }
     public string? ItemName { get; init; }
     public int ItemNumber { get; init; } = 1;
     public int LineNumber { get; init; }
@@ -58,6 +68,7 @@ public sealed record NormalizedJobCommand
     public bool GroupResults { get; init; }
     public IReadOnlyList<NormalizedJobCommand>? Children { get; init; }
     public PeerFileTarget? PeerFile { get; init; }
+    public string? RetainedDestination { get; init; }
     public IReadOnlyList<string>? OutputPathComponents { get; init; }
     public PeerDirectoryIdentitySnapshot? PeerDirectory { get; init; }
     public IReadOnlyList<string>? ExcludedDirectoryFilenames { get; init; }

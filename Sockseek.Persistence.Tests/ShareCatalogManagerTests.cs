@@ -160,8 +160,10 @@ public sealed class ShareCatalogManagerTests
         using (lease)
         {
             var resolved = await lease!.Reader.ResolveFileAsync(
-                RemotePathKey.Create(@"public\keep.TXT"));
+                RemotePathKey.Create(@"Public\Keep.txt"));
             Assert.IsNotNull(resolved);
+            Assert.IsNull(await lease.Reader.ResolveFileAsync(
+                RemotePathKey.Create(@"public\keep.TXT")));
             Assert.IsNull(await lease.Reader.ResolveFileAsync(
                 RemotePathKey.Create(@"Public\Private\Secret.txt")));
         }

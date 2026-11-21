@@ -222,11 +222,6 @@ public static class ConsoleInputManager
         }
     }
 
-    public static void PrepareDirectPromptInput()
-    {
-        _directPromptActive = true;
-    }
-
     public static async Task<IDisposable> AcquireConsoleInteractionAsync(CancellationToken ct = default)
     {
         await _consoleInteractionLock.WaitAsync(ct);

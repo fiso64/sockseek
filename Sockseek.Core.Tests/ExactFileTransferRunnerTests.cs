@@ -319,12 +319,15 @@ public sealed class ExactFileTransferRunnerTests
         var remote = new RemoteFileJob(target);
         string root = CreateTempDirectory();
         var requests = new List<(string Username, string Filename)>();
+        var visiblePaths = new List<(bool Final, bool Incomplete)>();
         var outputStreams = new List<Stream>();
         var closedBeforeCompletion = new List<bool>();
         client.DownloadStreamOpened = outputStreams.Add;
         events.TransferCompleted += _ => closedBeforeCompletion.Add(outputStreams.All(stream => !stream.CanWrite));
         client.BeforeDownloadStartsAsync = (peer, path, _) =>
         {
+            string destination = Path.Combine(root, requests.Count == 0 ? "song.bin" : "remote.bin");
+            visiblePaths.Add((File.Exists(destination), File.Exists(destination + ".incomplete")));
             requests.Add((peer, path));
             return Task.CompletedTask;
         };
@@ -345,6 +348,8 @@ public sealed class ExactFileTransferRunnerTests
             Assert.AreEqual(target.Identity, remoteOutcome.Result!.Target.Identity);
             Assert.AreEqual(2, client.DownloadCallCount);
             Assert.AreEqual(0, client.SearchCallCount);
+            var expectedPaths = (noIncompleteExtension, !noIncompleteExtension);
+            CollectionAssert.AreEqual(new[] { expectedPaths, expectedPaths }, visiblePaths);
             Assert.IsTrue(requests.All(request => request == (username, filename)));
             Assert.AreEqual(target.Size, song.BytesTransferred);
             Assert.AreEqual(target.Size, remote.BytesTransferred);
@@ -391,6 +396,51 @@ public sealed class ExactFileTransferRunnerTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RetryAfterPartialWrite_ResumesUnlessPeerReportsNewSize(bool sizeChanged)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string source = Path.Combine(root, "published.bin");
+            string destination = Path.Combine(root, "received.bin");
+            byte[] original = Enumerable.Repeat((byte)1, 40_000).ToArray();
+            byte[] expected = sizeChanged ? Enumerable.Repeat((byte)2, 30_000).ToArray() : original;
+            await File.WriteAllBytesAsync(source, original);
+            long bytesSent = 0;
+            long partialBytes = 0;
+            var client = new MockSoulseekClient([]);
+            client.AfterDownloadProgress = (bytes, previous) =>
+            {
+                bytesSent += bytes - previous;
+                if (client.DownloadCallCount == 1)
+                {
+                    partialBytes = bytes;
+                    throw new IOException("The first connection closed mid-transfer.");
+                }
+            };
+            if (sizeChanged)
+                client.BeforeDownloadStartsAsync = async (_, _, ct) =>
+                {
+                    if (client.DownloadCallCount != 2) return;
+                    await File.WriteAllBytesAsync(source, expected, ct);
+                    throw new TransferSizeMismatchException(original.Length, expected.Length);
+                };
+            var (runner, _, _) = CreateRunner(client);
+            var target = new PeerFileTarget(new PeerFileIdentity("local", source), original.Length, ".bin");
+            var outcome = await runner.DownloadFile(target, destination, new RemoteFileJob(target),
+                new TransferSettings { UnknownErrorRetries = 1 }, root, 30_000, publishToDuplicateCache: false);
+            Assert.AreEqual(ExactFileTransferStatus.Completed, outcome.Status);
+            Assert.IsTrue(partialBytes > 0 && partialBytes < original.Length);
+            Assert.AreEqual(sizeChanged ? 3 : 2, client.DownloadCallCount);
+            Assert.AreEqual(expected.LongLength + (sizeChanged ? partialBytes : 0), bytesSent);
+            CollectionAssert.AreEqual(expected, await File.ReadAllBytesAsync(destination));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
     public async Task MissingPeer_IsNotRetriedAndLeavesNoLiveTransfer()
     {
         var client = new MockSoulseekClient([]);
@@ -416,13 +466,18 @@ public sealed class ExactFileTransferRunnerTests
     }
 
     [TestMethod]
-    public async Task TransportCancellationWithoutRequestedToken_IsTransferFailure()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task FailedAttemptReportsWhetherTransportOrDestinationFailed(bool destinationFailed)
     {
         const string username = "Peer";
         const string filename = @"Share\File.bin";
         var client = new MockSoulseekClient([Response(username, filename)]);
-        client.BeforeDownloadStartsAsync = (_, _, _) =>
-            throw new OperationCanceledException("transport ended early");
+        Exception error = destinationFailed
+            ? new IOException("Transfer failed", new DownloadDestinationException(new IOException("Disk full")))
+            : new OperationCanceledException("Transport ended early");
+        client.BeforeDownloadStartsAsync = (_, _, _) => throw error;
+        var expected = destinationFailed ? TransferFailureReason.LocalStorageError : TransferFailureReason.PeerFailure;
         var (runner, active, events) = CreateRunner(client);
         var target = Target(username, filename);
         var owner = new RemoteFileJob(target);
@@ -436,14 +491,17 @@ public sealed class ExactFileTransferRunnerTests
 
         try
         {
-            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => runner.DownloadFile(
+            var thrown = await Assert.ThrowsAsync<Exception>(() => runner.DownloadFile(
                 target, Path.Combine(root, "file.bin"), owner,
                 new TransferSettings { NoIncompleteExt = true }, root,
                 30_000, publishToDuplicateCache: false));
 
             Assert.IsNotNull(failed);
-            Assert.AreEqual(TransferFailureReason.PeerFailure, failed.Reason);
+            Assert.AreSame(error, thrown);
+            Assert.AreEqual(expected, failed.Reason);
             Assert.IsNotNull(failedAttempt);
+            Assert.AreEqual(expected, failedAttempt.Reason);
+            Assert.AreEqual(1, client.DownloadCallCount);
             Assert.IsNull(cancelled);
             Assert.AreEqual(0, active.ActiveDownloads.Count());
         }
@@ -577,8 +635,51 @@ public sealed class ExactFileTransferRunnerTests
             Assert.AreEqual(publishCopy ? copy : original, reusable.OutputPath,
                 "An unpublished staging copy must not replace the stable source used by concurrent duplicates.");
             if (publishCopy) File.Delete(reusable.OutputPath);
-            else File.WriteAllBytes(reusable.OutputPath, [1]);
+            else
+            {
+                DateTime originalTime = File.GetLastWriteTimeUtc(reusable.OutputPath);
+                File.WriteAllBytes(reusable.OutputPath, Enumerable.Repeat((byte)1, checked((int)target.Size.Value)).ToArray());
+                File.SetLastWriteTimeUtc(reusable.OutputPath, originalTime.AddSeconds(10));
+            }
             Assert.IsNull(await ReusableAsync(files, target, song.WorkflowId));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SelectedFilesResolveEqualLengthConflictsAcrossRequestsAndReuseKnownSources(bool direct)
+    {
+        var target = Target("Peer", @"Live\Disc 1\Opening.bin");
+        var client = new MockSoulseekClient([Response(target.Username, target.Filename)]);
+        var (runner, _, events) = CreateRunner(client);
+        string root = CreateTempDirectory();
+        string path = Path.Combine(root, "Opening.bin");
+        string second = Path.Combine(root, "Opening (2).bin");
+        var completed = new List<string>();
+        events.TransferCompleted += change => completed.Add(change.FinalLocalPath);
+        var owner = new RemoteFileJob(target) { SelectionSource = JobSelectionSource.ManualSearch };
+        owner.Config = DefaultJobSettingsResolver.Instance.Resolve(new DownloadSettings { Transfer = { NoIncompleteExt = direct } }, owner);
+        Task<ExactFileTransferOutcome> Download(bool skipExisting) => runner.DownloadFile(target, path,
+            owner, owner.Config.Transfer, root, 30_000, allowOverwrite: !skipExisting, allowReuse: skipExisting);
+        try
+        {
+            byte[] original = new byte[16];
+            File.WriteAllBytes(path, original);
+            var forced = await Download(false);
+            Assert.AreEqual(second, forced.Result?.OutputPath);
+            var repeated = await Download(true);
+            Assert.AreEqual(ExactFileTransferStatus.AlreadyExists, repeated.Status);
+            Assert.AreEqual(second, repeated.Result?.OutputPath);
+            Assert.AreEqual(1, client.DownloadCallCount);
+
+            owner.WorkflowId = Guid.NewGuid();
+            Assert.AreEqual(second, (await Download(true)).Result?.OutputPath);
+            CollectionAssert.AreEqual(new[] { second, second }, completed);
+            CollectionAssert.AreEqual(original, File.ReadAllBytes(path));
+            CollectionAssert.AreEqual(Enumerable.Range(0, 16).Select(i => (byte)i).ToArray(), File.ReadAllBytes(second));
+            Assert.HasCount(2, Directory.GetFiles(root, "*", SearchOption.AllDirectories));
         }
         finally { Directory.Delete(root, recursive: true); }
     }

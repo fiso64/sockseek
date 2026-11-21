@@ -95,6 +95,33 @@ public sealed class SqliteInitializationTests
     }
 
     [TestMethod]
+    public async Task RemovingChatArchiveKeepsDeletedThreadsOutOfTheSidebar()
+    {
+        await using var database = new TemporaryDatabase();
+        await using var context = await database.Factory.CreateDbContextAsync();
+        await context.Database.MigrateAsync("20261119113556_InitialPersistence");
+        var archivedWithHistory = Guid.NewGuid();
+        foreach (string peer in new[] { "Deleted", "Archived", "Empty" })
+            context.ChatConversations.Add(new ChatConversationEntity
+            {
+                Id = peer == "Archived" ? archivedWithHistory : Guid.NewGuid(),
+                LocalAccountKey = "Listener", PeerKey = peer, DisplayUsername = peer,
+            });
+        context.ChatMessages.Add(new ChatMessageEntity
+        {
+            Id = Guid.NewGuid(), Sequence = 1, LocalAccountKey = "Listener",
+            TargetId = archivedWithHistory, TargetKind = "Direct", Body = "Keep this message",
+        });
+        await context.SaveChangesAsync();
+        await context.Database.ExecuteSqlRawAsync(
+            "UPDATE chat_conversations SET archived_at_utc = 1 WHERE peer_key IN ('Deleted', 'Archived')");
+        await database.Initializer.InitializeAsync();
+        CollectionAssert.AreEquivalent(new[] { "Archived", "Empty" },
+            await context.ChatConversations.Select(c => c.PeerKey).ToArrayAsync());
+        Assert.AreEqual("Keep this message", await context.ChatMessages.Select(m => m.Body).SingleAsync());
+    }
+
+    [TestMethod]
     public async Task FreshFile_MigratesAllTables_AndConfiguresWalFullAndForeignKeys()
     {
         await using var database = new TemporaryDatabase();
@@ -288,6 +315,7 @@ public sealed class SqliteInitializationTests
         Guid jobId = Guid.NewGuid();
         Guid transferId = Guid.NewGuid();
         Guid attemptId = Guid.NewGuid();
+        Guid cleanStop = Guid.NewGuid();
         await using (var context = await database.Factory.CreateDbContextAsync())
         {
             context.Jobs.Add(new JobEntity
@@ -324,6 +352,7 @@ public sealed class SqliteInitializationTests
                 LastRuntimeId = first.Runtime.RuntimeId,
                 LastSequence = 11,
                 Direction = "Download",
+                Username = "owner", GroupRef = jobId.ToString("D"), RemotePath = @"Library\queued.flac", LocalPath = "/music/queued.flac",
                 Source = "SoulseekPeer",
                 State = "InProgress",
                 TerminalOutcome = "None",
@@ -332,6 +361,16 @@ public sealed class SqliteInitializationTests
                 StartedAtUtc = clock.GetUtcNow().ToUnixTimeMilliseconds(),
                 Revision = 1,
             });
+            foreach (string outcome in new[] { "Failed", "Succeeded", "Cancelled", "Interrupted" })
+            {
+                context.Transfers.Add(new TransferEntity
+                {
+                    Id = Guid.NewGuid(), JobId = jobId, LastRuntimeId = first.Runtime.RuntimeId,
+                    Direction = "Download", Source = "SoulseekPeer", Username = "owner",
+                    GroupRef = jobId.ToString("D"), RemotePath = @"Library\old.flac", LocalPath = "/music/old.flac", State = outcome,
+                    CompletedAtUtc = 1, TerminalOutcome = outcome, CancellationSource = outcome == "Interrupted" ? "DaemonShutdown" : "Requested",
+                });
+            }
             context.TransferAttempts.Add(new TransferAttemptEntity
             {
                 Id = attemptId,
@@ -382,6 +421,25 @@ public sealed class SqliteInitializationTests
         long coverageAfterUncleanRestart = clock.GetUtcNow().ToUnixTimeMilliseconds();
         clock.Advance(TimeSpan.FromMinutes(1));
         await secondRuntime.StopAsync();
+        // A previously clean publisher database can still contain a nonterminal upload.
+        var oldUpload = Guid.NewGuid();
+        await using (var context = await database.Factory.CreateDbContextAsync())
+        {
+            context.Transfers.Add(new TransferEntity
+            {
+                Id = cleanStop, JobId = jobId, LastRuntimeId = reconciled.Runtime.RuntimeId,
+                Direction = "Download", Source = "SoulseekPeer", Username = "owner",
+                GroupRef = jobId.ToString("D"), RemotePath = @"Library\active.flac", LocalPath = "/music/active.flac", State = "Cancelled",
+                CompletedAtUtc = 1, TerminalOutcome = "Cancelled", CancellationSource = "DaemonShutdown",
+            });
+            context.Transfers.Add(new TransferEntity
+            {
+                Id = oldUpload, LastRuntimeId = reconciled.Runtime.RuntimeId,
+                Direction = "Upload", Source = "SoulseekPeer", State = "Uploading", TerminalOutcome = "None",
+                FailureReason = "None", CreatedAtUtc = clock.GetUtcNow().ToUnixTimeMilliseconds(), Revision = 3,
+            });
+            await context.SaveChangesAsync();
+        }
         clock.Advance(TimeSpan.FromMinutes(1));
         var thirdRuntime = new PersistenceRuntimeSession(database.Factory, clock);
         var cleanRestart = await thirdRuntime.StartAsync("test-3");
@@ -389,10 +447,18 @@ public sealed class SqliteInitializationTests
         Assert.AreEqual(0, cleanRestart.InterruptedJobCount);
         await using (var context = await database.Factory.CreateDbContextAsync())
         {
+            Assert.AreEqual(2, cleanRestart.InterruptedTransferCount);
+            CollectionAssert.AreEquivalent(new[] { transferId, cleanStop },
+                await context.Transfers.Where(t => t.RecoveryPending).Select(t => t.Id).ToArrayAsync());
+            Assert.AreEqual("Interrupted", (await context.Transfers.SingleAsync(t => t.Id == oldUpload)).TerminalOutcome);
+            Assert.AreEqual(2L, (await context.Transfers.SingleAsync(t => t.Id == transferId)).Revision);
             Assert.AreEqual(
                 coverageAfterUncleanRestart,
                 (await context.TransferAccountingStates.SingleAsync(x => x.Id == 1)).CompleteFromUtc);
         }
+        var history = new Sockseek.Persistence.Read.TransferHistoryReader(database.Factory);
+        CollectionAssert.AreEquivalent(new[] { @"Library\queued.flac", @"Library\active.flac" },
+            await history.GetPendingDirectoryFilesAsync(jobId, [jobId], CancellationToken.None));
         await thirdRuntime.StopAsync();
     }
 
@@ -561,8 +627,26 @@ public sealed class SqliteInitializationTests
             """;
         Assert.AreEqual(3L, Convert.ToInt64(await command.ExecuteScalarAsync()));
 
+        // A copied backup must include the rotated contents without any sidecars.
+        using var previousGeneration = OperatingSystem.IsWindows() ? null : connection.BeginTransaction(deferred: true);
+        if (previousGeneration is null)
+            await connection.CloseAsync(); // SQLite on Windows holds the file against rename.
+        else
+        {
+            command.Transaction = previousGeneration;
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE name = 'rotation_marker'";
+            Assert.AreEqual(0L, (long)(await command.ExecuteScalarAsync())!);
+        }
+        await using (var context = await database.Factory.CreateDbContextAsync())
+            await context.Database.ExecuteSqlRawAsync("CREATE TABLE rotation_marker(value INTEGER)");
+        await maintenance.BackupAsync(backupPath);
+        string copiedPath = backupPath + ".copy";
+        File.Copy(backupPath, copiedPath);
+        if (previousGeneration is not null)
+            Assert.AreEqual(0L, (long)(await command.ExecuteScalarAsync())!);
+
         string restorePath = Path.Combine(Path.GetDirectoryName(database.Options.DatabasePath)!, "restored-app-data", "sockseek.db");
-        var restored = await SqliteMaintenanceService.RestoreOfflineAsync(backupPath, restorePath);
+        var restored = await SqliteMaintenanceService.RestoreOfflineAsync(copiedPath, restorePath);
         Assert.IsTrue(restored.Integrity.IsHealthy);
         Assert.IsTrue(restored.SizeBytes > 0);
         Assert.AreEqual(0, Directory.GetFiles(
@@ -584,6 +668,22 @@ public sealed class SqliteInitializationTests
               AND name IN ('jobs', 'input_artifacts', 'search_observations');
             """;
         Assert.AreEqual(3L, Convert.ToInt64(await restoredCommand.ExecuteScalarAsync()));
+        restoredCommand.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE name = 'rotation_marker'";
+        Assert.AreEqual(1L, (long)(await restoredCommand.ExecuteScalarAsync())!);
+        await restoredConnection.CloseAsync();
+
+        string registryPath = Path.Combine(Path.GetDirectoryName(backupPath)!, "resources.sqlite");
+        await using (var registry = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={registryPath};Pooling=False"))
+        {
+            await registry.OpenAsync();
+            await using var create = registry.CreateCommand();
+            create.CommandText = "CREATE TABLE peer_browses(id INTEGER PRIMARY KEY)";
+            await create.ExecuteNonQueryAsync();
+        }
+        byte[] original = await File.ReadAllBytesAsync(restorePath);
+        await Assert.ThrowsExactlyAsync<PersistenceSchemaCompatibilityException>(
+            () => SqliteMaintenanceService.RestoreOfflineAsync(registryPath, restorePath));
+        CollectionAssert.AreEqual(original, await File.ReadAllBytesAsync(restorePath));
     }
 
     [TestMethod]

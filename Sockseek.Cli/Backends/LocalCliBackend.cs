@@ -153,7 +153,6 @@ internal sealed class LocalCliBackend
         if (containsRemoteTransfer)
             RemoteTransferSettingsValidator.ValidateExplicitNameFormat(explicitCliDownloadSettings);
         NormalizeLocalSettings(settings);
-        RemoteTransferSubmissionPolicy.NormalizeSettings(job, settings);
 
         var planner = new JobPlanner(
             (IJobSettingsResolver?)submissionOptionsResolver
@@ -475,10 +474,7 @@ internal sealed class LocalCliBackend
                 request.RequestedMode?.ToCore());
             var settings = BuildFollowUpSettings(sourceJob, followUpJob, request.Options);
             if (followUpJob is RemoteFileJob)
-            {
                 RemoteTransferSettingsValidator.ValidateExplicitNameFormat(explicitCliDownloadSettings);
-                RemoteTransferSubmissionPolicy.NormalizeSettings(followUpJob, settings);
-            }
 
             JobRequestMapper.PropagateSourceMutationToFollowUp(sourceJob, followUpJob);
             EnqueueAccepted(followUpJob, settings, sourceJobId);
@@ -521,7 +517,6 @@ internal sealed class LocalCliBackend
             directoryJob.WorkflowId = sourceJob.WorkflowId;
             var settings = BuildFollowUpSettings(sourceJob, directoryJob, request.Options);
             RemoteTransferSettingsValidator.ValidateExplicitNameFormat(explicitCliDownloadSettings);
-            RemoteTransferSubmissionPolicy.NormalizeSettings(directoryJob, settings);
             JobRequestMapper.PropagateSourceMutationToFollowUp(sourceJob, directoryJob);
             EnqueueAccepted(directoryJob, settings, sourceJobId);
             return Task.FromResult<JobSummaryDto?>(

@@ -258,11 +258,11 @@ internal static class ChatCommands
         => args.Contains(name, StringComparer.OrdinalIgnoreCase);
     private static bool Json(IReadOnlyList<string> args) => Flag(args, "--json");
 
-    private static void Write(object value, bool json)
+    private static void Write<T>(T value, bool json)
     {
         if (!json) { Console.WriteLine(value); return; }
         JsonSerializerOptions options = SockseekApiJson.CreateSerializerOptions();
         options.WriteIndented = true;
-        Console.WriteLine(JsonSerializer.Serialize(value, value.GetType(), options));
+        Console.WriteLine(JsonSerializer.Serialize(value, options));
     }
 }

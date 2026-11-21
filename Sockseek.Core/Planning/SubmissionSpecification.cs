@@ -108,6 +108,13 @@ public sealed record SubmissionSpecification(
         return RestoreSettings(EffectiveSettingsJson, CredentialBindings, credentialSource, settings);
     }
 
+    public (DownloadSettings Settings, NormalizedJobCommand Command) MaterializeMemberSettings(Guid jobId, Guid? parentId, DownloadSettings credentials)
+    {
+        var settings = new SettingsMaterializer(this, credentials, ReadValidatedSettings());
+        var command = FindCommand(jobId) ?? (parentId is Guid id ? FindCommand(id) : null) ?? Command;
+        return (settings.ForCommand(command)?.ReadSettings() ?? settings.ReadRoot(), command);
+    }
+
     public Job MaterializeJob(DownloadSettings? credentialSource = null)
         => MaterializeJob(new SettingsMaterializer(this, credentialSource, ReadValidatedSettings()));
 
@@ -183,18 +190,16 @@ public sealed record SubmissionSpecification(
             };
     }
 
-    public SubmissionSpecification? ForSearchJob(Guid acceptedJobId)
+    public bool CanRunAgain(Guid jobId) => FindCommand(jobId)?.CanRunAgain == true;
+
+    public SubmissionSpecification? ForJob(Guid acceptedJobId)
     {
         Validate();
-        NormalizedJobCommand? command = FindCommand(Command, acceptedJobId);
+        NormalizedJobCommand? command = FindCommand(acceptedJobId);
         if (command == null)
             return null;
-        RetainedJobSettings? planned = GetPlannedSettings(command);
-        if (command.Kind != JobSnapshotKind.Search || planned == null)
-        {
-            throw new ArgumentException(
-                $"Accepted job {acceptedJobId} is not a replayable planned search.");
-        }
+        if (ReferenceEquals(command, Command)) return this;
+        var planned = GetPlannedSettings(command) ?? new RetainedJobSettings(EffectiveSettingsJson, CredentialBindings);
         return new SubmissionSpecification(
             CurrentSchemaVersion,
             command,
@@ -204,26 +209,24 @@ public sealed record SubmissionSpecification(
             SourceRevision: null) { SharedSettings = SharedSettings };
     }
 
-    private static NormalizedJobCommand? FindCommand(NormalizedJobCommand command, Guid acceptedJobId)
+    private NormalizedJobCommand? FindCommand(Guid jobId)
     {
-        if (command.AcceptedJobId == acceptedJobId)
-            return command;
-        if (command.ExtractedResult is { } result)
+        var folders = new List<string>(Command.InheritedFolders ?? []);
+        NormalizedJobCommand? Visit(NormalizedJobCommand node)
         {
-            NormalizedJobCommand? found = FindCommand(result, acceptedJobId);
-            if (found != null)
-                return found;
+            if (node.AcceptedJobId == jobId)
+                return ReferenceEquals(node, Command) || folders.Count == 0 ? node : node with { InheritedFolders = folders.ToArray() };
+            bool addsFolder = node.Kind is JobSnapshotKind.JobList or JobSnapshotKind.SongGroups or JobSnapshotKind.AlbumGroups
+                && !string.IsNullOrWhiteSpace(node.ItemName);
+            if (addsFolder) folders.Add(node.ItemName!);
+            if (node.ExtractedResult is { } result && Visit(result) is { } found) return found;
+            if (node.Children != null)
+                foreach (var child in node.Children)
+                    if (Visit(child) is { } match) return match;
+            if (addsFolder) folders.RemoveAt(folders.Count - 1);
+            return null;
         }
-        if (command.Children != null)
-        {
-            foreach (NormalizedJobCommand child in command.Children)
-            {
-                NormalizedJobCommand? found = FindCommand(child, acceptedJobId);
-                if (found != null)
-                    return found;
-            }
-        }
-        return null;
+        return Visit(Command);
     }
 
     public void Validate() => _ = ReadValidatedSettings();
@@ -280,6 +283,8 @@ public sealed record SubmissionSpecification(
         var command = new NormalizedJobCommand
         {
             Kind = job.Kind,
+            InheritedFolders = job.InheritedFolders,
+            DirectoryRetry = (job as DirectoryDownloadJob)?.Retry,
             AcceptedJobId = job.Id,
             ItemName = job.ItemName,
             ItemNumber = job.ItemNumber,
@@ -353,6 +358,7 @@ public sealed record SubmissionSpecification(
             {
                 PeerFile = remote.Target,
                 OutputPathComponents = remote.OutputPath.Components,
+                RetainedDestination = remote.RetainedDestination,
             },
             RemoteDirectoryJob remote when remote.Source is RemoteDirectorySource.PeerDirectory peer => command with
             {
@@ -431,7 +437,7 @@ public sealed record SubmissionSpecification(
                     command.PeerDirectory.FolderPath)),
             JobSnapshotKind.RemoteFile => new RemoteFileJob(
                 command.PeerFile!,
-                new RelativeOutputPath(command.OutputPathComponents!)),
+                new RelativeOutputPath(command.OutputPathComponents!)) { RetainedDestination = command.RetainedDestination },
             JobSnapshotKind.RemoteDirectory when command.PeerDirectory != null =>
                 new RemoteDirectoryJob(new RemoteDirectorySource.PeerDirectory(
                     new PeerDirectoryIdentity(
@@ -441,6 +447,8 @@ public sealed record SubmissionSpecification(
                 new RemoteDirectorySource.Resolved(command.ResolvedDirectoryPlan ?? DirectoryPlan(command.DirectoryPlan!))),
             _ => throw new NotSupportedException($"Normalized command kind '{command.Kind}' is not executable."),
         };
+        job.InheritedFolders = command.InheritedFolders;
+        if (job is DirectoryDownloadJob directoryJob) directoryJob.Retry = command.DirectoryRetry;
         job.ItemName = command.ItemName;
         job.ItemNumber = command.ItemNumber;
         job.LineNumber = command.LineNumber;
@@ -586,15 +594,7 @@ public sealed record SubmissionSpecification(
 
     private static AlbumFile RestoreAlbumFile(AlbumFileSnapshot file)
     {
-        var query = new SongQuery
-        {
-            Artist = file.Query.Artist ?? "",
-            Title = file.Query.Title ?? "",
-            Album = file.Query.Album ?? "",
-            URI = file.Query.URI ?? "",
-            Length = file.Query.Length ?? -1,
-            ArtistMaybeWrong = file.Query.ArtistMaybeWrong,
-        };
+        var query = file.Query.ToQuery();
         FileCandidateSnapshot candidate = file.Candidate;
         var input = new SearchProjectionInput(0, 0, candidate.Username, candidate.ResponseFileCount ?? 0,
             candidate.Filename, candidate.Size, candidate.BitRate, candidate.BitDepth,

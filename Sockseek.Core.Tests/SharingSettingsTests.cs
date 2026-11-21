@@ -9,13 +9,12 @@ namespace Tests.Core;
 public sealed class SharingSettingsTests
 {
     [TestMethod]
-    public void RemotePathKey_UsesOneNfcCaseInsensitiveBinaryRule()
+    public void RemotePathKey_PreservesCaseAndUnicodeSpellingAcrossSeparators()
     {
-        var composed = RemotePathKey.Create(@"Music\Café\TRACK.FLAC");
-        var decomposed = RemotePathKey.Create("music/cafe\u0301/track.flac");
-
-        Assert.AreEqual(composed, decomposed);
-        CollectionAssert.AreEqual(composed.ToArray(), decomposed.ToArray());
+        var key = RemotePathKey.Create(@"Music\Café\TRACK.FLAC");
+        Assert.AreEqual(key, RemotePathKey.Create("Music/Café/TRACK.FLAC"));
+        Assert.AreNotEqual(key, RemotePathKey.Create(@"music\Café\TRACK.FLAC"));
+        Assert.AreNotEqual(key, RemotePathKey.Create("Music/Cafe\u0301/TRACK.FLAC"));
     }
 
     [TestMethod]
@@ -232,6 +231,8 @@ public sealed class SharingSettingsTests
             },
         };
 
+        SharingSettingsValidator.NormalizeAndValidate(settings, PathVariableContext.Empty);
+        settings.Sharing.Roots[1].Alias = "Music";
         Assert.ThrowsExactly<ArgumentException>(
             () => SharingSettingsValidator.NormalizeAndValidate(
                 settings,

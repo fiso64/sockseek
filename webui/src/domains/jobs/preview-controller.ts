@@ -64,6 +64,19 @@ export class PreviewController {
     }
   }
 
+  async recheckReady(): Promise<void> {
+    const { summary, loading } = this.state;
+    // An accepted commit is hidden from GET. An uncertain send must retry its
+    // original receipt, even if the daemon has since retired the preview.
+    if (loading || this.commitRequest || this.state.receipt || previewNeedsReview(this.state)
+      || (summary?.state !== 'Ready' && summary?.state !== 'PartiallyReady')) return;
+    const signal = this.lifetime.signal;
+    if (signal.aborted) return;
+    this.publish({ ...this.state, loading: true });
+    try { await this.refresh(); }
+    finally { if (!signal.aborted) this.publish({ ...this.state, loading: false }); }
+  }
+
   async refresh(waitForCompletion = false): Promise<void> {
     const summary = this.state.summary;
     const signal = this.lifetime.signal;
@@ -73,28 +86,31 @@ export class PreviewController {
       if (signal.aborted) return;
       const changed = !sameWireInteger(next.revision, summary.revision);
       this.publish({ ...this.state, summary: next, branches: changed ? new Map() : this.state.branches, error: null });
-      if (next.state !== 'Planning' && !this.state.branches.has(null)) await this.loadInitialTree(next);
+      if (next.state !== 'Planning' && next.state !== 'Expired' && !this.state.branches.has(null)) await this.loadInitialTree(next);
     } catch (error) {
       if (!signal.aborted) this.publish({ ...this.state, error: asError(error) });
     }
   }
 
-  async commit(selection: Schema<'RefSelectionExpressionDto'>, subtreeOverrides?: readonly SubtreeRule[]): Promise<void> {
+  async commit(selection: Schema<'RefSelectionExpressionDto'>, subtreeOverrides?: readonly SubtreeRule[],
+    downloadOverrides?: Schema<'DownloadSettingsPatchDto'>): Promise<void> {
     const summary = this.state.summary;
     const signal = this.lifetime.signal;
-    if (!summary || signal.aborted || previewNeedsReview(this.state) || this.state.committing || this.state.receipt?.submissionId) return;
+    if (!summary || signal.aborted || this.state.loading || previewNeedsReview(this.state) || this.state.committing || this.state.receipt?.submissionId) return;
     const previous = this.commitRequest;
     const refs = [...new Set(selection.refs)].sort();
     const overrides = subtreeOverrides ? [...subtreeOverrides].sort((a, b) => a.ref.localeCompare(b.ref)) : undefined;
     const unchanged = previous?.selection.mode === selection.mode
       && previous.selection.refs.length === refs.length
       && previous.selection.refs.every((ref, index) => ref === refs[index])
-      && JSON.stringify(previous.subtreeOverrides) === JSON.stringify(overrides);
+      && JSON.stringify(previous.subtreeOverrides) === JSON.stringify(overrides)
+      && JSON.stringify(previous.downloadOverrides) === JSON.stringify(downloadOverrides);
     const request = unchanged ? previous : {
       revision: summary.revision,
       selection: { mode: selection.mode, refs },
       idempotencyKey: randomUUID(),
       ...(overrides ? { subtreeOverrides: overrides } : {}),
+      ...(downloadOverrides ? { downloadOverrides } : {}),
     };
     this.commitRequest = request;
     this.publish({ ...this.state, committing: true, receipt: null, error: null });

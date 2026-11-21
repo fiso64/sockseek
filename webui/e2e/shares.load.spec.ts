@@ -96,11 +96,20 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load @Pe
   const broadMs = Math.round(performance.now() - broadStart);
   const broadRenderedMs = Math.round(await broadRender.evaluate(observed => observed.ready));
   await broadRender.dispose();
-  expect(selectiveRenderedMs, 'A selective filter must render promptly after its input event.').toBeLessThan(300);
-  expect(broadRenderedMs, 'A 100k-file broad filter must render promptly after its input event.').toBeLessThan(300);
+  expect.soft(selectiveRenderedMs, 'A selective filter must render promptly after its input event.').toBeLessThan(300);
+  expect.soft(broadRenderedMs, 'A 100k-file broad filter must render promptly after its input event.').toBeLessThan(300);
   expect(requests.filter(item => item.path.includes('/search?'))).toHaveLength(2);
   expect(requests.filter(item => item.path.includes('/directories?'))).toHaveLength(1);
   expect(requests.filter(item => item.path.includes('/files?'))).toHaveLength(1);
+  // A file outside the viewport must still be identifiable and selectable by keyboard.
+  const lastFile = first.items.filter(item => item.kind === 'file').at(-1)!;
+  const checkbox = page.getByRole('checkbox', { name: lastFile.name });
+  await expect(checkbox).toHaveCount(1);
+  await checkbox.focus();
+  await checkbox.press('Space');
+  await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
+  await checkbox.press('Space');
+  await expect(checkbox).not.toBeChecked();
   const firstPageBytes = (await firstResponse.body()).byteLength;
   const moreStart = performance.now();
   const moreResponse = page.waitForResponse(response => response.ok()

@@ -23,7 +23,7 @@ public sealed class ChatRuntime : IAsyncDisposable
     internal const int IngressCapacity = 4_096;
     // Amortize SQLite commits while bounding transaction and private-message
     // acknowledgement latency on modest homeserver storage.
-    private const int MaximumIngressPersistenceBatchSize = 16;
+    private const int MaximumIngressPersistenceBatchSize = 64;
 
     private readonly EngineSettings settings;
     private readonly DaemonSoulseekRuntime soulseek;
@@ -144,21 +144,21 @@ public sealed class ChatRuntime : IAsyncDisposable
         if (worker is not null)
             return;
 
+        worker = Task.Run(() => RunIngressAsync(lifetime.Token), CancellationToken.None);
         try
         {
             await soulseek.EnsureStartedAsync(cancellationToken).ConfigureAwait(false);
-            await Rooms.ReconnectAsync(cancellationToken).ConfigureAwait(false);
-            await RefreshSummaryAsync(null, cancellationToken).ConfigureAwait(false);
+            // Replay connection events in order before restoring remembered rooms.
+            // An earlier disconnect must not undo a join confirmed during startup.
+            var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await ingress.Writer.WriteAsync(new ReconcileRooms(ready), cancellationToken).ConfigureAwait(false);
+            await ready.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             SetHealth(DaemonFeatureState.Degraded, ChatLogMessages.CompactFailure(ex));
             if (ex is not SoulseekConnectionUnavailableException)
                 ChatLogMessages.StartupFailed(logger, ex);
-        }
-        finally
-        {
-            worker ??= Task.Run(() => RunIngressAsync(lifetime.Token), CancellationToken.None);
         }
     }
 
@@ -649,12 +649,12 @@ public sealed class ChatRuntime : IAsyncDisposable
     {
         try
         {
+            var messageBatch = new List<IngressItem>(MaximumIngressPersistenceBatchSize);
             while (await ingress.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 if (!ingress.Reader.TryRead(out IngressItem? item))
                     continue;
 
-                var messageBatch = new List<IngressItem>(MaximumIngressPersistenceBatchSize);
                 if (item is PrivateMessage or RoomMessage)
                 {
                     messageBatch.Add(item);
@@ -686,6 +686,7 @@ public sealed class ChatRuntime : IAsyncDisposable
                     SetHealth(DaemonFeatureState.Degraded, ChatLogMessages.CompactFailure(ex));
                     ChatLogMessages.OperationFailed(logger, ex, "ingress-item");
                 }
+                messageBatch.Clear();
                 try
                 {
                     await Rooms.PublishDirtyRoomsAsync(cancellationToken).ConfigureAwait(false);
@@ -728,9 +729,16 @@ public sealed class ChatRuntime : IAsyncDisposable
                 await Rooms.DisconnectAsync(cancellationToken).ConfigureAwait(false);
                 SetHealth(DaemonFeatureState.Starting, "SoulseekDisconnected");
                 break;
-            case ReconcileRooms:
-                await Rooms.ReconnectAsync(cancellationToken).ConfigureAwait(false);
-                await RefreshSummaryAsync(null, cancellationToken).ConfigureAwait(false);
+            case ReconcileRooms reconcile:
+                try
+                {
+                    await Rooms.ReconnectAsync(cancellationToken).ConfigureAwait(false);
+                    await RefreshSummaryAsync(null, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    reconcile.Startup?.TrySetResult();
+                }
                 break;
         }
     }
@@ -1222,7 +1230,7 @@ public sealed class ChatRuntime : IAsyncDisposable
         string RoomName,
         bool Moderated) : RoomNamed(RoomName);
     private sealed record Disconnected : IngressItem;
-    private sealed record ReconcileRooms : IngressItem;
+    private sealed record ReconcileRooms(TaskCompletionSource? Startup = null) : IngressItem;
 
 }
 

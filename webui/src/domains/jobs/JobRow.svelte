@@ -65,8 +65,8 @@
   </button>
   {#if !resultState && oncancel && job.availableActions?.some(action => action.kind === 'cancel')}
     <button type="button" data-testid="job-cancel" class="button quiet danger search-history-remove" aria-label={`Cancel ${title}`} title="Cancel" onclick={() => oncancel?.(job)}><Icon name="x" /></button>
-  {:else if !resultState && ondelete && canDeleteSubmission(job)}
-    <button type="button" data-testid="job-remove" class="button quiet danger search-history-remove" disabled={deleting} aria-label={`Remove ${title}`} title="Remove submission from history" onclick={() => ondelete?.(job)}><Icon name="x" /></button>
+  {:else if !resultState && ondelete && canDeleteSubmission(identity)}
+    <button type="button" data-testid="job-remove" class="button quiet danger search-history-remove" disabled={deleting} aria-label={`Delete ${title} submission from history`} title="Delete submission from history" onclick={() => ondelete?.(identity)}><Icon name="trash" /></button>
   {:else if job.kind !== 'search'}
     <span class="automatic-history-action-space" aria-hidden="true"></span>
   {/if}

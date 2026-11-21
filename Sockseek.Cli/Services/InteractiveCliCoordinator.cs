@@ -96,14 +96,9 @@ internal sealed class InteractiveCliCoordinator
             if (summary.LifecycleState == ServerJobLifecycleState.AwaitingSelection
                 && handledManualSelections.Add(summary.JobId))
             {
-                if (summary.Kind == ServerJobKind.Album)
+                if (summary.Kind is ServerJobKind.Album or ServerJobKind.AlbumGroups)
                 {
-                    await HandleManualAlbumJobAsync(summary.JobId, ct);
-                    startedFollowUp = true;
-                }
-                else if (summary.Kind == ServerJobKind.AlbumGroups)
-                {
-                    await HandleManualAlbumGroupsJobAsync(summary.JobId, ct);
+                    await HandleManualSelectionAsync(summary, ct);
                     startedFollowUp = true;
                 }
             }
@@ -155,17 +150,50 @@ internal sealed class InteractiveCliCoordinator
             folders,
             OptionsForWorkflow(detail.Summary.WorkflowId),
             InteractiveAlbumResultKind.Folder);
-        var outcome = await PromptForAlbumSelectionAsync(session, InteractiveAlbumPromptPurpose.NewAlbumPrompt);
+        var outcome = await PromptForAlbumSelectionAsync(session, InteractiveAlbumPromptPurpose.NewAlbumPrompt, ct);
         if (outcome.Selection == null)
             return;
 
         await EnqueueInteractiveAlbumJobAsync(session, outcome.Selection, ct);
     }
 
+    private async Task HandleManualSelectionAsync(JobSummaryDto summary, CancellationToken ct)
+    {
+        using var prompt = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        bool listening = true;
+        void OnUpdate(DaemonClientUpdate update)
+        {
+            if (!update.ChangedJobs.Any(row => row.JobId == summary.JobId
+                    && row.TerminalOutcome == ServerJobTerminalOutcome.Cancelled)) return;
+            lock (prompt)
+            {
+                if (listening) prompt.Cancel();
+            }
+        }
+
+        backend.StateUpdated += OnUpdate;
+        try
+        {
+            if (summary.Kind == ServerJobKind.Album)
+                await HandleManualAlbumJobAsync(summary.JobId, prompt.Token);
+            else
+                await HandleManualAlbumGroupsJobAsync(summary.JobId, prompt.Token);
+        }
+        catch (OperationCanceledException) when (prompt.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            // The operator cancelled this job. The workflow may still have other albums to choose.
+        }
+        finally
+        {
+            backend.StateUpdated -= OnUpdate;
+            lock (prompt) listening = false;
+        }
+    }
+
     private async Task HandleManualAlbumJobAsync(Guid albumJobId, CancellationToken ct)
     {
         var detail = await backend.GetJobDetailAsync(albumJobId, ct);
-        if (detail?.Payload is not AlbumJobPayloadDto album)
+        if (detail?.Summary.TerminalOutcome == ServerJobTerminalOutcome.Cancelled || detail?.Payload is not AlbumJobPayloadDto album)
             return;
 
         var projection = await backend.GetFolderResultsAsync(
@@ -214,7 +242,7 @@ internal sealed class InteractiveCliCoordinator
         }
 
         var outcome = interactiveEnabled
-            ? await PromptForAlbumSelectionAsync(session, purpose)
+            ? await PromptForAlbumSelectionAsync(session, purpose, ct)
             : new InteractiveAlbumPromptOutcome(
                 new InteractiveAlbumSelection(folders[0], RetrieveCurrentFolder: true, SkipTrackCountVerification: false),
                 WasExplicitSkip: false);
@@ -234,7 +262,7 @@ internal sealed class InteractiveCliCoordinator
     private async Task HandleManualAlbumGroupsJobAsync(Guid albumGroupsJobId, CancellationToken ct)
     {
         var detail = await backend.GetJobDetailAsync(albumGroupsJobId, ct);
-        if (detail?.Payload is not AlbumGroupsJobPayloadDto albumGroups)
+        if (detail?.Summary.TerminalOutcome == ServerJobTerminalOutcome.Cancelled || detail?.Payload is not AlbumGroupsJobPayloadDto albumGroups)
             return;
 
         var projection = await backend.GetAlbumGroupResultsAsync(
@@ -269,7 +297,7 @@ internal sealed class InteractiveCliCoordinator
                 InteractiveAlbumResultKind.AlbumGroup);
 
             var outcome = interactiveEnabled
-                ? await PromptForAlbumSelectionAsync(session, InteractiveAlbumPromptPurpose.NewAlbumPrompt)
+                ? await PromptForAlbumSelectionAsync(session, InteractiveAlbumPromptPurpose.NewAlbumPrompt, ct)
                 : new InteractiveAlbumPromptOutcome(
                     new InteractiveAlbumSelection(folders[0], RetrieveCurrentFolder: true, SkipTrackCountVerification: false),
                     WasExplicitSkip: false);
@@ -308,7 +336,7 @@ internal sealed class InteractiveCliCoordinator
         if (session.LastSelectedFolderKey != null)
             session.ExcludedFolderKeys.Add(session.LastSelectedFolderKey);
 
-        var outcome = await PromptForAlbumSelectionAsync(session, InteractiveAlbumPromptPurpose.RetryAcceptedAlbumPrompt);
+        var outcome = await PromptForAlbumSelectionAsync(session, InteractiveAlbumPromptPurpose.RetryAcceptedAlbumPrompt, ct);
         if (outcome.Selection == null)
             return;
 
@@ -421,7 +449,8 @@ internal sealed class InteractiveCliCoordinator
 
     private async Task<InteractiveAlbumPromptOutcome> PromptForAlbumSelectionAsync(
         InteractiveAlbumSession session,
-        InteractiveAlbumPromptPurpose purpose)
+        InteractiveAlbumPromptPurpose purpose,
+        CancellationToken ct)
     {
         if (skipRemainingNewAlbumPrompts && purpose == InteractiveAlbumPromptPurpose.NewAlbumPrompt)
             return new InteractiveAlbumPromptOutcome(null, WasExplicitSkip: true);
@@ -433,7 +462,7 @@ internal sealed class InteractiveCliCoordinator
         if (availableFolders.Count == 0)
             return new InteractiveAlbumPromptOutcome(null, WasExplicitSkip: false);
 
-        await promptSemaphore.WaitAsync(appToken);
+        await promptSemaphore.WaitAsync(ct);
         try
         {
             InteractiveModeManager.RunResult result;
@@ -444,22 +473,22 @@ internal sealed class InteractiveCliCoordinator
                     availableFolders,
                     session.RetrievedFolders,
                     session.FilterStr,
-                    purpose));
+                    purpose)).WaitAsync(ct);
             }
             else
             {
                 using var pause = ConsoleInputManager.PauseConsoleOutput();
-                using var interaction = await ConsoleInputManager.AcquireConsoleInteractionAsync(appToken);
+                using var interaction = await ConsoleInputManager.AcquireConsoleInteractionAsync(ct);
                 var interactive = new InteractiveModeManager(
                     session.PromptJob,
                     new JobList(),
                     availableFolders,
                     canRetrieve: true,
                     retrievedFolders: session.RetrievedFolders,
-                    retrieveFolderCallback: async folder => await RunPromptRetrieveFolderAsync(session, folder, appToken),
+                    retrieveFolderCallback: async folder => await RunPromptRetrieveFolderAsync(session, folder, ct),
                     filterStr: session.FilterStr);
 
-                result = await interactive.Run();
+                result = await interactive.Run(ct);
             }
 
             session.FilterStr = result.FilterStr;

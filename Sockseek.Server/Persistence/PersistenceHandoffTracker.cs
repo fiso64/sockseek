@@ -123,17 +123,42 @@ internal sealed class PersistenceHandoffTracker : IPersistenceMutationObserver
                 generation.SearchSources.Clear();
     }
 
-    public Task WaitForJobAsync(Guid jobId, CancellationToken cancellationToken, bool includeSearchResults = true)
+    public Task WaitForJobAsync(Guid jobId, CancellationToken cancellationToken, bool includeSearchResults = true,
+        long? terminalRevision = null)
     {
         Task completion;
         lock (gate)
         {
-            if (!generationByJob.TryGetValue(jobId, out var generation) || !generation.IsRetiring)
-                return Task.CompletedTask;
-            else
-                completion = includeSearchResults ? generation.Completion.Task : generation.JobProjectionCompletion.Task;
+            if (!generationByJob.TryGetValue(jobId, out var generation)) return Task.CompletedTask;
+            if (!generation.IsRetiring)
+                return terminalRevision is long revision
+                    ? WaitForTerminalRevisionAsync(generation, jobId, revision, cancellationToken)
+                    : Task.CompletedTask;
+            completion = includeSearchResults ? generation.Completion.Task : generation.JobProjectionCompletion.Task;
         }
         return completion.WaitAsync(cancellationToken);
+    }
+
+    // A finished folder can still belong to a running batch. Its retry action
+    // needs the saved member outcomes as soon as that folder's own write commits.
+    private async Task WaitForTerminalRevisionAsync(Generation generation, Guid jobId, long revision, CancellationToken token)
+    {
+        while (true)
+        {
+            Task changed;
+            bool returnAfterRetirement;
+            lock (gate)
+            {
+                if (generation.CommittedJobRevisions.GetValueOrDefault(jobId) >= revision) return;
+                if (generation.FailedJobMutations.GetValueOrDefault(jobId) is { } failed && failed.Revision >= revision)
+                    throw new PersistenceHandoffException($"Could not save the terminal state of job {jobId:N}.", failed.Exception);
+                returnAfterRetirement = generation.IsRetiring;
+                changed = returnAfterRetirement ? generation.JobProjectionCompletion.Task
+                    : (generation.AwaitingCommit ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+            }
+            await changed.WaitAsync(token).ConfigureAwait(false);
+            if (returnAfterRetirement) return;
+        }
     }
 
     public Task WaitForWorkflowAsync(Guid workflowId, CancellationToken cancellationToken, bool includeSearchResults = true)
@@ -348,7 +373,10 @@ internal sealed class PersistenceHandoffTracker : IPersistenceMutationObserver
             }
 
             foreach (Generation generation in affected)
+            {
+                generation.WakeCommitReaders();
                 TryFailForLostRequiredMutationLocked(generation);
+            }
         }
         NotifySearchSourceChanges(mutations, completionFailed: true);
     }
@@ -389,6 +417,7 @@ internal sealed class PersistenceHandoffTracker : IPersistenceMutationObserver
 
     private bool TryCompleteLocked(Generation generation)
     {
+        generation.WakeCommitReaders();
         if (!generation.IsRetiring)
             return false;
         bool jobsCommitted = generation.RequiredJobRevisions.All(required =>
@@ -450,6 +479,7 @@ internal sealed class PersistenceHandoffTracker : IPersistenceMutationObserver
                 $"Historical state for workflow {generation.WorkflowId:N} is unavailable because " +
                 "its live-to-persistent handoff invariant failed.",
                 exception);
+        generation.WakeCommitReaders();
         if (jobProjectionUnavailable)
             generation.JobProjectionCompletion.TrySetException(failure);
         if (generation.Completion.TrySetException(failure))
@@ -504,6 +534,12 @@ internal sealed class PersistenceHandoffTracker : IPersistenceMutationObserver
         // readers need committed job/manifest rows, not every raw search result.
         public TaskCompletionSource JobProjectionCompletion { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource? AwaitingCommit;
+        public void WakeCommitReaders()
+        {
+            AwaitingCommit?.TrySetResult();
+            AwaitingCommit = null;
+        }
         public bool IsRetiring { get; set; }
     }
 

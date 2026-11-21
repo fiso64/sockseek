@@ -1231,6 +1231,9 @@ public class EngineSupervisorTests
 
             Assert.AreEqual(generic ? ServerSearchSettingsBaselineKind.Generic : ServerSearchSettingsBaselineKind.Music, preview.Baseline);
             Assert.AreEqual(4321, preview.Settings.Values.Search?.MaxStaleTime);
+            Assert.IsNull(preview.Settings.Values.Output?.WriteIndex);
+            Assert.AreEqual(ServerIncompleteAlbumActionKind.Move, preview.Settings.Values.Output?.IncompleteAlbumAction?.Kind);
+            Assert.AreEqual(Path.Join(output, "failed"), preview.Settings.Values.Output?.IncompleteAlbumAction?.Path);
             Assert.AreEqual(true, preview.Settings.Values.Skip?.SkipExisting);
             Assert.AreEqual("request", preview.Provenance["Skip.SkipExisting"]);
             CollectionAssert.AreEqual(new[] { "review" }, preview.AppliedProfiles.Where(profile => profile.Source == "selected").Select(profile => profile.Name).ToArray());

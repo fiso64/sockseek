@@ -1041,10 +1041,6 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-@media (prefers-reduced-motion: reduce) {
-  .loading-indicator .resource-state-dot,
-  .resource-state-notice.loading .resource-state-dot { animation-duration: 1400ms; }
-}
 .search-status-badge { grid-area: status; justify-self: end; }
 
 .search-results-heading {
@@ -1280,7 +1276,7 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 .result-detail { min-width: 0; text-align: right; }
 strong.result-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.76rem; font-weight: 550; }
 strong.audio-detail { color: var(--muted); font-weight: 500; }
-.redesigned-search-page .file-item-card:not(.transfer-card) .file-result-row { min-height: 52px; padding: 10px 13px; }
+.redesigned-search-page .file-item-card:not(.transfer-card) .file-result-row { min-height: 52px; padding-block: 10px; }
 .redesigned-search-page .file-item-card:not(.transfer-card) .result-name-line > strong { font-size: 0.9rem; line-height: 1.4; }
 .redesigned-search-page .file-item-card:not(.transfer-card) strong.result-detail { color: var(--muted); font-size: 0.68rem; font-weight: 500; }
 @media (min-width: 981px) {
@@ -1356,10 +1352,11 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   border: 1.5px solid var(--accent);
   border-right-color: transparent;
   border-radius: 50%;
-  animation: folder-contents-spin 700ms linear infinite;
 }
 @keyframes folder-contents-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .folder-contents-state.retrieving i { animation-duration: 1400ms; } }
+@media (prefers-reduced-motion: no-preference) {
+  .folder-contents-state.retrieving i { animation: folder-contents-spin 700ms linear infinite; }
+}
 .folder-files-table {
   overflow: hidden;
   border-top: 1px solid var(--border);
@@ -1428,6 +1425,9 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .folder-file-audio { grid-column: 3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .folder-file-length { grid-column: 4; text-align: right; }
 .folder-file-size { grid-column: 5; text-align: right; }
+:is(.result-tier, .group-result-group, .group-options-list) .item-card :is(.file-result-row, .folder-file-row, .folder-subfolder-row) {
+  padding-inline-end: clamp(16px, 2vw, 28px);
+}
 .search-results-empty { display: grid; gap: 4px; padding: 38px 18px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); text-align: center; }
 .redesigned-search-page .search-results-empty { margin-top: 10px; }
 .search-results-empty strong { font-size: 0.86rem; }.search-results-empty span { color: var(--muted); font-size: 0.72rem; }
@@ -1520,6 +1520,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .item-size-detail { text-align: right; }
 .item-card-action,
 .folder-file-action {
+  gap: 8px;
   min-width: 28px;
   display: flex;
   align-items: center;
@@ -1557,15 +1558,29 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .folder-file-type-icon.audio { color: var(--accent); }
 .folder-file-type-icon .app-icon { --app-icon-size: 17px; }
 .folder-file-progress {
-  flex: 1 1 90px;
-  min-width: 70px;
-  max-width: 115px;
+  width: clamp(70px, 6vw, 90px);
   height: 3px;
 }
 .folder-file-progress.failed > i { background-color: var(--danger); }
 .folder-file-progress.cancelled > i { background-color: var(--muted); }
-.folder-file-row.has-transfer {
-  grid-template-columns: 24px minmax(210px, 1fr) minmax(160px, auto) 52px 76px minmax(270px, 310px) 28px;
+.folder-file-progress-group {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.transfer-files {
+  display: grid;
+  column-gap: 10px;
+  --transfer-column-gap: clamp(22px, 10px + 2vw, 38px);
+  grid-template-columns: 34px minmax(0, 1fr) fit-content(160px) max-content max-content fit-content(310px) max-content;
+}
+.transfer-files > * { grid-column: 1 / -1; }
+.transfer-files > .folder-file-row { grid-template-columns: subgrid; }
+@media (min-width: 701px) {
+  .folder-file-row.has-transfer :is(.folder-file-length, .folder-file-size, .folder-file-transfer-strip) {
+    margin-inline-start: calc(var(--transfer-column-gap) - 10px);
+  }
 }
 .folder-file-row .folder-file-transfer-strip { grid-column: 6; }
 .folder-file-row .folder-file-action { grid-column: 7; }
@@ -1574,7 +1589,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--transfer-column-gap);
 }
 .folder-file-transfer-percent {
   flex: 0 0 auto;
@@ -1593,6 +1608,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 }
 .folder-file-transfer-label { flex: 0 0 auto; }
 .transfer-item-action-button {
+  flex: none;
   width: 27px;
   height: 27px;
   display: grid;
@@ -1604,6 +1620,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   opacity: 0;
 }
 .transfer-item-action-button .app-icon { --app-icon-size: 14px; }
+.transfer-item-action-button.retry,
 .transfer-item-action-button:focus-visible { pointer-events: auto; opacity: 1; }
 .folder-item-summary .item-card-action .transfer-item-action-button.remove,
 .file-item-main .item-card-action .transfer-item-action-button.remove,
@@ -1692,31 +1709,26 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   grid-template-areas: 'path size action';
 }
 .transfer-peer-list .folder-file-row { min-height: 46px; }
-/* Keep every fetched row in the DOM. Compact rows use their existing minimum
-   height offscreen; the browser remembers measured sizes as they become visible.
-   Details and locked labels keep their content-driven layout. The same rule
-   keeps large search previews from laying out every offscreen file. */
-.transfer-peer-list .folder-file-row:where(:not(.has-transfer-detail):not(.locked)),
-.redesigned-search-page .folder-file-row:where(:not(.has-transfer-detail):not(.locked)) {
+/* Compact offscreen rows use the same minimum height as visible rows. A
+   remembered size can include the previous transfer state or last-row border. */
+.redesigned-search-page :where(.folder-files-table:not(.transfer-files)) > .folder-file-row:where(:not(.has-transfer-detail):not(.locked)) {
   content-visibility: auto;
-  contain-intrinsic-block-size: auto 0px;
+  contain-intrinsic-block-size: 0px;
 }
 .transfer-peer-list .folder-file-size { display: block; text-align: right; }
 
 @media (hover: none) {
-  .transfer-item-action-button { pointer-events: auto; }
+  .transfer-item-action-button { opacity: 1; pointer-events: auto; }
 }
 
 @media (max-width: 980px) {
-  /* Audio gains another grid row here. Clear the remembered compact size so
-     returning to desktop cannot reuse a taller mobile row. */
-  .transfer-peer-list .folder-file-row.has-audio,
+  /* Audio gains another grid row here and needs its natural height. */
   .redesigned-search-page .folder-file-row.has-audio {
     content-visibility: visible;
     contain-intrinsic-block-size: none;
   }
-  .folder-file-row.has-transfer {
-    grid-template-columns: 24px minmax(180px, 1fr) 52px 72px minmax(245px, 285px) 28px;
+  .transfer-files {
+    grid-template-columns: 34px minmax(0, 1fr) max-content max-content fit-content(285px) max-content;
   }
   .folder-file-row.has-transfer .folder-file-path { grid-column: 2; grid-row: 1; }
   .folder-file-row.has-transfer .folder-file-audio { grid-column: 2; grid-row: 2; text-align: left; }
@@ -1743,11 +1755,11 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   .transfer-bulk-actions { align-self: flex-start; flex-wrap: wrap; }
   .transfer-progress-meta { flex-direction: column; gap: 3px; }
   .transfer-progress-meta span:last-child { text-align: left; }
-  .folder-file-row.has-transfer {
-    grid-template-columns: 22px minmax(0, 1fr) 58px 20px;
-    gap: 7px;
+  .transfer-files {
+    --transfer-column-gap: 12px;
+    grid-template-columns: 32px minmax(0, 1fr) max-content 20px max-content;
+    column-gap: 7px;
   }
-  .folder-file-row.has-transfer.has-file-action { grid-template-columns: 22px minmax(0, 1fr) 58px 20px 28px; }
   .folder-file-row.has-transfer .folder-file-path { grid-column: 2; grid-row: 1; }
   .folder-file-row.has-transfer .folder-file-audio { grid-column: 2; grid-row: 2; }
   .folder-file-row.has-transfer .folder-file-length { display: none; }
@@ -1769,7 +1781,6 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
     white-space: normal;
   }
   .folder-file-row.has-transfer.has-audio.has-transfer-detail .folder-file-transfer-strip { grid-row: 3; }
-  .folder-file-transfer-strip { gap: 6px; }
   .folder-file-progress { min-width: 56px; max-width: 82px; }
   .transfer-peer-list .file-result-row:not(.transfer-summary) {
     grid-template-columns: minmax(0, 1fr) 68px 28px;
@@ -1963,6 +1974,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 }
 .share-tree-row:hover { background-color: color-mix(in srgb, var(--surface-raised) 45%, transparent); }
 .share-tree-row.file {
+  content-visibility: auto;
+  contain-intrinsic-block-size: 0px;
   display: grid;
   grid-template-columns: 15px 24px 20px minmax(120px, 1fr) auto 82px;
   grid-template-areas: 'check toggle icon name visibility size';
@@ -2351,7 +2364,10 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   border: 1.5px solid var(--accent);
   border-right-color: transparent;
   background: transparent;
-  animation: resource-state-spin 700ms linear infinite;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .loading-indicator .resource-state-dot,
+  .resource-state-notice.loading .resource-state-dot { animation: resource-state-spin 700ms linear infinite; }
 }
 .loading-indicator { display: flex; justify-content: center; align-items: center; padding: 14px; }
 .loading-indicator.blocking { min-height: 160px; margin: 24px auto; }
@@ -2513,6 +2529,12 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   min-width: 0;
   display: grid;
   gap: 3px;
+}
+.group-result-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .group-result-identity strong {
   min-width: 0;
@@ -2908,6 +2930,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .job-preview-row:hover { background: var(--surface-subtle); }
 .job-preview-icon { display: grid; place-items: center; color: var(--muted); }
 .job-preview-icon .app-icon { --app-icon-size: 16px; }
+.job-preview-name { display: grid; min-width: 0; }
+.job-preview-name small { color: var(--muted); overflow-wrap: anywhere; }
 .job-preview-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .73rem; font-weight: 610; }
 .job-preview-details { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: min(45vw, 360px); color: var(--muted); font-size: .7rem; white-space: nowrap; }
 .job-preview-error { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--danger); }
@@ -2961,7 +2985,6 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .job-info-card.warning { border-color: color-mix(in srgb, var(--warning) 30%, var(--border)); }
 .job-info-card.failed { border-color: color-mix(in srgb, var(--danger) 30%, var(--border)); }
 .job-info-heading { display: flex; align-items: center; gap: 12px; }
-.job-info-heading > .loading-indicator { padding: 0; }
 .job-info-copy { min-width: 0; flex: 1; display: grid; gap: 7px; }
 .job-info-copy strong { font-size: .8rem; font-weight: 580; overflow-wrap: anywhere; }
 .job-info-counts { display: flex; flex-wrap: wrap; gap: 5px 12px; color: var(--muted); font-size: .74rem; font-variant-numeric: tabular-nums; }

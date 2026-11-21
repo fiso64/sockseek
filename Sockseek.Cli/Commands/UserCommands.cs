@@ -54,6 +54,7 @@ internal static class UserCommands
         }
 
         Console.WriteLine($"{Safe(profile.Username)}: {Presence(presence.State)}");
+        Console.WriteLine($"Profile checked {profile.ObservedAt.ToLocalTime():g}");
         if (!string.IsNullOrWhiteSpace(profile.Description))
         {
             Console.WriteLine();
@@ -69,7 +70,7 @@ internal static class UserCommands
             profile.UploadCount is { } count ? count.ToString("N0", CultureInfo.CurrentCulture) : null);
         WriteProfileFact("Upload capacity", profile.Info,
             JoinFacts(
-                profile.UploadSlots is { } slots ? $"{slots:N0} slots" : null,
+                profile.UploadSlots is { } slots ? $"{slots:N0} {(slots == 1 ? "slot" : "slots")}" : null,
                 profile.QueueLength is { } queue ? $"{queue:N0} queued" : null,
                 profile.HasFreeUploadSlot is { } free ? free ? "free slot" : "no free slot" : null));
 

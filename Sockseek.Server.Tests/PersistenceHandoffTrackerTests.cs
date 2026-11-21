@@ -54,6 +54,20 @@ public sealed class PersistenceHandoffTrackerTests
     }
 
     [TestMethod]
+    public async Task TerminalChildRetryCanReadHistoryWhileItsBatchIsStillRunning()
+    {
+        var tracker = new PersistenceHandoffTracker();
+        Guid workflow = Guid.NewGuid(), folder = Guid.NewGuid(), sibling = Guid.NewGuid();
+        tracker.RegisterJob(workflow, folder);
+        tracker.RegisterJob(workflow, sibling);
+        var ready = tracker.WaitForJobAsync(folder, CancellationToken.None, includeSearchResults: false, terminalRevision: 5);
+        tracker.Committed([JobMutation(workflow, sibling, 8), JobMutation(workflow, folder, 4)]);
+        Assert.IsFalse(ready.IsCompleted);
+        tracker.Committed([JobMutation(workflow, folder, 5)]);
+        await ready.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [TestMethod]
     public async Task RetirementWaitsForExactTerminalJobAndSearchRevisions()
     {
         var tracker = new PersistenceHandoffTracker();

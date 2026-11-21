@@ -1,3 +1,4 @@
+using Sockseek.Core.Extractors;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
@@ -251,17 +252,14 @@ public static class Printing
 
     public static void PrintLink(string username, string filename)
     {
-        var link = $"slsk://{username}/{filename.Replace('\\', '/')}";
-        WriteLine(link);
+        WriteLine(SoulseekExtractor.FormatLink(username, filename));
     }
 
 
     public static void PrintAlbumLink(AlbumFolder folder)
     {
         if (!folder.Files.Any(file => file.Candidate.Visibility == SearchResultVisibility.Public)) return;
-        string directory = folder.FolderPath;
-        var link = $"slsk://{folder.Username}/{directory.Replace('\\', '/').TrimEnd('/')}/";
-        WriteLine(link);
+        WriteLine(SoulseekExtractor.FormatLink(folder.Username, folder.FolderPath, directory: true));
     }
 
 

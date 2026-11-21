@@ -16,6 +16,9 @@ public sealed class PersistenceDatabaseUnavailableException(string message, Exce
 
 internal static class PersistenceDatabaseErrors
 {
+    public static bool IsDiskFull(Exception? exception)
+        => Find<SqliteException>(exception)?.SqliteErrorCode == 13;
+
     public static Exception Classify(Exception exception, string databasePath)
     {
         if (exception is PersistenceDatabaseException)

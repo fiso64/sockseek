@@ -40,13 +40,29 @@ internal sealed class JobOrchestrator
     }
     // ── recursive job processor ───────────────────────────────────────────────
 
-    public async Task ProcessRootJob(Job rootJob, bool emitAutoProfileFinalSummary = true)
+    public async Task ProcessRootJob(Job rootJob, bool requiresLogin, bool automaticStaleChecksEnabled,
+        bool emitAutoProfileFinalSummary = true)
     {
         long startedAt = Stopwatch.GetTimestamp();
         DownloadLogMessages.RootJobStarted(logger, rootJob.Id, rootJob.Kind);
         try
         {
-            await ProcessJob(rootJob);
+            context.RegisterForExecution(rootJob, default, null);
+            if (requiresLogin)
+            {
+                try
+                {
+                    await context.Runtime.EnsureServicesInitializedAsync(rootJob.Cts!.Token, automaticStaleChecksEnabled);
+                }
+                catch (OperationCanceledException) when (IsJobCancellationRequested(rootJob, default))
+                {
+                    MarkCancelledIfActive(rootJob, CancellationSourceFor(rootJob, default));
+                    context.Events.RaiseJobExecutionCompleted(rootJob);
+                    return;
+                }
+            }
+            RegisterExecutionChildren(rootJob, null);
+            await ProcessRegisteredJob(rootJob, default, null);
         }
         finally
         {
@@ -76,6 +92,11 @@ internal sealed class JobOrchestrator
     private void RegisterExecutionTree(Job job, CancellationToken parentToken, Job? parentJob)
     {
         context.RegisterForExecution(job, parentToken, parentJob);
+        RegisterExecutionChildren(job, parentJob);
+    }
+
+    private void RegisterExecutionChildren(Job job, Job? parentJob)
+    {
         if (job is not JobList list) return;
 
         // Publish all known members, including nested lists, independently of
@@ -294,7 +315,7 @@ internal sealed class JobOrchestrator
 
     public async Task ProcessJobList(JobList jl, CancellationToken parentToken, Job? parentJob)
     {
-        var ctx = context.Contexts.TryGetValue(jl.Id, out var c) ? c : null;
+        var ctx = context.Contexts.TryGetValue(jl, out var c) ? c : null;
         var config = jl.Config!;
         jl.UpdateActivity(JobActivityPhase.RunningChildren);
         var childParentJob = parentJob is SongGroupsJob or AlbumGroupsJob ? parentJob : jl;
@@ -325,6 +346,8 @@ internal sealed class JobOrchestrator
         {
             foreach (var song in skipEligibleDirectSongs)
             {
+                // Leave unvisited children for the normal cancellation drain below.
+                if (jl.Cts!.IsCancellationRequested) break;
                 var songCtx = context.Ctx(song);
                 var songConfig = song.Config;
 
@@ -337,7 +360,7 @@ internal sealed class JobOrchestrator
 
                 if (songConfig.Skip.SkipExisting
                     && song.LifecycleState == JobLifecycleState.Pending
-                    && context.SkipEvaluation.TrySetAlreadyExists(batchOwner, song, TrackSkipperContext.From(songCtx, songConfig.Skip, songConfig.ResolveSearchSettings())))
+                    && await context.SkipEvaluation.TrySetAlreadyExistsAsync(batchOwner, song, TrackSkipperContext.From(songCtx, songConfig.Skip, songConfig.ResolveSearchSettings())))
                 {
                     existing.Add(song);
                 }
@@ -348,11 +371,10 @@ internal sealed class JobOrchestrator
                 existing,
                 notFound);
 
-            foreach (var song in existing)
-                await MaybeRemoveFromSource(song, song.Config);
         }
 
         context.UpdateOutputs(jl, ctx);
+        await RemoveCompletedRequests(existing.Where(song => ShouldRemoveFromSource(song, song.Config)));
 
         try
         {
@@ -449,6 +471,9 @@ internal sealed class JobOrchestrator
         }
 
         SetJobListTerminalState(jl, parentToken);
+        // Child lists can have their own editors. Settle the submission's
+        // playlist with the final paths from all of its members.
+        context.UpdateOutputs(jl, ctx);
     }
 
     private Task ProcessChildren(JobList list, Job? parentJob)
@@ -473,7 +498,7 @@ internal sealed class JobOrchestrator
 
     public async Task FlushManualSelectionTerminalEffectsAsync(Job job)
     {
-        if (context.Contexts.TryGetValue(job.Id, out var ctx))
+        if (context.Contexts.TryGetValue(job, out var ctx))
         {
             context.UpdateOutputs(job, ctx);
         }
@@ -556,14 +581,35 @@ internal sealed class JobOrchestrator
         };
     }
 
-    internal async Task MaybeRemoveFromSource(Job job, DownloadSettings config)
+    private bool ShouldRemoveFromSource(Job job, DownloadSettings config)
+        => !config.DoNotDownload && config.Extraction.RemoveTracksFromSource
+            && job is not (SearchJob or RetrieveFolderJob) && job.SourceMutation != null
+            && IsSubtreeSuccessful(job) && context.SourceMutations.TryClaim(job);
+
+    private Task MaybeRemoveFromSource(Job job, DownloadSettings config)
+        => ShouldRemoveFromSource(job, config) ? RemoveCompletedRequests([job]) : Task.CompletedTask;
+
+    private async Task RemoveCompletedRequests(IEnumerable<Job> jobs)
     {
-        if (config.DoNotDownload) return;
-        if (!config.Extraction.RemoveTracksFromSource) return;
-        if (job is SearchJob or RetrieveFolderJob) return;
-        if (job.SourceMutation == null) return;
-        if (!IsSubtreeSuccessful(job)) return;
-        await context.SourceMutations.ApplyIfNeededAsync(job, config);
+        var documents = jobs.GroupBy(job =>
+        {
+            var ctx = context.Ctx(job);
+            return (ctx.IndexEditor, ctx.PlaylistEditor);
+        });
+        foreach (var group in documents)
+        {
+            // Source removal is a receipt for the requested outputs. Publish
+            // every selected entry in this batch before consuming its rows.
+            foreach (var job in group)
+                context.UpdateOutputs(job, context.Ctx(job));
+            bool ready = true;
+            foreach (var document in new[] { group.Key.IndexEditor, group.Key.PlaylistEditor })
+                if (document?.IsWritable == true && await context.Runtime.Files.FlushOutputAsync(document) != null)
+                    ready = false;
+            if (ready) await context.SourceMutations.ApplyAsync(group);
+            else context.Events.RaiseJobMessage(group.First(), LogLevel.Warning, "source-mutation",
+                "The requested output files could not be written. The requests were kept in the source.");
+        }
     }
 
     async Task<JobOutcome> ProcessLeafJob(Job job, CancellationToken parentToken, Job? parentJob)
@@ -601,8 +647,9 @@ internal sealed class JobOrchestrator
         }
 
         if (config.Skip.SkipExisting && !config.PrintResults && job.CanBeSkipped
-            && context.SkipEvaluation.TryGetJobAlreadyExistsOutcome(job, ctx) is { } alreadyExistsOutcome)
+            && await context.SkipEvaluation.TryGetJobAlreadyExistsOutcomeAsync(job, ctx) is { } alreadyExistsOutcome)
         {
+            JobOutcome completed;
             if (job is SongJob existingSong)
             {
                 var organizer = new FileManager(
@@ -611,7 +658,7 @@ internal sealed class JobOrchestrator
                     config.Extraction,
                     context.LoggerFactory.CreateLogger<FileManager>(),
                     ctx.OutputScope);
-                await download.CommitAndFinalizeSong(
+                completed = await download.CommitAndFinalizeSong(
                     existingSong,
                     existingSong,
                     alreadyExistsOutcome,
@@ -625,13 +672,14 @@ internal sealed class JobOrchestrator
                 DownloadExecutorCoordinator.ApplyPreCommitOutcomeMetadata(job, alreadyExistsOutcome);
                 var postProcessOutcome = DownloadExecutorCoordinator.OutcomeWithCurrentMetadata(job, alreadyExistsOutcome);
                 postProcessOutcome = await download.RunOnCompleteIfApplicable(job, null, ctx, postProcessOutcome);
-                JobOutcomeCommitter.Commit(job, DownloadExecutorCoordinator.OutcomeWithCurrentMetadata(job, postProcessOutcome));
+                completed = postProcessOutcome;
+                JobOutcomeCommitter.Commit(job, completed);
             }
 
-            if (!string.IsNullOrEmpty(alreadyExistsOutcome.DownloadPath))
-                ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, alreadyExistsOutcome.DownloadPath);
+            if (!string.IsNullOrEmpty(completed.DownloadPath))
+                ctx.IndexEditor?.NotifyJobDownloadPath(job.Id, completed.DownloadPath);
             context.UpdateOutputs(job, ctx);
-            return alreadyExistsOutcome;
+            return completed;
         }
 
         // ── source search / download ──────────────────────────────────────────

@@ -20,6 +20,7 @@ public static class ApiEnumMapper
         => reason switch
         {
             Sockseek.Core.Events.TransferFailureReason.PeerFailure => TransferFailureReason.ConnectionFailed,
+            Sockseek.Core.Events.TransferFailureReason.LocalStorageError => TransferFailureReason.LocalStorageError,
             Sockseek.Core.Events.TransferFailureReason.Stale => TransferFailureReason.TransferTimedOut,
             Sockseek.Core.Events.TransferFailureReason.Finalization or Sockseek.Core.Events.TransferFailureReason.Unknown => TransferFailureReason.Unknown,
             _ => TransferFailureReason.None,
@@ -40,7 +41,8 @@ public static class ApiEnumMapper
 
     public static TransferCancellationSource ToServer(this Sockseek.Core.Events.TransferCancellationReason? reason)
         => reason is Sockseek.Core.Events.TransferCancellationReason.Requested or Sockseek.Core.Events.TransferCancellationReason.ManualSkip
-            ? TransferCancellationSource.User : TransferCancellationSource.None;
+            ? TransferCancellationSource.User : reason == Sockseek.Core.Events.TransferCancellationReason.DaemonShutdown
+                ? TransferCancellationSource.DaemonShutdown : TransferCancellationSource.None;
 
     public static TransferCancellationSource ToServer(this UploadCancellationSource reason)
         => reason switch

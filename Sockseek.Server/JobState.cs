@@ -56,6 +56,8 @@ internal sealed class JobState
     private IEnumerable<JobReadState> CurrentJobs => records.Values.Select(entry => entry.Current);
     private IEnumerable<JobReadState> PublishedJobs => records.Values.Select(entry => entry.Published).OfType<JobReadState>();
     private readonly Dictionary<Guid, WorkflowStateRecord> workflows = [];
+    // A root can still be writing the requested playlist or index after its last transfer finishes.
+    private readonly Dictionary<Guid, int> executingRoots = [];
     private readonly Dictionary<Guid, SubmissionMembership> submissions = [];
     private readonly Dictionary<Guid, Guid?> parentJobIds = [];
     private readonly Dictionary<Guid, HashSet<Guid>> childJobIdsByParent = [];
@@ -216,6 +218,7 @@ internal sealed class JobState
         JobStructureChangedChange value => OnJobChanged(value.Job, value),
         JobDiscoveryChangedChange value => OnJobChanged(value.Job, value),
         JobExecutionCompletedChange value => OnJobExecutionCompleted(value),
+        RootExecutionChanged value => OnRootExecution(value),
         JobResultCreatedChange value => OnJobResultCreated(value),
         _ => throw new ArgumentException($"Not a job-state change: {change.GetType().Name}.", nameof(change)),
     };
@@ -370,7 +373,7 @@ internal sealed class JobState
     {
         return workflows.Values
             .OrderBy(workflow => workflow.WorkflowId)
-            .Select(workflow => workflow.ToSummary(records))
+            .Select(ToSummary)
             .ToList();
     }
 
@@ -391,14 +394,14 @@ internal sealed class JobState
             .Take(take)
             .Select(workflow => new LiveWorkflowPageItem(
                 workflow.FirstDisplayId,
-                workflow.ToSummary(records)))
+                ToSummary(workflow)))
             .ToArray();
     }
 
     public WorkflowSummaryDto? GetWorkflowSummary(Guid workflowId)
     {
         return workflows.TryGetValue(workflowId, out var workflow)
-            ? workflow.ToSummary(records)
+            ? ToSummary(workflow)
             : null;
     }
 
@@ -407,7 +410,7 @@ internal sealed class JobState
         if (!workflows.TryGetValue(workflowId, out var workflow))
             return null;
 
-        return new WorkflowDetailDto(workflow.ToSummary(records));
+        return new WorkflowDetailDto(ToSummary(workflow));
     }
 
     public ServerStatusDto GetStatistics()
@@ -511,9 +514,28 @@ internal sealed class JobState
             ? new SearchStateDto(job.Id, job.WorkflowId, search.Revision, search.ResultCount, search.IsComplete)
             : null;
 
+    private WorkflowSummaryDto ToSummary(WorkflowStateRecord workflow)
+        => workflow.ToSummary(records, executingRoots.ContainsKey(workflow.WorkflowId));
+
+    private JobStateUpdate OnRootExecution(RootExecutionChanged change)
+    {
+        int count = executingRoots.GetValueOrDefault(change.WorkflowId);
+        if (change.Started)
+            executingRoots[change.WorkflowId] = count + 1;
+        else if (count > 1)
+            executingRoots[change.WorkflowId] = count - 1;
+        else
+            executingRoots.Remove(change.WorkflowId);
+
+        if (workflows.TryGetValue(change.WorkflowId, out var workflow) && workflow.ActiveJobCount == 0
+            && (change.Started ? count == 0 : count == 1))
+            return new([], [ToSummary(workflow)], [], change.OccurredAtUtc);
+        return JobStateUpdate.Empty;
+    }
+
     private WorkflowSummaryDto BuildWorkflowSummary(Guid workflowId)
         => workflows.TryGetValue(workflowId, out var workflow)
-            ? workflow.ToSummary(records)
+            ? ToSummary(workflow)
             : throw new InvalidOperationException($"Workflow {workflowId} is not registered.");
 
     private static bool IsDefaultRoot(JobReadState record)
@@ -1259,7 +1281,7 @@ internal sealed class JobState
             if (IsFailedRecord(record)) FailedJobCount += delta;
         }
 
-        public WorkflowSummaryDto ToSummary(IReadOnlyDictionary<Guid, JobReadEntry> records)
+        public WorkflowSummaryDto ToSummary(IReadOnlyDictionary<Guid, JobReadEntry> records, bool executing)
         {
             var firstRecord = records[allJobs.Min.JobId].Current;
             string? itemNameTitle = itemNameJobs.Count > 0
@@ -1270,7 +1292,7 @@ internal sealed class JobState
                 ?? firstRecord.QueryText
                 ?? firstRecord.Kind.ToWireString();
 
-            var state = ActiveJobCount > 0 ? ServerWorkflowState.Active
+            var state = executing || ActiveJobCount > 0 ? ServerWorkflowState.Active
                 : FailedJobCount > 0 ? ServerWorkflowState.Failed
                 : ServerWorkflowState.Completed;
 

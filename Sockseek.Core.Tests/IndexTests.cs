@@ -36,13 +36,16 @@ namespace Tests.Index
         }
 
         [TestMethod]
-        public void ConcurrentWorkflowsWritingOneIndexKeepEachOthersOutcomes()
+        [DataRow(true)]
+        [DataRow(false)]
+        public void ConcurrentWorkflowsWritingOneIndexKeepEachOthersOutcomes(bool shareStore)
         {
             var first = new SongJob(new SongQuery { Artist = "Artist", Title = "First" });
             var second = new SongJob(new SongQuery { Artist = "Artist", Title = "Second" });
             var indexes = new DownloadIndexStore();
             var firstEditor = indexes.Open(testM3uPath, new JobList(null, [first]), first.WorkflowId, readOnly: false);
-            var secondEditor = indexes.Open(testM3uPath, new JobList(null, [second]), second.WorkflowId, readOnly: false);
+            var other = shareStore ? indexes : new DownloadIndexStore();
+            var secondEditor = other.Open(testM3uPath, new JobList(null, [second]), second.WorkflowId, readOnly: false);
             first.SetDone("first.mp3");
             firstEditor.Observe(first);
             second.SetDone("second.mp3");
@@ -53,15 +56,48 @@ namespace Tests.Index
             Assert.AreEqual("first.mp3", reloaded.PreviousRunResult(first)?.DownloadPath);
             Assert.AreEqual("second.mp3", reloaded.PreviousRunResult(second)?.DownloadPath);
             indexes.RetireWorkflow(first.WorkflowId);
-            Assert.AreEqual(1, indexes.Count);
+            Assert.AreEqual(1, other.Count);
             second.SetDone("second-final.mp3");
             secondEditor.Observe(second);
             Assert.IsTrue(secondEditor.PublishPending());
-            indexes.RetireWorkflow(second.WorkflowId);
-            Assert.AreEqual(0, indexes.Count);
+            other.RetireWorkflow(second.WorkflowId);
+            Assert.AreEqual(0, other.Count);
             var later = indexes.Open(testM3uPath, new JobList(), Guid.NewGuid(), readOnly: true);
             Assert.AreEqual("first.mp3", later.PreviousRunResult(first)?.DownloadPath);
             Assert.AreEqual("second-final.mp3", later.PreviousRunResult(second)?.DownloadPath);
+        }
+
+        [TestMethod]
+        public void LateIndexWriterCannotRestoreAReplacedSongOrGuessBetweenConcurrentReplacements()
+        {
+            var old = new SongJob(new SongQuery { Title = "Old recording" });
+            var first = new SongJob(new SongQuery { Title = "First replacement" });
+            var second = new SongJob(new SongQuery { Title = "Second replacement" });
+            DownloadOutputFile Open(params Job[] songs) => new(testM3uPath, new JobList(null, songs), OutputFileKind.Index, true);
+            const string slot = "slot.mp3";
+            old.SetDone(slot);
+            Open(old).Refresh();
+
+            var history = Open(old);
+            var one = Open(first);
+            var two = Open(second);
+            JobOutcomeCommitter.Commit(old, JobOutcome.AlreadyExists(slot, ExistingFileSource.CompletionHistory));
+            history.Observe(old);
+            first.SetDone(slot);
+            one.Observe(first);
+            one.PublishPending();
+            history.PublishPending();
+            var current = Open();
+            Assert.IsNull(current.PreviousRunResult(old));
+            Assert.AreEqual(slot, current.PreviousRunResult(first)?.DownloadPath);
+
+            second.SetDone(slot);
+            two.Observe(second);
+            two.PublishPending();
+            current = Open();
+            Assert.IsNull(current.PreviousRunResult(old));
+            Assert.IsNull(current.PreviousRunResult(first));
+            Assert.IsNull(current.PreviousRunResult(second));
         }
 
         [TestMethod]
@@ -91,17 +127,17 @@ namespace Tests.Index
             Assert.AreEqual("Music/Latest.mp3", saved.DownloadPath);
             Assert.AreEqual(1, reloaded.GetPreviousRunData().Count);
             var album = new AlbumJob(new AlbumQuery { Artist = song.Query.Artist, Album = song.Query.Album });
-            Assert.AreEqual(saved, reloaded.PreviousRunResult(album));
+            Assert.IsNull(reloaded.PreviousRunResult(album), "Downloading one track cannot complete its album.");
 
             song.Fail(JobFailureReason.AllDownloadsFailed);
             song.DownloadPath = "";
             reloaded.Observe(song);
             Assert.AreEqual(JobStateOld.Done, first.State, "Returned snapshots cannot mutate under readers.");
-            Assert.AreEqual(JobStateOld.Failed, reloaded.PreviousRunResult(album)?.State);
+            Assert.IsNull(reloaded.PreviousRunResult(album));
             Assert.IsTrue(reloaded.PublishPending());
             Assert.IsFalse(reloaded.PublishPending(), "Unchanged facts must not rewrite the output.");
             var final = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Index, true, readOnly: true);
-            Assert.AreEqual(1, final.GetPreviousRunData().Count, "An album lookup alias must not duplicate persisted rows.");
+            Assert.AreEqual(1, final.GetPreviousRunData().Count);
             Assert.AreEqual(JobStateOld.Failed, final.PreviousRunResult(song)?.State);
         }
 
@@ -122,6 +158,24 @@ namespace Tests.Index
             Assert.AreEqual(JobStateOld.Done, savedTrack?.State);
             Assert.AreEqual("album-folder", savedAlbum?.DownloadPath);
             Assert.AreEqual(JobStateOld.Failed, savedAlbum?.State);
+        }
+
+        [TestMethod]
+        public void AlbumBySongRoundTripsWithoutClaimingTheSongOrAnotherHint()
+        {
+            var album = new AlbumJob(new AlbumQuery { Artist = "Robin", SearchHint = "Orchard" });
+            album.SetDone("Compilation");
+            var song = new SongJob(new SongQuery { Artist = "Robin", Title = "Orchard" });
+            song.SetDone();
+            song.DownloadPath = "single.mp3";
+            var queue = new JobList("Evening", [album, song]);
+            var editor = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Index, false);
+            editor.Refresh();
+
+            var reopened = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Index, true);
+            Assert.AreEqual("Compilation", reopened.PreviousRunResult(album)?.DownloadPath);
+            Assert.AreEqual("single.mp3", reopened.PreviousRunResult(song)?.DownloadPath);
+            Assert.IsNull(reopened.PreviousRunResult(new AlbumJob(new AlbumQuery { Artist = "Robin", SearchHint = "Encore" })));
         }
 
         [TestMethod]
@@ -351,7 +405,10 @@ namespace Tests.Index
             song.SetDone();
             song.DownloadPath = Path.Combine(Path.GetDirectoryName(testM3uPath)!, "nested", "song.mp3");
 
-            var (queue, _, _) = MakeSongQueue([song]);
+            var neighbor = new SongJob(new SongQuery { Artist = "Artist", Title = "Neighbor" });
+            neighbor.SetDone();
+            neighbor.DownloadPath = Path.Combine(Path.GetDirectoryName(testM3uPath)! + "-other", "song.mp3");
+            var (queue, _, _) = MakeSongQueue([song, neighbor]);
             File.WriteAllText(testM3uPath, "");
             var editor = new DownloadOutputFile(testM3uPath, queue, OutputFileKind.Index, true);
             editor.Refresh();
@@ -359,6 +416,8 @@ namespace Tests.Index
             var lines = File.ReadAllLines(testM3uPath);
             Assert.IsTrue(lines.Any(line => line.StartsWith("./nested/song.mp3,")),
                 string.Join("\n", lines));
+            Assert.IsTrue(lines.Any(line => line.StartsWith(neighbor.DownloadPath.Replace('\\', '/') + ",")),
+                "An index moved to another directory must still refer to its external files by absolute path.");
             Assert.IsFalse(lines.Any(line => line.StartsWith(@".\nested\song.mp3,")),
                 "Index paths should use forward slashes even on Windows.");
         }
@@ -514,6 +573,7 @@ namespace Tests.Index
                 TestHelpers.CreateAlbumFile(new Soulseek.SearchResponse("user", 1, true, 100, 0, []), new Soulseek.File(1, "Track.mp3", 100, ".mp3")),
                 TestHelpers.CreateAlbumFile(new Soulseek.SearchResponse("user", 1, true, 100, 0, []), new Soulseek.File(2, "Cover.jpg", 100, ".jpg")),
             ]);
+            folder.IsFullyRetrieved = true;
             album.ResolvedTarget = folder;
             album.TrackJobs.AddRange([audioSong, imageSong]);
             album.SetDone();

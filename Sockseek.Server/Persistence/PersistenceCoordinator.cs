@@ -57,6 +57,13 @@ public sealed class PersistenceCoordinator(
     public event Action<IReadOnlyList<(Guid TransferId, long Revision)>>? TerminalTransfersCommitted;
     internal event Action? TransfersPruned;
     internal event Action? JobsPruned;
+    private long jobRemovalVersion;
+    internal long JobRemovalVersion => Volatile.Read(ref jobRemovalVersion);
+    internal void NotifyJobsRemoved()
+    {
+        Interlocked.Increment(ref jobRemovalVersion);
+        JobsPruned?.Invoke();
+    }
     internal event Action<Guid> SearchSourceChanged
     {
         add => handoffs.SearchSourceChanged += value;
@@ -176,7 +183,7 @@ public sealed class PersistenceCoordinator(
             await NotifyChatRetentionCompletedAsync(
                 chatResult, CancellationToken.None).ConfigureAwait(false);
         }
-        if (result.PrunedJobs > 0) JobsPruned?.Invoke();
+        if (result.PrunedJobs > 0) NotifyJobsRemoved();
         LastRetentionAtUtc = DateTimeOffset.UtcNow;
         LastRetentionResult = result;
         return new PersistenceRetentionResultDto(
@@ -240,7 +247,11 @@ public sealed class PersistenceCoordinator(
         }
         if (!stop.Drained)
         {
-            ServerLogMessages.PersistenceDrainTimedOut(logger, stop.RuntimeId);
+            var remaining = stop.Remaining;
+            throw new TimeoutException($"Shutdown left history unwritten for runtime {stop.RuntimeId}. " +
+                $"Critical: {remaining.CriticalDepth}, ordinary: {remaining.OrdinaryDepth}, " +
+                $"progress: {remaining.ProgressCount}, retries: {remaining.RetryMutationCount}, " +
+                $"buffered search results: {remaining.BufferedSearchResultCount}.");
         }
     }
 
@@ -258,6 +269,9 @@ public sealed class PersistenceCoordinator(
 
     internal Task WaitForJobHandoffAsync(Guid jobId, CancellationToken cancellationToken, bool includeSearchResults = true)
         => handoffs.WaitForJobAsync(jobId, cancellationToken, includeSearchResults);
+
+    internal Task WaitForRetryHistoryAsync(EngineStateStore live, Guid jobId, CancellationToken token)
+        => handoffs.WaitForJobAsync(jobId, token, includeSearchResults: false, terminalRevision: live.PendingTerminalJobRevision(jobId));
 
     internal bool IsSearchCompletionLost(Guid jobId) => handoffs.IsSearchCompletionLost(jobId);
 

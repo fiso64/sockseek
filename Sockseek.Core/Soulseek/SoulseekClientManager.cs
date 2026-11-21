@@ -36,6 +36,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         "Soulseek server kicked this client, probably because the same account logged in elsewhere.";
 
     private readonly EngineSettings _initialSettings;
+    private readonly Func<ISoulseekClient, ISoulseekClient>? clientDecorator;
     private int? maximumUploadSpeed;
     private readonly ISoulseekInboundRequestRouter? inboundRouter;
     private readonly LocalUserProfile? localProfile;
@@ -103,8 +104,9 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         ISoulseekClient? client = null,
         ISoulseekInboundRequestRouter? inboundRouter = null,
         LocalUserProfile? localProfile = null,
-        ILogger<SoulseekClientManager>? logger = null)
-        : this(initialSettings, client, inboundRouter, Task.Delay, localProfile, logger)
+        ILogger<SoulseekClientManager>? logger = null,
+        Func<ISoulseekClient, ISoulseekClient>? clientDecorator = null)
+        : this(initialSettings, client, inboundRouter, Task.Delay, localProfile, logger, clientDecorator)
     {
     }
 
@@ -114,8 +116,10 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         ISoulseekInboundRequestRouter? inboundRouter,
         Func<TimeSpan, CancellationToken, Task> monitorDelay,
         LocalUserProfile? localProfile = null,
-        ILogger<SoulseekClientManager>? logger = null)
+        ILogger<SoulseekClientManager>? logger = null,
+        Func<ISoulseekClient, ISoulseekClient>? clientDecorator = null)
     {
+        this.clientDecorator = clientDecorator;
         _initialSettings = initialSettings ?? throw new ArgumentNullException(nameof(initialSettings));
         maximumUploadSpeed = initialSettings.Uploads.SpeedLimitKiBPerSecond ?? int.MaxValue;
         this.monitorDelay = monitorDelay ?? throw new ArgumentNullException(nameof(monitorDelay));
@@ -124,7 +128,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
         this.logger = logger ?? NullLogger<SoulseekClientManager>.Instance;
         if (client != null)
         {
-            _client = client;
+            _client = clientDecorator?.Invoke(client) ?? client;
             AttachClientEvents(_client);
             if (IsConnectedAndLoggedIn)
                 _readyTcs.TrySetResult();
@@ -281,7 +285,8 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
 
             if (_client == null)
             {
-                _client = CreateClientInstance(_initialSettings);
+                var created = CreateClientInstance(_initialSettings);
+                _client = clientDecorator?.Invoke(created) ?? created;
                 AttachClientEvents(_client);
                 PublishClientCreated(_client);
             }

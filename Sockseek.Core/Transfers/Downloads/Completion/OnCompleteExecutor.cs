@@ -17,8 +17,8 @@ public static class OnCompleteExecutor
     private enum CommandScope
     {
         Any,
-        Track,
-        Album,
+        File,
+        Folder,
     }
 
     private enum CommandWhen
@@ -93,19 +93,18 @@ public static class OnCompleteExecutor
     }
 
     // Execute on-complete actions for a job.
-    // song is null when called for an album-level completion (no individual song).
     public static async Task<JobOutcome> ExecuteAsync(
         Job job,
         SongJob? song,
         JobContext ctx,
         JobOutcome outcome,
         DownloadEvents? events = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        CancellationToken runtimeToken = default)
     {
         if (!job.Config.HasOnComplete || job.Config.Output.OnComplete == null)
             return outcome;
 
-        bool isAlbumOnComplete = IsAlbumOnComplete(job, song);
         var reporter = new Reporter(
             OnCompleteLogJob(job, song),
             events,
@@ -138,6 +137,10 @@ public static class OnCompleteExecutor
             Variables = ApplyOutcomeToContext(onCompleteContext.Variables, outcome),
         };
 
+        // A cancellation hook can still run after a user cancels the job. Daemon
+        // shutdown also stops that hook and any wait for the shared command lock.
+        var commandToken = outcome.TerminalOutcome == JobTerminalOutcome.Cancelled
+            ? runtimeToken : (song ?? job).Cts?.Token ?? runtimeToken;
         var currentOutcome = outcome;
         bool needUpdateIndex = false;
         ProcessResult? firstCommandResult = null;
@@ -155,7 +158,7 @@ public static class OnCompleteExecutor
             {
                 Variables = ApplyOutcomeToContext(onCompleteContext.Variables, currentOutcome),
             };
-            if (!ShouldExecuteCommand(config, currentOutcome, isTrack: song != null, isAlbum: isAlbumOnComplete))
+            if (!ShouldExecuteCommand(config, currentOutcome, song ?? job))
                 continue;
 
             string preparedCommand = PrepareCommandString(
@@ -183,12 +186,12 @@ public static class OnCompleteExecutor
                 if (config.UseLocking)
                 {
                     reporter.Decision("waiting for on-complete lock", i + 1);
-                    await _lockingSemaphore.WaitAsync();
+                    await _lockingSemaphore.WaitAsync(commandToken);
                     acquiredLock = true;
                 }
 
                 reporter.Decision("executing on-complete", i + 1);
-                currentResult = await ExecuteProcessAsync(startInfo, reporter);
+                currentResult = await ExecuteProcessAsync(startInfo, reporter, commandToken);
             }
             finally
             {
@@ -227,32 +230,38 @@ public static class OnCompleteExecutor
         return currentOutcome;
     }
 
-    public static bool HasApplicableCommand(Job job, SongJob? song, JobOutcome outcome)
+    internal static bool HasUnfinishedExport(Job job, SongJob? song, JobContext ctx)
+    {
+        if (!job.Config.HasOnComplete || ctx.IndexEditor is not { } index) return false;
+        var previous = song != null ? index.PreviousRunResult(song)
+            : job is AlbumJob album ? index.PreviousRunResult(album) : null;
+        return previous?.State == JobStateOld.Failed
+            && HasApplicableCommand(job, song, JobOutcome.Done(), requireIndexUpdate: true);
+    }
+
+    public static bool HasApplicableCommand(Job job, SongJob? song, JobOutcome outcome, bool requireIndexUpdate = false)
     {
         if (!job.Config.HasOnComplete || job.Config.Output.OnComplete == null)
             return false;
-
-        bool isAlbumOnComplete = IsAlbumOnComplete(job, song);
 
         foreach (var rawCommand in job.Config.Output.OnComplete)
         {
             if (string.IsNullOrWhiteSpace(rawCommand))
                 continue;
 
-            if (ShouldExecuteCommand(ParseCommand(rawCommand), outcome, isTrack: song != null, isAlbum: isAlbumOnComplete))
+            var config = ParseCommand(rawCommand);
+            if ((!requireIndexUpdate || config.UseOutputToUpdateIndex)
+                && ShouldExecuteCommand(config, outcome, song ?? job))
                 return true;
         }
 
         return false;
     }
 
-    private static bool IsAlbumOnComplete(Job job, SongJob? song)
-        => song == null && job is AlbumJob;
-
     private static OnCompleteContext BuildSongOnCompleteContext(SongJob song, Job parentJob)
     {
         var variables = FileManagerContext.FromSongJob(song, parentJob);
-        return new OnCompleteContext(variables, song.DownloadPath);
+        return new OnCompleteContext(variables, TagSourcePath: null);
     }
 
     private static OnCompleteContext BuildJobOnCompleteContext(Job job)
@@ -316,7 +325,7 @@ public static class OnCompleteExecutor
 
         return ctx with
         {
-            DownloadPath = outcome.DownloadPath ?? ctx.DownloadPath,
+            DownloadPath = outcome.ShouldUpdateDownloadPath ? outcome.DownloadPath : ctx.DownloadPath,
             TerminalOutcome = outcome.TerminalOutcome,
             SkipReason = outcome.SkipReason,
             FailureReason = outcome.FailureReason,
@@ -421,9 +430,9 @@ public static class OnCompleteExecutor
 
         config.Scope = value.ToLowerInvariant() switch
         {
-            "track" => CommandScope.Track,
-            "album" => CommandScope.Album,
-            _ => throw InvalidOnCompleteCommand(rawCommand, $"Unknown scope `{value}`. Use `scope=track` or `scope=album`.")
+            "file" => CommandScope.File,
+            "folder" => CommandScope.Folder,
+            _ => throw InvalidOnCompleteCommand(rawCommand, $"Unknown scope `{value}`. Use `scope=file` or `scope=folder`.")
         };
     }
 
@@ -456,7 +465,7 @@ public static class OnCompleteExecutor
             ? " Legacy one-letter prefixes are no longer supported in 3.0."
             : "";
         return new ArgumentException(
-            $"Input error: Invalid on-complete command. {reason}{legacyHint} Use `--` to separate Sockseek options from the command, for example: `on-complete = when=success scope=album hidden -- cmd /d /c notify.cmd \"{{path}}\"`.");
+            $"Input error: Invalid on-complete command. {reason}{legacyHint} Use `--` to separate Sockseek options from the command, for example: `on-complete = when=success scope=folder hidden -- cmd /d /c notify.cmd \"{{path}}\"`.");
     }
 
     private static bool LooksLikeLegacyPrefixSyntax(string rawCommand)
@@ -476,11 +485,11 @@ public static class OnCompleteExecutor
         return consumedAny;
     }
 
-    private static bool ShouldExecuteCommand(CommandConfig config, JobOutcome outcome, bool isTrack, bool isAlbum)
+    private static bool ShouldExecuteCommand(CommandConfig config, JobOutcome outcome, Job subject)
     {
-        if (!outcome.IsTerminal) return false;
-        if (config.Scope == CommandScope.Track && !isTrack) return false;
-        if (config.Scope == CommandScope.Album && !isAlbum) return false;
+        if (!outcome.IsTerminal || subject is not (FileDownloadJob or DirectoryDownloadJob)) return false;
+        if (config.Scope == CommandScope.File && subject is not FileDownloadJob) return false;
+        if (config.Scope == CommandScope.Folder && subject is not DirectoryDownloadJob) return false;
 
         return config.When switch
         {
@@ -513,7 +522,7 @@ public static class OnCompleteExecutor
             {
                 var tagSourcePath = ctx.TagSourcePath ?? ctx.Variables.DownloadPath;
                 if (!string.IsNullOrEmpty(tagSourcePath) && System.IO.File.Exists(tagSourcePath))
-                    audio = TagLib.File.Create(tagSourcePath);
+                    audio = TagLib.File.Create(tagSourcePath, Utils.AudioMetadataReadStyle);
                 else
                     reporter.Message(
                         LogLevel.Warning,
@@ -610,11 +619,13 @@ public static class OnCompleteExecutor
 
     private static async Task<ProcessResult?> ExecuteProcessAsync(
         ProcessStartInfo startInfo,
-        Reporter reporter)
+        Reporter reporter,
+        CancellationToken cancellationToken)
     {
         using var process = new Process { StartInfo = startInfo };
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!process.Start())
             {
                 reporter.Message(LogLevel.Error, "failed to start on-complete process");
@@ -624,7 +635,22 @@ public static class OnCompleteExecutor
             Task<CapturedProcessOutput>? readStdoutTask = startInfo.RedirectStandardOutput ? CaptureProcessOutputAsync(process.StandardOutput) : null;
             Task<CapturedProcessOutput>? readStderrTask = startInfo.RedirectStandardError ? CaptureProcessOutputAsync(process.StandardError) : null;
 
-            await process.WaitForExitAsync();
+            try
+            {
+                await process.WaitForExitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                if (!process.HasExited)
+                {
+                    try { process.Kill(entireProcessTree: true); }
+                    catch (InvalidOperationException) when (process.HasExited) { }
+                }
+                await process.WaitForExitAsync();
+                if (readStdoutTask != null) await readStdoutTask;
+                if (readStderrTask != null) await readStderrTask;
+                throw;
+            }
 
             var stdout = readStdoutTask != null ? await readStdoutTask : default;
             var stderr = readStderrTask != null ? await readStderrTask : default;
@@ -637,6 +663,7 @@ public static class OnCompleteExecutor
                 StdoutTruncated = stdout.Truncated,
             };
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             reporter.Failure(ex);
@@ -680,6 +707,12 @@ public static class OnCompleteExecutor
     {
         bool needsUpdate = false;
         var nextOutcome = currentOutcome;
+
+        if (result.ExitCode != 0)
+        {
+            reporter.Message(LogLevel.Warning, $"on-complete command exited with code {result.ExitCode}");
+            return new CommandProcessingResult(currentOutcome, false);
+        }
 
         if (useOutputToUpdateIndex && !string.IsNullOrWhiteSpace(result.Stdout))
         {
@@ -727,11 +760,6 @@ public static class OnCompleteExecutor
                     "ignored on-complete stdout path update because index paths can only be updated for track- or album-level completions");
             }
         }
-
-        if (result.ExitCode != 0)
-            reporter.Message(
-                LogLevel.Warning,
-                $"on-complete command exited with code {result.ExitCode}");
 
         return new CommandProcessingResult(nextOutcome, needsUpdate);
     }

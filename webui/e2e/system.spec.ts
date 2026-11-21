@@ -106,7 +106,8 @@ test('browses the served catalog and confirms cleanup without deleting active wo
     && !new URL(response.url()).pathname.includes(generation) && response.ok());
   await page.getByRole('button', { name: 'Rescan shares', exact: true }).click();
   await scanComplete;
-  await expect(page.getByRole('textbox', { name: 'Filter user shares' })).toHaveValue('');
+  await expect(page.getByRole('textbox', { name: 'Filter user shares' })).toHaveValue('Uploaded');
+  await expect(page.locator('.share-tree-row.file')).toHaveCount(1);
   expect((await page.request.get(`/api/sharing/catalogs/${generation}/directories`)).status()).toBe(409);
 
   expect((await page.request.post('/api/jobs/delete-completed', { data: {} })).status()).toBe(400);

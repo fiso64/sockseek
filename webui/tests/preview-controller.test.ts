@@ -44,8 +44,10 @@ it('shows partial readiness as soon as the planning request completes and retain
 
 it('retries a lost commit response identically and does not repeat a confirmed submission', async () => {
   const requests: Schema<'CommitJobPreviewRequestDto'>[] = [];
+  const readSummary = vi.fn(async () => summary('preview'));
   class Api extends DaemonApiClient {
     override async createJobPreview() { return { preview: summary('preview') }; }
+    override getJobPreview = readSummary;
     override async getJobPreviewNodes() { return { items: [], nextCursor: null }; }
     override async commitJobPreview(_id: string, body: Schema<'CommitJobPreviewRequestDto'>): Promise<Schema<'CommitJobPreviewResponseDto'>> {
       requests.push(body);
@@ -56,6 +58,9 @@ it('retries a lost commit response identically and does not repeat a confirmed s
   const controller = new PreviewController(new Api());
   await controller.create(request);
   await controller.commit({ mode: 'Only', refs: ['b', 'a'] });
+  // The daemon hides committed previews. A resumed tab must recover its receipt.
+  await controller.recheckReady();
+  expect(readSummary).not.toHaveBeenCalled();
   await controller.commit({ mode: 'Only', refs: ['a', 'b', 'a'] });
   expect(requests).toHaveLength(2);
   expect(requests[1]).toEqual(requests[0]);

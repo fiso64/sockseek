@@ -265,13 +265,37 @@ public sealed class SubmissionSpecificationTests
         SubmissionSpecification accepted = SubmissionSpecificationCodec.Deserialize(
             SubmissionSpecificationCodec.Serialize(SubmissionSpecification.Create(root)));
 
-        SubmissionSpecification replay = accepted.ForSearchJob(first.Id)!;
+        SubmissionSpecification replay = accepted.ForJob(first.Id)!;
         var materialized = (SearchJob)replay.MaterializeJob();
         Assert.AreEqual("first", materialized.QueryText);
         CollectionAssert.AreEqual(
             new[] { "txt" }, replay.MaterializeSettings().Search.NecessaryCond.Formats);
-        Assert.IsNull(accepted.ForSearchJob(sibling.Id)!.ForSearchJob(first.Id));
-        Assert.IsNull(accepted.ForSearchJob(Guid.NewGuid()));
+        Assert.IsNull(accepted.ForJob(sibling.Id)!.ForJob(first.Id));
+        Assert.IsNull(accepted.ForJob(Guid.NewGuid()));
+    }
+
+    [TestMethod]
+    public async Task RerunningAutomaticAlbumKeepsItsProfileAndListScopeAndStartsDiscoveryAgain()
+    {
+        var album = new AlbumJob(new AlbumQuery { Album = "One" });
+        var other = new AlbumJob(new AlbumQuery { Album = "Two" });
+        var list = new JobList("My albums", [album, other]);
+        await foreach (var _ in new JobPlanner(DefaultJobSettingsResolver.Instance).PlanAsync(list, new DownloadSettings())) { }
+        var settings = album.PlannedSettings!.ReadSettings();
+        settings.Output.NameFormat = "{default-folder}/{filename}";
+        settings.Skip.SkipExisting = false;
+        album.PlannedSettings = JobSettingsSnapshot.Capture(settings);
+        var saved = SubmissionSpecification.Create(list);
+        var replay = saved.ForJob(album.Id)!;
+        var (job, effective) = replay.Materialize();
+        Assert.AreEqual("One", ((AlbumJob)job).Query.Album);
+        Assert.IsNull(((AlbumJob)job).ResolvedTarget);
+        Assert.IsTrue(replay.Command.CanRunAgain);
+        CollectionAssert.AreEqual(new[] { "My albums" }, job.InheritedFolders!.ToArray());
+        Assert.AreEqual(settings.Output.NameFormat, effective.Output.NameFormat);
+        Assert.IsFalse(effective.Skip.SkipExisting);
+        Assert.IsNull(replay.ForJob(other.Id));
+        Assert.AreEqual(2, ((JobList)saved.ForJob(list.Id)!.MaterializeJob()).Count);
     }
 
     [TestMethod]
@@ -313,7 +337,7 @@ public sealed class SubmissionSpecificationTests
             SubmissionSpecification accepted = SubmissionSpecificationCodec.Deserialize(
                 materialized.SubmissionSpecificationJson!);
 
-            SubmissionSpecification? replay = accepted.ForSearchJob(children[0].Id);
+            SubmissionSpecification? replay = accepted.ForJob(children[0].Id);
             Assert.IsNotNull(replay, "A reviewed/rerun child's actual ID must resolve its retained command.");
             Assert.AreEqual(firstRetainedSettings, replay.EffectiveSettingsJson);
             CollectionAssert.AreEqual(new[] { "txt" },
@@ -321,14 +345,14 @@ public sealed class SubmissionSpecificationTests
             Assert.AreEqual("current-secret", replay.MaterializeSettings(credentials).YouTube.ApiKey);
             Assert.AreEqual("same query", ((SearchJob)replay.MaterializeJob(credentials)).QueryText);
             CollectionAssert.AreEqual(new[] { "flac" },
-                accepted.ForSearchJob(children[1].Id)!.MaterializeSettings().Search.NecessaryCond.Formats);
+                accepted.ForJob(children[1].Id)!.MaterializeSettings().Search.NecessaryCond.Formats);
             Assert.AreEqual(specification.SourceRevision, accepted.SourceRevision);
             Assert.IsFalse(materialized.SubmissionSpecificationJson!.Contains("current-secret", StringComparison.Ordinal));
             Assert.IsFalse(materialized.SubmissionSpecificationJson.Contains("original-secret", StringComparison.Ordinal));
             foreach (Guid oldId in previousIds)
             {
-                Assert.IsNull(accepted.ForSearchJob(oldId));
-                Assert.IsNotNull(specification.ForSearchJob(oldId), "Rebinding must not mutate the source specification.");
+                Assert.IsNull(accepted.ForJob(oldId));
+                Assert.IsNotNull(specification.ForJob(oldId), "Rebinding must not mutate the source specification.");
             }
             previousIds = children.Select(child => child.Id).ToHashSet();
             specification = accepted;
@@ -417,7 +441,7 @@ public sealed class SubmissionSpecificationTests
         {
             ItemNumber = 7,
             LineNumber = 12,
-            SourceMutation = SourceMutation.ClearTextLine("/operator/list.txt", 12, 7),
+            SourceMutation = SourceMutation.ClearTextLine("/operator/list.txt", 12, exactTarget.Filename, 7),
             SourceInputType = InputType.List,
         };
         var search = new SearchJob(new SongQuery

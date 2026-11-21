@@ -257,7 +257,7 @@ public class RemoteProfileTests
                 var accepted = await api.GetSubmissionAsync(summary.SubmissionId!.Value);
                 Assert.IsNotNull(accepted);
                 Assert.AreEqual(submittedRequest.ArtifactId, accepted.Summary.ArtifactId);
-                Assert.AreNotEqual(expectedInput, source.Input, "The daemon must read the upload, not the client's filesystem path.");
+                Assert.AreEqual(Path.GetFileName(expectedInput), source.Input);
             }
             else Assert.AreEqual(expectedInput, source.Input);
             Assert.AreEqual("List", source.InputType);

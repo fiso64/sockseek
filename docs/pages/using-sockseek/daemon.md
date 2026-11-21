@@ -17,7 +17,7 @@ Start the daemon on your computer:
 sockseek daemon --allow-http-auth
 ```
 
-Open [http://127.0.0.1:5030](http://127.0.0.1:5030) and sign in as `admin` with your WebUI password. For a container installation, follow the [Docker Compose guide](../installation/docker.md).
+Open [http://127.0.0.1:5030](http://127.0.0.1:5030) and sign in as `admin` with your WebUI password.
 
 ## Your first WebUI search or download
 

@@ -27,7 +27,8 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
     private Searcher? searcher;
     private ExactPeerFileTransferRunner? exactFileTransfers;
     private Task? staleDownloadTask;
-    private bool servicesInitialized;
+    private readonly SemaphoreSlim initializationGate = new(1, 1);
+    private volatile bool servicesInitialized;
     private bool disposed;
 
     public DownloadRunScope(
@@ -86,9 +87,18 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
     public async Task EnsureServicesInitializedAsync(CancellationToken ct, bool automaticStaleChecksEnabled)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
-        if (servicesInitialized)
-            return;
+        if (servicesInitialized) return;
+        await initializationGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!servicesInitialized)
+                await InitializeServicesAsync(ct, automaticStaleChecksEnabled).ConfigureAwait(false);
+        }
+        finally { initializationGate.Release(); }
+    }
 
+    private async Task InitializeServicesAsync(CancellationToken ct, bool automaticStaleChecksEnabled)
+    {
         try
         {
             await clientManager.EnsureConnectedAndLoggedInAsync(settings, ct);
@@ -97,7 +107,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception) when (!ct.IsCancellationRequested)
         {
             DownloadLogMessages.SessionInitializationDegraded(logger);
         }
@@ -125,7 +135,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
             events,
             staleDownloads,
             fileOperations,
-            loggerFactory.CreateLogger<ExactPeerFileTransferRunner>());
+            loggerFactory.CreateLogger<ExactPeerFileTransferRunner>(), appCts.Token);
 
         if (automaticStaleChecksEnabled)
             staleDownloadTask ??= Task.Run(() => staleDownloads.RunAsync(appCts.Token), appCts.Token);
@@ -214,6 +224,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
         fileOperations.Dispose();
         jobSemaphore.Dispose();
         extractorSemaphore.Dispose();
+        initializationGate.Dispose();
         appCts.Dispose();
         disposed = true;
     }

@@ -58,12 +58,10 @@ it('uses authoritative collection totals for progress and stops showing a bar af
       stats: { memberCount: 100, completedMemberCount: 90, failedMemberCount: 5, skippedMemberCount: 2 } };
     const active = jobDetailInfo(job, null, false)!;
     expect(active.progress).toEqual({ total: 100, completed: 90, percent: 90 });
-    expect(active.busy).toBe(true);
     const stopped = jobDetailInfo({ ...job, lifecycleState: 'Terminal', terminalOutcome: 'PartialSuccess',
       failureReason: 'ChildJobsFailed', failureMessage: 'Some entries did not finish successfully.',
     }, null, false)!;
     expect(stopped.progress).toBeUndefined();
-    expect(stopped.busy).toBe(false);
     expect(stopped.message).toBe(''); // Authoritative outcome counts already explain this.
     expect(stopped.counts).toContain('83 succeeded');
     expect(stopped.counts).toContain('5 unsuccessful');
@@ -85,7 +83,6 @@ it('keeps skip provenance and the existing path together', () => {
   }, false)!;
   expect(info.facts).toEqual([{ label: 'Existing path', value: '/music/song.flac' }]);
   expect(info.message).toBeTruthy();
-  expect(info.busy).toBe(false);
   expect(info.progress).toBeUndefined();
 });
 
@@ -101,5 +98,6 @@ it('preserves the import failure and input without adding generic failure explan
 it('leaves active transfer progress to the content card, but shows discovery without a selected target', () => {
   const job: JobSummaryDto = { kind: 'song', lifecycleState: 'Running', activityPhase: 'Downloading' };
   expect(jobDetailInfo(job, null, true)).toBeNull();
-  expect(jobDetailInfo({ ...job, activityPhase: 'Searching' }, null, false)?.busy).toBe(true);
+  expect(jobDetailInfo({ ...job, activityPhase: 'Searching' }, null, false)).not.toBeNull();
+  expect(jobDetailInfo({ ...job, lifecycleState: 'Pending' }, null, false)).not.toBeNull();
 });

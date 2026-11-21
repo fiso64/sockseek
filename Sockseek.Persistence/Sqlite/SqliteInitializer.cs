@@ -20,20 +20,7 @@ public sealed class SqliteInitializer(
         PersistenceFilePrivacy.RestrictDirectory(databaseDirectory);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        var knownMigrations = context.Database.GetMigrations()
-            .ToHashSet(StringComparer.Ordinal);
-        var appliedMigrations = await context.Database.GetAppliedMigrationsAsync(cancellationToken).ConfigureAwait(false);
-        var unknownApplied = appliedMigrations
-            .Where(migration => !knownMigrations.Contains(migration))
-            .ToArray();
-        if (unknownApplied.Length > 0)
-        {
-            throw new PersistenceSchemaCompatibilityException(
-                "This database uses an unsupported Sockseek schema. " +
-                "The current binary does not recognize applied migrations: " +
-                string.Join(", ", unknownApplied) +
-                ". Use a compatible binary, or explicitly choose a fresh database for this unreleased v4 baseline. The existing database has not been replaced.");
-        }
+        await ValidateMigrationHistoryAsync(context, allowEmpty: true, cancellationToken).ConfigureAwait(false);
         await context.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
         PersistenceFilePrivacy.RestrictFile(databasePath);
         await context.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -50,6 +37,28 @@ public sealed class SqliteInitializer(
             throw new InvalidOperationException($"SQLite synchronous mode must be FULL (2), but was '{synchronousMode}'.");
 
         return new SqliteInitializationResult(journalMode, synchronousMode, schemaVersion);
+    }
+
+    internal static async Task ValidateMigrationHistoryAsync(
+        SockseekDbContext context, bool allowEmpty, CancellationToken cancellationToken)
+    {
+        var knownMigrations = context.Database.GetMigrations()
+            .ToHashSet(StringComparer.Ordinal);
+        var appliedMigrations = await context.Database.GetAppliedMigrationsAsync(cancellationToken).ConfigureAwait(false);
+        if (!allowEmpty && !appliedMigrations.Any())
+            throw new PersistenceSchemaCompatibilityException("The backup has no Sockseek migration history.");
+
+        var unknownApplied = appliedMigrations
+            .Where(migration => !knownMigrations.Contains(migration))
+            .ToArray();
+        if (unknownApplied.Length > 0)
+        {
+            throw new PersistenceSchemaCompatibilityException(
+                "This database uses an unsupported Sockseek schema. " +
+                "The current binary does not recognize applied migrations: " +
+                string.Join(", ", unknownApplied) +
+                ". Use a compatible binary, or explicitly choose a fresh database for this unreleased v4 baseline. The existing database has not been replaced.");
+        }
     }
 
     private static string ExecuteScalar(System.Data.Common.DbConnection connection, string commandText)

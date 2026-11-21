@@ -74,8 +74,9 @@ public sealed record SearchViewFilePosition(
     SearchProjectionSortKey Rank,
     long Sequence,
     string Ref,
-    long? PrimaryNumber = null,
-    long? SecondaryNumber = null);
+    long Size = 0,
+    int UploadSpeed = -1,
+    int QueueLength = int.MaxValue);
 
 public sealed record SearchViewFilePage(
     SearchViewRevision Revision,
@@ -254,6 +255,11 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         internal readonly Lock Gate = new();
         internal readonly TimeSpan Retention = retention;
         internal SearchViewInfo Summary = summary;
+        internal int Observers;
+        internal DateTimeOffset ExpiresAt(DateTimeOffset now) =>
+            Observers > 0 ? now + Retention : Summary.ExpiresAtUtc;
+        internal SearchViewInfo Current(DateTimeOffset now) =>
+            Observers > 0 ? Summary with { ExpiresAtUtc = ExpiresAt(now) } : Summary;
         internal readonly Dictionary<long, SearchViewSnapshot> Revisions = [];
     }
 
@@ -297,7 +303,39 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
     public bool IsActive(Guid viewId)
     {
         if (!views.TryGetValue(viewId, out var view)) return false;
-        lock (view.Gate) return view.Summary.ExpiresAtUtc > clock.GetUtcNow();
+        lock (view.Gate)
+        {
+            var now = clock.GetUtcNow();
+            return view.ExpiresAt(now) > now;
+        }
+    }
+
+    internal void BeginObservation(Guid viewId)
+    {
+        var view = RequireView(viewId);
+        lock (view.Gate)
+        {
+            var now = clock.GetUtcNow();
+            if (view.ExpiresAt(now) <= now) throw new KeyNotFoundException("The Search View was not found.");
+            view.Observers++;
+        }
+    }
+
+    internal bool EndObservation(Guid viewId)
+    {
+        if (!views.TryGetValue(viewId, out var view)) return true;
+        lock (view.Gate)
+        {
+            if (--view.Observers > 0) return false;
+            Renew(view, view.Revisions[view.Summary.Revision]);
+            return true;
+        }
+    }
+
+    internal bool IsObserved(Guid viewId)
+    {
+        if (!views.TryGetValue(viewId, out var view)) return false;
+        lock (view.Gate) return view.Observers > 0;
     }
 
     public SearchViewInfo? Get(Guid viewId, CancellationToken cancellationToken = default)
@@ -313,9 +351,10 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         if (!views.TryGetValue(viewId, out var view)) return null;
         lock (view.Gate)
         {
-            if (view.Summary.ExpiresAtUtc <= clock.GetUtcNow()) return null;
+            var now = clock.GetUtcNow();
+            if (view.ExpiresAt(now) <= now) return null;
             if (renew) Renew(view, view.Revisions[view.Summary.Revision]);
-            return view.Summary;
+            return renew ? view.Summary : view.Current(now);
         }
     }
 
@@ -326,13 +365,29 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         if (!views.TryGetValue(viewId, out var view)) return null;
         lock (view.Gate)
         {
-            var now = clock.GetUtcNow();
-            if (view.Summary.ExpiresAtUtc <= now || !view.Revisions.TryGetValue(revision, out var snapshot)
-                || revision != view.Summary.Revision && snapshot.Expires <= now) return null;
+            var snapshot = FindSnapshot(view, revision, clock.GetUtcNow());
+            if (snapshot == null) return null;
             Renew(view, snapshot);
             return snapshot;
         }
     }
+
+    internal TimeSpan? RemainingLifetime(Guid viewId, long revision)
+    {
+        if (!views.TryGetValue(viewId, out var view)) return null;
+        lock (view.Gate)
+        {
+            var now = clock.GetUtcNow();
+            var snapshot = FindSnapshot(view, revision, now);
+            if (snapshot == null) return null;
+            var expiresAt = revision == view.Summary.Revision ? view.ExpiresAt(now) : snapshot.Expires;
+            return expiresAt - now;
+        }
+    }
+
+    private static SearchViewSnapshot? FindSnapshot(View view, long revision, DateTimeOffset now)
+        => view.ExpiresAt(now) > now && view.Revisions.TryGetValue(revision, out var snapshot)
+            && (revision == view.Summary.Revision || snapshot.Expires > now) ? snapshot : null;
 
     private void Renew(View view, SearchViewSnapshot snapshot)
     {
@@ -342,7 +397,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
     }
 
     private View RequireView(Guid id)
-        => views.TryGetValue(id, out var view) && view.Summary.ExpiresAtUtc > clock.GetUtcNow()
+        => views.TryGetValue(id, out var view)
             ? view : throw new KeyNotFoundException("The Search View expired or was not found; refresh it before selecting results.");
 
     public int PruneExpired(CancellationToken cancellationToken = default)
@@ -353,7 +408,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         foreach (var (id, view) in views)
             lock (view.Gate)
             {
-                if (view.Summary.ExpiresAtUtc <= now)
+                if (view.ExpiresAt(now) <= now)
                 {
                     if (views.TryRemove(id, out _)) removed++;
                     continue;
@@ -374,9 +429,10 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         lock (view.Gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (view.Summary.ExpiresAtUtc <= clock.GetUtcNow())
+            var now = clock.GetUtcNow();
+            if (view.ExpiresAt(now) <= now)
                 throw new KeyNotFoundException("The Search View expired; refresh it before selecting results.");
-            var current = view.Summary;
+            var current = view.Current(now);
             var before = view.Revisions[current.Revision];
             if (update.SourceRevision < current.SourceRevision || update.ConsumedSequence < current.ConsumedSequence)
                 throw new InvalidOperationException("A search view publication cannot regress.");
@@ -390,6 +446,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
                 Counters = counters };
             var next = Copy(before, summary);
             next.Peers = peers;
+            if (update.FilteredFiles is { Count: > 0 } hidden) next.AddFilteredFiles(hidden, cancellationToken);
             var changedFiles = new HashSet<string>(StringComparer.Ordinal);
             var changedDirectories = new HashSet<string>(StringComparer.Ordinal);
             var changedTracks = new HashSet<string>(StringComparer.Ordinal);
@@ -487,6 +544,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
     internal static SearchViewSnapshot Copy(SearchViewSnapshot before, SearchViewInfo summary) => new(summary)
     {
         Files = before.Files, Directories = before.Directories, Tracks = before.Tracks, Albums = before.Albums,
+        FilteredFiles = before.FilteredFiles, FilteredFolders = before.FilteredFolders,
         Parents = before.Parents, Peers = before.Peers, Counts = before.Counts,
         HiddenDirectories = before.HiddenDirectories, HiddenAlbums = before.HiddenAlbums,
         TrackIndex = before.TrackIndex, AlbumIndex = before.AlbumIndex,
@@ -553,15 +611,17 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         // built only when requested, then shared/updated by subsequent publications.
         lock (before.IndexGate)
         {
-            foreach (var (order, index) in before.FileIndexes)
+            if (before.FileIndexes.Count > 0)
             {
-                var updated = index.ToBuilder();
+                var indexes = before.FileIndexes.Select(pair => (pair.Key, Rows: pair.Value.ToBuilder())).ToArray();
+                // AddFiles admits each identity once. All live sorts can share its position.
                 foreach (string key in files)
                 {
-                    if (before.Files.TryGetValue(key, out var old)) updated.Remove(Position(old.Value, old.Key, order));
-                    if (next.Files.TryGetValue(key, out var row)) updated.Add(Position(row.Value, row.Key, order));
+                    var row = next.Files[key];
+                    var position = Position(row.Value, row.Key);
+                    foreach (var index in indexes) index.Rows.Add(position);
                 }
-                next.FileIndexes.Add(order, updated.ToImmutable());
+                foreach (var (order, rows) in indexes) next.FileIndexes.Add(order, rows.ToImmutable());
             }
             foreach (var (order, index) in before.DirectoryIndexes)
             {
@@ -696,24 +756,9 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
         return filename[(folderPath.Length + 1)..];
     }
 
-    internal static SearchViewFilePosition Position(
-        SearchViewFile row,
-        SearchProjectionSortKey key,
-        SearchViewSortOrder order = SearchViewSortOrder.Relevance)
-        => new(
-            key,
-            row.Input.Sequence,
-            row.Ref,
-            order switch
-            {
-                SearchViewSortOrder.UploadSpeed => row.Input.UploadSpeed ?? -1,
-                SearchViewSortOrder.QueueDepth => row.Input.QueueLength ?? int.MaxValue,
-                SearchViewSortOrder.ItemSizeAscending or SearchViewSortOrder.ItemSizeDescending
-                    => Math.Max(0, row.Input.Size),
-                _ => null,
-            },
-            order == SearchViewSortOrder.QueueDepth
-                ? row.Input.UploadSpeed ?? -1 : null);
+    internal static SearchViewFilePosition Position(SearchViewFile row, SearchProjectionSortKey key)
+        => new(key, row.Input.Sequence, row.Ref, Math.Max(0, row.Input.Size),
+            row.Input.UploadSpeed ?? -1, row.Input.QueueLength ?? int.MaxValue);
 
     internal static SearchViewDirectoryPosition DirectoryPosition(
         SearchViewDirectory row,

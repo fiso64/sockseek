@@ -41,7 +41,7 @@ public sealed class AuthenticationTests
             Directory.CreateDirectory(Path.Combine(root, "manual"));
             Directory.CreateDirectory(Path.Combine(root, "wwwroot"));
             await File.WriteAllTextAsync(Path.Combine(root, "manual", "index.html"), "manual");
-            await File.WriteAllTextAsync(Path.Combine(root, "wwwroot", "index.html"), "<html >webui</html>");
+            await File.WriteAllTextAsync(Path.Combine(root, "wwwroot", "index.html"), """<html ><head><base href="/"></head></html>""");
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = root });
             builder.Logging.ClearProviders();
             builder.Services.AddSingleton<IOptions<ServerOptions>>(Options.Create(new ServerOptions { ServeDocumentation = enabled }));
@@ -56,7 +56,10 @@ public sealed class AuthenticationTests
             Assert.AreEqual("noindex", page.Headers.GetValues("X-Robots-Tag").Single());
             if (enabled) Assert.AreEqual("manual", await page.Content.ReadAsStringAsync());
             Assert.AreEqual(HttpStatusCode.NotFound, (await client.GetAsync("/docs/missing")).StatusCode);
-            Assert.AreEqual(enabled, (await client.GetStringAsync("/")).Contains("data-docs"));
+            string shell = await client.GetStringAsync("/");
+            Assert.AreEqual(enabled, shell.Contains("data-docs"));
+            StringAssert.Contains(shell, """<base href="./">""");
+            StringAssert.Contains(await client.GetStringAsync("/jobs/selected"), """<base href="../">""");
         }
         finally { Directory.Delete(root, recursive: true); }
     }

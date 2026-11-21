@@ -110,11 +110,11 @@ public sealed class OutputScope
     private static string CleanDefaultFolderSegment(string? folderName, string invalidReplaceStr)
         => string.IsNullOrWhiteSpace(folderName)
             ? ""
-            : folderName
-                .ReplaceInvalidChars(invalidReplaceStr)
-                .Trim(' ', '.');
+            : Utils.FitPathComponent(folderName.ReplaceInvalidChars(invalidReplaceStr).Trim(' ', '.'));
 }
 
+
+public delegate string PlaceDownloadedFile(SongJob file, string destination, string cleanupRoot);
 
 public class FileManager
 {
@@ -156,7 +156,7 @@ public class FileManager
 
     public string GetSavePath(string sourceFname)
     {
-        return GetSavePathNoExt(sourceFname) + Path.GetExtension(sourceFname);
+        return Utils.FitFileName(GetSavePathNoExt(sourceFname) + Path.GetExtension(sourceFname));
     }
 
     public string GetSavePathNoExt(string sourceFname)
@@ -179,6 +179,11 @@ public class FileManager
         }
     }
 
+    internal void MarkOrganized(SongJob song)
+    {
+        lock (sync) organized.Add(song);
+    }
+
     public void SetremoteBaseDir(string? dir)
     {
         lock (sync)
@@ -198,7 +203,7 @@ public class FileManager
     }
 
     // Organizes all files in a completed album download.
-    public void OrganizeAlbum(Job albumJob, List<SongJob> allFiles, List<SongJob>? additionalImages, bool remainingOnly = true, Func<SongJob, string, bool>? preparePlacement = null)
+    public void OrganizeAlbum(Job albumJob, List<SongJob> allFiles, List<SongJob>? additionalImages, bool remainingOnly = true, PlaceDownloadedFile? placeFile = null)
     {
         lock (sync)
         {
@@ -206,7 +211,7 @@ public class FileManager
             {
                 if (remainingOnly && organized.Contains(file))
                     continue;
-                OrganizeDownloadedFile(file, preparePlacement);
+                OrganizeDownloadedFile(file, placeFile);
             }
 
             var nonAudioToOrganize = string.IsNullOrEmpty(output.NameFormat)
@@ -227,12 +232,16 @@ public class FileManager
             {
                 if (remainingOnly && organized.Contains(file))
                     continue;
-                OrganizeNonAudio(file, parent, additionalImages != null && additionalImages.Contains(file), preparePlacement);
+                bool isAdditionalImage = additionalImages?.Contains(file) == true;
+                if (output.PreserveSelectionConflicts && !isAdditionalImage)
+                    OrganizeDownloadedFile(file, placeFile);
+                else
+                    OrganizeNonAudio(file, parent, isAdditionalImage, placeFile);
             }
         }
     }
 
-    public void OrganizeDownloadedFile(SongJob song, Func<SongJob, string, bool>? preparePlacement = null)
+    public void OrganizeDownloadedFile(SongJob song, PlaceDownloadedFile? placeFile = null)
     {
         lock (sync)
         {
@@ -259,43 +268,15 @@ public class FileManager
             {
                 pathPart += extension;
             }
-            string newFilePath = Path.Join(OutputParentDir, pathPart);
+            string relative = string.Join(Path.DirectorySeparatorChar,
+                pathPart.Split(Path.DirectorySeparatorChar).Select(Utils.FitPathComponent));
+            string newFilePath = Path.Join(OutputParentDir, relative);
 
-            if (Utils.NormalizedPath(newFilePath) != Utils.NormalizedPath(song.DownloadPath))
-            {
-                var oldFilePath = song.DownloadPath;
-                try
-                {
-                    if (preparePlacement?.Invoke(song, newFilePath) == false)
-                    {
-                        organized.Add(song);
-                        return;
-                    }
-                    Utils.MoveAndDeleteParent(oldFilePath, newFilePath, CleanupRootForSourcePath(oldFilePath));
-                }
-                catch (Exception ex)
-                {
-                    if (File.Exists(newFilePath) && !File.Exists(oldFilePath))
-                    {
-                        song.DownloadPath = newFilePath;
-                        organized.Add(song);
-                        return;
-                    }
-
-                    throw new FileOrganizationException(
-                        $"Failed to move organized file from '{oldFilePath}' to '{newFilePath}'.",
-                        oldFilePath,
-                        newFilePath,
-                        ex);
-                }
-            }
-
-            song.DownloadPath = newFilePath;
-            organized.Add(song);
+            PlaceOrganizedFile(song, newFilePath, placeFile);
         }
     }
 
-    private void OrganizeNonAudio(SongJob file, string parent, bool isAdditionalImage, Func<SongJob, string, bool>? preparePlacement)
+    private void OrganizeNonAudio(SongJob file, string parent, bool isAdditionalImage, PlaceDownloadedFile? placeFile)
     {
         if (string.IsNullOrEmpty(file.DownloadPath))
             return;
@@ -309,36 +290,29 @@ public class FileManager
 
         string newFilePath = Path.Join(parent, part, Path.GetFileName(file.DownloadPath));
 
-        if (Utils.NormalizedPath(newFilePath) != Utils.NormalizedPath(file.DownloadPath))
+        PlaceOrganizedFile(file, newFilePath, placeFile);
+    }
+
+    private void PlaceOrganizedFile(SongJob file, string destination, PlaceDownloadedFile? placeFile)
+    {
+        string source = file.DownloadPath!;
+        if (Utils.NormalizedPath(destination) != Utils.NormalizedPath(source))
         {
-            var oldFilePath = file.DownloadPath;
+            string cleanupRoot = CleanupRootForSourcePath(source);
             try
             {
-                if (preparePlacement?.Invoke(file, newFilePath) == false)
-                {
-                    organized.Add(file);
-                    return;
-                }
-                Utils.MoveAndDeleteParent(oldFilePath, newFilePath, CleanupRootForSourcePath(oldFilePath));
+                if (placeFile != null)
+                    destination = placeFile(file, destination, cleanupRoot);
+                else
+                    Utils.MoveAndDeleteParent(source, destination, cleanupRoot);
             }
             catch (Exception ex)
             {
-                if (File.Exists(newFilePath) && !File.Exists(oldFilePath))
-                {
-                    file.DownloadPath = newFilePath;
-                    organized.Add(file);
-                    return;
-                }
-
                 throw new FileOrganizationException(
-                    $"Failed to move album ancillary file from '{oldFilePath}' to '{newFilePath}'.",
-                    oldFilePath,
-                    newFilePath,
-                    ex);
+                    $"Failed to move organized file from '{source}' to '{destination}'.", source, destination, ex);
             }
         }
-
-        file.DownloadPath = newFilePath;
+        file.DownloadPath = destination;
         organized.Add(file);
     }
 
@@ -359,7 +333,7 @@ public class FileManager
             if (!tried)
             {
                 tried = true;
-                try { tagFile = TagLib.File.Create(ctx.DownloadPath); }
+                try { tagFile = TagLib.File.Create(ctx.DownloadPath, Utils.AudioMetadataReadStyle); }
                 catch (Exception ex)
                 {
                     if (Interlocked.Exchange(ref metadataReadFailureLogged, 1) == 0)
@@ -393,7 +367,7 @@ public class FileManager
         { "year",         (_, f) => f?.Tag.Year.ToString() ?? "" },
         { "track",        (_, f) => f?.Tag.Track.ToString("D2") ?? "" },
         { "disc",         (_, f) => f?.Tag.Disc.ToString() ?? "" },
-        { "length",       (_, f) => f?.Tag.Length.ToString() ?? "" },
+        { "length",       (_, f) => f is null ? "" : ConditionFile.From(f).Length?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "" },
 
         // Search-query fields (from the original query, prefix 's' = "source")
         { "sartist",  (ctx, _) => ctx.Query.Artist },

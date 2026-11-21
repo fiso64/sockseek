@@ -10,6 +10,8 @@ export interface ShareBrowserSource {
   directories: (parentId: number | string | null, cursor: string | null, limit: number, signal: AbortSignal) => Promise<Schema<'PageDtoOfBrowseDirectoryEntryDto'>>;
   files: (directoryId: number | string, cursor: string | null, limit: number, signal: AbortSignal) => Promise<Schema<'PageDtoOfBrowseFileEntryDto'>>;
   search: (query: string, cursor: string | null, limit: number, signal: AbortSignal) => Promise<Schema<'BrowseSearchPageDto'>>;
+  expiresAt?: string | null;
+  checkExpiry?: (signal: AbortSignal) => Promise<string | null>;
   download?: (requestId: string, selections: Schema<'UserShareSelectionDto'>[], excludedFiles: string[], excludedDirectories: string[], options?: Schema<'SubmissionOptionsDto'>) => Promise<Schema<'StartUserShareDownloadsResponseDto'>>;
 }
 
@@ -17,6 +19,8 @@ export function peerShareSource(browse: UserBrowseDto): ShareBrowserSource {
   const id = browse.browseId;
   return {
     browseId: id, username: browse.username, totalFileBytes: browse.totalFileBytes,
+    expiresAt: browse.expiresAt,
+    checkExpiry: async signal => (await daemonApi.getUserBrowse(id, signal)).expiresAt ?? null,
     directories: (...args) => daemonApi.getUserShareDirectories(id, ...args),
     files: (...args) => daemonApi.getUserShareFiles(id, ...args),
     search: (...args) => daemonApi.searchUserShares(id, ...args),

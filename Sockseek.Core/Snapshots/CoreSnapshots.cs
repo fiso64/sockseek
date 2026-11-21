@@ -32,14 +32,28 @@ public sealed record SongQuerySnapshot(
     string? Album,
     string? URI,
     int? Length,
-    bool ArtistMaybeWrong);
+    bool ArtistMaybeWrong)
+{
+    public SongQuery ToQuery() => new()
+    {
+        Artist = Artist ?? "", Title = Title ?? "", Album = Album ?? "",
+        URI = URI ?? "", Length = Length ?? -1, ArtistMaybeWrong = ArtistMaybeWrong,
+    };
+}
 
 public sealed record AlbumQuerySnapshot(
     string? Artist,
     string? Album,
     string? SearchHint,
     string? URI,
-    bool ArtistMaybeWrong);
+    bool ArtistMaybeWrong)
+{
+    public AlbumQuery ToQuery() => new()
+    {
+        Artist = Artist ?? "", Album = Album ?? "", SearchHint = SearchHint ?? "",
+        URI = URI ?? "", ArtistMaybeWrong = ArtistMaybeWrong,
+    };
+}
 
 public sealed record FileAttributeSnapshot(string Type, int Value, int StableCode = 0);
 
@@ -192,7 +206,7 @@ public sealed record FileDownloadStateSnapshot(
     long BytesTransferred,
     long? FileSize,
     ExistingFileSource? ExistingFileSource = null,
-    bool Reused = false);
+    bool Reused = false, string? PathBeforeIncompleteMove = null);
 
 public sealed record DirectoryDownloadStateSnapshot(
     string Phase,

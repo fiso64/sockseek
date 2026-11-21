@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 
@@ -22,7 +23,20 @@ public class OutputSettings
     }
 
     [SettingOption("--nf", "--name-format")]
-    public string NameFormat { get; set; } = "";
+    public string NameFormat
+    {
+        get;
+        set
+        {
+            field = value;
+            PreserveSelectionConflicts = false;
+        }
+    } = "";
+
+    // An explicitly configured template can have the same spelling as the
+    // selection default. Retain its collision behavior across saved job replay.
+    [SettingIgnore, JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault), JsonPropertyOrder(1)]
+    public bool PreserveSelectionConflicts { get; internal set; }
 
     [SettingOption("--irs", "--invalid-replace-str")]
     public string InvalidReplaceStr { get; set; } = " ";

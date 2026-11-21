@@ -161,6 +161,15 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
                 AdjustGroupTotals(totals, chosen, 1);
         }
 
+        var folderKeys = totals.Values.Where(s => s.Key.Direction == "Download" && s.Key.Username != null
+                && s.QueuedCount + s.InProgressCount == 0 && s.FailedCount + s.CancelledCount + s.InterruptedCount > 0)
+            .Where(s => Guid.TryParse(s.Key.GroupRef, out _))
+            .ToDictionary(s => s.Key, s => new DirectoryRetryKey(Guid.Parse(s.Key.GroupRef), s.Key.Username));
+        var retries = persistence.JobHistory == null || folderKeys.Count == 0 ? []
+            : await persistence.JobHistory.GetDirectoryRetryStatusAsync(folderKeys.Values, cancellationToken);
+        FolderRetryStatusDto? Retry(TransferGroupKey key) => folderKeys.TryGetValue(key, out var folder)
+            && retries.TryGetValue(folder, out var status) ? new(status.MissingFiles, status.CompletedOnRetry) : null;
+
         return new(totals.Values
             .Where(summary => summary.FileCount > 0 && requested.Contains(summary.Key))
             .Select(summary => new TransferGroupSummaryDto(
@@ -180,7 +189,7 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
                     summary.SucceededCount,
                     summary.FailedCount,
                     summary.CancelledCount,
-                    summary.InterruptedCount))
+                    summary.InterruptedCount, Retry(summary.Key)))
             .OrderBy(summary => summary.Key.Direction)
             .ThenBy(summary => summary.Key.Username, StringComparer.Ordinal)
             .ThenBy(summary => summary.Key.GroupRef, StringComparer.Ordinal)
@@ -198,7 +207,7 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
         current ??= new(key, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         long? size = row.TotalBytes ?? row.FileSize;
         bool active = string.Equals(row.TerminalOutcome, "None", StringComparison.OrdinalIgnoreCase);
-        bool queued = active && row.State.StartsWith("Queued", StringComparison.OrdinalIgnoreCase);
+        bool queued = active && TransferReadModel.IsQueued(row.State);
         totals[key] = current with
         {
             FileCount = current.FileCount + sign,
@@ -348,7 +357,7 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
             && (query.Direction == null || EqualsFilter(row.Direction, query.Direction))
             && (query.Source == null || EqualsFilter(row.Source, query.Source))
             && (query.State == null || EqualsFilter(row.State, query.State)
-                || EqualsFilter(query.State, "Queued") && row.State.StartsWith("Queued", StringComparison.OrdinalIgnoreCase))
+                || EqualsFilter(query.State, "Queued") && TransferReadModel.IsQueued(row.State))
             && (query.TerminalOutcome == null || EqualsFilter(row.TerminalOutcome.ToString(), query.TerminalOutcome))
             && (query.Username == null || string.Equals(row.Username, query.Username, StringComparison.Ordinal))
             && (query.GroupRef == null || string.Equals(row.GroupRef, query.GroupRef, StringComparison.Ordinal))

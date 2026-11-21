@@ -11,7 +11,6 @@
   import { updatedJob } from '../../api/state.svelte';
   import { jobStateSummary } from '../../api/job-summary';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
-  import { canDeleteRoot } from './deletion';
   import { presentedJobs, sortPresentedJobsNewestFirst, type PresentedJob } from './presentation';
   import { readJobSummaries, jobSummaryRetryIds, type JobSummaryRead } from './detail-reads';
 
@@ -36,10 +35,11 @@
     ondelete: (job: JobSummaryDto) => void;
     deletingSubmissions?: ReadonlySet<string>;
     onloadmore?: () => void;
+    hasDraft: boolean;
     onnew: () => void;
   }
 
-  let { jobs, tab, submissionId, onclearfilter, ontabchange, position, refreshRevision = 0, connected, observeJobs, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, ondelete, deletingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
+  let { jobs, tab, submissionId, onclearfilter, ontabchange, position, refreshRevision = 0, connected, observeJobs, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, ondelete, deletingSubmissions = new Set<string>(), onloadmore, hasDraft, onnew }: Props = $props();
   let section: HTMLElement;
   onMount(() => {
     const scroller = section.closest('main')!;
@@ -143,7 +143,7 @@
           items={[{ id: 'searches', label: 'Searches' }, { id: 'downloads', label: 'Download jobs' }]} />
       </div>
     </div>
-    <button type="button" data-testid="new-job" class="button new-job-button" onclick={onnew}><span>+</span> New job</button>
+    <button type="button" data-testid="new-job" class="button new-job-button" onclick={onnew}>{#if hasDraft}Resume draft{:else}<span>+</span> New job{/if}</button>
   </header>
 
   {#if submissionId}<div class="jobs-filter">Showing one download request <button type="button" onclick={onclearfilter}>Show all download jobs</button></div>{/if}
@@ -166,7 +166,7 @@
         <JobRow {job} root={entry.root}
           resultState={entryError ? 'unavailable' : entry.missingResultId ? 'loading' : undefined}
           deleting={deletingSubmissions.has(job.submissionId!)}
-          {onopen} {oncancel} ondelete={canDeleteRoot(entry.root) ? ondelete : undefined} />
+          {onopen} {oncancel} {ondelete} />
         {#if entryError}<div class="resource-state-notice unavailable" role="alert"><span>Import unavailable: {entryError.message}</span><button class="button" type="button" onclick={() => retry(entry)}>Retry</button></div>{/if}
       {/each}
     </div>

@@ -104,16 +104,24 @@ internal sealed class DownloadExecutionContext
         // Root execution, resume and cancellation all settle here before their
         // workflow lease can retire. File-operation disposal alone is too late
         // in a daemon whose engine keeps accepting other workflows.
-        foreach (var document in Contexts.GetOutputFiles(root.WorkflowId))
+        bool publicationFailed = false;
+        foreach (var document in Contexts.GetOutputFiles(root))
         {
             Exception? failure = await Runtime.Files.FlushOutputAsync(document).ConfigureAwait(false);
             if (failure is null) continue;
+            publicationFailed = true;
             DownloadLogMessages.OutputPublicationFailed(LoggerFactory.CreateLogger<DownloadExecutionContext>(), failure,
                 document.OperationId, root.Id);
             Events.RaiseJobMessage(root, LogLevel.Error, "output-files",
                 document.Kind == OutputFileKind.Playlist ? "The playlist could not be written. Downloaded files remain available."
                     : "The download index could not be written. Downloaded files remain available.");
         }
+
+        // Extraction completes before its result is downloaded. The result owns
+        // the requested output files and supplies the CLI and retained job outcome.
+        Job owner = root is ExtractJob { AutoProcessResult: true, Result: { } result } ? result : root;
+        if (publicationFailed && owner.IsSuccessfulTerminal)
+            owner.SetPartialSuccess("Downloaded files are available, but the requested output files could not be written.");
     }
 
     public JobList PrepareGroupChildren(Job owner, IEnumerable<Job> children, JobContext inherited)
@@ -127,13 +135,13 @@ internal sealed class DownloadExecutionContext
         inherited.IndexEditor?.RegisterChildren(owner);
         inherited.PlaylistEditor?.RegisterChildren(owner);
         SubmissionIdentity.AssignExecutionChild(owner, group);
-        Contexts.Set(group, ChildContext());
+        Contexts.SetInherited(group, ChildContext(), owner);
         foreach (var child in group.Jobs)
         {
             // Bind ownership before storing context or publishing registration.
             child.WorkflowId = owner.WorkflowId;
             child.Config = owner.Config;
-            Contexts.Set(child, ChildContext());
+            Contexts.SetInherited(child, ChildContext(), owner);
         }
         return group;
 

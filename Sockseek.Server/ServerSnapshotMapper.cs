@@ -264,22 +264,10 @@ public static class ServerSnapshotMapper
         SongJobSnapshotPayload song,
         string? transferState = null)
     {
-        long? totalBytes = song.File.FileSize > 0
-            ? song.File.FileSize
-            : song.ResolvedTarget?.Size ?? song.ExactTarget?.Size ?? song.LastAttemptedCandidate?.Size;
-        double? progressPercent = totalBytes > 0
-            ? Math.Round((double)song.File.BytesTransferred / totalBytes.Value * 100, 2)
-            : null;
-
         return new SongJobPayloadDto(
             ToSongQueryDto(song.Query),
             song.CandidateCount,
-            new FileDownloadStateDto(
-                song.File.DownloadPath,
-                song.File.BytesTransferred,
-                totalBytes,
-                progressPercent,
-                ToExistingFileSource(song.File.ExistingFileSource), song.File.Reused),
+            ToFileDownloadStateDto(song),
             song.ResolvedTarget?.Username,
             song.ResolvedTarget?.Filename,
             song.ResolvedTarget?.Peer.HasFreeUploadSlot,
@@ -420,14 +408,16 @@ public static class ServerSnapshotMapper
             target.Length,
             target.Attributes?.Select(ToFileAttributeDto).ToList());
 
+    internal static FileDownloadStateDto ToFileDownloadStateDto(SongJobSnapshotPayload song)
+        => ToFileDownloadStateDto(song.File, song.File.FileSize > 0 ? song.File.FileSize
+            : song.ResolvedTarget?.Size ?? song.ExactTarget?.Size ?? song.LastAttemptedCandidate?.Size);
+
     internal static FileDownloadStateDto ToFileDownloadStateDto(FileDownloadStateSnapshot file)
-        => new(
-            file.DownloadPath,
-            file.BytesTransferred,
-            file.FileSize,
-            file.FileSize > 0
-                ? Math.Round((double)file.BytesTransferred / file.FileSize.Value * 100, 2)
-                : null,
+        => ToFileDownloadStateDto(file, file.FileSize);
+
+    private static FileDownloadStateDto ToFileDownloadStateDto(FileDownloadStateSnapshot file, long? size)
+        => new(file.DownloadPath, file.BytesTransferred, size,
+            size > 0 ? Math.Round((double)file.BytesTransferred / size.Value * 100, 2) : null,
             ToExistingFileSource(file.ExistingFileSource), file.Reused);
 
     private static ServerExistingFileSource? ToExistingFileSource(ExistingFileSource? source)

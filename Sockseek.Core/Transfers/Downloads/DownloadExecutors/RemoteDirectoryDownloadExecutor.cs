@@ -10,10 +10,10 @@ internal sealed class RemoteDirectoryDownloadExecutor
     private readonly DownloadExecutionContext context;
     private readonly DirectoryTransferRunner transfers;
 
-    public RemoteDirectoryDownloadExecutor(DownloadExecutionContext context)
+    public RemoteDirectoryDownloadExecutor(DownloadExecutionContext context, DownloadExecutorCoordinator downloads)
     {
         this.context = context;
-        transfers = new DirectoryTransferRunner(context);
+        transfers = new DirectoryTransferRunner(context, downloads);
     }
 
     public async Task<JobOutcome> Process(RemoteDirectoryJob job)
@@ -33,9 +33,10 @@ internal sealed class RemoteDirectoryDownloadExecutor
                 new DirectoryTransferWorkItem(child, item.Target, item.OutputPath)).ToArray();
 
             var outcome = await transfers.Run(job, work, job.Config);
-            string? root = placements.Count == 0
-                ? null
-                : Utils.GreatestCommonDirectory(placements.Select(item => item.OutputPath));
+            var outputs = children.Where(child => child.IsSuccessfulTerminal && child.DownloadPath != null)
+                .Select(child => child.DownloadPath!).ToArray();
+            string? root = outputs.Length > 0 ? Utils.GreatestCommonDirectory(outputs)
+                : placements.Count == 0 ? null : Utils.GreatestCommonDirectory(placements.Select(item => item.OutputPath));
             return WithDownloadPath(outcome, root);
         }
         catch (OperationCanceledException)

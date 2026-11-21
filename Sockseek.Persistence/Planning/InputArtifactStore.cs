@@ -19,7 +19,10 @@ public sealed record StoredInputArtifact(
 
 public sealed record ResolvedInputArtifact(
     StoredInputArtifact Artifact,
-    string Path);
+    string Path)
+{
+    public string InputName => Artifact.OriginalName ?? System.IO.Path.GetFileName(Path);
+}
 
 /// <summary>
 /// Immutable disk-spooled browser input. Blob files remain owner-managed, while
@@ -42,14 +45,16 @@ public sealed class InputArtifactStore(
     // support independent metadata reads without queuing them behind the writer.
     private readonly Dictionary<Guid, HashSet<string>> owners = [];
     private readonly ConcurrentDictionary<string, int> retained = new(StringComparer.Ordinal);
-    private int initialized;
+    private readonly SemaphoreSlim initialization = new(1, 1);
+    private volatile bool initialized;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        if (Interlocked.CompareExchange(ref initialized, 1, 0) != 0)
-            return;
+        if (initialized) return;
+        await initialization.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (initialized) return;
             Directory.CreateDirectory(root);
             PersistenceFilePrivacy.RestrictDirectory(root);
             foreach (string temporary in Directory.EnumerateFiles(root, "*.uploading"))
@@ -59,12 +64,9 @@ public sealed class InputArtifactStore(
                 catch (UnauthorizedAccessException) { }
             }
             await DeleteOrphanBlobsAsync(cancellationToken).ConfigureAwait(false);
+            initialized = true;
         }
-        catch
-        {
-            Interlocked.Exchange(ref initialized, 0);
-            throw;
-        }
+        finally { initialization.Release(); }
     }
 
     public async Task<StoredInputArtifact> CreateAsync(
@@ -73,7 +75,7 @@ public sealed class InputArtifactStore(
         TimeSpan? retention = null,
         CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
         ArgumentNullException.ThrowIfNull(source);
         TimeSpan effectiveRetention = retention ?? DefaultRetention;
         if (effectiveRetention <= TimeSpan.Zero)
@@ -156,7 +158,7 @@ public sealed class InputArtifactStore(
         string artifactId,
         CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
         ValidateId(artifactId);
         long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
         InputArtifactEntity? row = await ObserveAsync(async () =>
@@ -179,16 +181,16 @@ public sealed class InputArtifactStore(
     /// write is needed: previews and in-flight admission cannot survive restart.
     /// Repeated acquisition by the same owner is idempotent.
     /// </summary>
-    public Task<IReadOnlyDictionary<string, ResolvedInputArtifact>> RetainAsync(
+    public async Task<IReadOnlyDictionary<string, ResolvedInputArtifact>> RetainAsync(
         IEnumerable<string> artifactIds,
         Guid ownerId,
         CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
         string[] ids = artifactIds.Distinct(StringComparer.Ordinal).ToArray();
         foreach (string id in ids)
             ValidateId(id);
-        return writes.ExecuteAsync<IReadOnlyDictionary<string, ResolvedInputArtifact>>(async (context, ct) =>
+        return await writes.ExecuteAsync<IReadOnlyDictionary<string, ResolvedInputArtifact>>(async (context, ct) =>
         {
             long now = clock.GetUtcNow().ToUnixTimeMilliseconds();
             InputArtifactEntity[] rows = await context.InputArtifacts.AsNoTracking()
@@ -212,15 +214,15 @@ public sealed class InputArtifactStore(
                         retained.AddOrUpdate(id, 1, (_, count) => checked(count + 1));
             }
             return result;
-        }, cancellationToken, requiresTransaction: false);
+        }, cancellationToken, requiresTransaction: false).ConfigureAwait(false);
     }
 
-    public Task<int> ReleaseAsync(
+    public async Task<int> ReleaseAsync(
         Guid ownerId,
         CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
-        return writes.ExecuteAsync((_, _) =>
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
+        return await writes.ExecuteAsync((_, _) =>
         {
             if (!owners.Remove(ownerId, out HashSet<string>? ids))
                 return Task.FromResult(0);
@@ -232,12 +234,12 @@ public sealed class InputArtifactStore(
                     retained[id]--;
             }
             return Task.FromResult(ids.Count);
-        }, cancellationToken, requiresTransaction: false);
+        }, cancellationToken, requiresTransaction: false).ConfigureAwait(false);
     }
 
     public async Task<int> PruneExpiredAsync(CancellationToken cancellationToken = default)
     {
-        EnsureInitialized();
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
         int total = 0;
         string? after = null;
         Exception? deletionFailure = null;
@@ -393,15 +395,9 @@ public sealed class InputArtifactStore(
         return new(FromEntity(row), path);
     }
 
-    private void EnsureInitialized()
-    {
-        if (Volatile.Read(ref initialized) == 0)
-            throw new InvalidOperationException("The input-artifact store is unavailable.");
-    }
-
     public ValueTask DisposeAsync()
     {
-        Interlocked.Exchange(ref initialized, 0);
+        initialization.Dispose();
         uploadSlots.Dispose();
         return ValueTask.CompletedTask;
     }

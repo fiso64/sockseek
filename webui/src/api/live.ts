@@ -1,3 +1,4 @@
+import { appPath } from '../app/paths';
 import {
   HubConnection,
   HubConnectionBuilder,
@@ -23,7 +24,6 @@ export type { ReplicatedDaemonState } from './state.svelte';
 const expectedLiveProtocolVersion = 20 satisfies Schema<'LiveProtocolContractVersion'>;
 const stateUpdateBatchMessage = 'stateUpdateBatch' satisfies Schema<'LiveServerMessage'>;
 const subscribeAllMethod = 'SubscribeAll' satisfies Schema<'LiveClientInvocation'>;
-const unsubscribeAllMethod = 'UnsubscribeAll' satisfies Schema<'LiveClientInvocation'>;
 const subscribeChatMethod = 'SubscribeChat' satisfies Schema<'LiveClientInvocation'>;
 const unsubscribeChatMethod = 'UnsubscribeChat' satisfies Schema<'LiveClientInvocation'>;
 const subscribeUserBrowseMethod = 'SubscribeUserBrowse' satisfies Schema<'LiveClientInvocation'>;
@@ -149,6 +149,7 @@ export class DaemonLiveClient {
   private identity: Schema<'ServerInfoDto'> | null = null;
   get serverInfo(): Schema<'ServerInfoDto'> | null { return this.identity; }
   private connection: HubConnection | null = null;
+  get canObserve(): boolean { return !this.stopped && this.connection?.state === HubConnectionState.Connected; }
   private stateListeners = new Set<StateListener>();
   private statusListeners = new Set<StatusListener>();
   private buffering = true;
@@ -217,34 +218,60 @@ export class DaemonLiveClient {
   }
 
   async startDaemon(): Promise<void> {
-    if (this.connection) return;
+    const parked = this.connection;
+    if (parked && !this.stopped) return;
     const lifecycleId = ++this.lifecycleId;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
     this.stopped = false;
     this.emitStatus('connecting');
-    let info: Awaited<ReturnType<DaemonApiClient['getServerInfo']>>;
-    try {
-      info = await this.api.getServerInfo();
-    } catch (error) {
+    let connection = parked;
+    if (!connection) {
+      let info: Awaited<ReturnType<DaemonApiClient['getServerInfo']>>;
+      try {
+        info = await this.api.getServerInfo();
+      } catch (error) {
+        if (this.stopped || lifecycleId !== this.lifecycleId) return;
+        this.emitStatus(error instanceof DaemonApiError ? 'failed' : 'offline', asError(error));
+        this.scheduleRetry();
+        throw error;
+      }
       if (this.stopped || lifecycleId !== this.lifecycleId) return;
-      this.emitStatus(error instanceof DaemonApiError ? 'failed' : 'offline', asError(error));
+      this.setServerInfo(info);
+      connection = this.createConnection();
+      this.connection = connection;
+    }
+
+    try {
+      if (connection.state !== HubConnectionState.Connected) await connection.start();
+      if (lifecycleId !== this.lifecycleId) {
+        if (this.connection !== connection) await connection.stop();
+        return;
+      }
+      await this.subscribeDaemon(connection, lifecycleId);
+    } catch (error) {
+      if (lifecycleId !== this.lifecycleId) return;
+      this.emitStatus('failed', asError(error));
+      await connection.stop();
+      if (lifecycleId !== this.lifecycleId) return;
+      this.connection = null;
       this.scheduleRetry();
       throw error;
     }
-    if (this.stopped || lifecycleId !== this.lifecycleId) return;
-    this.setServerInfo(info);
+  }
+
+  private createConnection(): HubConnection {
     const connection = new HubConnectionBuilder()
-      .withUrl(`/api/events?liveProtocol=${expectedLiveProtocolVersion}`)
+      .withUrl(appPath(`/api/events?liveProtocol=${expectedLiveProtocolVersion}`))
       .withAutomaticReconnect()
       .configureLogging(import.meta.env.DEV ? LogLevel.Warning : LogLevel.Error)
       .build();
-    this.connection = connection;
     connection.on(stateUpdateBatchMessage, (batch: StateUpdateBatchDto) => {
       if (!this.stopped && this.connection === connection) this.receive(batch);
     });
     connection.onreconnecting((error) => {
-      if (this.stopped || this.connection !== connection) return;
+      if (this.connection !== connection) return;
+      if (this.stopped) { void this.stop(); return; }
       if (browserSession.data?.authenticationEnabled) void browserSession.refresh().catch(() => {});
       this.resetRecovery();
       this.emitStatus('reconnecting', error ?? null);
@@ -257,11 +284,7 @@ export class DaemonLiveClient {
         const current = await this.api.getServerInfo();
         if (this.stopped || this.connection !== connection) return;
         this.setServerInfo(current);
-        await connection.invoke(subscribeAllMethod, this.detail);
-        await this.recover();
-        if (this.stopped || this.connection !== connection) return;
-        await this.resumeScopes(connection);
-        if (!this.stopped && this.connection === connection) this.emitStatus('connected');
+        await this.subscribeDaemon(connection, this.lifecycleId);
       } catch (error) {
         if (!this.stopped && this.connection === connection) {
           this.emitStatus('failed', asError(error));
@@ -271,7 +294,7 @@ export class DaemonLiveClient {
     });
     connection.onclose((error) => {
       if (this.connection !== connection) return;
-      if (browserSession.data?.authenticationEnabled) void browserSession.refresh().catch(() => {});
+      if (!this.stopped && browserSession.data?.authenticationEnabled) void browserSession.refresh().catch(() => {});
       this.resetRecovery();
       this.connection = null;
       if (!this.stopped) {
@@ -280,30 +303,30 @@ export class DaemonLiveClient {
       }
     });
 
+    return connection;
+  }
+
+  private async subscribeDaemon(connection: HubConnection, lifecycleId: number): Promise<void> {
+    await connection.invoke(subscribeAllMethod, this.detail);
+    if (lifecycleId !== this.lifecycleId) return;
+    await this.recover();
+    if (lifecycleId !== this.lifecycleId) return;
+    await this.resumeScopes(connection);
+    if (lifecycleId !== this.lifecycleId) return;
+    this.retryDelayMs = 1_000;
+    this.emitStatus('connected');
+  }
+
+  async suspend(): Promise<void> {
+    const connection = this.connection;
+    if (connection?.state !== HubConnectionState.Connected || this.buffering) return this.stop();
+    this.stopped = true;
+    this.resetRecovery();
+    this.emitStatus('offline');
     try {
-      this.buffering = true;
-      await connection.start();
-      if (this.stopped || lifecycleId !== this.lifecycleId) {
-        await connection.stop();
-        return;
-      }
-      await connection.invoke(subscribeAllMethod, this.detail);
-      if (this.stopped || lifecycleId !== this.lifecycleId) return;
-      await this.recover();
-      await this.resumeScopes(connection);
-      if (this.stopped || lifecycleId !== this.lifecycleId) {
-        await connection.stop();
-        return;
-      }
-      this.retryDelayMs = 1_000;
-      this.emitStatus('connected');
-    } catch (error) {
-      if (this.stopped || lifecycleId !== this.lifecycleId) return;
-      this.emitStatus('failed', asError(error));
-      await connection.stop();
-      this.connection = null;
-      this.scheduleRetry();
-      throw error;
+      await connection.invoke('UnsubscribeAll' satisfies Schema<'LiveClientInvocation'>);
+    } catch {
+      if (this.stopped && this.connection === connection) await this.stop();
     }
   }
 
@@ -314,14 +337,9 @@ export class DaemonLiveClient {
     this.retryTimer = null;
     const connection = this.connection;
     this.connection = null;
-    if (connection?.state === HubConnectionState.Connected) {
-      for (const session of this.scopedSessions.values()) {
-        await this.unsubscribeScope(connection, session).catch(() => undefined);
-      }
-      await connection.invoke(unsubscribeAllMethod).catch(() => undefined);
-    }
-    await connection?.stop();
     this.emitStatus('offline');
+    // Disconnect releases this connection's subscriptions on the daemon.
+    await connection?.stop();
   }
 
   private setServerInfo(info: Schema<'ServerInfoDto'>): void {

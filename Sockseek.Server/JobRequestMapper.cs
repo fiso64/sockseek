@@ -322,7 +322,7 @@ public static class JobRequestMapper
         if (!Enum.TryParse<SourceMutationKind>(dto.Kind, ignoreCase: true, out var kind))
             throw new ArgumentException($"Unsupported source mutation kind '{dto.Kind}'");
 
-        return new SourceMutation(kind, dto.Source, dto.LineNumber, dto.ItemNumber, dto.CsvColumnCount, dto.TrackUri);
+        return new SourceMutation(kind, dto.Source, dto.LineNumber, dto.ItemNumber, dto.CsvColumnCount, dto.TrackUri, dto.RecordHash);
     }
 
     public static DownloadBehaviorPolicy ToDownloadBehaviorPolicy(DownloadBehaviorPolicyDto dto) => new()
@@ -637,7 +637,7 @@ public static class JobRequestMapper
 
         return new AlbumFolder(folder.Username, folder.FolderPath, files)
         {
-            IsFullyRetrieved = folder.IsFullyRetrieved,
+            IsFullyRetrieved = folder.IsFullyRetrieved && files.Count == folder.Files.Count,
         };
     }
 

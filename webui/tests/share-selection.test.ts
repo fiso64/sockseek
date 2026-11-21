@@ -15,7 +15,9 @@ test('counts nested exclusions once and restores explicitly re-included branches
   excluded.delete('d:3');
   included.add('d:3');
   expect(projectSelection(included, excluded, parentOf, countOf).total).toBe(5);
-  const projection = projectSelection(included, excluded, parentOf, countOf);
+  const bytes = new Map([['d:1', 9007199254740998n], ['d:2', 500n], ['d:3', 300n], ['f:4', 1n]]);
+  const projection = projectSelection(included, excluded, parentOf, key => ({ count: countOf(key), bytes: bytes.get(key)!.toString() }));
+  expect(projection.byteDelta).toBe(9007199254740797n);
   expect(projection.subtreeCount('d:1')).toBe(5);
   expect(projection.subtreeCount('d:2')).toBe(1);
   expect(projection.subtreeCount('d:3')).toBe(1);

@@ -13,6 +13,17 @@ internal static class SharingAndTransferCommands
     {
         var args = invocation.CommandArguments;
         ValidateArguments(args);
+        if (Equals(args[0], "job"))
+        {
+            string? action = Positional(args, 1);
+            if (!Guid.TryParse(Positional(args, 2), out var id) || !Equals(action, "rerun") && !Equals(action, "retry-directory"))
+                return ConfiguredCommandDispatcher.Usage("Expected 'job rerun|retry-directory <id>'.");
+            var job = Equals(action, "rerun") ? await api.RunJobAgainAsync(id, cancellationToken)
+                : await api.RetryDirectoryAsync(id, cancellationToken);
+            if (JsonRequested(args)) Write(job, json: true);
+            else Console.WriteLine($"Queued job {job.DisplayId} ({job.JobId}).");
+            return Program.CliExitCode.Success;
+        }
         if (Equals(args[0], "share"))
             return await RunShareAsync(api, args, cancellationToken).ConfigureAwait(false);
         if (Equals(args[0], "transfers"))
@@ -147,10 +158,10 @@ internal static class SharingAndTransferCommands
     {
         string? action = Positional(args, 1);
         string? idValue = Positional(args, 2);
-        if ((!Equals(action, "cancel") && !Equals(action, "remove"))
+        if ((!Equals(action, "cancel") && !Equals(action, "remove") && !Equals(action, "retry"))
             || !Guid.TryParse(idValue, out Guid transferId))
         {
-            return ConfiguredCommandDispatcher.Usage("Expected 'transfer cancel <id>' or 'transfer remove <id>'.");
+            return ConfiguredCommandDispatcher.Usage("Expected 'transfer cancel|retry|remove <id>'.");
         }
 
         if (Equals(action, "remove"))
@@ -159,6 +170,12 @@ internal static class SharingAndTransferCommands
                 transferId,
                 cancellationToken).ConfigureAwait(false);
             WriteReceipt(receipt, JsonRequested(args));
+        }
+        else if (Equals(action, "retry"))
+        {
+            var job = await api.RetryTransferAsync(transferId, cancellationToken);
+            if (JsonRequested(args)) Write(job, json: true);
+            else Console.WriteLine($"Retry queued as job {job.DisplayId} ({job.JobId}).");
         }
         else
         {
@@ -341,7 +358,8 @@ internal static class SharingAndTransferCommands
                     ? "Input error: Expected 'share status' or 'share scan'."
                     : transfers
                         ? "Input error: Expected 'transfers', 'transfers cancel', or 'transfers remove'."
-                        : "Input error: Expected 'transfer cancel <id>' or 'transfer remove <id>'.");
+                        : Equals(args[0], "job") ? "Expected 'job rerun|retry-directory <id>'."
+                        : "Input error: Expected 'transfer cancel|retry|remove <id>'.");
         }
         if (share
             && seen.Contains("--cancel")

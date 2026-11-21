@@ -48,21 +48,22 @@ internal static class EffectiveSettingsMapper
                 !string.IsNullOrEmpty(settings.SoundCloud.AuthToken));
 
     private static DownloadSettingsPatchDto SafeValues(DownloadSettings settings)
-        => new(
+    {
+        var incompleteAlbum = settings.ResolveIncompleteAlbumAction();
+        return new(
             Output: new OutputSettingsPatchDto(
                 settings.Output.ParentDir,
                 settings.Output.NameFormat,
                 settings.Output.InvalidReplaceStr,
                 settings.Output.WritePlaylist,
-                settings.Output.WriteIndex ?? true,
+                settings.ResolveWriteIndex(),
                 settings.Output.M3uFilePath,
                 settings.Output.IndexFilePath,
                 new IncompleteAlbumActionSettingsPatchDto(
-                    settings.Output.IncompleteAlbumAction.Kind?.ToServer(),
-                    settings.Output.IncompleteAlbumAction.Path),
+                    incompleteAlbum.Kind.ToServer(), incompleteAlbum.Path),
                 OnComplete: null,
                 settings.Output.AlbumArtOnly,
-                settings.Output.AlbumArtOption.ToServer()),
+                settings.Output.EffectiveAlbumArtOption.ToServer()),
             Search: ToSearchSettings(settings.ResolveSearchSettings()),
             Skip: new SkipSettingsPatchDto(
                 settings.Skip.SkipExisting,
@@ -114,6 +115,7 @@ internal static class EffectiveSettingsMapper
                 settings.Csv.YtParse),
             Bandcamp: null,
             settings.PrintOption.ToServer());
+    }
 
     public static SearchSettingsPatchDto ToSearchSettings(SearchSettings settings)
         => new(
@@ -124,7 +126,7 @@ internal static class EffectiveSettingsMapper
             SearchTimeout: settings.SearchTimeout,
             ResponseLimit: settings.ResponseLimit,
             DownrankOn: settings.DownrankOn,
-            IgnoreOn: settings.IgnoreOn,
+            IgnoreOn: settings.EffectiveIgnoreOn,
             FastSearch: settings.FastSearch,
             FastSearchDelay: settings.FastSearchDelay,
             FastSearchMinUpSpeed: settings.FastSearchMinUpSpeed,

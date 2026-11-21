@@ -261,7 +261,7 @@ public sealed class UserProfileService : IAsyncDisposable
                 info.Value?.HasFreeUploadSlot,
                 picture.Picture is { } image
                     ? new UserPictureRefDto(
-                        $"/api/users/{Uri.EscapeDataString(key.Username)}/picture",
+                        $"/api/users/{Uri.EscapeDataString(key.Username)}/picture?v={image.ETag.Trim('"')}",
                         image.MediaType,
                         image.Bytes.Length,
                         image.ETag)

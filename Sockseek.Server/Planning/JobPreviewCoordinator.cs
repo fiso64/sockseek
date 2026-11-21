@@ -233,28 +233,14 @@ public sealed class JobPreviewCoordinator(
             ResolvedArtifactPlan resolvedArtifacts = await ResolveArtifactsAsync(
                 request.Job,
                 cancellationToken).ConfigureAwait(false);
-            var artifactNamesByExtractRef = new Dictionary<string, string>(StringComparer.Ordinal);
             await foreach (PlannedJobNode node in submissions.PlanDraftAsync(
                 resolvedArtifacts.Draft,
                 request.Options,
-                resolvedArtifacts.Revisions,
+                resolvedArtifacts.Artifacts,
                 cancellationToken).ConfigureAwait(false))
             {
-                string? displayName = null;
-                if (node.Kind == JobSnapshotKind.Extract && node.Input is { } input
-                    && resolvedArtifacts.DisplayNamesByPath.TryGetValue(input, out string? originalName))
-                {
-                    artifactNamesByExtractRef[node.Ref] = originalName;
-                    displayName = originalName;
-                }
-                else if (node.Kind == JobSnapshotKind.JobList
-                         && node.ParentRef != null
-                         && artifactNamesByExtractRef.TryGetValue(node.ParentRef, out string? sourceName))
-                {
-                    displayName = Path.GetFileNameWithoutExtension(sourceName);
-                }
                 long captureStarted = Stopwatch.GetTimestamp();
-                batch.Add(capture.ToStoredNode(previewId, node, displayName));
+                batch.Add(capture.ToStoredNode(previewId, node));
                 captureDuration += Stopwatch.GetElapsedTime(captureStarted);
                 if (batch.Count >= batchSize)
                 {
@@ -488,7 +474,7 @@ public sealed class JobPreviewCoordinator(
                 reasons);
         }
 
-        SubmissionSpecification acceptedSpecification = AssembleSelectedSpecification(resolved);
+        SubmissionSpecification acceptedSpecification = AssembleSelectedSpecification(resolved, request.DownloadOverrides);
         var (root, rootSettings) = acceptedSpecification.Materialize(submissions.DefaultDownloadSettings);
         long materializedMs = started.ElapsedMilliseconds;
 
@@ -563,6 +549,10 @@ public sealed class JobPreviewCoordinator(
     {
         ArgumentNullException.ThrowIfNull(request);
         SelectionExpressionValidator.Validate(request.Selection);
+        if (request.DownloadOverrides is { } edits && DownloadSettingsPatchDtoMapper.ExplicitFields(edits)
+            .Any(field => field is not ("Output.ParentDir" or "Output.NameFormat" or "Output.WritePlaylist"
+                or "Skip.SkipExisting" or "Search.NoBrowseFolder")))
+            throw new ArgumentException("Only download options can change after Review.");
         if (request.IdempotencyKey == Guid.Empty)
             throw new ArgumentException("A non-empty idempotency key is required.");
         if (request.Revision < 0)
@@ -612,25 +602,12 @@ public sealed class JobPreviewCoordinator(
         private readonly Dictionary<string, List<(string Bindings, string Ref)>> settingsRefs =
             new(ReferenceEqualityComparer.Instance);
 
-        public StoredJobPreviewNode ToStoredNode(Guid previewId, PlannedJobNode node, string? displayName)
+        public StoredJobPreviewNode ToStoredNode(Guid previewId, PlannedJobNode node)
         {
             SubmissionSpecification? completeSpecification = node.State == PlannedJobState.Ready
                 ? node.CreateSpecification(settingsWriter) : null;
             bool selectable = completeSpecification is not null
                 && node.Kind is not (JobSnapshotKind.Extract or JobSnapshotKind.JobList);
-            if (completeSpecification != null && displayName != null)
-            {
-                completeSpecification = completeSpecification with
-                {
-                    Command = completeSpecification.Command with
-                    {
-                        ItemName = displayName,
-                        Input = node.Kind == JobSnapshotKind.Extract
-                            ? displayName
-                            : completeSpecification.Command.Input,
-                    },
-                };
-            }
             string? bindingsJson = completeSpecification == null
                 ? null
                 : JsonSerializer.Serialize(completeSpecification.CredentialBindings);
@@ -662,7 +639,7 @@ public sealed class JobPreviewCoordinator(
                 node.State.ToString(),
                 selectable,
                 node.Kind.ToServer().ToString(),
-                displayName ?? node.PreviewTitle,
+                node.PreviewTitle,
                 node.QueryText,
                 node.DirectChildCount,
                 JsonSerializer.Serialize(node.AppliedProfiles),
@@ -695,20 +672,43 @@ public sealed class JobPreviewCoordinator(
         public void Dispose() => settingsWriter.Dispose();
     }
 
-    private static SubmissionSpecification AssembleSelectedSpecification(StoredPreviewCommit resolved)
+    private SubmissionSpecification AssembleSelectedSpecification(StoredPreviewCommit resolved, DownloadSettingsPatchDto? edits)
     {
         // These immutable prototypes live only for this assembly operation.
         // Every node is still validated; equal settings are decoded once rather
         // than once for each joined row in a large selected preview.
         var validatedSettings = new Dictionary<string, DownloadSettings>(StringComparer.Ordinal);
+        var changedSettings = new Dictionary<(string Original, JobSettingsContext Job), string>();
+        var patch = DownloadSettingsPatchDtoMapper.ToCore(edits);
+        if (edits?.Output?.NameFormat != null && resolved.SelectedNodes.Any(node =>
+                node.Kind is nameof(ServerJobKind.RemoteFile) or nameof(ServerJobKind.RemoteDirectory)))
+            RemoteTransferSettingsValidator.ValidateExplicitNameFormat(edits);
+
         var nodes = resolved.AncestorNodes.Concat(resolved.SelectedNodes)
             .OrderBy(node => node.Ordinal)
-            .Select(node => (node.Ref, node.ParentRef, HydrateSpecification(node, validatedSettings)));
+            .Select(node => (node.Ref, node.ParentRef, HydrateSpecification(node, validatedSettings, WithEdits)));
         return JobPlan.AssembleSpecifications(nodes);
+
+        string WithEdits(NormalizedJobCommand command, string original)
+        {
+            if (!patch.HasOperations) return original;
+            var job = JobSettingsContext.FromCommand(command, Guid.Empty) with { Id = Guid.Empty };
+            if (!changedSettings.TryGetValue((original, job), out string? changed))
+            {
+                var settings = RetainedSettingsCodec.Deserialize(original);
+                patch.ApplyTo(settings);
+                SettingsNormalizer.NormalizeDownloadPaths(settings, submissions.DefaultDownloadSettings.RuntimePathContext);
+                JobSettingsComposer.ResolveModeSettings(job, settings);
+                changed = RetainedSettingsCodec.Serialize(settings);
+                changedSettings.Add((original, job), changed);
+            }
+            return changed;
+        }
     }
 
     private static SubmissionSpecification HydrateSpecification(
-        StoredJobPreviewNode node, Dictionary<string, DownloadSettings> validatedSettings)
+        StoredJobPreviewNode node, Dictionary<string, DownloadSettings> validatedSettings,
+        Func<NormalizedJobCommand, string, string> applyEdits)
     {
         if (node.SpecificationJson == null
             || node.EffectiveSettingsJson == null
@@ -723,15 +723,16 @@ public sealed class JobPreviewCoordinator(
                 node.CredentialBindingsJson)
             ?? throw new InvalidDataException(
                 "A selected preview node has invalid credential bindings.");
+        string effectiveSettings = applyEdits(skeleton.Command, node.EffectiveSettingsJson);
         var hydrated = skeleton with
         {
             Command = skeleton.Command with
             {
-                PlannedEffectiveSettingsJson = node.EffectiveSettingsJson,
+                PlannedEffectiveSettingsJson = effectiveSettings,
                 PlannedCredentialBindings = bindings,
                 PlannedSettingsRef = null,
             },
-            EffectiveSettingsJson = node.EffectiveSettingsJson,
+            EffectiveSettingsJson = effectiveSettings,
             CredentialBindings = bindings,
         };
         hydrated.Validate(validatedSettings);
@@ -926,22 +927,7 @@ public sealed class JobPreviewCoordinator(
     {
         IReadOnlyDictionary<string, ResolvedInputArtifact> leases =
             await ResolveInputArtifactsAsync(draft, cancellationToken).ConfigureAwait(false);
-        if (leases.Count == 0)
-            return new(
-                draft,
-                new Dictionary<string, SubmissionSourceRevision>(StringComparer.Ordinal),
-                new Dictionary<string, string>(StringComparer.Ordinal));
-        var revisions = leases.ToDictionary(
-            pair => pair.Key,
-            pair => InputArtifactCoordinator.Revision(pair.Value),
-            StringComparer.Ordinal);
-        var displayNames = leases.Values
-            .Where(lease => !string.IsNullOrWhiteSpace(lease.Artifact.OriginalName))
-            .ToDictionary(
-                lease => lease.Path,
-                lease => lease.Artifact.OriginalName!,
-                StringComparer.Ordinal);
-        return new(ResolveArtifactDraft(draft, leases), revisions, displayNames);
+        return new(leases.Count == 0 ? draft : ResolveArtifactDraft(draft, leases), leases);
     }
 
     /// <summary>
@@ -985,7 +971,7 @@ public sealed class JobPreviewCoordinator(
         }
         return draft with
         {
-            Input = lease.Path,
+            Input = lease.InputName,
             InputType = inputType,
             DownloadSettings = DownloadSettingsPatchDtoMapper.Combine(
                 draft.DownloadSettings,
@@ -1004,8 +990,7 @@ public sealed class JobPreviewCoordinator(
 
     private sealed record ResolvedArtifactPlan(
         JobDraftDto Draft,
-        IReadOnlyDictionary<string, SubmissionSourceRevision> Revisions,
-        IReadOnlyDictionary<string, string> DisplayNamesByPath);
+        IReadOnlyDictionary<string, ResolvedInputArtifact> Artifacts);
 
     private async Task ReleaseArtifactReferencesAsync(
         Guid previewId,

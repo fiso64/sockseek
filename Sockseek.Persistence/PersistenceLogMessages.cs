@@ -23,7 +23,7 @@ internal static partial class PersistenceLogMessages
     [LoggerMessage(4055, LogLevel.Information, "Persistence writer recovered after reconciling retained mutations")]
     internal static partial void WriterRecovered(ILogger logger);
 
-    [LoggerMessage(4056, LogLevel.Warning, "Input artifact blob storage is unavailable; browser file inputs are disabled")]
+    [LoggerMessage(4056, LogLevel.Warning, "Input artifact storage is unavailable. The next file request will retry.")]
     internal static partial void InputArtifactStorageUnavailable(ILogger logger, Exception exception);
 
     [LoggerMessage(4057, LogLevel.Warning, "Input artifact cleanup could not delete some expired files; the next retention pass will retry")]

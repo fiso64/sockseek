@@ -7,7 +7,7 @@ using Sockseek.Core.Transfers.Downloads.Runtime;
 namespace Sockseek.Core;
 
 internal sealed record DirectoryTransferWorkItem(
-    FileDownloadJob Job,
+    RemoteFileJob Job,
     PeerFileTarget Target,
     string OutputPath);
 
@@ -16,9 +16,12 @@ internal sealed class DirectoryTransferRunner
 {
     private readonly DownloadExecutionContext context;
 
-    public DirectoryTransferRunner(DownloadExecutionContext context)
+    private readonly DownloadExecutorCoordinator downloads;
+
+    public DirectoryTransferRunner(DownloadExecutionContext context, DownloadExecutorCoordinator downloads)
     {
         this.context = context;
+        this.downloads = downloads;
     }
 
     public async Task<JobOutcome> Run(
@@ -61,42 +64,23 @@ internal sealed class DirectoryTransferRunner
         await BoundedAsync.ForEachAsync(
             work,
             context.Runtime.ConcurrentJobLimit,
-            item => RunChild(directory, item, config));
+            item => RunChild(directory, item));
         return GroupOutcome(directory.FileJobs);
     }
 
     private async Task RunChild(
         DirectoryDownloadJob directory,
-        DirectoryTransferWorkItem item,
-        DownloadSettings config)
+        DirectoryTransferWorkItem item)
     {
         var child = item.Job;
 
         try
         {
+            if (directory.Retry?.RestoreOrDefer(child, item.Target) == true) return;
             await context.Runtime.WithJobSlot(child.Cts!.Token, async () =>
             {
-                var transfer = await context.Runtime.ExactFileTransfers.DownloadFile(
-                    item.Target,
-                    item.OutputPath,
-                    child,
-                    config.Transfer,
-                    config.Output.ParentDir,
-                    config.Search.MaxStaleTime,
-                    ct: child.Cts.Token,
-                    parentJob: directory,
-                    allowOverwrite: !config.Skip.SkipExisting, allowReuse: config.Skip.SkipExisting);
-
-                var outcome = transfer.Status switch
-                {
-                    ExactFileTransferStatus.Completed when transfer.Result != null
-                        => JobOutcome.Done(transfer.Result.OutputPath, reused: transfer.Result.Reused),
-                    ExactFileTransferStatus.ManuallySkipped
-                        => JobOutcome.Skipped(JobSkipReason.Manual),
-                    ExactFileTransferStatus.AlreadyExists
-                        => JobOutcome.AlreadyExists(transfer.Result?.OutputPath),
-                    _ => JobOutcome.Failed(JobFailureReason.Other, "The exact file transfer did not produce a result."),
-                };
+                var outcome = await downloads.ProcessRemoteDownload(child, context.Ctx(directory),
+                    directory, directory.Cts!.Token, item.OutputPath);
                 JobOutcomeCommitter.Commit(child, outcome);
             });
         }
@@ -122,7 +106,7 @@ internal sealed class DirectoryTransferRunner
         }
     }
 
-    private static JobOutcome GroupOutcome(IReadOnlyList<FileDownloadJob> children)
+    internal static JobOutcome GroupOutcome(IReadOnlyList<FileDownloadJob> children)
     {
         int successful = children.Count(child => child.IsSuccessfulTerminal);
         int cancelled = children.Count(child => child.FailureReason == JobFailureReason.Cancelled);

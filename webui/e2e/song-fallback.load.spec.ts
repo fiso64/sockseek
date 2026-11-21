@@ -82,13 +82,17 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
     expect(activeTransfers).toHaveLength(100);
     expect(activeTransfers.filter(item => item.status.terminalOutcome === 'Failed')).toHaveLength(99);
     expect(activeTransfers.find(item => item.identity.username === 'Péér 099')).toMatchObject({
-      transferredBytes: 512, totalBytes: 1_024,
+      progress: { bytesTransferred: 512, totalBytes: 1_024 },
     });
 
     const rawApiMs: number[] = [];
-    async function readRawSource() {
-
+    async function readRawSource(retained = false) {
       const response = await measureApi(daemon.url, `/api/jobs/${root.jobId}/raw?afterSequence=0&limit=500`);
+      if (retained && response.status === 404) {
+        expect(JSON.parse(response.body).code).toBe('SearchResultsUnavailable');
+        expect.soft(response.ok, `${mode} retained raw results: ${response.body}`).toBe(true);
+        return;
+      }
       expect(response.ok, response.body).toBe(true);
       const rows = JSON.parse(response.body) as Schema<'SearchRawResultDto'>[];
       rawApiMs.push(response.elapsedMs);
@@ -112,10 +116,10 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
     await daemon.command('release-download');
     await retired;
     await expect(page.locator('.job-detail-heading-summary > .search-status-badge')).toHaveCount(0);
-    await expect(card.locator('.transfer-state')).toHaveText('Complete');
+    await expect(card.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
     await page.reload();
     await expect(page.locator('.job-source-summary')).toContainText('Péér 099');
-    await expect(card.locator('.transfer-state')).toHaveText('Complete');
+    await expect(card.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
     await expect(card.locator('.file-transfer-audio')).toHaveText('320 kbps');
     await expect(card.locator('.file-transfer-length')).toHaveText('3:00');
 
@@ -127,7 +131,8 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
     expect(retained.summary).toMatchObject({ lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' });
     expect(retained.payload).toMatchObject({ kind: 'song', candidateCount: 100,
       resolvedUsername: 'Péér 099', resolvedFilename: expectedPath(99), resolvedSize: 1_024 });
-    expect(await readRawSource()).toEqual(liveRaw);
+    const retainedRaw = await readRawSource(true);
+    if (retainedRaw) expect(retainedRaw).toEqual(liveRaw);
 
     if (group) {
       const groupResponse = await page.request.get(`/api/jobs/${root.jobId}`);
@@ -153,9 +158,11 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
     expect(transfers.map(item => item.identity.username).sort()).toEqual(expectedPeers);
     for (let index = 0; index < 100; index++) {
       const transfer = transfers.find(item => item.identity.username === expectedPeers[index])!;
-      expect(transfer).toMatchObject({ remotePath: expectedPath(index),
-        terminalOutcome: index === 99 ? 'Succeeded' : 'Failed',
-        transferredBytes: index === 99 ? 1_024 : 0 });
+      expect(transfer).toMatchObject({
+        identity: { remotePath: expectedPath(index) },
+        status: { terminalOutcome: index === 99 ? 'Succeeded' : 'Failed' },
+        progress: { bytesTransferred: index === 99 ? 1_024 : 0 },
+      });
     }
     const attemptsMs: number[] = [];
     // Exhaustive test-only history reads; the UI requests no per-candidate details.

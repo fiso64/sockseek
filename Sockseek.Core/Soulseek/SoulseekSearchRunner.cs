@@ -23,12 +23,15 @@ internal static class SoulseekSearchRunner
         {
             try
             {
+                int accepted = 0;
                 await foreach (var response in responses.Reader.ReadAllAsync(ct).ConfigureAwait(false))
                 {
                     ct.ThrowIfCancellationRequested();
+                    if (accepted >= options.ResponseLimit) continue;
                     var validResponse = ValidateResponse(response, logger);
-                    if (validResponse != null)
-                        responseHandler(validResponse);
+                    if (validResponse == null) continue;
+                    responseHandler(validResponse);
+                    accepted++;
                 }
             }
             catch

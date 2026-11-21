@@ -1,5 +1,8 @@
 import type { BrowseDirectoryEntryDto, BrowseFileEntryDto, BrowseSearchPageDto, UserBrowseDto, UserProfileDto } from '../../api/types';
 
+import type { SelectionSize } from '../../app/tree-selection';
+import type { DownloadOptions } from '../jobs/download-options';
+
 export type UserBrowseView = 'user' | 'shares';
 export interface PageState { directoryCursor: string | null; fileCursor: string | null; loading: boolean; loaded: boolean; error: Error | null; }
 
@@ -41,10 +44,27 @@ export interface ShareBrowserSession {
     filterPage: BrowseSearchPageDto | null;
     filterItems: BrowseSearchPageDto['items'];
     collapsedFiltered: Set<string>;
+    lastRequest?: { id: string; options: string };
     selected: Set<string>;
     excludedSelection: Set<string>;
     selectedParents: Map<string, string | null>;
-    selectedDirectoryCounts: Map<string, number>;
-    selectedFileIsPublic: Map<string, boolean>;
+    selectedSizes: Map<string, SelectionSize>;
+    options: {
+      baseline: DownloadOptions | null;
+      values: DownloadOptions | null;
+      profileNames: string[];
+      open: boolean;
+    };
   };
+}
+
+/** Presentation that can be restored against fresh share entries. */
+export interface ShareBrowserPosition {
+  filterText: string;
+  expandedPaths: Set<string>;
+  options: NonNullable<ShareBrowserSession['snapshot']>['options'];
+  scrollTop: number;
+  focusedFilter: boolean;
+  focusedPath: string | null | undefined;
+  focusedControl: 'input' | 'button' | null;
 }

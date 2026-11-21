@@ -53,6 +53,20 @@ internal static class ConditionSatisfactionPolicy
         bool filenameChecks = false)
         => conditions.FileSatisfies(ConditionFile.From(file), query, response: null, filenameChecks: filenameChecks, checkUser: false);
 
+    internal static bool LocalAudioFileSatisfies(FileConditions conditions, string path, SongQuery? query)
+    {
+        try
+        {
+            using var file = TagLib.File.Create(path, Utils.AudioMetadataReadStyle);
+            return LocalFileSatisfies(conditions, file, query);
+        }
+        catch (Exception ex) when (ex is TagLib.CorruptFileException or TagLib.UnsupportedFormatException
+            or FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+    }
+
     internal static AlbumSearchFilter CreateAlbumSearchFilter(AlbumQuery query, SearchSettings search)
         => new(query, search);
 
@@ -101,20 +115,6 @@ internal static class ConditionSatisfactionPolicy
         FolderConditions conditions,
         int audioFileCount)
         => CheckAlbumTrackCount(conditions, audioFileCount, enforceMinimum: true);
-
-    internal static bool LocalAlbumDirectorySatisfies(
-        FolderConditions? conditions,
-        string? directory)
-    {
-        if (conditions == null || !HasAlbumFolderConditions(conditions))
-            return true;
-
-        if (string.IsNullOrEmpty(directory) || !System.IO.Directory.Exists(directory))
-            return false;
-
-        var filenames = System.IO.Directory.GetFiles(directory, "*", System.IO.SearchOption.AllDirectories);
-        return LocalAlbumFolderSatisfies(conditions, filenames.Count(Utils.IsMusicFile), filenames);
-    }
 
     internal readonly struct AlbumSearchFilter
     {

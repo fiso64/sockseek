@@ -154,9 +154,9 @@ test('preserves reading position and catches up across a multi-page connection o
     if (outage) void route.close({ code: 1012, reason: 'E2E network unavailable' });
     else { socket = route; route.connectToServer(); }
   });
-  const send = async (text: string) => {
+  const send = async (text: string, username = 'Reconnect Peer') => {
     const response = await page.request.post('/api/chat/private-messages', {
-      data: { username: 'Reconnect Peer', text, messageId: crypto.randomUUID() },
+      data: { username, text, messageId: crypto.randomUUID() },
     });
     expect(response.ok()).toBeTruthy();
   };
@@ -177,6 +177,7 @@ test('preserves reading position and catches up across a multi-page connection o
     await socket!.close({ code: 1012, reason: 'E2E interruption' });
     await expect(status).toHaveText('Daemon reconnecting');
     await expect(presence).toHaveAttribute('data-presence', 'disconnected');
+    await send('I found the other recording.', 'Another collector');
     // Cross one history page, not a load test. Recovery must not silently skip
     // the first messages received while the browser's live transport was down.
     await daemon.command('seed-chat-outage');
@@ -187,6 +188,7 @@ test('preserves reading position and catches up across a multi-page connection o
   await page.clock.fastForward(2_000); // Resume SignalR without waiting for its retry delay.
   await expect(status).toContainText('Connected');
   await expect(presence).toHaveAttribute('data-presence', 'online');
+  await expect(page.getByRole('button', { name: 'Open conversation with Another collector', exact: true })).toBeVisible();
   await expect(messages.getByText('Offline 502', { exact: true })).toBeAttached();
   await expect(messages.getByText('Offline 000', { exact: true })).toBeAttached();
   await expect(messages.locator('[data-message-id]')).toHaveCount(504);
@@ -240,11 +242,14 @@ test('does not pull a reader to the bottom when a peer message arrives', async (
   await messages.evaluate(element => { element.scrollTop = 0; });
   await page.clock.runFor(16);
   expect(await messages.evaluate(element => element.scrollTop)).toBeLessThanOrEqual(2);
+  const unread = async () => (await (await page.request.get('/api/chat/conversations/by-peer?username=Scroll%20Peer')).json()).unreadCount;
+  await expect.poll(unread).toBe(1);
   await messages.evaluate(element => { element.scrollTop = element.scrollHeight; });
   await daemon.command('incoming-chat');
   await expect(messages).toContainText('Incoming while reading 502');
   await page.clock.runFor(16);
   expect(await messages.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(2);
+  await expect.poll(unread).toBe(0);
 });
 
 test('keeps the first visible message anchored when loading an older page', async ({ page, daemon }) => {
@@ -416,6 +421,10 @@ test('keeps a delayed send response in its original conversation', async ({ page
     await page.getByRole('button', { name: 'Open conversation with SecondPeer', exact: true }).click();
     await expect(page.locator('.chat-messages')).toContainText('Hello SecondPeer');
     await composer.fill('Unsent second draft');
+    const nav = page.getByRole('navigation', { name: 'Primary navigation' });
+    await nav.getByRole('button', { name: 'Downloads', exact: true }).click();
+    await nav.getByRole('button', { name: 'Chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Open conversation with SecondPeer', exact: true }).click();
     const returned = page.waitForResponse((response) => new URL(response.url()).pathname === path && response.request().method() === 'POST');
     release();
     await (await returned).finished();
@@ -425,5 +434,11 @@ test('keeps a delayed send response in its original conversation', async ({ page
     await expect(page.locator('.chat-messages')).not.toContainText('Delayed first response');
     await page.getByRole('button', { name: 'Open conversation with FirstPeer', exact: true }).click();
     await expect(page.locator('.chat-messages')).toContainText('Delayed first response');
+    await expect(composer).toHaveValue('');
+    await page.getByRole('button', { name: 'Open conversation with SecondPeer', exact: true }).click();
+    await composer.press('Control+Enter');
+    await expect(page.locator('.chat-messages')).toContainText('Unsent second draft');
+    const second = await page.request.get(`/api/chat/conversations/${conversations[1]}/messages`);
+    expect((await second.json()).items.filter((item: Schema<'ChatMessageDto'>) => item.text === 'Unsent second draft')).toHaveLength(1);
   } finally { release(); }
 });

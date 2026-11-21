@@ -27,8 +27,10 @@ pref-strict-album = true
 pref-exclude-locked = true
 ```
 
-<!-- TODO [docs] Warning callout for this -->
-_Note: Format conditions are UNORDERED! `--pref-format mp3,flac` is the same as `flac,mp3`._
+File Search in the UI starts with no file conditions. To set defaults for a particular search mode, use an auto-profile with an `input-type` or a `download-mode` condition. See [search defaults](../using-sockseek/configuration.md#webui-search-defaults).
+
+> [!WARNING]
+> The order of formats in a list has no effect. Both `--pref-format mp3,flac` and `--pref-format flac,mp3` give MP3 and FLAC equal preference.
 
 For album downloads, conditions like format, bitrate and sample rate operate based on coverage: A folder with 9 FLAC files and 1 MP3 is preferred over a mostly-MP3 folder, and the selected folder is still downloaded as a whole. Use `--strict-album-quality` to require every audio file in the folder to satisfy the conditions.
 

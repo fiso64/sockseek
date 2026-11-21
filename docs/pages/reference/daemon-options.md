@@ -67,7 +67,7 @@ sockseek daemon                 Start the HTTP/SignalR daemon
 
 ```text
 --share <path|[alias]path>      Share a local directory, optionally under an alias.
-                                Prefix with '+ ' to append.
+                                The share root may be a symlink. Prefix with '+ ' to append.
 --share-exclude <path>          Exclude a local directory and its contents from shares.
                                 Prefix with '+ ' to append.
 --share-filter <regex>          Exclude files and directories whose remote relative paths
@@ -246,7 +246,8 @@ sockseek transfers remove           Remove matching transfers from history
 
 <!-- sockseek-help-topic:start(transfer) -->
 ```text
-sockseek transfer cancel|remove <id>
+sockseek transfer cancel|retry|remove <id>
+sockseek job rerun|retry-directory <id>
                                     Cancel one transfer or remove it from history
 ```
 <!-- sockseek-help-topic:end -->

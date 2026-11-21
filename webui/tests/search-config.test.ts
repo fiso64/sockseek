@@ -115,7 +115,7 @@ it('hides only the complete built-in music format set, retaining other filters a
   expect(conditionPills('generic', conditions).length).toBeGreaterThan(0);
   expect(visibleFormatPills('track', ['FLAC'])).toEqual(['FLAC']);
   expect(visibleFormatPills('album', formats.slice(1))).toEqual(formats.slice(1));
-  expect(visibleFormatPills('album', [...formats, 'APE'])).toEqual([...formats, 'APE']);
+  expect(visibleFormatPills('album', [...formats, 'M4B'])).toEqual([...formats, 'M4B']);
   conditions.group.minShares = '2';
   expect(conditionPills('album-groups', conditions).length).toBeGreaterThan(0);
   expect(conditionPills('track', conditions).length).toBe(0);

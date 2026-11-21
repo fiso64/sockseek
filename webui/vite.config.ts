@@ -6,6 +6,7 @@ const daemonTarget = process.env.SOCKSEEK_DAEMON_URL ?? 'http://127.0.0.1:5030';
 export default defineConfig({
   // Upstream deepmerge advisory GHSA-gcqx-w48m-w2h4 has no fix yet; this plugin
   // uses it only for trusted build configuration. Keep the npm audit finding visible.
+  base: './',
   plugins: [svelte()],
   // The daemon supplies color-scheme in the document. Preserve native light-dark()
   // instead of lowering it to flags inferred only from the bundled stylesheet.

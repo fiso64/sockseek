@@ -13,15 +13,15 @@ internal sealed class RemoteFileDownloadExecutor
         this.context = context;
     }
 
-    public async Task<JobOutcome> Process(RemoteFileJob job, Job? parentJob)
+    public async Task<JobOutcome> Process(RemoteFileJob job, Job? parentJob, string? plannedPath)
     {
         var config = job.Config;
-        var placement = new PlacementPlanner(context.Ctx(job).OutputScope);
-        var destination = placement.PlanFile(job.Target, job.OutputPath, config);
+        string destination = plannedPath ?? job.RetainedDestination
+            ?? new PlacementPlanner(context.Ctx(job).OutputScope).PlanFile(job.Target, job.OutputPath, config).OutputPath;
 
         var outcome = await context.Runtime.ExactFileTransfers.DownloadFile(
             job.Target,
-            destination.OutputPath,
+            destination,
             job,
             config.Transfer,
             config.Output.ParentDir,

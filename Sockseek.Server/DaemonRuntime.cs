@@ -63,7 +63,8 @@ public sealed class DaemonRuntime
             engineSettings,
             options.ClientFactory,
             localProfile,
-            loggerFactory.CreateLogger<SoulseekClientManager>());
+            loggerFactory.CreateLogger<SoulseekClientManager>(),
+            clientDecorator: options.ClientDecorator);
         await using var sharing = new SharingRuntime(
             engineSettings,
             dataDirectory,
@@ -266,7 +267,7 @@ public sealed class DaemonRuntime
 
     /// <summary>Apply supported changes through the existing feature owners. Calls are serialized by the config watcher.</summary>
     public async Task ReloadConfigurationAsync(EngineSettings candidate, WebUiOptions webUi,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, bool profilePictureChanged = false)
     {
         // Keep restart-only values at startup even when their enclosing group
         // also contains reloadable settings. The attribute controls actual input
@@ -275,7 +276,7 @@ public sealed class DaemonRuntime
         var schema = SettingsSchema.For(typeof(EngineSettings));
         new SettingsPatch((SettingsPatch.Difference(engineSettings, candidate)?.Operations ?? [])
             .Where(change => schema.GetMember(change.Path).Reloadable).ToArray()).ApplyTo(active);
-        if (appliedConfiguration is null || !SettingsSchema.ValuesEqual(appliedConfiguration, active))
+        if (profilePictureChanged || appliedConfiguration is null || !SettingsSchema.ValuesEqual(appliedConfiguration, active))
         {
             SharingRuntime sharing = Sharing
                 ?? throw new InvalidOperationException("The daemon runtime is not running.");

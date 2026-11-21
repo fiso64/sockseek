@@ -19,6 +19,7 @@ public sealed class RemoteFileJob : FileDownloadJob
 
     public PeerFileTarget Target { get; }
     public RelativeOutputPath OutputPath { get; }
+    public string? RetainedDestination { get; init; }
 
     protected override bool DefaultCanBeSkipped => true;
 

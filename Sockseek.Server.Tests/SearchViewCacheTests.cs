@@ -475,9 +475,10 @@ public sealed class SearchViewCacheTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void FileSortOrdersPageTheWholeRevisionWithoutDuplicates(bool readOrder)
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    [DataRow(true, false)]
+    public void FileSortOrdersPageTheWholeRevisionWithoutDuplicates(bool readOrder, bool readWhileLive)
     {
         var store = new SearchViewCache();
 
@@ -512,13 +513,17 @@ public sealed class SearchViewCacheTests
             SearchViewInfo view = store.Create(Guid.NewGuid(), Definition(SearchViewProjectionKind.Files, readOrder ? SearchViewSortOrder.Relevance : order));
             view = store.Publish(view.Id, initial, "Live");
             long oldRevision = view.Revision;
-            var pinned = (store.GetSnapshot(view.Id, oldRevision, default)?.GetFiles(null, 2, sortOrder: readOrder ? order : null))!;
-            CollectionAssert.AreEqual(expected.Old.Take(2).ToArray(), pinned.Items.Select(item => item.Input.Username).ToArray());
+            var old = store.GetSnapshot(view.Id, oldRevision, default)!;
+            var pinned = readWhileLive ? old.GetFiles(null, 2, sortOrder: readOrder ? order : null) : null;
             view = store.Publish(view.Id, kernel.Apply([late], 7, true), "Complete");
-            var remaining = (store.GetSnapshot(view.Id, oldRevision, default)?.GetFiles(pinned.NextPosition, 500, sortOrder: readOrder ? order : null))!;
-            CollectionAssert.AreEqual(expected.Old, pinned.Items.Concat(remaining.Items)
-                .Select(item => item.Input.Username).ToArray(), $"{order}: pinned cursor after arrivals");
-            Assert.IsNull(remaining.NextPosition);
+            if (pinned != null)
+            {
+                CollectionAssert.AreEqual(expected.Old.Take(2).ToArray(), pinned.Items.Select(item => item.Input.Username).ToArray());
+                var remaining = old.GetFiles(pinned.NextPosition, 500, sortOrder: readOrder ? order : null);
+                CollectionAssert.AreEqual(expected.Old, pinned.Items.Concat(remaining.Items)
+                    .Select(item => item.Input.Username).ToArray(), $"{order}: pinned cursor after arrivals");
+                Assert.IsNull(remaining.NextPosition);
+            }
             Assert.AreEqual(readOrder ? SearchViewSortOrder.Relevance : order, (store.Get(view.Id))!.SortOrder);
             foreach (int pageSize in new[] { 1, 2 })
             {
@@ -846,7 +851,10 @@ public sealed class SearchViewCacheTests
             store.GetSnapshot(view.Id, reviewed, default)?.CountTopLevelSelection(RefSelectionMode.AllExcept, new HashSet<string>()));
         clock.Advance(TimeSpan.FromMinutes(14));
         Assert.IsNotNull(store.Peek(view.Id));
+        Assert.AreEqual(TimeSpan.FromMinutes(1), store.RemainingLifetime(view.Id, reviewed));
+        Assert.IsNull(store.RemainingLifetime(view.Id, unused));
         clock.Advance(TimeSpan.FromMinutes(2));
+        Assert.IsNull(store.RemainingLifetime(view.Id, reviewed));
         Assert.AreEqual(1, store.PruneExpired(), "Background metadata inspection must not renew the View.");
         Assert.IsNull(store.Get(view.Id));
         Assert.IsNull(store.GetSnapshot(view.Id, reviewed, default)?.GetFiles(null, 500));
@@ -866,6 +874,17 @@ public sealed class SearchViewCacheTests
         Assert.IsNull(store.GetSnapshot(view.Id, 0, default)?.GetFiles(null, 10));
         Assert.AreEqual(1, store.PruneExpired());
         Assert.IsNull(store.Get(view.Id));
+
+        var waiting = store.Create(Guid.NewGuid(), Definition(SearchViewProjectionKind.Files), retention: TimeSpan.FromMinutes(1));
+        store.BeginObservation(waiting.Id);
+        store.BeginObservation(waiting.Id);
+        clock.Advance(TimeSpan.FromMinutes(2));
+        Assert.IsFalse(store.EndObservation(waiting.Id));
+        Assert.AreEqual(0, store.PruneExpired());
+        Assert.IsNotNull(store.GetSnapshot(waiting.Id, waiting.Revision));
+        Assert.IsTrue(store.EndObservation(waiting.Id));
+        clock.Advance(TimeSpan.FromMinutes(2));
+        Assert.AreEqual(1, store.PruneExpired());
     }
 
     [TestMethod]

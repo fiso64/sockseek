@@ -109,7 +109,9 @@ test('renders populated and partial peer profiles without inventing missing fact
   await navigation.getByRole('button', { name: 'Shares', exact: true }).click();
   await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
   await expect(page.locator('.shares-username')).toHaveText('fixture-peer');
-  expect(browseRequests).toHaveLength(previousBrowseRequests);
+  // Revalidate the saved browse ID without fetching its tree or contacting the peer.
+  expect(browseRequests.slice(previousBrowseRequests).map(url => new URL(url).pathname))
+    .toEqual([expect.stringMatching(/^\/api\/user-browses\/[\da-f-]+$/)]);
   await navigation.getByRole('button', { name: 'Users', exact: true }).click();
   await expect(card.getByRole('heading', { name: 'info-unavailable-peer' })).toBeVisible();
 
@@ -153,6 +155,9 @@ test('refreshes shares explicitly and preserves the displayed tree and selection
   const file = page.locator('.share-tree-row.file').filter({ has: page.getByText('Selected.txt', { exact: true }) });
   await expect(file).toBeVisible();
   await file.getByRole('checkbox').check();
+  const filter = page.getByRole('textbox', { name: 'Filter user shares' });
+  await filter.fill('Selected');
+  await expect(page.locator('.shares-filter-count')).toBeVisible();
   const refresh = page.getByTestId('refresh-user-shares');
   await daemon.command('fail-next-peer-browse');
   await daemon.command('hold-directory-browse');
@@ -173,6 +178,7 @@ test('refreshes shares explicitly and preserves the displayed tree and selection
   await expect(refresh).toBeEnabled();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(file.getByRole('checkbox')).not.toBeChecked();
+  await expect(filter).toHaveValue('Selected');
   await daemon.command('report-peer-browses');
   expect(daemon.logs().filter(line => line.startsWith('E2E_METRIC peer-browses ')).at(-1)).toBe('E2E_METRIC peer-browses count=3');
 });

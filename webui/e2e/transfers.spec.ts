@@ -28,6 +28,105 @@ test('retries unavailable transfer history without presenting it as empty', asyn
   await expect(page.getByLabel('Connection status')).toContainText('Connected');
 });
 
+test('retries one refused file from Downloads and from its job', async ({ page, daemon }) => {
+  const retryLookups: string[] = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/repeat-options') || url.pathname === '/api/transfers' && url.searchParams.has('jobId'))
+      retryLookups.push(url.pathname);
+  });
+  const { readFile } = await import('node:fs/promises');
+  for (const surface of ['downloads', 'jobs']) {
+    await daemon.command('reject-next-download');
+    const filename = `Fixture\\${surface}.txt`;
+    const submission = await page.request.post('/api/jobs/lists', { data: {
+      name: 'Retry individual files', jobs: [{ kind: 'remote-file', target: {
+        username: 'fixture-peer', filename, size: 128, extension: '.txt',
+      } }],
+    } satisfies Schema<'SubmitJobListRequestDto'> });
+    expect(submission.status()).toBe(202);
+    await page.goto('/downloads');
+    const retry = page.getByRole('button', { name: `Retry ${surface}.txt`, exact: true });
+    const history = async () => (await (await page.request.get('/api/transfers?direction=download')).json()).items as Schema<'TransferStateDto'>[];
+    await expect(page.getByText('Failed', { exact: true }).first()).toBeVisible();
+    await expect(retry).toBeVisible();
+    const failed = (await history()).find(row => row.identity.remotePath === filename)!;
+    if (surface === 'jobs') await page.goto(`/jobs/${failed.identity.jobId}`);
+    const accepted = page.waitForResponse(response => response.url().endsWith(`/transfers/${failed.transferId}/retry`));
+    await retry.click();
+    expect((await accepted).status()).toBe(200);
+    await page.goto('/downloads');
+    await expect(page.getByRole('article').filter({ hasText: `${surface}.txt` }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
+    const rows = (await history()).filter(row => row.identity.remotePath === filename);
+    expect(rows).toHaveLength(2);
+    const completed = rows.find(row => row.status.terminalOutcome === 'Succeeded')!;
+    expect(completed.identity.username).toBe('fixture-peer');
+    expect(completed.status.localPath).toBe(failed.status.localPath);
+    expect(await readFile(completed.status.localPath!)).toHaveLength(128);
+    if (surface === 'downloads') {
+      await expect(retry).toHaveCount(0);
+      const completedCard = page.getByRole('article').filter({ hasText: 'downloads.txt' })
+        .filter({ has: page.getByRole('button', { name: 'Complete', exact: true }) });
+      await completedCard.getByRole('button', { name: 'Remove downloads.txt' }).click();
+      await expect(retry).toBeVisible();
+      const nextRequest = page.waitForResponse(response => response.url().endsWith(`/transfers/${failed.transferId}/retry`));
+      await retry.click();
+      const nextRetry = await nextRequest;
+      expect(nextRetry.status()).toBe(200);
+      expect((await nextRetry.json()).jobId).not.toBe(completed.identity.jobId);
+    }
+  }
+  expect(retryLookups).toEqual([]);
+});
+
+for (const button of ['file', 'folder']) test(`finishes the selected folder through its ${button} retry`, async ({ page, daemon }, testInfo) => {
+  const { readFile, writeFile } = await import('node:fs/promises');
+  await daemon.command('reject-next-download');
+  const result = await page.request.post('/api/jobs/lists', { data: {
+    name: 'Batch', options: { outputParentDir: testInfo.outputPath('music'),
+      downloadSettings: { skip: { skipExisting: false }, output: { nameFormat: '{default-folder}/{foldername}/{filename}' } } },
+    jobs: [{ kind: 'remote-directory', plan: { displayRoot: 'Album', totalKnownBytes: 256,
+      entries: ['one.txt', 'two.txt'].map(name => ({ target: {
+        username: 'fixture-peer', filename: `Fixture\\Album\\Disc 2\\${name}`, size: 128, extension: '.txt',
+      }, relativeDirectoryComponents: ['Disc 2'] })) } }],
+  } satisfies Schema<'SubmitJobListRequestDto'> });
+  expect(result.status(), await result.text()).toBe(202);
+  await daemon.command(`wait-job-complete:${(await result.json()).jobId}`);
+  const history = async () => (await (await page.request.get('/api/transfers?direction=download')).json()).items as Schema<'TransferStateDto'>[];
+  const initial = await history();
+  const kept = initial.find(row => row.status.terminalOutcome === 'Succeeded')!;
+  const failed = initial.find(row => row.status.terminalOutcome === 'Failed')!;
+  const retryLookups: string[] = [];
+  page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/repeat-options')) retryLookups.push(request.url()); });
+  await writeFile(kept.status.localPath!, 'already exported');
+  if (button === 'folder') {
+    await page.goto(`/jobs/${failed.identity.groupRef}`);
+    await expect(page.getByTestId('retry-directory')).toHaveAccessibleName('Retry 1 missing file');
+  }
+  await page.goto('/downloads');
+  const pending = page.waitForResponse(response => new URL(response.url()).pathname.endsWith(button === 'folder' ? '/retry-directory' : '/retry') && response.request().method() === 'POST');
+  if (button === 'folder') await page.getByTestId('retry-directory').click();
+  else {
+    await page.locator('.folder-file-row').getByRole('button', { name: /^Retry / }).click();
+  }
+  const next = await pending;
+  expect(next.ok(), await next.text()).toBe(true);
+  await daemon.command(`wait-job-complete:${(await next.json()).jobId}`);
+  const rows = await history();
+  expect(rows).toHaveLength(3);
+  const retried = rows.find(row => row.transferId !== failed.transferId && row.identity.remotePath === failed.identity.remotePath)!;
+  expect(retried.status.terminalOutcome).toBe('Succeeded');
+  expect(retried.status.localPath).toBe(failed.status.localPath);
+  expect(await readFile(retried.status.localPath!)).toHaveLength(128);
+  expect(await readFile(kept.status.localPath!, 'utf8')).toBe('already exported');
+  await expect(page.getByTestId('retry-directory')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText('Completed on retry', { exact: true })).toBeVisible();
+  const duplicate = await page.request.post(`/api/jobs/${failed.identity.groupRef}/retry-directory?memberJobId=${failed.identity.jobId}`);
+  expect(duplicate.status()).toBe(409);
+  expect(retryLookups).toEqual([]);
+});
+
 test('cancels a live download and retains its cancelled state after reload', async ({ page, daemon }) => {
   await daemon.command('hold-download');
   const response = await page.request.post('/api/jobs/lists', { data: {
@@ -502,4 +601,37 @@ test('cancels every member of a live directory from its folder action', async ({
   await expect(folder.locator('.folder-file-row').filter({ hasText: 'One.txt' })).toContainText('Cancelled');
   await expect(folder.locator('.folder-file-row').filter({ hasText: 'Two.txt' })).toContainText('Cancelled');
   await expect(otherFolder.getByRole('button', { name: 'Cancel Other' })).toBeVisible();
+});
+
+test('retries a failed automatic album track from its original peer and folder', async ({ page, daemon }, testInfo) => {
+  await daemon.command('album-art-search');
+  await daemon.command('reject-next-download');
+  const output = testInfo.outputPath('album-retry');
+  const response = await page.request.post('/api/jobs/downloads/album', { data: {
+    albumQuery: { album: 'Fixture Album', artistMaybeWrong: false },
+    options: { outputParentDir: output, downloadSettings: {
+      output: { nameFormat: 'Organized/{foldername}/{filename}' },
+      search: { noBrowseFolder: true }, transfer: { maxDownloadRetries: 1 }, skip: { skipExisting: false },
+    } },
+  } satisfies Schema<'SubmitAlbumJobRequestDto'> });
+  expect(response.status(), await response.text()).toBe(202);
+  const original = await response.json() as Schema<'JobSummaryDto'>;
+  await daemon.command(`wait-job-complete:${original.jobId}`);
+  const history = async () => (await (await page.request.get('/api/transfers?direction=download')).json()).items as Schema<'TransferStateDto'>[];
+  const failed = (await history()).find(row => row.status.terminalOutcome === 'Failed')!;
+  expect(failed.identity.groupRef).toBe(original.jobId);
+  await page.goto('/downloads');
+  const receipt = page.waitForResponse(response => response.url().endsWith(`/${failed.transferId}/retry`));
+  await page.locator('.folder-file-row').getByRole('button', { name: /^Retry / }).first().click();
+  const retry = await receipt;
+  expect(retry.ok(), await retry.text()).toBe(true);
+  await daemon.command(`wait-job-complete:${(await retry.json()).jobId}`);
+  const members = (await history()).filter(row => row.identity.remotePath === failed.identity.remotePath
+    && row.identity.username === failed.identity.username && row.status.terminalOutcome === 'Succeeded');
+  expect(members).toHaveLength(1);
+  const filename = failed.identity.remotePath!.split('\\').at(-1);
+  const path = `${output}/Organized/Fixture Album/${filename}`;
+  expect(members[0]?.status.localPath).toBe(path);
+  const { readFile } = await import('node:fs/promises');
+  expect(await readFile(path)).toHaveLength(128);
 });

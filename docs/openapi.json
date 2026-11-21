@@ -1975,6 +1975,71 @@
         ]
       }
     },
+    "/api/search-views/{viewId}/revisions/{revision}/lifetime": {
+      "get": {
+        "tags": [
+          "Search Views"
+        ],
+        "summary": "Checks how long a result revision remains available without extending its lifetime.",
+        "parameters": [
+          {
+            "name": "viewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchViewRevisionLifetimeDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
     "/api/search-views/{viewId}/definition": {
       "get": {
         "tags": [
@@ -3227,6 +3292,104 @@
         ]
       }
     },
+    "/api/search-views/{viewId}/library-matches": {
+      "post": {
+        "tags": [
+          "Search Views"
+        ],
+        "summary": "Returns song or album group references with a matching local copy.",
+        "parameters": [
+          {
+            "name": "viewId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchViewLibraryMatchesRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
     "/api/search-views/{viewId}/selection-settings": {
       "post": {
         "tags": [
@@ -3582,6 +3745,16 @@
           },
           "400": {
             "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -6858,13 +7031,13 @@
         ]
       }
     },
-    "/api/jobs/{jobId}/rerun-search": {
+    "/api/jobs/{jobId}/rerun": {
       "post": {
         "tags": [
           "Job Submission"
         ],
-        "summary": "Replays only one planned search job from its retained execution settings.",
-        "description": "Replays the selected search while leaving sibling jobs in their current state.",
+        "summary": "Runs one accepted job again using its saved command and settings.",
+        "description": "A child runs independently of its siblings.",
         "parameters": [
           {
             "name": "jobId",
@@ -6902,6 +7075,72 @@
           },
           "503": {
             "description": "Service Unavailable"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
+    "/api/jobs/{jobId}/retry-directory": {
+      "post": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Retries missing members of one retained peer selection.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "memberJobId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
           },
           "401": {
             "description": "Authentication required or credential expired/revoked."
@@ -7401,7 +7640,7 @@
           "Search Results"
         ],
         "summary": "Gets raw search responses for a search job.",
-        "description": "Use afterSequence to incrementally fetch raw responses after the last seen sequence.",
+        "description": "Use afterSequence to fetch responses after the last seen sequence. HTTP 404 with code SearchResultsUnavailable means the job has no available raw result history.",
         "parameters": [
           {
             "name": "jobId",
@@ -9356,13 +9595,71 @@
         ]
       }
     },
+    "/api/transfers/{transferId}/retry": {
+      "post": {
+        "tags": [
+          "Transfers"
+        ],
+        "summary": "Retry one failed or interrupted download from its original peer.",
+        "parameters": [
+          {
+            "name": "transferId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
     "/api/transfers/cancel": {
       "post": {
         "tags": [
           "Transfers"
         ],
         "summary": "Cancels a snapshot of transfers by direction, queue state, and optional exact peer/group.",
-        "description": "Targets are resolved once, then cancelled independently. Races and per-transfer failures are reported in a fixed-size receipt.",
+        "description": "For an exact directory download group, All cancels its unfinished files, including those still waiting for a transfer slot. Other scopes cancel a snapshot of matching transfers.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -12863,6 +13160,16 @@
             "items": {
               "$ref": "#/components/schemas/JobPreviewSelectionOverrideDto"
             }
+          },
+          "downloadOverrides": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
           }
         }
       },
@@ -13170,6 +13477,15 @@
               "string"
             ],
             "format": "int32"
+          },
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
           }
         }
       },
@@ -13495,6 +13811,15 @@
             ],
             "items": {
               "type": "string"
+            }
+          },
+          "keepVisibleFiles": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FileCandidateRefDto"
             }
           }
         }
@@ -15517,6 +15842,26 @@
           }
         }
       },
+      "FolderRetryStatusDto": {
+        "required": [
+          "missingFiles",
+          "completedOnRetry"
+        ],
+        "type": "object",
+        "properties": {
+          "missingFiles": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "completedOnRetry": {
+            "type": "boolean"
+          }
+        }
+      },
       "IncompleteAlbumActionSettingsPatchDto": {
         "type": "object",
         "properties": {
@@ -15702,6 +16047,16 @@
           "sourceJobAvailable": {
             "type": "boolean",
             "default": false
+          },
+          "repeatOptions": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobRepeatOptionsDto"
+              }
+            ]
           }
         }
       },
@@ -16973,7 +17328,8 @@
                               "properties": {
                                 "kind": {
                                   "enum": [
-                                    "cancel"
+                                    "cancel",
+                                    "retry"
                                   ]
                                 },
                                 "method": {
@@ -17106,7 +17462,8 @@
                               "properties": {
                                 "kind": {
                                   "enum": [
-                                    "cancel"
+                                    "cancel",
+                                    "retry"
                                   ]
                                 },
                                 "method": {
@@ -17334,6 +17691,15 @@
                           "string"
                         ],
                         "format": "int32"
+                      },
+                      "revision": {
+                        "pattern": "^-?(?:0|[1-9]\\d*)$",
+                        "type": [
+                          "integer",
+                          "string"
+                        ],
+                        "format": "int32",
+                        "default": 0
                       }
                     }
                   }
@@ -17654,6 +18020,7 @@
                                 "ChildJobsFailed",
                                 "NoSearchResults",
                                 "NoMatchingResults",
+                                "Interrupted",
                                 null
                               ]
                             },
@@ -17691,7 +18058,8 @@
                                 "properties": {
                                   "kind": {
                                     "enum": [
-                                      "cancel"
+                                      "cancel",
+                                      "retry"
                                     ]
                                   },
                                   "method": {
@@ -18078,6 +18446,7 @@
                             "ChildJobsFailed",
                             "NoSearchResults",
                             "NoMatchingResults",
+                            "Interrupted",
                             null
                           ]
                         },
@@ -18115,7 +18484,8 @@
                             "properties": {
                               "kind": {
                                 "enum": [
-                                  "cancel"
+                                  "cancel",
+                                  "retry"
                                 ]
                               },
                               "method": {
@@ -18557,7 +18927,8 @@
                                 "ConnectionFailed",
                                 "TransferTimedOut",
                                 "InternalError",
-                                "Unknown"
+                                "Unknown",
+                                "LocalStorageError"
                               ],
                               "default": "None"
                             },
@@ -18605,7 +18976,8 @@
                                     "properties": {
                                       "kind": {
                                         "enum": [
-                                          "cancel"
+                                          "cancel",
+                                          "retry"
                                         ]
                                       },
                                       "method": {
@@ -18829,7 +19201,8 @@
                             "ConnectionFailed",
                             "TransferTimedOut",
                             "InternalError",
-                            "Unknown"
+                            "Unknown",
+                            "LocalStorageError"
                           ],
                           "default": "None"
                         },
@@ -18877,7 +19250,8 @@
                                 "properties": {
                                   "kind": {
                                     "enum": [
-                                      "cancel"
+                                      "cancel",
+                                      "retry"
                                     ]
                                   },
                                   "method": {
@@ -20883,6 +21257,33 @@
             "format": "uuid"
           },
           "sourceJobId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "JobRepeatOptionsDto": {
+        "required": [
+          "canRunAgain",
+          "missingFiles"
+        ],
+        "type": "object",
+        "properties": {
+          "canRunAgain": {
+            "type": "boolean"
+          },
+          "missingFiles": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "retryTransferId": {
             "type": [
               "null",
               "string"
@@ -23507,6 +23908,10 @@
                 "$ref": "#/components/schemas/SearchViewDirectoryFilePreviewDto"
               }
             ]
+          },
+          "hasFilteredFiles": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -23526,6 +23931,12 @@
           },
           "file": {
             "$ref": "#/components/schemas/SearchViewFileDto"
+          },
+          "deepestFilteredFolder": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -23621,6 +24032,10 @@
           },
           "selected": {
             "type": "boolean"
+          },
+          "includeFilteredFiles": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -23711,6 +24126,39 @@
           }
         }
       },
+      "SearchViewLibraryMatchesRequestDto": {
+        "required": [
+          "revision",
+          "groupRefs"
+        ],
+        "type": "object",
+        "properties": {
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "groupRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "options": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubmissionOptionsDto"
+              }
+            ]
+          }
+        }
+      },
       "SearchViewRetentionState": {
         "enum": [
           "Live",
@@ -23768,6 +24216,22 @@
           },
           "counters": {
             "$ref": "#/components/schemas/SearchViewCountersDto"
+          }
+        }
+      },
+      "SearchViewRevisionLifetimeDto": {
+        "required": [
+          "remainingMilliseconds"
+        ],
+        "type": "object",
+        "properties": {
+          "remainingMilliseconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -24182,6 +24646,7 @@
           "ChildJobsFailed",
           "NoSearchResults",
           "NoMatchingResults",
+          "Interrupted",
           null
         ]
       },
@@ -24240,7 +24705,8 @@
       },
       "ServerResourceActionKind": {
         "enum": [
-          "cancel"
+          "cancel",
+          "retry"
         ]
       },
       "ServerSearchDefaultProjectionKind": {
@@ -24918,6 +25384,12 @@
               "null",
               "string"
             ]
+          },
+          "recordHash": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -25436,7 +25908,8 @@
                           "properties": {
                             "kind": {
                               "enum": [
-                                "cancel"
+                                "cancel",
+                                "retry"
                               ]
                             },
                             "method": {
@@ -25569,7 +26042,8 @@
                           "properties": {
                             "kind": {
                               "enum": [
-                                "cancel"
+                                "cancel",
+                                "retry"
                               ]
                             },
                             "method": {
@@ -25797,6 +26271,15 @@
                       "string"
                     ],
                     "format": "int32"
+                  },
+                  "revision": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "format": "int32",
+                    "default": 0
                   }
                 }
               }
@@ -26117,6 +26600,7 @@
                             "ChildJobsFailed",
                             "NoSearchResults",
                             "NoMatchingResults",
+                            "Interrupted",
                             null
                           ]
                         },
@@ -26154,7 +26638,8 @@
                             "properties": {
                               "kind": {
                                 "enum": [
-                                  "cancel"
+                                  "cancel",
+                                  "retry"
                                 ]
                               },
                               "method": {
@@ -26541,6 +27026,7 @@
                         "ChildJobsFailed",
                         "NoSearchResults",
                         "NoMatchingResults",
+                        "Interrupted",
                         null
                       ]
                     },
@@ -26578,7 +27064,8 @@
                         "properties": {
                           "kind": {
                             "enum": [
-                              "cancel"
+                              "cancel",
+                              "retry"
                             ]
                           },
                           "method": {
@@ -27020,7 +27507,8 @@
                             "ConnectionFailed",
                             "TransferTimedOut",
                             "InternalError",
-                            "Unknown"
+                            "Unknown",
+                            "LocalStorageError"
                           ],
                           "default": "None"
                         },
@@ -27068,7 +27556,8 @@
                                 "properties": {
                                   "kind": {
                                     "enum": [
-                                      "cancel"
+                                      "cancel",
+                                      "retry"
                                     ]
                                   },
                                   "method": {
@@ -27292,7 +27781,8 @@
                         "ConnectionFailed",
                         "TransferTimedOut",
                         "InternalError",
-                        "Unknown"
+                        "Unknown",
+                        "LocalStorageError"
                       ],
                       "default": "None"
                     },
@@ -27340,7 +27830,8 @@
                             "properties": {
                               "kind": {
                                 "enum": [
-                                  "cancel"
+                                  "cancel",
+                                  "retry"
                                 ]
                               },
                               "method": {
@@ -28585,7 +29076,8 @@
                               "properties": {
                                 "kind": {
                                   "enum": [
-                                    "cancel"
+                                    "cancel",
+                                    "retry"
                                   ]
                                 },
                                 "method": {
@@ -28718,7 +29210,8 @@
                               "properties": {
                                 "kind": {
                                   "enum": [
-                                    "cancel"
+                                    "cancel",
+                                    "retry"
                                   ]
                                 },
                                 "method": {
@@ -28946,6 +29439,15 @@
                           "string"
                         ],
                         "format": "int32"
+                      },
+                      "revision": {
+                        "pattern": "^-?(?:0|[1-9]\\d*)$",
+                        "type": [
+                          "integer",
+                          "string"
+                        ],
+                        "format": "int32",
+                        "default": 0
                       }
                     }
                   }
@@ -29266,6 +29768,7 @@
                                 "ChildJobsFailed",
                                 "NoSearchResults",
                                 "NoMatchingResults",
+                                "Interrupted",
                                 null
                               ]
                             },
@@ -29303,7 +29806,8 @@
                                 "properties": {
                                   "kind": {
                                     "enum": [
-                                      "cancel"
+                                      "cancel",
+                                      "retry"
                                     ]
                                   },
                                   "method": {
@@ -29690,6 +30194,7 @@
                             "ChildJobsFailed",
                             "NoSearchResults",
                             "NoMatchingResults",
+                            "Interrupted",
                             null
                           ]
                         },
@@ -29727,7 +30232,8 @@
                             "properties": {
                               "kind": {
                                 "enum": [
-                                  "cancel"
+                                  "cancel",
+                                  "retry"
                                 ]
                               },
                               "method": {
@@ -30169,7 +30675,8 @@
                                 "ConnectionFailed",
                                 "TransferTimedOut",
                                 "InternalError",
-                                "Unknown"
+                                "Unknown",
+                                "LocalStorageError"
                               ],
                               "default": "None"
                             },
@@ -30217,7 +30724,8 @@
                                     "properties": {
                                       "kind": {
                                         "enum": [
-                                          "cancel"
+                                          "cancel",
+                                          "retry"
                                         ]
                                       },
                                       "method": {
@@ -30441,7 +30949,8 @@
                             "ConnectionFailed",
                             "TransferTimedOut",
                             "InternalError",
-                            "Unknown"
+                            "Unknown",
+                            "LocalStorageError"
                           ],
                           "default": "None"
                         },
@@ -30489,7 +30998,8 @@
                                 "properties": {
                                   "kind": {
                                     "enum": [
-                                      "cancel"
+                                      "cancel",
+                                      "retry"
                                     ]
                                   },
                                   "method": {
@@ -32363,7 +32873,8 @@
           "ConnectionFailed",
           "TransferTimedOut",
           "InternalError",
-          "Unknown"
+          "Unknown",
+          "LocalStorageError"
         ],
         "default": "None"
       },
@@ -32562,6 +33073,16 @@
               "string"
             ],
             "format": "int64"
+          },
+          "folderRetry": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FolderRetryStatusDto"
+              }
+            ]
           }
         }
       },

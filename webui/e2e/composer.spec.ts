@@ -127,6 +127,10 @@ test('Ctrl+Enter opens New Job with the current query and edited search conditio
     await expect(page).toHaveURL(new RegExp(`${origin}$`));
   }
   expect(searches).toBe(0);
+  page.once('dialog', prompt => prompt.dismiss());
+  await page.locator('#global-search-simple').press('Control+Enter');
+  await expect(page.locator('.new-job-composer')).toHaveCount(0);
+  page.once('dialog', prompt => prompt.accept());
   await page.locator('#global-search-simple').press('Control+Enter');
   const dialog = page.getByRole('dialog', { name: 'New job', exact: true });
   await expect(dialog).toBeVisible();
@@ -467,17 +471,16 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   expect(rebuilding.request().postDataJSON()).toEqual(originalRequest);
   expect(uploads, 'Rebuilding a preview must reuse its uploaded artifact.').toBe(1);
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Start 2 jobs', exact: true })).toBeEnabled();
+  await expect(page.locator('.new-job-start-button')).toBeDisabled();
+  await expect(firstSong.getByRole('checkbox')).not.toBeChecked();
   expect({ uploads, plans, commits, settingsReads }).toEqual({ uploads: 1, plans: 2, commits: 1, settingsReads: resolvedSettingsReads });
-  await expect(page.getByRole('button', { name: 'Deselect all', exact: true })).toBeVisible();
-  // Temporary preview data can also disappear across daemon restarts while
-  // the durable uploaded artifact survives. This is a real 404, not a mock.
-  await expect(firstSong).toBeVisible();
+  // A reviewed shortlist must not turn into a whole-playlist download.
+  await firstSong.getByRole('checkbox').check();
+  await page.keyboard.press('Escape');
   await daemon.command('forget-job-previews');
-  const missing = page.waitForResponse(reply => new URL(reply.url()).pathname
-    === `/api/job-previews/${next.preview.previewId}/commit`);
-  await expect(page.getByRole('button', { name: 'Start 2 jobs', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Start 2 jobs', exact: true }).press('Control+Enter');
+  const missing = page.waitForResponse(reply => reply.request().method() === 'GET'
+    && new URL(reply.url()).pathname === `/api/job-previews/${next.preview.previewId}`);
+  await page.getByTestId('new-job').click();
   expect((await missing).status()).toBe(404);
   await expect(page.getByRole('alert')).toContainText('not found');
   await expect(page.locator('.new-job-start-button')).toBeDisabled();
@@ -488,11 +491,10 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   const finalPreview = await restoring.json() as Schema<'CreateJobPreviewResponseDto'>;
   expect(finalPreview.preview.previewId).not.toBe(next.preview.previewId);
   expect(restoring.request().postDataJSON()).toEqual(originalRequest);
-  await expect(page.getByRole('button', { name: 'Start 2 jobs', exact: true })).toBeEnabled();
-  expect({ uploads, plans, commits, settingsReads }).toEqual({ uploads: 1, plans: 3, commits: 2, settingsReads: resolvedSettingsReads });
+  await expect(page.locator('.new-job-start-button')).toBeDisabled();
+  expect({ uploads, plans, commits, settingsReads }).toEqual({ uploads: 1, plans: 3, commits: 1, settingsReads: resolvedSettingsReads });
   // Re-extraction may produce different nodes; old subtree choices cannot be
   // silently applied to this new preview. Choose the desired row again.
-  await page.getByTestId('new-job-selection-toggle').click();
   await firstSong.locator('input[type=checkbox]').check();
   const committed = page.waitForResponse(reply => new URL(reply.url()).pathname
     === `/api/job-previews/${finalPreview.preview.previewId}/commit`);
@@ -532,6 +534,12 @@ test('pages a CSV Review and commits an item beyond the first preview page', asy
   await expect(tail).toHaveCount(1);
   await page.getByRole('button', { name: 'Deselect all' }).click();
   await tail.locator('input[type=checkbox]').check();
+  await page.keyboard.press('Escape');
+  const nav = page.getByRole('navigation', { name: 'Primary navigation' });
+  await nav.getByRole('button', { name: 'Downloads', exact: true }).click();
+  await nav.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await page.getByTestId('new-job').click();
+  await expect(tail.getByRole('checkbox')).toBeChecked();
   await expect(page.getByRole('button', { name: 'Start 1 job' })).toBeEnabled();
   await page.getByRole('button', { name: 'Start 1 job' }).click();
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('paged-review');

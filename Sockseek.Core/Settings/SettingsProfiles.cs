@@ -91,8 +91,12 @@ public sealed class DefaultJobSettingsResolver : IJobSettingsResolver
     public DownloadSettings Resolve(
         DownloadSettings inherited,
         JobSettingsContext job,
-        JobSettingsInheritance inheritance = JobSettingsInheritance.None) =>
-        SettingsCloner.Clone(inherited);
+        JobSettingsInheritance inheritance = JobSettingsInheritance.None)
+    {
+        var settings = SettingsCloner.Clone(inherited);
+        JobSettingsComposer.ResolveModeSettings(job, settings);
+        return settings;
+    }
 }
 
 public sealed class ProfileJobSettingsResolver : IJobSettingsResolver, IDetailedJobSettingsRequestResolver
@@ -165,7 +169,8 @@ public static class SettingsNormalizer
 {
     public static void Normalize(DownloadSettings dl)
     {
-        dl.Output.NameFormat = dl.Output.NameFormat.Trim();
+        string format = dl.Output.NameFormat.Trim();
+        if (format != dl.Output.NameFormat) dl.Output.NameFormat = format;
     }
 
     public static void NormalizeDownloadPaths(DownloadSettings dl)
@@ -180,7 +185,6 @@ public static class SettingsNormalizer
             dl.Output.ParentDir = Directory.GetCurrentDirectory();
 
         dl.Output.ParentDir = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.ParentDir, pathContext));
-        dl.Output.NameFormat = dl.Output.NameFormat.Trim();
 
         if (dl.Output.M3uFilePath != null)
             dl.Output.M3uFilePath = Utils.GetFullPath(Utils.ExpandVariables(dl.Output.M3uFilePath, pathContext));

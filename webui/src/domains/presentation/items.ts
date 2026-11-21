@@ -33,10 +33,7 @@ export function parentPath(path: string): string {
 }
 
 
-export function formatBytes(bytes: number): string {
-  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
-  return `${(bytes / 1_000_000).toFixed(bytes >= 100_000_000 ? 0 : 1)} MB`;
-}
+export { formatBytes } from '../../app/format';
 
 export function formatLength(seconds?: number): string {
   if (seconds === undefined) return '—';

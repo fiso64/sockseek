@@ -179,6 +179,10 @@ public sealed class IncrementalResultSorter
         IEnumerable<SearchProjectionInput> results)
         => RankBatch(results).Select(Projected).ToArray();
 
+    internal bool WouldProject(SearchProjectionInput input)
+        => keyContext.AcceptsPeerAndVisibility(input, keyContext.PeerFailureCounts.GetValueOrDefault(input.Username, 0))
+            && (!requireFileSatisfies || keyContext.NecessaryConditionsSatisfied(input));
+
     private List<ResultSorter.SortEntry> RankBatch(IEnumerable<SearchProjectionInput> results)
     {
         var newEntries = new List<ResultSorter.SortEntry>();

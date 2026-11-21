@@ -1,3 +1,4 @@
+import { appPath } from '../app/paths';
 import type { Schema } from './types';
 
 /** One browser session boundary. No credential is stored in JavaScript or localStorage. */
@@ -67,7 +68,7 @@ class BrowserSession {
 
   private async request(path: string, body?: unknown): Promise<Response> {
     const method = body === undefined ? 'GET' : 'POST';
-    const response = await fetch(`/api/auth${path}`, {
+    const response = await fetch(appPath(`/api/auth${path}`), {
       method, credentials: 'same-origin', cache: 'no-store',
       headers: this.headers(body === undefined ? undefined : { 'Content-Type': 'application/json' }, method),
       body: body === undefined ? undefined : JSON.stringify(body),

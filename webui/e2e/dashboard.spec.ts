@@ -19,9 +19,10 @@ test('serves the WebUI at the daemon root without replacing API routes', async (
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   await expect(page.getByLabel('Connection status')).toHaveText('Connected, Logged In');
   await expect(page.getByText('History range', { exact: true })).toHaveCount(0);
-  const scriptPath = await page.locator('script[type="module"][src]').getAttribute('src');
-  expect(scriptPath).toMatch(/^\/assets\/index-[^/]+\.js$/);
-  const asset = await page.request.get(scriptPath!);
+  const scriptUrl = await page.locator('script[type="module"][src]').evaluate(node => (node as HTMLScriptElement).src);
+  expect(new URL(scriptUrl).origin).toBe(new URL(page.url()).origin);
+  expect(new URL(scriptUrl).pathname).toMatch(/^\/assets\/index-[^/]+\.js$/);
+  const asset = await page.request.get(scriptUrl);
   expect(asset.ok()).toBe(true);
   expect(asset.headers()['cache-control']).toContain('immutable');
   const info = await page.request.get('/api/server/info');

@@ -66,6 +66,7 @@ internal sealed class SongDownloadFallbackRunner
         }
 
         JobOutcome? outcome;
+        long producedBytes = 0;
         try
         {
             outcome = await context.SongDownloadFallback.TryDownloadAsync(
@@ -75,6 +76,8 @@ internal sealed class SongDownloadFallbackRunner
                 fallbackLog,
                 ct,
                 OnTransferStarting);
+            if (outcome is { TerminalOutcome: JobTerminalOutcome.Succeeded, DownloadPath: { } path })
+                producedBytes = await context.Runtime.Files.WithCacheAsync(_ => new FileInfo(path).Length);
         }
         catch (Exception ex) when (transferId != null && attemptId != null && descriptor != null)
         {
@@ -124,7 +127,8 @@ internal sealed class SongDownloadFallbackRunner
                 attemptId.Value,
                 song,
                 descriptor.SourceReference,
-                descriptor.OutputPathPrefix);
+                descriptor.OutputPathPrefix,
+                producedBytes);
         }
 
         if (outcome == null || !outcome.ShouldCommit)

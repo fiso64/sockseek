@@ -50,6 +50,26 @@ public sealed class DirectoryTransferAttempt
     }
 }
 
+public sealed record DirectoryRetry(Guid SourceDirectoryId, int SourceAttempt, IReadOnlySet<string>? RequestedFiles,
+    IReadOnlyDictionary<string, string> CompletedPaths, IReadOnlyDictionary<string, string>? PathsBeforeIncompleteMove = null, bool FolderAlreadyCompleted = false)
+{
+    // Only a successful member of this exact selection is carried forward.
+    // skip-existing controls a fresh download, not which members are unfinished.
+    public bool RestoreOrDefer(FileDownloadJob child, PeerFileTarget target)
+    {
+        if (CompletedPaths.TryGetValue(target.Filename, out var path) && File.Exists(path))
+        {
+            child.PathBeforeIncompleteMove = PathsBeforeIncompleteMove?.GetValueOrDefault(target.Filename);
+            child.SetAlreadyExists(path);
+        }
+        else if (RequestedFiles != null && !RequestedFiles.Contains(target.Filename))
+            child.SetSkipped(JobSkipReason.Manual);
+        else
+            return false;
+        return true;
+    }
+}
+
 /// <summary>
 /// Observable lifecycle shared by directory-shaped downloads. It owns state and
 /// attempt association, but no search, retrieval, placement, or finalization.
@@ -65,6 +85,7 @@ public abstract class DirectoryDownloadJob : Job
     private int attemptNumber;
     private string? downloadPath;
 
+    public DirectoryRetry? Retry { get; set; }
     public DirectoryExecutionState DirectoryState => directoryState;
     public DirectoryTransferAttempt? ActiveAttempt => activeAttempt;
     /// <summary>

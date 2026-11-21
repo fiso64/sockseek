@@ -12,17 +12,18 @@ public sealed partial class SearchViewCache
     {
         if (!StringComparer.Ordinal.Equals(peerObservation.Username, snapshot.Identity.Username))
             throw new ArgumentException("The peer observation does not match the retrieved directory peer.", nameof(peerObservation));
-        var retrieved = snapshot.Files.ToDictionary(file => (file.Username, file.Filename));
+        var sizes = snapshot.Files.ToImmutableDictionary(file => file.Filename, file => file.Size, StringComparer.Ordinal);
         if (files.Any(file => file.Input.Visibility != SearchResultVisibility.Public
-            || !retrieved.ContainsKey((file.Input.Username, file.Input.Filename))))
+            || file.Input.Username != snapshot.Identity.Username || !sizes.ContainsKey(file.Input.Filename)))
             throw new ArgumentException("Projected directory files must belong to the retrieved snapshot.", nameof(files));
         var view = RequireView(viewId);
         lock (view.Gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (view.Summary.ExpiresAtUtc <= clock.GetUtcNow())
+            var now = clock.GetUtcNow();
+            if (view.ExpiresAt(now) <= now)
                 throw new KeyNotFoundException("The Search View expired; refresh it before selecting results.");
-            var current = view.Summary;
+            var current = view.Current(now);
             var before = view.Revisions[current.Revision];
             var known = before.Directories.GetValueOrDefault(directoryRef) ?? before.HiddenDirectories.GetValueOrDefault(directoryRef)
                 ?? throw new KeyNotFoundException("The search-view directory was not found.");
@@ -41,7 +42,6 @@ public sealed partial class SearchViewCache
             }
             else
             {
-                var now = clock.GetUtcNow();
                 observation = new(Guid.NewGuid(), current.SourceJobId, current.SourceRevision, peerObservation,
                     snapshot, now, now + DefaultRetention);
                 observations[observationKey] = observation;
@@ -52,13 +52,26 @@ public sealed partial class SearchViewCache
             var summary = current with { Revision = checked(current.Revision + 1) };
             var next = Copy(before, summary);
             var changed = new HashSet<string>(StringComparer.Ordinal);
+            if (summary.ProjectionKind == SearchViewProjectionKind.GenericDirectories && !string.IsNullOrWhiteSpace(summary.Definition.Projection.FilterText))
+            {
+                var matches = summary.Definition.Projection.CreateFileFilter();
+                var visible = new List<ProjectedFileCandidate>();
+                var hidden = new List<SearchProjectionInput>();
+                foreach (var file in files)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (matches(file.Input)) visible.Add(file);
+                    else hidden.Add(file.Input);
+                }
+                if (hidden.Count > 0) next.AddFilteredFiles(hidden, cancellationToken);
+                files = visible;
+            }
             AddFiles(next, summary, files, changed, cancellationToken);
             foreach (var file in files)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 directory = AddChild(next, directory, RequireFile(next, summary, file.Input).Value);
             }
-            var sizes = snapshot.Files.ToImmutableDictionary(file => file.Filename, file => file.Size, StringComparer.Ordinal);
             long bytes = 0, unknown = 0;
             foreach (var child in directory.Children)
             {

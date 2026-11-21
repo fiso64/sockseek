@@ -49,7 +49,10 @@ public sealed record TransferGroupSummaryDto(
     long SucceededCount,
     long FailedCount,
     long CancelledCount,
-    long InterruptedCount);
+    long InterruptedCount,
+    FolderRetryStatusDto? FolderRetry = null);
+
+public sealed record FolderRetryStatusDto(int MissingFiles, bool CompletedOnRetry);
 
 /// <summary>
 /// Group totals and their transfer-fact read position. Compare this position with

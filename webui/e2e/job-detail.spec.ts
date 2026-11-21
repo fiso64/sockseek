@@ -4,7 +4,8 @@ import type { Page, WebSocketRoute } from '@playwright/test';
 import { stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
-test('opens a CLI print-results run as searchable results on navigation and reload', async ({ page }) => {
+test('opens a CLI print-results run as searchable results on navigation and reload', async ({ page, daemon }) => {
+  await daemon.command('music-search');
   const response = await page.request.post('/api/jobs/downloads/song', { data: {
     songQuery: { title: 'Fixture song', artistMaybeWrong: false }, options: { downloadSettings: { printOption: 6 } },
   } satisfies Schema<'SubmitSongJobRequestDto'> });
@@ -30,7 +31,11 @@ for (const mode of ['song', 'album'] as const) {
       : { albumQuery: { album: 'Fixture Album', artistMaybeWrong: false }, options };
     let firstPath: string | null | undefined;
     for (let run = 0; run < 2; run++) {
-      const response = await page.request.post(`/api/jobs/downloads/${mode}`, { data });
+      const response = run === 0 ? await page.request.post(`/api/jobs/downloads/${mode}`, { data })
+        : await Promise.all([
+            page.waitForResponse(response => response.url().endsWith('/rerun') && response.request().method() === 'POST'),
+            page.getByTestId('run-again').click(),
+          ]).then(([response]) => response);
       expect(response.status(), await response.text()).toBe(202);
       const job = await response.json() as Schema<'JobSummaryDto'>;
       await daemon.command(`wait-job-complete:${job.jobId}`);
@@ -82,12 +87,13 @@ test('removes a terminal user root from detail, preserving rejected actions and 
   const root = await response.json() as Schema<'JobSummaryDto'>;
   expect(root.submissionId).toBeTruthy();
   await page.goto(`/jobs/${root.jobId}`);
-  const remove = page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true });
+  const remove = page.getByTestId('delete-submission');
   await expect(remove).toBeVisible();
+  await expect(page.getByTestId('job-row').getByTestId('job-remove')).toHaveCount(0);
   await page.locator('[data-testid="job-open"]').click();
   await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
   await expect(page.locator('.job-detail-meta')).not.toContainText('fixture-peer');
-  await expect(page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
+  await expect(remove).toHaveCount(0);
   const childRoute = page.url();
   const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
   await navigation.getByRole('button', { name: 'Downloads', exact: true }).click();
@@ -119,7 +125,7 @@ test('removes a terminal user root from detail, preserving rejected actions and 
   let admitted!: () => void;
   const admission = new Promise<void>((resolve) => { admitted = resolve; });
   await page.route(`**/api/submissions/${root.submissionId}`, async (route) => {
-    if (!rejectDeletion) return route.continue();
+    if (route.request().method() !== 'DELETE' || !rejectDeletion) return route.continue();
     admitted();
     await released;
     // Exercise the wire receipt failure path, not just a non-2xx request. The
@@ -163,9 +169,9 @@ test('does not navigate away from a new page when an earlier detail deletion fin
   const admission = new Promise<void>((resolve) => { admitted = resolve; });
   const released = new Promise<void>((resolve) => { release = resolve; });
   const deletionPath = `/api/submissions/${root.submissionId}`;
-  await page.route(`**${deletionPath}`, async (route) => { admitted(); await released; await route.continue(); });
-  const deletiond = page.waitForResponse((reply) => new URL(reply.url()).pathname === deletionPath && reply.ok());
-  await page.locator('.job-detail-heading-summary').getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.route(`**${deletionPath}`, async (route) => { if (route.request().method() === 'DELETE') { admitted(); await released; } await route.continue(); });
+  const deletiond = page.waitForResponse((reply) => new URL(reply.url()).pathname === deletionPath && reply.request().method() === 'DELETE' && reply.ok());
+  await page.getByTestId('delete-submission').click();
   await admission;
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard$/);

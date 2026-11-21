@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Sockseek.Core.Jobs;
+using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Microsoft.Extensions.Logging;
@@ -21,30 +22,44 @@ internal sealed class SourceMutationCoordinator
         this.logger = logger;
     }
 
-    public async Task ApplyIfNeededAsync(Job job, DownloadSettings config)
+    public bool TryClaim(Job job)
     {
-        if (!config.Extraction.RemoveTracksFromSource) return;
-        if (job is SearchJob or RetrieveFolderJob) return;
-        if (job.SourceMutation == null) return;
         var applied = appliedByWorkflow.GetOrAdd(job.WorkflowId,
             static _ => new(StringComparer.Ordinal));
-        if (!applied.TryAdd(job.SourceMutation.Key, 0)) return;
+        return applied.TryAdd(job.SourceMutation!.Key, 0);
+    }
 
-        DownloadLogMessages.JobDecision(logger, job.Id, "updating source file");
-        try { await executor.ApplyAsync(job.SourceMutation, config); }
-        catch (Exception ex)
+    public async Task ApplyAsync(IEnumerable<Job> jobs)
+    {
+        foreach (var source in jobs.GroupBy(job => (job.SourceMutation!.Kind, job.SourceMutation.Source)))
         {
-            DownloadLogMessages.ComponentFailed(
-                logger,
-                ex,
-                "source-mutation",
-                job.Id);
-            events.RaiseJobMessage(
-                job,
-                LogLevel.Warning,
-                null,
-                "download succeeded, but removing it from the source failed");
+            if (source.Key.Kind is SourceMutationKind.ClearCsvRow or SourceMutationKind.ClearTextLine)
+            {
+                try
+                {
+                    var unmatched = await SourceMutationExecutor.ClearReviewedRowsAsync(source.Key.Source,
+                        source.Select(job => job.SourceMutation!).ToArray());
+                    foreach (var job in source.Where(job => unmatched.Contains(job.SourceMutation!)))
+                        events.RaiseJobMessage(job, LogLevel.Warning, "source-mutation",
+                            SourceMutationExecutor.ChangedRowMessage);
+                }
+                catch (Exception ex) { ReportFailure(source, ex); }
+                continue;
+            }
+            foreach (var job in source)
+            {
+                try { await executor.ApplyAsync(job.SourceMutation!, job.Config); }
+                catch (Exception ex) { ReportFailure([job], ex); }
+            }
         }
+    }
+
+    private void ReportFailure(IEnumerable<Job> jobs, Exception failure)
+    {
+        DownloadLogMessages.ComponentFailed(logger, failure, "source-mutation", jobs.First().Id);
+        foreach (var job in jobs)
+            events.RaiseJobMessage(job, LogLevel.Warning, "source-mutation",
+                "Download succeeded, but removing it from the source failed.");
     }
 
     // A later workflow may process the same repopulated row/playlist entry.

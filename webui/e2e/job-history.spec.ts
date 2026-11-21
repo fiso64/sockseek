@@ -277,7 +277,7 @@ test('keeps completed Jobs through a delayed list snapshot and reconnect', async
     const row = page.locator('.search-history-row').filter({ hasText: 'Delayed list fixture' });
     await expect(row).toBeVisible();
     await expect(row.locator('.search-status-badge.complete')).toBeVisible();
-    await expect(row.getByRole('button', { name: 'Remove Delayed list fixture', exact: true })).toBeVisible();
+    await expect(row.getByTestId('job-remove')).toBeVisible();
     expect(httpPages).toBe(0);
     await page.reload();
     await expect(row).toBeVisible();

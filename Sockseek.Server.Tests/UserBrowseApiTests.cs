@@ -158,6 +158,7 @@ public sealed class UserBrowseApiTests
             var submissionOptions = new SubmissionOptionsDto(OutputParentDir: output, ProfileNames: ["destination"]);
             var resolved = await api.ResolveUserShareDownloadSettingsAsync(submissionOptions);
             Assert.AreEqual(5432, resolved.Settings.Values.Search!.MaxStaleTime);
+            Assert.AreEqual("{foldername}/{filename}", resolved.Settings.Values.Output!.NameFormat);
             CollectionAssert.AreEqual(new[] { new AppliedProfileDto("shared-files", "automatic"), new AppliedProfileDto("destination", "selected") }, resolved.AppliedProfiles.ToArray());
             Guid requestId = Guid.NewGuid();
             var downloadRequest = new StartUserShareDownloadsRequestDto(
@@ -186,6 +187,8 @@ public sealed class UserBrowseApiTests
                 .Deserialize(accepted.SpecificationJson).Materialize();
             Assert.AreEqual(Sockseek.Core.Jobs.JobSelectionSource.PeerShares, selectionJob.SelectionSource);
             Assert.AreEqual(resolved.Settings.Values.Search.MaxStaleTime, selectionSettings.Search.MaxStaleTime);
+            Assert.AreEqual(resolved.Settings.Values.Output.NameFormat, selectionSettings.Output.NameFormat);
+            Assert.IsTrue(selectionSettings.Output.PreserveSelectionConflicts);
             CollectionAssert.AreEqual(resolved.AppliedProfiles.Select(profile => new AppliedProfile(profile.Name, profile.Source)).ToArray(), selectionSettings.AppliedProfiles);
             foreach (var child in ((Sockseek.Core.Jobs.JobList)selectionJob).Jobs)
             {
@@ -207,10 +210,12 @@ public sealed class UserBrowseApiTests
             Assert.AreEqual("idempotency-conflict", idempotencyConflict.Code);
 
             await WaitUntilAsync(() =>
-                File.Exists(Path.Combine(output, "Alpha", "Disc", "one.flac"))
+                File.Exists(Path.Combine(output, "Alpha", "Disc", "one (2).flac"))
                 && File.Exists(Path.Combine(output, "Alpha", "Disc", "two.flac"))
                 && File.Exists(Path.Combine(output, "Beta", "other.mp3")));
             Assert.AreEqual("keep-existing", await File.ReadAllTextAsync(existingPath));
+
+            Assert.AreEqual("1", await File.ReadAllTextAsync(Path.Combine(output, "Alpha", "Disc", "one (2).flac")));
 
             string overwriteOutput = Path.Combine(root, "overwrite-downloads");
             string overwritePath = Path.Combine(overwriteOutput, "Beta", "other.mp3");
@@ -219,6 +224,7 @@ public sealed class UserBrowseApiTests
             var overwriteOptions = new SubmissionOptionsDto(
                 OutputParentDir: overwriteOutput,
                 DownloadSettings: new DownloadSettingsPatchDto(
+                    Output: new OutputSettingsPatchDto(NameFormat: "{foldername}/{filename}"),
                     Skip: new SkipSettingsPatchDto(SkipExisting: false)));
             var stateStore = app.Services.GetRequiredService<EngineStateStore>();
             using var overwriteChanged = new global::Tests.TestSignal()

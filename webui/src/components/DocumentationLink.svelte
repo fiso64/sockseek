@@ -3,7 +3,7 @@
 </script>
 
 {#if document.documentElement.hasAttribute('data-docs')}
-  <a class="button quiet auth-button docs-link" href="/docs/" title="Open documentation">
+  <a class="button quiet auth-button docs-link" href="docs/" title="Open documentation">
     <Icon name="help" />
     <span class="full-label">Documentation</span><span class="short-label">Help</span>
   </a>

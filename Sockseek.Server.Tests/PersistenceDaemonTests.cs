@@ -244,7 +244,7 @@ public sealed class PersistenceDaemonTests
                 await command.ExecuteNonQueryAsync();
             }
 
-            var recoveredSearch = await supervisor.Submissions.RerunSearchJobAsync(lostSearchId, CancellationToken.None);
+            var recoveredSearch = await supervisor.Submissions.RerunJobAsync(lostSearchId, CancellationToken.None);
             Assert.IsNotNull(recoveredSearch);
             Assert.AreEqual("lost search history", recoveredSearch.QueryText);
             Assert.AreNotEqual(lostSearchId, recoveredSearch.JobId);
@@ -397,7 +397,8 @@ public sealed class PersistenceDaemonTests
                     Guid.NewGuid(), null, null, null, 1, "Song", "Pending", "None", null,
                     "None", "None", "None", "None", null, null, null, "query", 1, null)));
 
-                await first.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+                await Assert.ThrowsExactlyAsync<TimeoutException>(() => first.StopAsync(CancellationToken.None))
+                    .WaitAsync(TimeSpan.FromSeconds(10));
                 Assert.IsFalse(first.IsStarted);
                 Assert.AreEqual(PersistenceHealthState.Unhealthy, first.HealthSnapshot!.State);
                 await using var rollback = lockConnection.CreateCommand();

@@ -71,6 +71,9 @@ internal sealed class SongDownloadExecutor
 
     public async Task<JobOutcome> RunOnCompleteIfApplicable(Job job, SongJob? song, JobContext ctx, JobOutcome outcome)
     {
+        if (outcome.SkipReason == JobSkipReason.AlreadyExists && !string.IsNullOrEmpty(outcome.DownloadPath)
+            && OnCompleteExecutor.HasUnfinishedExport(job, song, ctx))
+            outcome = JobOutcome.Done(outcome.DownloadPath, reused: true);
         if (!OnCompleteExecutor.HasApplicableCommand(job, song, outcome))
             return outcome;
 
@@ -82,7 +85,8 @@ internal sealed class SongDownloadExecutor
             ctx,
             outcome,
             context.Events,
-            logger);
+            logger,
+            context.Runtime.Token);
     }
 
     public async Task<JobOutcome> DownloadEmbeddedSong(
@@ -191,7 +195,6 @@ internal sealed class SongDownloadExecutor
         postProcessOutcome = await RunOnCompleteIfApplicable(parentJob, song, jobCtx, postProcessOutcome);
         DownloadExecutorCoordinator.ApplyPreCommitOutcomeMetadata(song, postProcessOutcome);
 
-        await context.OutputFinalizer.PublishDownloadedFileCacheAsync(song, postProcessOutcome);
         return postProcessOutcome;
     }
 
@@ -563,7 +566,6 @@ internal sealed class SongDownloadExecutor
             return;
 
         var resolvedPath = string.IsNullOrWhiteSpace(finalPath) ? pending.InitialOutputPath : finalPath;
-        long size = System.IO.File.Exists(resolvedPath) ? new FileInfo(resolvedPath).Length : 0;
         if (pending.Target is { } target)
         {
             context.Events.RaiseTransferCompleted(
@@ -571,11 +573,12 @@ internal sealed class SongDownloadExecutor
                 song,
                 target,
                 resolvedPath,
-                size > 0 ? size : target.Size ?? 0,
+                target.Size ?? song.BytesTransferred,
                 pending.AttemptCount);
         }
         else
         {
+            long size = System.IO.File.Exists(resolvedPath) ? new FileInfo(resolvedPath).Length : 0;
             song.FileSize = size;
             song.BytesTransferred = size;
             context.Events.RaiseFallbackTransferCompleted(

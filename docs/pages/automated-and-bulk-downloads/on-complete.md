@@ -2,7 +2,7 @@
 
 # On-Complete Actions
 
-The `--on-complete` option allows executing commands after a track or album is downloaded. Multiple actions can be chained using the `+ ` prefix (note the space after +).
+The `--on-complete` option allows executing commands when a file or folder download finishes. Multiple actions can be chained using the `+ ` prefix (note the space after +).
 
 **Syntax:** `--on-complete [options] -- command`
 
@@ -13,7 +13,7 @@ Every on-complete command must include the `--` delimiter. Sockseek options go b
 When passing an on-complete action on the command line, quote the whole value so the delimiter is part of the `--on-complete` argument:
 
 ```bash
---on-complete "when=success scope=album -- notify-send \"Downloaded\" \"{path}\""
+--on-complete "when=success scope=folder -- notify-send \"Downloaded\" \"{path}\""
 ```
 
 ## Options
@@ -27,12 +27,13 @@ When passing an on-complete action on the command line, quote the whole value so
 - `when=not-found-last-time` - Execute only for not-found-last-time skipped jobs
 - `when=cancelled` - Execute only for cancelled jobs
 - `when=any` - Execute for every terminal outcome
-- `scope=track` - Execute only for track-level completions
-- `scope=album` - Execute only for album-level completions
+- `scope=file` - Run for each file, including files in a folder or album download.
+- `scope=folder` - Run once for the whole folder or album.
+- Omit `scope` to run for both. A successful three-file folder triggers a `when=success` command four times.
 - `hidden` - Hide the command window
 - `shell` - Use shell execute
 - `lock` - Serialize this action across jobs
-- `update-index` - Read stdout as `success;new_path`, `failed`, or `ignored;new_path` to update the track/album entry in the index and playlist. `failed` clears the stored path; `ignored;new_path` leaves the state unchanged and updates only the path.
+- `update-index` - Read stdout only if the command exits with code 0. Use `success;new_path` to record success and the new path, `failed` to record failure and clear the path, or `ignored;new_path` to update only the path.
 
 If `when=` is omitted, it behaves like `when=completed`. This preserves the usual "run when work completed" behavior while avoiding commands for already-existing or not-found-last-time skips.
 
@@ -65,26 +66,28 @@ first-stderr        First command's stderr
 
 Sockseek captures stdout/stderr for ordinary on-complete commands, so chained commands can use output variables from the previous ones. Commands launched with `shell` cannot use stdout/stderr.
 
-For album-only (`scope=album`) actions, tag-based variables such as `{title}`, `{artist}`, and `{album}` are read from the first audio file in the album.
+For folder actions on album jobs, tag-based variables such as `{title}`, `{artist}`, and `{album}` are read from the first audio file in the album.
 
 ## Examples
 
-Send a Linux desktop notification for album downloads:
+This auto-profile applies to album downloads. The folder scope sends one Linux desktop notification when the whole album succeeds.
 
 ```ini
-on-complete = when=success scope=album -- notify-send "Downloaded: {album}" "{path}"
+[album-notification]
+profile-cond = album
+on-complete = when=success scope=folder -- notify-send "Downloaded: {album}" "{path}"
 ```
 
 Search album art with [Cover Fetcher](https://github.com/fiso64/cover-fetcher):
 
 ```ini
-on-complete = when=success scope=album hidden -- cmd /c start "" "path\to\CoverFetcher.exe" --from-dir "{path}"
+on-complete = when=success scope=folder hidden -- cmd /c start "" "path\to\CoverFetcher.exe" --from-dir "{path}"
 ```
 
 Queue downloaded audio files in foobar2000:
 
 ```ini
-on-complete = when=success hidden -- cmd /c if {is-audio}==true start "" "path\to\foobar2000.exe" /immediate /add "{path}"
+on-complete = when=success scope=file hidden -- cmd /c if {is-audio}==true start "" "path\to\foobar2000.exe" /immediate /add "{path}"
 ```
 
 Convert downloaded audio files to MP3 on Windows (requires ffmpeg):

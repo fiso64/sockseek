@@ -216,15 +216,14 @@ input[type="checkbox"]:indeterminate {
   border: 1.5px solid currentColor;
   border-right-color: transparent;
   background: transparent;
-  animation: search-job-spin var(--status-spin-duration, 700ms) linear infinite;
 }
 .status-label-icon { width: 18px; height: 18px; min-height: 18px; padding: 0; }
 .status-label-icon .app-icon { --app-icon-size: 11px; }
 button.status-label { cursor: pointer; }
 button.status-label:hover { background-color: light-dark(color-mix(in srgb, currentColor 14%, var(--surface)), color-mix(in srgb, currentColor 25%, var(--surface))); box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent); }
 button.status-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) {
-  .status-label { --status-spin-duration: 1400ms; }
+@media (prefers-reduced-motion: no-preference) {
+  .status-label:is(.active, .searching, .receiving):not(.status-label-icon)::before { animation: search-job-spin 700ms linear infinite; }
 }
 @keyframes search-job-spin { to { transform: rotate(360deg); } }
 

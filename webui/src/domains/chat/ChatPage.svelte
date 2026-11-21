@@ -2,13 +2,13 @@
   import { userPresence } from '../users/presence.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { randomUUID } from '../../app/uuid';
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import type { ChatMessageDto, ChatRoomSummaryDto, ChatTargetSnapshotDto, ConversationSummaryDto, Schema } from '../../api/types';
   import { wireInteger } from '../../api/types';
   import type { DaemonLiveClient, LiveConnectionStatus } from '../../api/live';
   import type { UserLinkActions } from '../../app/navigation';
   import { formatCount, userInitials } from '../../app/format';
-  import { daemonApi } from '../../api/client';
+  import { daemonApi, defaultPageSize } from '../../api/client';
   import { DaemonApiError } from '../../api/http';
   import Icon from '../../components/Icon.svelte';
   import LinkifiedText from '../../components/LinkifiedText.svelte';
@@ -16,13 +16,14 @@
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import MutationStatus, { type MutationState } from '../../components/MutationStatus.svelte';
   import { anchoredMenu } from '../../lib/anchored-menu';
-  import { mergeMessages, snapshotNeedsHistory } from './messages';
+  import { type createChatDrafts, mergeMessages, snapshotNeedsHistory } from './messages';
 
-  type Target = { kind: 'conversation'; id: string } | { kind: 'room'; id: string } | { kind: 'draft'; id: string; username: string };
+  type Target = { kind: 'conversation'; id: string; username: string } | { kind: 'room'; id: string } | { kind: 'draft'; id: string; username: string };
   type ChatList = 'rooms' | 'conversations';
   const chatLists: ChatList[] = ['conversations', 'rooms'];
 
   interface Props {
+    drafts: ReturnType<typeof createChatDrafts>;
     liveClient: DaemonLiveClient;
     liveStatus: LiveConnectionStatus;
     runtime?: Schema<'ChatRuntimeStateDto'> | null;
@@ -30,7 +31,7 @@
     initialUsername?: string | null;
   }
 
-  let { liveClient, liveStatus, runtime = null, userActions, initialUsername = null }: Props = $props();
+  let { drafts, liveClient, liveStatus, runtime = null, userActions, initialUsername = null }: Props = $props();
   let rooms = $state<ChatRoomSummaryDto[]>([]);
   let conversations = $state<ConversationSummaryDto[]>([]);
   let roomCursor = $state<string | null>(null);
@@ -50,7 +51,13 @@
   let messageCursor = $state<string | null>(null);
   let messagesLoading = $state(false);
   let targetError = $state<Error | null>(null);
-  let draft = $state('');
+  let draft = $derived(target ? drafts.text.get(draftKey(target)) ?? '' : '');
+  function setDraft(text: string): void {
+    if (!target) return;
+    const key = draftKey(target);
+    if (text) drafts.text.set(key, text);
+    else drafts.text.delete(key);
+  }
   let composerTextarea = $state<HTMLTextAreaElement | null>(null);
   let adding = $state<'room' | 'user' | null>(null);
   let addDraft = $state('');
@@ -73,11 +80,10 @@
   let unreadRefreshInFlight = false;
   let lastUnreadRefreshAt = -Infinity;
   let disposed = false;
-  let wasOffline = false;
 
   let activeConversation = $derived.by(() => { const current = target; return current?.kind === 'conversation' ? conversations.find((item) => item.conversationId === current.id) ?? targetSnapshot?.conversation ?? null : null; });
   let activeRoom = $derived.by(() => { const current = target; return current?.kind === 'room' ? rooms.find((item) => item.roomId === current.id) ?? targetSnapshot?.room ?? null : null; });
-  let activeUsername = $derived(target?.kind === 'draft' ? target.username : activeConversation?.username ?? null);
+  let activeUsername = $derived(target && target.kind !== 'room' ? target.username : null);
   let activeUserBlocked = $derived(activeConversation?.privateMessagesBlocked ?? false);
   const presence = userPresence(() => activeUsername, () => liveClient, () => liveStatus);
   let activeMessages = $derived(mergeMessages(historicalMessages, targetSnapshot?.messages ?? []));
@@ -85,8 +91,17 @@
 
   onMount(() => {
     void loadLists(true);
-    const unsubscribe = liveClient.onState((_, changes) => {
+    let epoch = liveClient.reducer.state.epoch;
+    const unsubscribe = liveClient.onState((state, changes) => {
       if (changes.removedConversationIds.length) removeConversations(changes.removedConversationIds);
+      if (!changes.snapshot) return;
+      // Another client can read or delete a conversation while this tab is
+      // disconnected. Equal unread counts do not establish that the list is current.
+      const chatChanged = epoch !== state.epoch || changes.previousDaemon?.chat.revision !== state.daemon?.chat.revision;
+      if (!changes.initialSnapshot && chatChanged)
+        void loadLists(true);
+      else if (listsError && !listsLoading) void loadLists(true, failedLists());
+      epoch = state.epoch;
     });
     return () => {
       unsubscribe();
@@ -127,16 +142,6 @@
     return () => { activation += 1; };
   });
 
-  $effect(() => {
-    if (liveStatus === 'offline') {
-      wasOffline = true;
-      return;
-    }
-    if (liveStatus !== 'connected' || !wasOffline) return;
-    wasOffline = false;
-    if (listsError && !listsLoading) void loadLists(true, failedLists());
-  });
-
   function failedLists(): ChatList[] {
     return chatLists.filter(kind => Boolean(listErrors[kind]));
   }
@@ -154,9 +159,11 @@
       listLoading = { ...listLoading, [kind]: true };
       listErrors = { ...listErrors, [kind]: undefined };
       try {
+        const loadedCount = kind === 'rooms' ? rooms.length : conversations.length;
+        const limit = reset ? Math.max(defaultPageSize, loadedCount) : defaultPageSize;
         const result = kind === 'rooms'
-          ? await daemonApi.getChatRooms(reset ? null : roomCursor)
-          : await daemonApi.getConversations(reset ? null : conversationCursor);
+          ? await daemonApi.getChatRooms(reset ? null : roomCursor, limit)
+          : await daemonApi.getConversations(reset ? null : conversationCursor, limit);
         if (disposed || request !== listRevisions[kind]) return;
         if (kind === 'conversations') {
           const page = result as Schema<'ConversationPageDto'>;
@@ -185,7 +192,7 @@
           if (!target) {
             const firstConversation = conversations[0];
             const firstRoom = rooms[0];
-            if (firstConversation) selectTarget({ kind: 'conversation', id: firstConversation.conversationId });
+            if (firstConversation) selectTarget(conversationTarget(firstConversation));
             else if (!listLoading.conversations && firstRoom) selectTarget({ kind: 'room', id: firstRoom.roomId });
           }
           reconcileInitialUnread();
@@ -300,8 +307,7 @@
       const refreshedMessages = refreshedPages.reverse().flat();
       const snapshotTarget = snapshot.chatTarget;
       if (!snapshotTarget) throw new Error('The daemon returned a chat snapshot without its target.');
-      const followLatest = !refreshing || !messagesElement
-        || messagesElement.scrollHeight - messagesElement.scrollTop - messagesElement.clientHeight <= 2;
+      const followLatest = !refreshing || atLatestMessage();
       historicalMessages = refreshing
         ? mergeMessages(previousMessages, refreshedMessages)
         : refreshedMessages;
@@ -309,17 +315,15 @@
       targetSnapshot = snapshotTarget;
       if (!refreshing || !newestKnown) messageCursor = page.nextCursor ?? null;
       updateTargetSummary(snapshotTarget);
-      markRead(snapshotTarget);
       if (followLatest) scheduleScrollToBottom();
       if (useLive) {
         const unsubscribe = await liveClient.subscribeChat(next.kind, next.id, (value, observedMessages, snapshotRefresh) => {
           if (request !== activation || target?.id !== next.id) return;
-          const followLatest = !messagesElement || messagesElement.scrollHeight - messagesElement.scrollTop - messagesElement.clientHeight <= 2;
+          const followLatest = atLatestMessage();
           // Retain displayed messages before replacing the bounded live tail.
           historicalMessages = mergeMessages(historicalMessages, observedMessages);
           targetSnapshot = value;
           updateTargetSummary(value);
-          markRead(value);
           if (followLatest) scheduleScrollToBottom();
           if (snapshotRefresh && snapshotNeedsHistory(historyBoundary, value.messages))
             void reconcileSnapshotHistory(next, request, ++reconciliationRevision);
@@ -374,6 +378,21 @@
     }
   }
 
+  function conversationTarget(row: ConversationSummaryDto): Target {
+    return { kind: 'conversation', id: row.conversationId, username: row.username };
+  }
+
+  function draftKey(selected: Target): string {
+    return selected.kind === 'room' ? `room:${selected.id}` : `user:${selected.username}`;
+  }
+
+  $effect(() => {
+    const current = target;
+    if (current?.kind !== 'draft' || mutation.phase === 'pending') return;
+    const conversation = conversations.find(item => item.username === current.username);
+    if (conversation) untrack(() => selectTarget(conversationTarget(conversation)));
+  });
+
   function selectTarget(next: Target | null): void {
     selectionRevision++;
     void activeSubscription?.();
@@ -387,13 +406,12 @@
     targetError = null;
     menuOpen = false;
     mutation = { phase: 'idle' };
-    draft = '';
   }
 
   function openOrCreateConversation(username: string): void {
     if (!username.trim()) return;
     const existing = conversations.find((item) => item.username === username);
-    selectTarget(existing ? { kind: 'conversation', id: existing.conversationId } : { kind: 'draft', id: `draft:${username}`, username });
+    selectTarget(existing ? conversationTarget(existing) : { kind: 'draft', id: `draft:${username}`, username });
     if (!existing) void resolveDraftConversation(username, selectionRevision);
   }
 
@@ -404,9 +422,7 @@
       targetError = null;
       if (!existing || mutation.phase === 'pending') return;
       conversations = mergeBy(conversations, [existing], item => item.conversationId);
-      const composed = draft;
-      selectTarget({ kind: 'conversation', id: existing.conversationId });
-      draft = composed;
+      selectTarget(conversationTarget(existing));
     } catch (cause) {
       if (revision === selectionRevision) targetError = asError(cause);
     }
@@ -456,15 +472,19 @@
     if (!acceptComposerText(text)) return;
     const selected = target;
     const revision = selectionRevision;
-    const messageId = randomUUID();
+    const key = draftKey(selected);
+    const retry = drafts.unconfirmed.get(key);
+    const messageId = retry?.text === text ? retry.id : randomUUID();
+    drafts.unconfirmed.set(key, { text, id: messageId });
     mutation = { phase: 'pending', label: 'Sending…' };
-    draft = '';
+    setDraft('');
     try {
       const message = selected.kind === 'draft'
         ? await daemonApi.sendPrivateMessage(selected.username, text, messageId)
         : selected.kind === 'conversation'
           ? await daemonApi.sendConversationMessage(selected.id, text, messageId)
           : await daemonApi.sendRoomMessage(selected.id, text, messageId);
+      if (drafts.unconfirmed.get(key)?.id === messageId) drafts.unconfirmed.delete(key);
       if (revision !== selectionRevision) return;
       historicalMessages = mergeMessages(historicalMessages, [message]);
       mutation = { phase: message.state === 'Failed' ? 'rejected' : 'succeeded', label: message.state === 'Failed' ? 'Message failed' : 'Message sent', detail: message.failureReason ?? undefined };
@@ -473,13 +493,14 @@
         await loadLists(true, ['conversations']);
         if (revision !== selectionRevision) return;
         const created = conversations.find((item) => item.conversationId === message.targetId || item.username === username);
-        if (created) selectTarget({ kind: 'conversation', id: created.conversationId });
+        if (created) selectTarget(conversationTarget(created));
       }
       scheduleScrollToBottom();
     } catch (cause) {
+      if (drafts.unconfirmed.get(key)?.id !== messageId) return;
+      if (!drafts.text.has(key)) drafts.text.set(key, text);
       if (revision !== selectionRevision) return;
-      draft = text;
-      mutation = { phase: 'rejected', label: 'Message failed', detail: asError(cause).message };
+      mutation = { phase: 'rejected', label: 'Send unconfirmed', detail: asError(cause).message };
     }
   }
 
@@ -542,10 +563,15 @@
     if (value?.room) rooms = mergeBy(rooms, [value.room], (item) => item.roomId);
   }
 
-  function markRead(value: ChatTargetSnapshotDto | null): void {
-    if (!value) return;
+  function atLatestMessage(): boolean {
+    return !messagesElement || messagesElement.scrollHeight - messagesElement.scrollTop - messagesElement.clientHeight <= 2;
+  }
+
+  function markVisibleMessagesRead(): void {
+    const value = targetSnapshot;
+    if (!value || !atLatestMessage() || document.visibilityState !== 'visible') return;
     const last = value.messages.at(-1);
-    if (!last) return;
+    if (!last || messagesElement?.lastElementChild?.getAttribute('data-message-id') !== last.messageId) return;
     if (markedRead.get(value.targetId) === last.messageId) return;
     if (value.conversation && Number(value.conversation.unreadCount) > 0) {
       markedRead.set(value.targetId, last.messageId);
@@ -558,7 +584,9 @@
   }
 
   function preview(message: ChatMessageDto | null | undefined): string { return message?.text.trim() || 'No messages yet'; }
-  function messageTime(message: ChatMessageDto): string { return new Date(message.occurredAtUtc).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+  const messageTime = new Intl.DateTimeFormat(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'shortOffset',
+  });
   function mergeBy<T>(left: T[], right: T[], id: (value: T) => string): T[] { const values = new Map(left.map((item) => [id(item), item])); for (const item of right) values.set(id(item), item); return [...values.values()]; }
   function mergeFirstPage<T extends { revision: number | string }>(fresh: T[], loaded: T[], id: (value: T) => string): T[] {
     const existing = new Map(loaded.map((item) => [id(item), item]));
@@ -578,7 +606,10 @@
     requestAnimationFrame(() => {
       // A pending follow-to-bottom must not undo scrolling done in the meantime.
       if (revision === selectionRevision && container && container === messagesElement
-          && container.scrollTop === scrollTop) container.scrollTop = container.scrollHeight;
+          && container.scrollTop === scrollTop) {
+        container.scrollTop = container.scrollHeight;
+        markVisibleMessagesRead();
+      }
     });
   }
   $effect(() => {
@@ -602,7 +633,7 @@
     event.preventDefault();
     const input = event.currentTarget;
     input.setRangeText(singleLine, input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length, 'end');
-    draft = input.value;
+    setDraft(input.value);
   }
   function acceptComposerText(text: string): boolean {
     if (!/[\r\n]/.test(text)) return true;
@@ -612,9 +643,11 @@
   function asError(cause: unknown): Error { return cause instanceof Error ? cause : new Error(String(cause)); }
 </script>
 
+<svelte:document onvisibilitychange={markVisibleMessagesRead} />
 <svelte:window
   onresize={resizeComposer}
   onkeydown={(event) => {
+    if (event.isComposing) return;
     if (event.key === 'Escape') {
       menuOpen = false;
       adding = null;
@@ -639,6 +672,7 @@
           <div class="chat-add-row">
             <input class="field" aria-label="Room name" placeholder="Room name…" bind:value={addDraft}
               onkeydown={(event) => {
+                if (event.isComposing) return;
                 if (event.key === 'Enter') submitAdd();
                 else if (event.key === 'Escape') adding = null;
               }}/>
@@ -671,6 +705,7 @@
           <div class="chat-add-row">
             <input class="field" aria-label="Username" placeholder="Username…" bind:value={addDraft}
               onkeydown={(event) => {
+                if (event.isComposing) return;
                 if (event.key === 'Enter') submitAdd();
                 else if (event.key === 'Escape') adding = null;
               }}/>
@@ -695,7 +730,7 @@
               <button type="button" class="chat-destination-open"
                 aria-label={`Open conversation with ${conversation.username}`}
                 aria-current={target?.kind === 'conversation' && target.id === conversation.conversationId ? 'page' : undefined}
-                onclick={() => selectTarget({ kind: 'conversation', id: conversation.conversationId })}></button>
+                onclick={() => selectTarget(conversationTarget(conversation))}></button>
               <span class="avatar">{userInitials(conversation.username)}</span>
               <span class="chat-destination-copy">
                 <strong>{conversation.username}</strong>
@@ -762,7 +797,7 @@
         {/if}
         <MutationStatus state={mutation}/>
       </div>
-      <div class:short-thread={activeMessages.length < 6} class="chat-messages" aria-live="polite" bind:this={messagesElement}>
+      <div class:short-thread={activeMessages.length < 6} class="chat-messages" aria-live="polite" bind:this={messagesElement} onscroll={markVisibleMessagesRead}>
         {#if messageCursor}
           <LoadMoreButton loading={messagesLoading}
             onclick={() => void loadEarlier()}/>
@@ -786,7 +821,7 @@
                 {:else}
                   <UsernameLink username={message.sender} actions={userActions}/>
                 {/if}
-                <time>{messageTime(message)}</time>
+                <time datetime={message.occurredAtUtc}>{messageTime.format(new Date(message.occurredAtUtc))}</time>
                 {#if message.direction === 'Outgoing'}
                   <span class={`message-send-state ${message.state.toLowerCase()}`} title={message.state === 'Sent' ? 'Sent to the Soulseek server; recipient delivery is not confirmed.' : undefined}>{message.state}{message.failureReason ? ` · ${message.failureReason}` : ''}</span>
                 {/if}
@@ -802,7 +837,7 @@
               <div class="direct-message-bubble">
                 <div class="message-body"><LinkifiedText text={message.text}/></div>
                 <div class="direct-message-meta">
-                  <time>{messageTime(message)}</time>
+                  <time datetime={message.occurredAtUtc}>{messageTime.format(new Date(message.occurredAtUtc))}</time>
                   {#if message.direction === 'Outgoing'}
                     <span class={`message-send-state ${message.state.toLowerCase()}`} title={message.state === 'Sent' ? 'Sent to the Soulseek server; recipient delivery is not confirmed.' : undefined}>{message.state}{message.failureReason ? ` · ${message.failureReason}` : ''}</span>
                   {/if}
@@ -823,7 +858,7 @@
         <div class="chat-composer-row">
           <textarea class="field" rows="1" wrap="soft" aria-label="Message"
             placeholder={activeRoom ? `Message #${activeRoom.name}…` : activeUsername ? `Message ${activeUsername}…` : 'Message…'}
-            bind:value={draft} bind:this={composerTextarea} disabled={composerDisabled}
+            bind:value={() => draft, setDraft} bind:this={composerTextarea} disabled={composerDisabled}
             onpaste={pasteComposerText}
             ondrop={(event) => { if (!acceptComposerText(event.dataTransfer?.getData('text/plain') ?? '')) event.preventDefault(); }}
             onkeydown={(event) => {

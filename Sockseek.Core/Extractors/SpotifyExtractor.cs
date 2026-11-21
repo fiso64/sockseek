@@ -10,7 +10,7 @@ using Sockseek.Core.Settings;
 namespace Sockseek.Core.Extractors;
     public class SpotifyExtractor : IExtractor, IInputMatcher
     {
-        private enum SourceKind { Playlist, Album, LikedSongs, LikedAlbums, Artist }
+        private enum SourceKind { Playlist, Album, LikedSongs, LikedAlbums, Artist, Track }
         private (string? Input, SourceKind? Kind) describedSource;
 
         public JobSourceInfo? DescribeSource(ExtractJob source, Job item)
@@ -77,6 +77,7 @@ namespace Sockseek.Core.Extractors;
             }
             // Query/fragment text is not the resource being extracted.
             return path.Contains("/album/", StringComparison.Ordinal) ? SourceKind.Album
+                : path.Contains("/track/", StringComparison.Ordinal) ? SourceKind.Track
                 : path.Contains("/artist/", StringComparison.Ordinal) ? SourceKind.Artist
                 : path.Contains("/playlist/", StringComparison.Ordinal) ? SourceKind.Playlist : null;
         }
@@ -92,6 +93,8 @@ namespace Sockseek.Core.Extractors;
             int off = reverse ? 0 : offset;
 
             SourceKind? sourceKind = ClassifyInput(input);
+            if (sourceKind == SourceKind.Track)
+                throw new NotSupportedException("Spotify track URLs are not supported. Use a playlist or album URL, or search by artist and song title.");
             bool needLogin = sourceKind is SourceKind.LikedSongs or SourceKind.LikedAlbums
                 || extraction.RemoveTracksFromSource;
 

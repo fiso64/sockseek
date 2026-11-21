@@ -86,7 +86,6 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
     private readonly ConcurrentDictionary<Guid, RuntimeView> runtimes = [];
     private readonly ConcurrentDictionary<Guid, byte> pending = [];
     private readonly ConcurrentDictionary<Guid, byte> requested = [];
-    private readonly Dictionary<Guid, int> observers = [];
     private readonly ConcurrentDictionary<(Guid ViewId, Guid ObservationId), byte> replayFailureLogged = [];
     private readonly Channel<Guid> work = Channel.CreateUnbounded<Guid>(
         new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
@@ -147,7 +146,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             SearchViewInfo latest = ReadObserved(viewId, cancellationToken);
             if (NeedsAdvance(latest))
             {
-                lock (observers) observers[viewId] = observers.GetValueOrDefault(viewId) + 1;
+                Cache.BeginObservation(viewId);
                 observing = true;
                 Volatile.Write(ref sourceView, latest);
                 liveSession = ObservationSession(latest.SourceJobId, supervisor, persistence);
@@ -196,22 +195,9 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 liveSession.ResultsAdded -= LiveChanged;
                 liveSession.SearchCompleted -= LiveChanged;
             }
-            if (observing)
-                lock (observers)
-                {
-                    if (observers[viewId] == 1)
-                    {
-                        observers.Remove(viewId);
-                        runtimes.GetValueOrDefault(viewId)?.Source.ReleaseLiveInputs();
-                    }
-                    else observers[viewId]--;
-                }
+            if (observing && Cache.EndObservation(viewId))
+                runtimes.GetValueOrDefault(viewId)?.Source.ReleaseLiveInputs();
         }
-    }
-
-    private bool IsObserved(Guid viewId)
-    {
-        lock (observers) return observers.ContainsKey(viewId);
     }
 
     private SearchViewInfo ReadObserved(Guid viewId, CancellationToken cancellationToken)
@@ -358,7 +344,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             return null;
         return new(
             ToDto(page.Revision),
-            page.Items.Select(item => ToDtoWithInitialFiles(viewId, revision, item, page.DirectoryFilePreviews)).ToArray(),
+            page.Items.Select(item => ToDtoWithInitialFiles(viewId, revision, item, page.DirectoryFilePreviews, snapshot)).ToArray(),
             paging.Encode(page.NextPosition));
     }
 
@@ -381,9 +367,9 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             page.Items.Select(item => new SearchViewDirectoryFileDto(
                 item.Ref,
                 item.RelativePath,
-                ToDto(item.File))).ToArray(),
+                ToDto(item.File), snapshot.DeepestFilteredFolder(page.DirectorySummary, item.File.Input.Filename))).ToArray(),
             paging.Encode(page.NextPosition),
-            ToDto(page.DirectorySummary));
+            ToDto(page.DirectorySummary) with { HasFilteredFiles = snapshot.HasFilteredFiles(page.DirectorySummary) });
     }
 
     public SearchViewTrackGroupPageDto? GetTrackGroups(Guid viewId, long revision, string? cursor, int limit, CancellationToken cancellationToken)
@@ -709,7 +695,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                     ReleaseIdleKernels();
                     continue;
                 }
-                if (!explicitlyRequested && !IsObserved(viewId)) continue;
+                if (!explicitlyRequested && !Cache.IsObserved(viewId)) continue;
                 RuntimeView? runtime = null;
                 try
                 {
@@ -731,7 +717,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 }
                 finally
                 {
-                    if (runtime != null && !IsObserved(viewId)) runtime.Source.ReleaseLiveInputs();
+                    if (runtime != null && !Cache.IsObserved(viewId)) runtime.Source.ReleaseLiveInputs();
                 }
             }
         }
@@ -781,7 +767,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         if (runtime.Kernel == null)
         {
             SearchViewInfo? stored = Cache.Peek(runtime.ViewId, cancellationToken);
-            if (stored == null || stored.ExpiresAtUtc <= clock.GetUtcNow())
+            if (stored == null)
             {
                 runtimes.TryRemove(runtime.ViewId, out _);
                 runtime.PublicationTimer?.Dispose();
@@ -880,7 +866,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 (long)runtime.ProjectionDuration.TotalMilliseconds,
                 (long)runtime.PublicationDuration.TotalMilliseconds);
         }
-        else if (batch.Items.Count == batchSize && IsObserved(runtime.ViewId))
+        else if (batch.Items.Count == batchSize && Cache.IsObserved(runtime.ViewId))
             Schedule(runtime.ViewId, observation: true);
     }
 
@@ -947,7 +933,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
     {
         SearchViewCache repository = Cache;
         SearchViewInfo? stored = repository.Peek(viewId, cancellationToken);
-        if (stored == null || stored.ExpiresAtUtc <= clock.GetUtcNow()) return null;
+        if (stored == null) return null;
         if (stored.IsComplete) return null;
         var definition = stored.Definition.Source;
         var projection = stored.Definition.Projection;
@@ -1113,7 +1099,8 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             album,
             request.IncludeFullResults,
             request.FilterText,
-            request.SortOrder?.ToCore() ?? SearchViewSortOrder.Relevance);
+            request.SortOrder?.ToCore() ?? SearchViewSortOrder.Relevance,
+            request.KeepVisibleFiles?.Select(file => new PeerFileIdentity(file.Username, file.Filename)).ToArray());
         resolved.Validate();
         return resolved;
     }
@@ -1168,12 +1155,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 peerObservation.QueueLength,
                 SearchResultVisibility.Public))
             .ToArray();
-        string? filter = string.IsNullOrWhiteSpace(projection.FilterText)
-            ? null : projection.FilterText.Trim();
-        return sorter.AddRangeAndGetProjected(
-            projection.Kind == SearchViewProjectionKind.GenericDirectories
-                ? inputs.Where(input => SearchViewProjectionDefinition.MatchesFileInput(input, filter))
-                : inputs).ToArray();
+        return sorter.AddRangeAndGetProjected(inputs).ToArray();
     }
 
     private static SearchViewSummaryDto ToDto(SearchViewInfo view)
@@ -1281,16 +1263,16 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         Guid viewId,
         long revision,
         SearchViewDirectory row,
-        IReadOnlyDictionary<string, SearchViewDirectoryFilePreview> previews)
+        IReadOnlyDictionary<string, SearchViewDirectoryFilePreview> previews, SearchViewSnapshot? snapshot = null)
     {
-        SearchViewDirectoryDto directory = ToDto(row);
+        SearchViewDirectoryDto directory = ToDto(row) with { HasFilteredFiles = snapshot?.HasFilteredFiles(row) == true };
         if (!previews.TryGetValue(row.Ref, out SearchViewDirectoryFilePreview? preview))
             return directory;
         return directory with
         {
             InitialFiles = new SearchViewDirectoryFilePreviewDto(
                 preview.Items.Select(item => new SearchViewDirectoryFileDto(
-                    item.Ref, item.RelativePath, ToDto(item.File))).ToArray(),
+                    item.Ref, item.RelativePath, ToDto(item.File), snapshot?.DeepestFilteredFolder(row, item.File.Input.Filename))).ToArray(),
                 cursors.DirectoryFiles(viewId, revision, row.Ref).Encode(preview.NextPosition)),
         };
     }
@@ -1338,7 +1320,8 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 : ServerSnapshotMapper.ToAlbumQueryDto(projection.AlbumQuery),
             projection.IncludeFullResults,
             FilterText: projection.FilterText,
-            SortOrder: projection.SortOrder.ToServer());
+            SortOrder: projection.SortOrder.ToServer(),
+            KeepVisibleFiles: projection.KeepVisibleFiles?.Select(file => new FileCandidateRefDto(file.Username, file.Filename)).ToArray());
 
     private sealed class RuntimeView(
         SearchViewInfo stored, RuntimeSource source, SearchViewProjectionDefinition projection,

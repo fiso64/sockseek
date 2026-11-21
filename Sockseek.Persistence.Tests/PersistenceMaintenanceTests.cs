@@ -33,6 +33,7 @@ public sealed class PersistenceMaintenanceTests
                 host.InputArtifacts!.CreateAsync(new MemoryStream([1, 2, 3]), "input.csv"),
                 host.RunRetentionAsync(CancellationToken.None),
                 host.CheckpointAsync(CancellationToken.None),
+                host.BackupAsync(Path.Combine(fixture.Directory, "current.db")),
             ];
             Assert.IsTrue(pending.All(task => !task.IsCompleted), "Durable mutations must share the held writer.");
 
@@ -116,7 +117,7 @@ public sealed class PersistenceMaintenanceTests
     }
 
     [TestMethod]
-    public async Task OperationalFailureIsRecordedOnceRethrownAndReleasesTheGate()
+    public async Task InvalidBackupPathIsReportedWithoutDamagingDatabaseHealth()
     {
         await using var fixture = await RuntimeFixture.StartAsync();
         SemaphoreSlim gate = MaintenanceGate(fixture.Host);
@@ -126,8 +127,8 @@ public sealed class PersistenceMaintenanceTests
         await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
             fixture.Host.BackupAsync(fixture.DatabasePath));
 
-        Assert.AreEqual(1, failureEvents);
-        Assert.AreEqual(PersistenceHealthState.Unhealthy, fixture.Host.HealthSnapshot?.State);
+        Assert.AreEqual(0, failureEvents);
+        Assert.AreEqual(PersistenceHealthState.Healthy, fixture.Host.HealthSnapshot?.State);
         Assert.IsTrue(await gate.WaitAsync(TimeSpan.FromSeconds(1)),
             "Maintenance did not release the gate after failure.");
         gate.Release();

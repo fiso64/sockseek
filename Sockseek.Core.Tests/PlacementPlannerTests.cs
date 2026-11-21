@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core;
 using Sockseek.Core.Services;
+using Sockseek.Core.Jobs;
 using Sockseek.Core.Settings;
 
 namespace Tests.Core;
@@ -146,6 +147,26 @@ public sealed class PlacementPlannerTests
         CollectionAssert.Contains(leaves, "a_ (2).txt");
         CollectionAssert.Contains(leaves, "cafe\u0301.txt");
         CollectionAssert.Contains(leaves, "caf\u00E9 (2).txt");
+    }
+
+    [TestMethod]
+    [DataRow(JobSelectionSource.ManualSearch)]
+    [DataRow(JobSelectionSource.PeerShares)]
+    public void BlankSelectionLayoutUsesThePeerFolderForFilesAndPreservesDirectoryTrees(JobSelectionSource source)
+    {
+        var job = new RemoteFileJob(Target("Opening.flac.flac")) { SelectionSource = source };
+        var settings = DefaultJobSettingsResolver.Instance.Resolve(new DownloadSettings { Output = { ParentDir = TestParent() } }, job);
+        var output = settings.Output;
+        var planner = new PlacementPlanner(OutputScope.Empty);
+        var target = Target(@"Library\Album\Disc 1\Opening.flac.flac");
+        var loose = planner.PlanFile(target, RelativeOutputPath.FromRemoteFile(target), output);
+        var album = planner.PlanDirectory(new DirectoryTransferPlan("Album",
+            [new DirectoryTransferEntry(target, ["Disc 1"])]), output).Single();
+        CollectionAssert.AreEqual(new[] { "Disc 1", "Opening.flac.flac" }, loose.RelativePath.Components.ToArray());
+        CollectionAssert.AreEqual(new[] { "Album", "Disc 1", "Opening.flac.flac" }, album.RelativePath.Components.ToArray());
+        var bare = Target("Opening.flac.flac");
+        Assert.AreEqual("Opening.flac.flac", planner.PlanFile(bare, RelativeOutputPath.FromRemoteFile(bare), output)
+            .RelativePath.ToPlatformPath());
     }
 
     [TestMethod]

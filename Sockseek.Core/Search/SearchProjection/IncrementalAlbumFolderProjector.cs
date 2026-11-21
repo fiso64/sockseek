@@ -24,8 +24,6 @@ public sealed class IncrementalAlbumFolderProjector
     private readonly HashSet<PeerPathKey> dirtyRoots = [];
     private readonly HashSet<PeerPathKey> removedRoots = [];
     private readonly HashSet<(PeerPathKey Path, SearchResultVisibility Visibility)> seen = [];
-    private readonly Dictionary<PeerPathKey, AlbumFolder> folders = [];
-    private readonly Dictionary<PeerPathKey, AlbumFolderSignature> signatures = [];
     private readonly Dictionary<PeerPathKey, OrderedFolderEntry> orderEntries = [];
     private readonly SortedSet<OrderedFolderEntry> orderedFolders;
     private int nextOriginalIndex;
@@ -98,8 +96,6 @@ public sealed class IncrementalAlbumFolderProjector
         dirtyRoots.Clear();
         removedRoots.Clear();
         seen.Clear();
-        folders.Clear();
-        signatures.Clear();
         orderEntries.Clear();
         orderedFolders.Clear();
         nextOriginalIndex = 0;
@@ -193,11 +189,8 @@ public sealed class IncrementalAlbumFolderProjector
             {
                 PeerPathKey key = FolderKey(folder);
                 previous.Remove(key);
-                AlbumFolderSignature signature = AlbumFolderSignature.Create(folder);
-                if (!signatures.TryGetValue(key, out AlbumFolderSignature prior)) added?.Add(folder);
-                else if (signature != prior) updated?.Add(folder);
-                folders[key] = folder;
-                signatures[key] = signature;
+                if (!orderEntries.TryGetValue(key, out var prior)) added?.Add(folder);
+                else if (updated != null && !SameSearchMetadata(prior.Folder, folder)) updated.Add(folder);
                 IReadOnlyList<ProjectedFileCandidate> projectionFiles = folder.ProjectionFiles
                     ?? throw new InvalidDataException("An album projection has no admitted file facts.");
                 var entry = new OrderedFolderEntry(key, folder,
@@ -208,9 +201,7 @@ public sealed class IncrementalAlbumFolderProjector
             }
             foreach (PeerPathKey key in previous)
             {
-                if (folders.Remove(key, out var prior)) removed?.Add(prior);
-                signatures.Remove(key);
-                orderEntries.Remove(key);
+                if (orderEntries.Remove(key, out var prior)) removed?.Add(prior.Folder);
             }
         }
         dirtyRoots.Clear();
@@ -260,19 +251,10 @@ public sealed class IncrementalAlbumFolderProjector
         AlbumFolder Folder,
         long FirstSequence);
 
-    private readonly record struct AlbumFolderSignature(
-        int FileCount,
-        int AudioFileCount,
-        string? RepresentativeAudioFilename,
-        string Lengths)
-    {
-        public static AlbumFolderSignature Create(AlbumFolder folder)
-            => new(
-                folder.SearchFileCount,
-                folder.SearchAudioFileCount,
-                folder.SearchRepresentativeAudioFilename,
-                string.Join(",", folder.SearchSortedAudioLengths));
-    }
+    private static bool SameSearchMetadata(AlbumFolder a, AlbumFolder b)
+        => a.SearchFileCount == b.SearchFileCount && a.SearchAudioFileCount == b.SearchAudioFileCount
+            && a.SearchRepresentativeAudioFilename == b.SearchRepresentativeAudioFilename
+            && a.SortedAudioLengths.Span.SequenceEqual(b.SortedAudioLengths.Span);
 }
 
 public sealed record AlbumFolderProjectionChanges(

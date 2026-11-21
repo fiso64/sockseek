@@ -12,7 +12,7 @@ public sealed record TransferAnalyticsQuery(
 
 public sealed record PersistedTransferAnalyticsCoverage(
     DateTimeOffset CompleteFromUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset RetainedFromUtc);
 
 public sealed record PersistedTransferAnalyticsBucket(
     DateTimeOffset StartUtc,
@@ -57,7 +57,8 @@ public interface ITransferAnalyticsReader
     /// <summary>Plan ranges from retained coverage, then read them from that same snapshot.</summary>
     Task<PersistedTransferAnalyticsSnapshot> GetSnapshotAsync(
         Func<PersistedTransferAnalyticsCoverage, IReadOnlyList<TransferAnalyticsQuery>> planRanges,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        bool includeEarliestActivity = false);
 }
 
 public sealed class TransferAnalyticsReader(
@@ -68,19 +69,33 @@ public sealed class TransferAnalyticsReader(
 
     public async Task<PersistedTransferAnalyticsSnapshot> GetSnapshotAsync(
         Func<PersistedTransferAnalyticsCoverage, IReadOnlyList<TransferAnalyticsQuery>> planRanges,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool includeEarliestActivity = false)
     {
         ArgumentNullException.ThrowIfNull(planRanges);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using var snapshot = await SqliteReadSnapshot.BeginAsync(context, cancellationToken).ConfigureAwait(false);
         var state = await context.TransferAccountingStates.AsNoTracking()
-            .SingleOrDefaultAsync(row => row.Id == 1, cancellationToken)
+            .Where(row => row.Id == 1)
+            .Select(row => new
+            {
+                row.CompleteFromUtc,
+                FirstBucket = includeEarliestActivity
+                    ? context.TransferByteBuckets.Min(bucket => (long?)bucket.BucketStartUtc) : null,
+                FirstSuccess = includeEarliestActivity
+                    ? context.Transfers.Where(t => t.TerminalOutcome == "Succeeded").Min(t => t.CompletedAtUtc) : null,
+                FirstFailure = includeEarliestActivity
+                    ? context.TransferAttempts.Where(a => a.State == "Failed").Min(a => a.CompletedAtUtc) : null,
+            })
+            .SingleOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
         if (state is null)
             throw new InvalidOperationException("Transfer accounting coverage state is unavailable.");
+        // An accounting gap advances CompleteFromUtc without removing earlier activity.
+        long retainedFrom = new long?[] { state.CompleteFromUtc, state.FirstBucket, state.FirstSuccess, state.FirstFailure }.Min()!.Value;
         var coverage = new PersistedTransferAnalyticsCoverage(
             DateTimeOffset.FromUnixTimeMilliseconds(state.CompleteFromUtc),
-            DateTimeOffset.FromUnixTimeMilliseconds(state.UpdatedAtUtc));
+            DateTimeOffset.FromUnixTimeMilliseconds(retainedFrom));
         // The planner only constructs query values. No external I/O or public
         // resource lease spans this short database read transaction.
         var queries = planRanges(coverage);
@@ -196,12 +211,12 @@ public sealed class TransferAnalyticsReader(
                 .ToArray();
 
             var contentRows = await successfulTransfers
-                .Where(row => row.Direction == "Upload" && row.GroupRef != null)
-                .GroupBy(row => row.GroupRef!)
+                .Where(row => row.Direction == "Upload" && (row.GroupDisplayPath != null || row.GroupRef != null))
+                .GroupBy(row => row.GroupDisplayPath ?? row.GroupRef!)
                 .Select(group => new
                 {
                     Identity = group.Key,
-                    DisplayPath = group.Max(row => row.GroupDisplayPath) ?? group.Key,
+                    DisplayPath = group.Key,
                     DownloadCount = group.Count(),
                     DistinctPeerCount = group.Where(row => row.Username != null)
                         .Select(row => row.Username)

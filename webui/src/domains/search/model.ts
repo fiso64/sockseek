@@ -1,4 +1,4 @@
-import type { Schema } from '../../api/types';
+import type { JobDraft, Schema } from '../../api/types';
 
 export type SearchInputMode = 'simple' | 'split';
 export type SearchModeFamily = 'generic' | 'track' | 'album';
@@ -68,9 +68,9 @@ export function isGroupSearchMode(mode: SearchResultMode): boolean {
   return mode === 'song-groups' || mode === 'album-groups';
 }
 
-export function searchJobDraft(draft: SearchDraft): Schema<'JobDraftDto'> {
+export function searchJobDraft(draft: SearchDraft): JobDraft {
   if (draft.resultMode === 'generic') return { kind: 'search-generic', queryText: networkQuery(draft) };
-  if (searchModeFamily(draft.resultMode) === 'track') return { kind: 'search-track', songQuery: songQuery(draft), includeFullResults: true, groupResults: isGroupSearchMode(draft.resultMode) };
+  if (searchModeFamily(draft.resultMode) === 'track') return { kind: 'search-track', songQuery: songQuery(draft), groupResults: isGroupSearchMode(draft.resultMode) };
   return { kind: 'search-album', albumQuery: albumQuery(draft), groupResults: isGroupSearchMode(draft.resultMode) };
 }
 
@@ -123,7 +123,7 @@ export function searchViewKind(mode: SearchResultMode): Schema<'ServerSearchView
 }
 
 export function searchDelimiter(input: string): { index: number; length: number } | null {
-  return [' — ', ' - '].map(value => ({ index: input.indexOf(value), length: value.length }))
+  return [' — ', ' – ', ' - '].map(value => ({ index: input.indexOf(value), length: value.length }))
     .filter(item => item.index >= 0).sort((a, b) => a.index - b.index)[0] ?? null;
 }
 

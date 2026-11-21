@@ -87,6 +87,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
     {
         if (!_activeDownloads.TryGet(transferId, out var download))
             return false;
+        download.UserCancelled = true;
         download.Cts.Cancel();
         return true;
     }
@@ -438,14 +439,13 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             IndexEditor = previous.IndexEditor,
             PlaylistEditor = previous.PlaylistEditor,
         };
-        foreach (var (id, context) in JobPreparer.PrepareSubtree(
+        var contexts = JobPreparer.PrepareSubtree(
             job, job.PlannedSettings!.ReadSettings(), _jobSettingsResolver,
             explicitOwnerList: previous.PreparationOwner,
-            parentCtx: inherited, rootSettingsAreFinal: true, indexes: _runtime.Files.Indexes))
-        {
+            parentCtx: inherited, rootSettingsAreFinal: true, indexes: _runtime.Files.Indexes);
+        foreach (var context in contexts.Values)
             context.PreprocessTracks = previous.PreprocessTracks;
-            _contexts.Set(id, job.WorkflowId, context);
-        }
+        _contexts.SetPrepared(job, contexts, inheritFrom: job);
         _executionContext.ObservePreparedAutoProfiles(job);
     }
 
@@ -569,9 +569,17 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         await executionGate.WaitAsync();
         try
         {
+            Events.RaiseRootExecution(prepared.Job.WorkflowId, started: true);
             // A resume can wait behind the discovery execution that published
             // its picker. Check cancellation here, before replacing that run's
             // token, rather than capturing it when the queue is read.
+            if (!prepared.IsResume && prepared.CompletionOutcome is null
+                && prepared.Job.TerminalOutcome == JobTerminalOutcome.Cancelled)
+            {
+                _executionContext.RegisterJob(prepared.Job, parent: null);
+                Events.RaiseJobExecutionCompleted(prepared.Job);
+                return;
+            }
             var completion = prepared.CompletionOutcome;
             if (prepared.IsResume
                 && prepared.Job.CancellationSource != JobCancellationSource.None)
@@ -599,7 +607,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
                 try
                 {
                     await _orchestrator.ProcessRootJob(
-                        prepared.Job,
+                        prepared.Job, ContainsLoginRequiredJob(prepared.Job), AutomaticStaleChecksEnabled,
                         emitAutoProfileFinalSummary: !retireTerminalWorkflows);
                 }
                 catch (Exception ex) when (retireTerminalWorkflows)
@@ -613,6 +621,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             try { await _executionContext.FlushOutputsAsync(prepared.Job); }
             finally
             {
+                Events.RaiseRootExecution(prepared.Job.WorkflowId, started: false);
                 executionGate.Release();
                 if (prepared.Lifetime != null)
                     _workflowLifetime!.RootCompleted(prepared.Lifetime);
@@ -639,23 +648,18 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
                 {
                     Queue.Add(rootJob);
 
-                    foreach (var (id, ctx) in JobPreparer.PrepareSubtree(
+                    var contexts = JobPreparer.PrepareSubtree(
                         rootJob,
                         settings!,
                         _jobSettingsResolver,
-                        rootSettingsAreFinal: queuedJob.SettingsAreFinal, indexes: _runtime.Files.Indexes))
-                        _contexts.Set(id, rootJob.WorkflowId, ctx);
+                        rootSettingsAreFinal: queuedJob.SettingsAreFinal, indexes: _runtime.Files.Indexes);
+                    _contexts.SetPrepared(rootJob, contexts);
 
                     _executionContext.ObservePreparedAutoProfiles(rootJob);
                 }
-                else if (!_contexts.ContainsKey(rootJob.Id))
+                else if (!_contexts.TryGetValue(rootJob, out _))
                 {
                     throw new InvalidOperationException($"Cannot resume job {rootJob.DisplayId}: no prepared job context exists.");
-                }
-
-                if (ContainsLoginRequiredJob(rootJob))
-                {
-                    await _runtime.EnsureServicesInitializedAsync(cancellationToken, AutomaticStaleChecksEnabled);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

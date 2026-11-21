@@ -289,13 +289,15 @@ public static partial class SearchResultProjector
         // raw, File, Track and track-group projections.
         if (separator <= 0) return [];
         ReadOnlySpan<char> folder = filename[..separator];
-        if (combineDiscs && DiscPatternRegex().IsMatch(folder[(LastDirectorySeparator(folder) + 1)..]))
+        if (combineDiscs && IsDiscDirectory(folder[(LastDirectorySeparator(folder) + 1)..]))
         {
             int parent = LastDirectorySeparator(folder);
             if (parent > 0) folder = folder[..parent];
         }
         return folder;
     }
+
+    internal static bool IsDiscDirectory(ReadOnlySpan<char> name) => DiscPatternRegex().IsMatch(name);
 
     private static int LastDirectorySeparator(ReadOnlySpan<char> path)
         => Math.Max(path.LastIndexOf('\\'), path.LastIndexOf('/'));
@@ -484,6 +486,6 @@ public static partial class SearchResultProjector
         }
     }
 
-    [GeneratedRegex(@"^(?i)(dis[c|k]|cd)\s*\d{1,2}$")]
+    [GeneratedRegex(@"^(?i)(dis[ck]|cd)\s*\d{1,2}$")]
     private static partial Regex DiscPatternRegex();
 }

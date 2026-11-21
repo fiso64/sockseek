@@ -263,7 +263,7 @@ internal sealed class ManualSelectionCoordinator
             || closedGroupSelections.TryGetValue(job.Id, out byte group) && group == CancellationQueued;
 
     private bool CanStartGroupChild(Job child)
-        => !contexts.ContainsKey(child.Id)
+        => !contexts.TryGetValue(child, out _)
             || child.LifecycleState is JobLifecycleState.AwaitingSelection or JobLifecycleState.Terminal;
 
     internal int RetainedStateCount => groupParentByChildId.Count
@@ -277,8 +277,8 @@ internal sealed class ManualSelectionCoordinator
 
     private void EnsureManualGroupChildPrepared(Job songGroupsJob, Job child)
     {
-        bool prepared = contexts.ContainsKey(child.Id);
         child.WorkflowId = songGroupsJob.WorkflowId;
+        bool prepared = contexts.TryGetValue(child, out _);
         // Retrying a prepared child must keep its settings paired with its
         // context, including any selection-specific output override.
         if (!prepared)
@@ -295,7 +295,7 @@ internal sealed class ManualSelectionCoordinator
             return;
 
         var parentCtx = contexts.Get(songGroupsJob);
-        contexts.Set(child, new JobContext
+        contexts.SetInherited(child, new JobContext
         {
             PreparationOwner = parentCtx.PreparationOwner,
             IndexEditor = parentCtx.IndexEditor,
@@ -304,7 +304,7 @@ internal sealed class ManualSelectionCoordinator
             MusicDirSkipper = parentCtx.MusicDirSkipper,
             OutputScope = parentCtx.OutputScope,
             PreprocessTracks = false,
-        });
+        }, songGroupsJob);
 
         observePreparedAutoProfiles(child);
     }

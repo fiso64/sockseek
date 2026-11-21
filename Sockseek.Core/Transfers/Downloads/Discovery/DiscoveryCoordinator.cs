@@ -102,8 +102,7 @@ internal sealed class DiscoveryCoordinator
             context.Events.RaiseTrackListReady(allSongs);
 
         var newContexts = JobPreparer.PrepareSubtree(extracted, job.Config, context.JobSettingsResolver, parentJob as JobList, context.Ctx(job), indexes: context.Runtime.Files.Indexes);
-        foreach (var (id, ctx) in newContexts)
-            context.Contexts.Set(id, extracted.WorkflowId, ctx);
+        context.Contexts.SetPrepared(extracted, newContexts, inheritFrom: job);
 
         EnsureDisplayIdsForExecutableSubtree(extracted);
         context.ObservePreparedAutoProfiles(extracted);
@@ -361,7 +360,7 @@ internal sealed class DiscoveryCoordinator
         {
             var skipCtx = TrackSkipperContext.From(ctx, job.Config.Skip, job.Config.ResolveSearchSettings());
             foreach (var song in job.Songs)
-                context.SkipEvaluation.TrySetAlreadyExists(job, song, skipCtx);
+                await context.SkipEvaluation.TrySetAlreadyExistsAsync(job, song, skipCtx);
         }
 
         if (config.PrintResults)

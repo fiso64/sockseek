@@ -1,5 +1,6 @@
 using Sockseek.Api;
 using Sockseek.Server.Persistence;
+using Sockseek.Persistence.Sqlite;
 using static Sockseek.Server.ApiErrors;
 
 namespace Sockseek.Server;
@@ -42,12 +43,17 @@ internal static class ServerEndpoints
             CancellationToken cancellationToken) =>
         {
             try { return Results.Ok(await coordinator.BackupAsync(request.BackupPath, cancellationToken)); }
+            catch (PersistenceDatabaseUnavailableException ex)
+            {
+                return Results.Json(new ApiErrorDto(ex.Message, "HistoryUnavailable"), statusCode: 503);
+            }
             catch (Exception ex) when (IsInvalidRequest(ex)) { return BadRequest(ex); }
         })
             .WithTags("Persistence")
             .WithSummary("Creates and independently verifies a WAL-safe online backup.")
             .Produces<PersistenceBackupResultDto>()
-            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest);
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/persistence/checkpoint", async (
             PersistenceCoordinator coordinator, CancellationToken cancellationToken) =>

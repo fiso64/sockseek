@@ -13,9 +13,8 @@ public static partial class ResultSorter
         int originalIndex,
         int? peerFailureCount = null)
     {
-        if (!keyContext.Search.NecessaryCond.VisibilitySatisfies(input.Visibility)) return null;
         int failureCount = peerFailureCount ?? keyContext.PeerFailureCounts.GetValueOrDefault(input.Username, 0);
-        if (failureCount >= keyContext.Search.EffectiveIgnoreOn)
+        if (!keyContext.AcceptsPeerAndVisibility(input, failureCount))
             return null;
         return new SortEntry(input, keyContext.CreateKey(input, failureCount), originalIndex);
     }
@@ -72,6 +71,12 @@ public static partial class ResultSorter
         public ConcurrentDictionary<string, int> PeerFailureCounts { get; }
         public bool AlbumMode { get; }
 
+        public bool AcceptsPeerAndVisibility(SearchProjectionInput input, int failureCount)
+            => failureCount < Search.EffectiveIgnoreOn && Search.NecessaryCond.VisibilitySatisfies(input.Visibility);
+
+        public bool NecessaryConditionsSatisfied(SearchProjectionInput input)
+            => necessaryConditionEvaluator?.Invoke(input) ?? ConditionSatisfactionPolicy.SearchFileSatisfies(necessaryCond, input, Query);
+
         public SortKey CreateKey(SearchProjectionInput input, int? peerFailureCount = null)
         {
             string filename = input.Filename;
@@ -94,6 +99,8 @@ public static partial class ResultSorter
             bool matchesAlbum() => albumStringMatch ??= StrictStringPrepared(getStrictDirectoryName(), strictAlbum);
             bool matchesArtist() => artistStringMatch ??= FileConditions.StringMatchesAnyPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false);
 
+            // TODO: Rank track and album offers by edition clues in the request and peer path.
+            // For example, prefer a requested clean edit and downrank an unrequested remaster.
             bool strictTitleMatch = !preferredCond.StrictTitle || strictTitle.Length == 0
                 || FileConditions.StringMatchesAnyPrepared(getStrictFilenameNoExt(), strictTitle);
             bool fuzzyTitleMatch = ignoreStringSortConditions || !preferredCond.StrictTitle || fuzzyTitle.Length == 0 || strictTitleMatch
@@ -112,11 +119,7 @@ public static partial class ResultSorter
             bool bitDepthMatch = preferredCond.BitDepthSatisfies(input.BitDepth);
             bool preferredUserConditionsMet = preferredCond.UsernameSatisfies(input.Username);
 
-            bool necessaryConditionsMet = necessaryConditionEvaluator?.Invoke(input)
-                ?? ConditionSatisfactionPolicy.SearchFileSatisfies(
-                    necessaryCond,
-                    input,
-                    Query);
+            bool necessaryConditionsMet = NecessaryConditionsSatisfied(input);
             bool qualityPreferencesMet = formatMatch && lengthToleranceMatch && bitrateMatch
                 && sampleRateMatch && preferredUserConditionsMet && bitDepthMatch;
             bool stringPreferencesMet = strictTitleMatch && strictArtistMatch && strictAlbumMatch;

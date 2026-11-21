@@ -459,6 +459,7 @@ public enum TransferFailureReason
     TransferTimedOut,
     InternalError,
     Unknown,
+    LocalStorageError,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<TransferCancellationSource>))]

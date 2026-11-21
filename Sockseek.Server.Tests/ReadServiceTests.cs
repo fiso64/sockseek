@@ -304,13 +304,19 @@ public sealed class ReadServiceTests
             {
                 await connection.OpenAsync();
                 await using var command = connection.CreateCommand();
-                command.CommandText = "INSERT INTO transfer_byte_buckets (bucket_start_utc, direction, username, bytes) VALUES ($start, 'Download', 'Peer', 128);";
+                command.CommandText = """
+                    UPDATE transfer_accounting_state SET complete_from_utc = $coverage;
+                    INSERT INTO transfer_byte_buckets (bucket_start_utc, direction, username, bytes)
+                    VALUES ($start, 'Download', 'Peer', 128), ($older, 'Download', 'Peer', 64);
+                    """;
+                command.Parameters.AddWithValue("$older", new DateTimeOffset(bucketTicks, TimeSpan.Zero).AddDays(-3).ToUnixTimeMilliseconds());
                 command.Parameters.AddWithValue("$start", new DateTimeOffset(bucketTicks, TimeSpan.Zero).ToUnixTimeMilliseconds());
+                command.Parameters.AddWithValue("$coverage", new DateTimeOffset(bucketTicks, TimeSpan.Zero).AddMinutes(1).ToUnixTimeMilliseconds());
                 await command.ExecuteNonQueryAsync();
             }
             var facade = new DashboardAnalyticsFacade(
                 persistence,
-                new FixedClock(now));
+                new FixedClock(new DateTimeOffset(bucketTicks, TimeSpan.Zero).AddMinutes(11)));
 
             DashboardAnalyticsDto day = await facade.GetAsync("24h");
             DashboardAnalyticsDto all = await facade.GetAsync("all");
@@ -323,7 +329,10 @@ public sealed class ReadServiceTests
             Assert.IsFalse(day.Range.Coverage.IsComplete);
             Assert.IsFalse(day.Comparison.Coverage.IsComplete);
             Assert.IsTrue(all.Bandwidth.Count is >= 1 and <= 60);
-            Assert.IsTrue(all.Range.Coverage.IsComplete);
+            Assert.IsFalse(all.Range.Coverage.IsComplete);
+            Assert.AreEqual(192L, all.Summary.DownloadedBytes);
+            Assert.AreEqual(64L, all.Bandwidth[0].DownloadBytes);
+            Assert.AreEqual(day.Range.Coverage.CompleteFromUtc, all.Range.Coverage.CompleteFromUtc);
             Assert.IsNull(all.Comparison);
         }
         finally

@@ -54,7 +54,7 @@ public static class SafeSharedFileOpener
         FileStream? stream = null;
         try
         {
-            EnsureNoLinksOrReparsePoints(root, candidate);
+            EnsureNoLinksBelowRoot(root, candidate);
             FileAttributes attributes = File.GetAttributes(candidate);
             if ((attributes & FileAttributes.Directory) != 0)
             {
@@ -127,9 +127,9 @@ public static class SafeSharedFileOpener
         return candidate;
     }
 
-    private static void EnsureNoLinksOrReparsePoints(string root, string candidate)
+    private static void EnsureNoLinksBelowRoot(string root, string candidate)
     {
-        Check(root);
+        // The operator may explicitly share a symlink. Check each component below it.
         string relative = Path.GetRelativePath(root, candidate);
         string current = root;
         foreach (string segment in relative.Split(
@@ -137,12 +137,7 @@ public static class SafeSharedFileOpener
                      StringSplitOptions.RemoveEmptyEntries))
         {
             current = Path.Combine(current, segment);
-            Check(current);
-        }
-
-        static void Check(string path)
-        {
-            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
             {
                 throw Failure(
                     SharedFileOpenFailureReason.LinkOrReparsePoint,

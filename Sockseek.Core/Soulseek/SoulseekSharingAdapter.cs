@@ -347,12 +347,10 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
     {
         if (disposed)
             throw new DownloadEnqueueException("Pending shutdown.");
-        if (!uploadServingEnabled
-            || !IsValidUsername(username)
-            || restrictions.IsUploadAccessBlocked(username, endpoint))
-        {
+        if (!IsValidUsername(username) || restrictions.IsUploadAccessBlocked(username, endpoint))
             throw new DownloadEnqueueException("File not shared.");
-        }
+        if (!uploadServingEnabled)
+            throw new DownloadEnqueueException("Uploads are disabled on this peer.");
 
         using var timeout = new CancellationTokenSource(RequestTimeout);
         try

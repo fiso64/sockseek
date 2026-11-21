@@ -54,8 +54,7 @@ Most common flags:
                                 compatible inputs)
 --no-write-index                Do not create/update the Sockseek index
 --index-path <path>             Override default path for Sockseek index
---no-incomplete-ext             Save files with their final name instead of a temporary
-                                `.incomplete` extension.
+--no-incomplete-ext             Write directly to the destination during download.
 
 --no-skip-existing              Download items even when index/file checks find an existing match
 --skip-mode-output-dir <mode>   How to match files in the output dir: name|tag|index
@@ -109,7 +108,7 @@ Most common flags:
 -d, --desperate                 Equivalent to --fallback-level 3
 --no-remove-special-chars       Keep special characters in Soulseek search terms
 --max-retries <num>             Max download retries per item (default: 10)
---unknown-error-retries <num>   Extra retries for unknown/transient errors (default: 2)
+--unknown-error-retries <num>   Extra retries for transient errors (default: 2)
 --fails-to-downrank <num>       Failures within a workflow before downranking a peer (default: 2)
 --fails-to-ignore <num>         Failures within a workflow before ignoring a peer (default: 3)
 
@@ -119,7 +118,7 @@ Most common flags:
                                 Runs a YouTube search and downloads the first result. For
                                 YouTube inputs, downloads directly by ID instead.
 --yt-dlp-argument <str>         The command line arguments when running yt-dlp. Default:
-                                "{id}" -f bestaudio/best -ci -o "{savepath-noext}.%(ext)s" -x
+                                "{id}" -f bestaudio/best -o "{savepath-noext}.%(ext)s" -x
                                 Available vars are: {id}, {savedir}, {savepath},
                                 {savepath-noext}.
                                 Note that -x causes yt-dlp to download webms in case ffmpeg
@@ -127,7 +126,9 @@ Most common flags:
 
 --search-timeout <ms>           Stop a search attempt after this long without an accepted
                                 response (default: 5000 for CLI jobs, 15000 for webui searches)
---max-stale-time <ms>           Max download time without progress in ms (default: 30000)
+--max-stale-time <ms>           Max download time without progress in ms (default: 30000).
+                                Files you pick in Search or peer Shares can wait longer
+                                if the peer confirms they’re still queued.
 --response-limit <num>          Max accepted peer responses per search attempt (default: 250)
 --searches-per-time <num>       Max searches per time interval. Higher values may cause
                                 30-minute bans, see `--help notes`. (default: 34)

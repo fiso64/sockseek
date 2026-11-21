@@ -1,9 +1,9 @@
 import { performance } from 'node:perf_hooks';
 import { request as httpRequest } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { test, expect, measureApi } from './fixtures';
+import { test, expect, fixtureApiHeaders, measureApi } from './fixtures';
 import type { Schema } from '../src/api/types';
 import type { Request } from '@playwright/test';
 
@@ -54,7 +54,7 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   const jobsStart = performance.now();
   await page.getByRole('navigation', { name: 'Primary navigation' })
     .getByRole('button', { name: 'Jobs' }).click();
-  await expect(page.locator('.resource-state-notice.empty.blocking')).toContainText('No jobs yet');
+  await expect(page.locator('.resource-state-notice.empty.blocking')).toBeVisible();
   expect(jobListObservations).toBe(1);
   expect(requests.filter(item => item.path.startsWith('/api/jobs?') || item.path === '/api/jobs/snapshot')).toHaveLength(0);
   expect(requests.filter(item => item.method === 'GET' && item.path.startsWith('/api/dashboard/analytics?'))).toHaveLength(1);
@@ -81,7 +81,7 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   }).persistence;
   await expect(page.locator('.search-results-summary')).toBeVisible();
   await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0, { timeout: 60_000 });
-  await expect(page.locator('.folder-item-card')).toHaveCount(100, { timeout: 60_000 });
+  await expect(page.locator('.folder-item-card')).toHaveCount(50, { timeout: 60_000 });
   const searchMs = performance.now() - searchStart;
   expect(requests.filter(item => item.phase === 'large search'
     && item.path.includes('/directories?revision=0'))).toHaveLength(0);
@@ -111,8 +111,9 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
     if (index === 0) firstPageBytes = response.bodyBytes;
     pageSamples.push(response.elapsedMs);
   }
+  const probeUrl = new URL(pageUrl!, daemon.url);
   const compressedPage = await new Promise<{ bytes: number; encoding: string | undefined }>((resolve, reject) => {
-    const request = httpRequest(new URL(pageUrl!, daemon.url), { headers: { 'Accept-Encoding': 'br' } }, response => {
+    const request = httpRequest(probeUrl, { headers: Object.fromEntries(fixtureApiHeaders(probeUrl, { 'Accept-Encoding': 'br' })) }, response => {
       let bytes = 0;
       response.on('data', (chunk: Buffer) => { bytes += chunk.byteLength; });
       response.on('end', () => response.statusCode === 200
@@ -160,7 +161,7 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   const selectStart = performance.now();
   const allCount = countResponse();
   // Keep locator traversal out of the application-latency measurement: the
-  // 2,400 file checkboxes are not candidates for either of these controls.
+  // individual file checkboxes are outside these controls.
   const selectionControls = page.locator('.floating-selection-actions');
   await measureRenderer('selectAll', () => selectionControls.getByRole('button', { name: 'Select all', exact: true }).click());
   const all = await allCount;
@@ -169,8 +170,8 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   const allMs = Math.round(performance.now() - selectStart);
   const excludeStart = performance.now();
   const excludedCount = countResponse();
-  const distantFolder = page.locator('.folder-result-summary')
-    .getByRole('checkbox', { name: 'Select all files in Album-000', exact: true });
+  const distantFolder = page.locator('.folder-result-summary').last()
+    .getByRole('checkbox', { name: /^Select all files in Album-/ });
   await measureRenderer('roleLookup', async () => expect(await distantFolder.count()).toBe(1));
   await measureRenderer('scroll', () => distantFolder.scrollIntoViewIfNeeded());
   await measureRenderer('uncheck', () => distantFolder.uncheck());
@@ -234,7 +235,7 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   const selectedPage = await selectedPageResponse.json() as {
     items: { ref: { ref: string } }[]
   };
-  expect(selectedPage.items).toHaveLength(100);
+  expect(selectedPage.items).toHaveLength(50);
   const viewPath = new URL(pageUrl!, daemon.url).pathname;
   const viewId = viewPath.split('/')[3];
   const revision = new URL(pageUrl!, daemon.url).searchParams.get('revision');
@@ -294,7 +295,11 @@ test('pages 2 named tracks and 1001 supplemental images without child-detail req
   let validateFinalPaths = false;
   let documentGeneration = 0;
   const requestDocuments = new WeakMap<Request, number>();
-  const recordDocument = (request: Request) => requestDocuments.set(request, documentGeneration);
+  let readingManifests = true;
+  const recordDocument = (request: Request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) readingManifests = true;
+    if (readingManifests) requestDocuments.set(request, documentGeneration);
+  };
   page.on('request', recordDocument);
   const finalPaths = new Set<string>();
   const captured: Promise<void>[] = [];
@@ -371,11 +376,13 @@ test('pages 2 named tracks and 1001 supplemental images without child-detail req
   await expect(folder.locator('.folder-file-row')).toHaveCount(1003);
   await expect(folder.locator('.folder-file-state.complete')).toHaveCount(1003);
   // Finish reading the old document's response bodies before navigation lets
-  // Chromium release them. DOM completion alone does not drain this observer.
+  // Chromium release them. Stop admitting old reads before taking this snapshot
+  // of the pending promises. The reload's document request resumes collection.
+  readingManifests = false;
+  documentGeneration++;
   await Promise.all(captured);
   expect(captureErrors).toEqual([]);
   validateFinalPaths = true;
-  documentGeneration++;
   await page.reload();
   await expect(folder.locator('.folder-file-row')).toHaveCount(500);
   await expect(folder.locator('.folder-transfer-file-count strong')).toHaveText('500/1003');
@@ -399,6 +406,7 @@ test('pages 2 named tracks and 1001 supplemental images without child-detail req
   const childDetails = reads.filter(read => /^\/api\/jobs\/[^/?]+$/.test(read.path) && read.path !== `/api/jobs/${job.jobId}`);
   expect(childDetails, 'File pages carry supplemental targets and state; no per-file job fetches.').toEqual([]);
   console.log('PERF_ARTWORK ' + JSON.stringify({ acceptedMs, initialDomMs, continuationMs, backendCompletionMs, completionUiLagMs, completedApiBytes, liveFrames, liveBytes, files, reads }));
+  await rm(destination, { recursive: true });
 });
 
 test('opens a 1k-file directory and verifies paged downloads and retained outcomes @Load', async ({ page, daemon }, testInfo) => {
@@ -464,7 +472,7 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
   await daemon.command('wait-download-started');
   const readyToDownloadMs = Math.round(performance.now() - started);
   await expect(folder.locator('.folder-file-row').first().getByLabel('50% complete', { exact: true })).toBeVisible();
-  await expect(folder.locator('.transfer-state').first()).toHaveText('Running');
+  await expect(folder.locator('.transfer-state').first()).toHaveText('Downloading');
   await folder.locator('.folder-transfer-summary').scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('large-directory-active.png') });
   const finishing = performance.now();
@@ -552,7 +560,7 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
   await expect(folder.locator('.transfer-state').first()).toHaveText('Complete');
   await page.screenshot({ path: testInfo.outputPath('large-directory-retained.png') });
   await page.goto('/downloads');
-  const downloadsFolder = page.locator('.folder-item-card').filter({ hasText: 'Large directory' });
+  const downloadsFolder = page.locator('.folder-item-card').filter({ has: page.getByRole('button', { name: 'Remove Large directory', exact: true }) });
   await expect(downloadsFolder.locator('.folder-file-row')).toHaveCount(500);
   await expect(downloadsFolder.locator('.folder-file-path').first()).toHaveText(/^\s*Part\d{2}\/File\d{5}\.bin\s*$/);
   expect(reads.filter(read => /^\/api\/jobs\/[^/?]+$/.test(read.path)

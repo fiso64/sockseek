@@ -154,9 +154,9 @@ public sealed class JobPreviewTests
                         Assert.AreEqual(2, children.Count);
                         var rootRetained = (await persistence.Submissions!.GetSubmissionAsync(root.SubmissionId!.Value))!;
                         var rootSpecification = SubmissionSpecificationCodec.Deserialize(rootRetained.SpecificationJson);
-                        var child = children.Single(item => rootSpecification.ForSearchJob(item.JobId)!
+                        var child = children.Single(item => rootSpecification.ForJob(item.JobId)!
                             .MaterializeSettings().Search.NecessaryCond.Formats.SequenceEqual(["txt"]));
-                        var replay = await supervisor.Submissions.RerunSearchJobAsync(child.JobId, CancellationToken.None);
+                        var replay = await supervisor.Submissions.RerunJobAsync(child.JobId, CancellationToken.None);
                         Assert.IsNotNull(replay);
                         Assert.AreNotEqual(child.JobId, replay.JobId);
                         Assert.AreNotEqual(root.SubmissionId, replay.SubmissionId);

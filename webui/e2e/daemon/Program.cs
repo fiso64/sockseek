@@ -666,7 +666,10 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     ]),
                 }] },
                 OperatorDownloadSettings = new Sockseek.Api.DownloadSettingsPatchDto(
-                    Output: new Sockseek.Api.OutputSettingsPatchDto(ParentDir: Path.Combine(temporary, "downloads"))),
+                    Output: new Sockseek.Api.OutputSettingsPatchDto(ParentDir: Path.Combine(temporary, "downloads")),
+                    // Load fixtures intentionally collect offers from up to 10,000 peers.
+                    Search: Environment.GetEnvironmentVariable("SOCKSEEK_RUN_LOAD") == "1"
+                        ? new(ResponseLimit: 10_000) : null),
                 Persistence = new() { Enabled = true, DataDirectory = dataDirectory },
                 ClientFactory = _ => peer.Client,
             }, "http://127.0.0.1:0", logToConsole: scenario.ApplicationLogs);
@@ -742,6 +745,22 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     {
                         Theme = parts[1], DefaultSearchMode = parts[2],
                     };
+                    break;
+                }
+                case "local-group-library":
+                {
+                    string library = Path.Combine(temporary, "library");
+                    string album = Path.Combine(library, "Fixture", "Fixture Album");
+                    Directory.CreateDirectory(album);
+                    File.WriteAllBytes(Path.Combine(album, "Fixture Alpha.mp3"), [1]);
+                    app.Services.GetRequiredService<EngineSupervisor>().Submissions.ReloadProfiles(new ProfileCatalog
+                    {
+                        DefaultProfile = new SettingsProfile
+                        {
+                            Name = "defaults",
+                            Download = new SettingsPatch([new("Skip.SkipMusicDir", library)]),
+                        },
+                    });
                     break;
                 }
                 case "manual-search-profiles":

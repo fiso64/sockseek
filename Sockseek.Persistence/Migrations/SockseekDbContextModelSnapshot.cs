@@ -15,7 +15,7 @@ partial class SockseekDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261119173000_RemoveChatArchive";
+    public override string LastMigrationId => "20261120190000_DownloadRecovery";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1202,6 +1202,10 @@ partial class SockseekDbContextModelSnapshot : ModelSnapshot
 
                 b.HasIndex("JobId");
 
+                b.Property<bool>("RecoveryPending").HasColumnType("INTEGER").HasColumnName("recovery_pending");
+                b.Property<Guid?>("RetryJobId").HasColumnType("TEXT").HasColumnName("retry_job_id");
+                b.HasIndex("RetryJobId").HasFilter("retry_job_id IS NOT NULL");
+                b.HasIndex("RecoveryPending").HasFilter("recovery_pending = 1");
                 b.HasIndex("LastRuntimeId", "TerminalOutcome");
 
                 b.HasIndex("TerminalOutcome", "CompletedAtUtc");

@@ -241,10 +241,11 @@ public sealed class JobPlanner(
     {
         if (job.PlannedSourceRevision != null)
             return job.PlannedSourceRevision;
-        if (!File.Exists(job.Input))
+        string input = job.UploadedFilePath ?? job.Input;
+        if (!File.Exists(input))
             return null;
 
-        string path = Path.GetFullPath(job.Input);
+        string path = Path.GetFullPath(input);
         var info = new FileInfo(path);
         await using var stream = new FileStream(
             path,

@@ -46,13 +46,13 @@ public sealed class DashboardAnalyticsFacade
             ITransferAnalyticsReader? reader = persistence.TransferAnalytics;
             if (reader is null || persistence.HealthSnapshot?.State == PersistenceHealthState.Unhealthy)
             {
-                var unavailable = DefineRange(range, end, completeFrom: null);
+                var unavailable = DefineRange(range, end, retainedFrom: null);
                 return Empty(unavailable, Coverage(unavailable.StartUtc, completeFrom: null));
             }
 
             var snapshot = await reader.GetSnapshotAsync(retainedCoverage =>
             {
-                var definition = DefineRange(range, end, retainedCoverage.CompleteFromUtc);
+                var definition = DefineRange(range, end, retainedCoverage.RetainedFromUtc);
                 var queries = new List<TransferAnalyticsQuery>
                 {
                     new(definition.StartUtc, definition.EndUtc, definition.BucketWidth, TopCount),
@@ -60,8 +60,8 @@ public sealed class DashboardAnalyticsFacade
                 if (definition.ComparisonStartUtc is { } start && definition.ComparisonEndUtc is { } finish)
                     queries.Add(new(start, finish, definition.BucketWidth, TopCount, IncludeRankings: false));
                 return queries;
-            }, cancellationToken).ConfigureAwait(false);
-            var definition = DefineRange(range, end, snapshot.Coverage.CompleteFromUtc);
+            }, cancellationToken, includeEarliestActivity: range == "all").ConfigureAwait(false);
+            var definition = DefineRange(range, end, snapshot.Coverage.RetainedFromUtc);
             DashboardAnalyticsCoverageDto coverage = Coverage(
                 definition.StartUtc,
                 snapshot.Coverage.CompleteFromUtc);
@@ -117,7 +117,7 @@ public sealed class DashboardAnalyticsFacade
         catch (Exception exception)
         {
             LogUnavailable(exception);
-            RangeDefinition definition = DefineRange(range, end, completeFrom: null);
+            RangeDefinition definition = DefineRange(range, end, retainedFrom: null);
             return Empty(
                 definition,
                 new DashboardAnalyticsCoverageDto(
@@ -217,7 +217,7 @@ public sealed class DashboardAnalyticsFacade
     private static RangeDefinition DefineRange(
         string range,
         DateTimeOffset end,
-        DateTimeOffset? completeFrom)
+        DateTimeOffset? retainedFrom)
     {
         (TimeSpan? duration, TimeSpan width) = range switch
         {
@@ -232,9 +232,9 @@ public sealed class DashboardAnalyticsFacade
         DateTimeOffset start;
         if (duration is null)
         {
-            start = completeFrom is null
+            start = retainedFrom is null
                 ? end - TimeSpan.FromHours(24)
-                : Ceiling(completeFrom.Value, TimeSpan.FromMinutes(5));
+                : Floor(retainedFrom.Value, width);
             if (start >= end)
                 start = end - TimeSpan.FromMinutes(5);
             long baseBuckets = Math.Max(1, (long)Math.Ceiling(
@@ -267,6 +267,9 @@ public sealed class DashboardAnalyticsFacade
             "all" => "all",
             _ => throw new ArgumentException("Range must be one of 24h, 7d, 30d, 90d, 1y, or all.", nameof(value)),
         };
+
+    private static DateTimeOffset Floor(DateTimeOffset value, TimeSpan width)
+        => new(value.UtcTicks - value.UtcTicks % width.Ticks, TimeSpan.Zero);
 
     private static DateTimeOffset Ceiling(DateTimeOffset value, TimeSpan width)
     {

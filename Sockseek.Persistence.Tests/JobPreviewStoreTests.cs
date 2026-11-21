@@ -174,6 +174,7 @@ public sealed class JobPreviewStoreTests
         await store.CompleteAsync(preview.Id);
 
         clock.Advance(TimeSpan.FromMinutes(2));
+        Assert.AreEqual("Expired", (await store.GetPreviewAsync(preview.Id))!.State);
         IReadOnlyList<Guid> expired = await store.ExpireDueAsync();
         CollectionAssert.AreEqual(new[] { preview.Id }, expired.ToArray());
         StoredJobPreview tombstone = (await store.GetPreviewAsync(preview.Id))!;

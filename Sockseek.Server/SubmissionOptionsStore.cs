@@ -225,6 +225,7 @@ public sealed class SubmissionOptionsJobSettingsResolver(
             JobSettingsComposer.PreserveInheritedSearchConstraints(settings, inherited);
         request?.Download?.ApplyTo(settings);
         normalize?.Invoke(settings);
+        JobSettingsComposer.ResolveModeSettings(job, settings);
         return settings;
     }
 
@@ -292,6 +293,7 @@ public sealed class SubmissionOptionsJobSettingsResolver(
         DownloadSettings settings = inner.Resolve(inherited, job, inheritance);
         ApplyTo(settings, options, outputParentDir: null);
         normalize?.Invoke(settings);
+        JobSettingsComposer.ResolveModeSettings(job, settings);
         return settings;
     }
 

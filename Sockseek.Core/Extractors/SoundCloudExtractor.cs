@@ -68,7 +68,7 @@ namespace Sockseek.Core.Extractors;
                     : details.TryGetValue(Id(entry), out var fetched) ? fetched : null;
                 if (track is not { } full)
                 {
-                    context.Log.Warn($"Skipping playlist track {number}: SoundCloud returned no details for it (removed or private).");
+                    result.Add(ExtractJob.UnavailablePlaylistEntry($"{ApiBase}/tracks/{Id(entry)}", InputType.SoundCloud, number));
                     continue;
                 }
                 result.Add(ToSongJob(full, number));

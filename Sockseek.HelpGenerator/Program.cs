@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Markdig;
+using Markdig.Extensions.Alerts;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
@@ -62,7 +63,7 @@ static Dictionary<string, string> ExtractHelpTopics(string markdown, string mark
 
 static string ToPlainText(string markdown)
 {
-    var pipeline = new MarkdownPipelineBuilder().Build();
+    var pipeline = new MarkdownPipelineBuilder().UseAlertBlocks().Build();
     var document = Markdown.Parse(markdown, pipeline);
     var sb = new StringBuilder();
 
@@ -180,6 +181,12 @@ static string ToPlainText(string markdown)
                     foreach (var child in item.Skip(firstParagraph is null ? 0 : 1))
                         ProcessBlock(child, contentIndent);
                 }
+                break;
+
+            case AlertBlock alert:
+                sb.AppendLine(WrapAndIndent(alert.Kind.ToString().ToUpperInvariant(), indent));
+                foreach (var child in alert)
+                    ProcessBlock(child, indent);
                 break;
 
             case HtmlBlock:

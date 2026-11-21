@@ -69,6 +69,10 @@ public static class JobPreparer
 
         var inheritedScope = parentCtx?.OutputScope ?? OutputScope.Empty;
 
+        if (root.InheritedFolders is { } folders)
+            foreach (string name in folders)
+                inheritedScope = inheritedScope.WithDefaultFolder(name.ReplaceInvalidChars(" ").Trim(), parentConfig.Output.InvalidReplaceStr);
+
         // Use a synthetic owner list so index/playlist paths are scoped correctly when
         // root is a bare leaf job (not a JobList).
         var ownerList = root as JobList ?? explicitOwnerList ?? new JobList(null, [root]);
@@ -174,7 +178,8 @@ public static class JobPreparer
 
         SetupIndexEditor(job, ctx, ownerList, indexByDefault, editors, syntheticOwner, indexes);
         SetupPlaylistEditor(job, ctx, ownerList, editors, syntheticOwner);
-        SetupSkippers(job, ctx, skippers);
+        if (job is not (RemoteFileJob or RemoteDirectoryJob) && job.Config.Skip.SkipExisting)
+            SetupSkippers(job.Config, ctx, skippers);
 
         contexts[job.Id] = ctx;
 
@@ -217,8 +222,7 @@ public static class JobPreparer
         DownloadSettings settings,
         bool consumeExtractorHints)
     {
-        if (job is RemoteFileJob or RemoteDirectoryJob)
-            RemoteTransferNameFormatPolicy.ApplyInherited(settings.Output);
+        JobSettingsComposer.ResolveModeSettings(job, settings);
 
         if (job.ExtractorCond != null)
         {
@@ -255,6 +259,7 @@ public static class JobPreparer
         JobSettingsSnapshot planned)
     {
         var settings = planned.ReadSettings();
+        JobSettingsComposer.ResolveModeSettings(job, settings);
         // The planner already applied these patches to the retained settings
         // and propagated extractor hints to a resolved Extract result. Clearing
         // leaf hints prevents any later subtree preparation from applying them
@@ -284,16 +289,7 @@ public static class JobPreparer
 
         if (!needIndex) return;
 
-        string indexPath;
-        if (config.Output.IndexFilePath != null)
-        {
-            string playlistName = (ownerList.ItemName ?? job.ItemNameOrSource()).ReplaceInvalidChars(" ").Trim();
-            indexPath = config.Output.IndexFilePath.Replace("{playlist-name}", playlistName);
-        }
-        else
-        {
-            indexPath = ctx.OutputScope.ScopedPath(config.Output, "_index.csv");
-        }
+        string indexPath = IndexPath(job, ownerList, ctx.OutputScope, config.Output);
 
         var key = (indexPath, OutputFileKind.Index, !writeIndex);
         if (editors.TryGetValue(key, out var existing))
@@ -311,8 +307,6 @@ public static class JobPreparer
     private static void SetupPlaylistEditor(Job job, JobContext ctx, JobList ownerList,
         Dictionary<(string, OutputFileKind, bool), DownloadOutputFile> editors, bool syntheticOwner)
     {
-        if (job is RemoteFileJob or RemoteDirectoryJob)
-            return;
         var config = job.Config;
         if (!config.Output.WritePlaylist) return;
 
@@ -341,44 +335,25 @@ public static class JobPreparer
         }
     }
 
-    private static void SetupSkippers(Job job, JobContext ctx,
+    internal static string IndexPath(Job job, JobList owner, OutputScope scope, OutputSettings output)
+        => output.IndexFilePath is { } path
+            ? path.Replace("{playlist-name}", (owner.ItemName ?? job.ItemNameOrSource()).ReplaceInvalidChars(" ").Trim())
+            : scope.ScopedPath(output, "_index.csv");
+
+    internal static void SetupSkippers(DownloadSettings config, JobContext ctx,
         Dictionary<(string, SkipMode, bool), TrackSkipper> skippers)
     {
-        if (job is RemoteFileJob or RemoteDirectoryJob)
-            return;
+        bool checkConditions = config.Skip.SkipCheckCond || config.Skip.SkipCheckPrefCond;
+        ctx.OutputDirSkipper = Get(OutputScope.OutputParentDir(config.Output), config.Skip.SkipMode);
+        if (config.Skip.SkipMusicDir is { } library)
+            ctx.MusicDirSkipper = Get(library, config.Skip.SkipModeMusicDir);
 
-        var config = job.Config;
-        if (!config.Skip.SkipExisting) return;
-
-        bool checkCond = config.Skip.SkipCheckCond || config.Skip.SkipCheckPrefCond;
-
-        var outputKey = (config.Output.ParentDir!, config.Skip.SkipMode, checkCond);
-        if (skippers.TryGetValue(outputKey, out var outputSkipper))
+        TrackSkipper Get(string directory, SkipMode mode)
         {
-            ctx.OutputDirSkipper = outputSkipper;
-        }
-        else
-        {
-            ctx.OutputDirSkipper = TrackSkipperRegistry.GetSkipper(config.Skip.SkipMode, config.Output.ParentDir!, checkCond);
-            skippers.Add(outputKey, ctx.OutputDirSkipper);
-        }
-
-        // TODO: Consider improving repeated skip-music-dir scans in daemon context.
-        // Could a library snapshot or the share catalog serve this purpose? Decide
-        // freshness and coverage semantics first: sharing may exclude local files,
-        // and its catalog lacks the artist/title/album tags used by tag-mode skipping.
-        if (config.Skip.SkipMusicDir != null)
-        {
-            var musicKey = (config.Skip.SkipMusicDir, config.Skip.SkipModeMusicDir, checkCond);
-            if (skippers.TryGetValue(musicKey, out var musicSkipper))
-            {
-                ctx.MusicDirSkipper = musicSkipper;
-            }
-            else
-            {
-                ctx.MusicDirSkipper = TrackSkipperRegistry.GetSkipper(config.Skip.SkipModeMusicDir, config.Skip.SkipMusicDir, checkCond);
-                skippers.Add(musicKey, ctx.MusicDirSkipper);
-            }
+            var key = (directory, mode, checkConditions);
+            if (!skippers.TryGetValue(key, out var skipper))
+                skippers.Add(key, skipper = TrackSkipperRegistry.GetSkipper(mode, directory, checkConditions));
+            return skipper;
         }
     }
 
@@ -389,5 +364,5 @@ public static class JobPreparer
         => owner.EnablesIndexByDefault || owner.Jobs.Any(job => job.EnablesIndexByDefault);
 
     internal static bool WillWriteIndex(DownloadSettings settings, bool indexByDefault)
-        => !settings.DoNotDownload && (settings.Output.WriteIndex ?? (settings.Output.IndexFilePath != null || indexByDefault));
+        => settings.ResolveWriteIndex(indexByDefault) == true;
 }

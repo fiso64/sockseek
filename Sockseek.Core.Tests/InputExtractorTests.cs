@@ -254,6 +254,23 @@ namespace Tests.Extractors
         }
 
         [TestMethod]
+        public async Task PrintedLinkAndLiteralPlusPreservePeerAndFileIdentity()
+        {
+            const string username = "Tess+Robin";
+            const string filename = @"Music\A+B sessions\Café #1 100%2B.mp3";
+            var extractor = new SoulseekExtractor();
+            var settings = TestHelpers.CreateDefaultSettings().Download.Extraction;
+            string link = SoulseekExtractor.FormatLink(username, filename);
+            Assert.AreEqual("slsk://Tess%2BRobin/Music/A%2BB%20sessions/Caf%C3%A9%20%231%20100%252B.mp3", link);
+            foreach (string input in new[] { link, link.Replace("%2B", "+") })
+            {
+                var file = (RemoteFileJob)await extractor.ExtractAsync(input, settings);
+                Assert.AreEqual(username, file.Target.Username);
+                Assert.AreEqual(filename, file.Target.Filename);
+            }
+        }
+
+        [TestMethod]
         public async Task ExtractAsync_EncodedControlInRemotePath_PreservesExactDecodedIdentity()
         {
             var extractor = new SoulseekExtractor();
@@ -439,17 +456,21 @@ namespace Tests.Extractors
         }
 
         [TestMethod]
-        public async Task ExtractAsync_LengthInSeconds_ParsesCorrectly()
+        [DataRow("200", "s", 200)]
+        [DataRow("2:03", "m:s", 123)]
+        [DataRow("1:02:03", "m:s", 3723)]
+        [DataRow("1:02:03:04", "m:s", -1)]
+        public async Task ExtractAsync_ParsesCompleteDuration(string value, string format, int seconds)
         {
-            File.WriteAllText(_tempCsv, "artist,title,length\nArtist,Track,200\n");
+            File.WriteAllText(_tempCsv, $"artist,title,length\nArtist,Track,{value}\n");
             var config = TestHelpers.CreateDefaultSettings().Download;
             var extractor = new CsvExtractor(config.Csv);
-            config.Csv.TimeUnit = "s";
+            config.Csv.TimeUnit = format;
 
             var result = await extractor.ExtractAsync(_tempCsv, config.Extraction);
             var songs = ((JobList)result).AllSongs().ToList();
 
-            Assert.AreEqual(200, songs[0].Query.Length);
+            Assert.AreEqual(seconds, songs[0].Query.Length);
         }
 
         [TestMethod]
@@ -544,26 +565,33 @@ namespace Tests.Extractors
                     Sockseek.Core.Transfers.Downloads.SourceMutations.SourceMutationCoordinator>.Instance);
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Extraction.RemoveTracksFromSource = true;
-            var first = new SongJob(new SongQuery { Title = "First" })
+            async Task<SongJob> Review(string title)
             {
-                SourceMutation = SourceMutation.ClearCsvRow(_tempCsv, 2, 1, 2),
-            };
-            var second = new SongJob(new SongQuery { Title = "Later" }) { SourceMutation = first.SourceMutation };
-            File.WriteAllText(_tempCsv, "artist,title\nArtist,First\n");
-            await mutations.ApplyIfNeededAsync(first, config);
+                File.WriteAllText(_tempCsv, $"artist,title\nArtist,{title}\n");
+                var rows = (JobList)await new CsvExtractor(config.Csv).ExtractAsync(_tempCsv, config.Extraction);
+                return rows.AllSongs().Single();
+            }
+            async Task Complete(SongJob song)
+            {
+                song.Config = config;
+                if (mutations.TryClaim(song)) await mutations.ApplyAsync([song]);
+            }
+            var first = await Review("First");
+            await Complete(first);
             Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1]);
 
-            File.WriteAllText(_tempCsv, "artist,title\nArtist,Later\n");
-            await mutations.ApplyIfNeededAsync(first, config);
+            var second = await Review("Later");
+            await Complete(first);
             Assert.AreEqual("Artist,Later", File.ReadAllLines(_tempCsv)[1], "Duplicate completion must not mutate the source twice.");
-            await mutations.ApplyIfNeededAsync(second, config);
+            await Complete(second);
             Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1], "A new workflow must process a repopulated row.");
             Assert.AreEqual(2, mutations.RetainedWorkflowCount);
             mutations.RetireWorkflow(first.WorkflowId);
             mutations.RetireWorkflow(second.WorkflowId);
             Assert.AreEqual(0, mutations.RetainedWorkflowCount);
-            File.WriteAllText(_tempCsv, "artist,title\nArtist,Successor\n");
-            await mutations.ApplyIfNeededAsync(first, config);
+            var successor = await Review("Successor");
+            first.SourceMutation = successor.SourceMutation;
+            await Complete(first);
             Assert.AreEqual(",", File.ReadAllLines(_tempCsv)[1], "A successor generation can reuse a retired workflow identity.");
         }
 
@@ -584,6 +612,29 @@ namespace Tests.Extractors
             Assert.AreEqual("artist,title", lines[0]);
             Assert.AreEqual(",", lines[1]);
             Assert.AreEqual(",", lines[2]);
+        }
+
+        [TestMethod]
+        public async Task CsvRemovalPreservesMultilineNeighborsAndRefusesAnEditedRow()
+        {
+            const string header = "artist,title,note\r\n";
+            const string neighbor = "North,Sky,\"first\r\nsecond\"\r\n";
+            const string reviewed = "South,Sea,\"live, \"\"encore\"\"\r\nnight\"\r\n";
+            const string last = "West,Wind,keep";
+            var encoding = new System.Text.UTF8Encoding(true);
+            File.WriteAllText(_tempCsv, header + neighbor + reviewed + last, encoding);
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            var rows = (JobList)await new CsvExtractor(config.Csv).ExtractAsync(_tempCsv, config.Extraction);
+            var target = rows.AllSongs().ElementAt(1).SourceMutation!;
+            var executor = new SourceMutationExecutor();
+            await executor.ApplyAsync(target, config);
+            CollectionAssert.AreEqual(encoding.GetPreamble().Concat(encoding.GetBytes(header + neighbor + ",,\r\n" + last)).ToArray(),
+                File.ReadAllBytes(_tempCsv));
+
+            File.WriteAllText(_tempCsv, header + "New,Song,new\r\n" + neighbor + reviewed + last, encoding);
+            byte[] edited = File.ReadAllBytes(_tempCsv);
+            await Assert.ThrowsExactlyAsync<InvalidDataException>(() => executor.ApplyAsync(target, config));
+            CollectionAssert.AreEqual(edited, File.ReadAllBytes(_tempCsv));
         }
 
         [TestMethod]

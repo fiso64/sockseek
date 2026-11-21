@@ -41,7 +41,7 @@ internal static class ConfiguredCommandDispatcher
             }
             if (command is "chat" or "room" or "notifications" or "notification")
                 return await RunRemoteCommandAsync(args, ChatCommands.RunAsync, cancellationToken).ConfigureAwait(false);
-            if (command is "share" or "transfers" or "transfer")
+            if (command is "share" or "transfers" or "transfer" or "job")
                 return await RunRemoteCommandAsync(args, SharingAndTransferCommands.RunAsync, cancellationToken).ConfigureAwait(false);
             if (command == "user")
                 return await RunRemoteCommandAsync(args, UserCommands.RunAsync, cancellationToken).ConfigureAwait(false);

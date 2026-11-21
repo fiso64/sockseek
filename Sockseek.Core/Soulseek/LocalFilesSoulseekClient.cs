@@ -6,6 +6,7 @@ using Sockseek.Core.PeerBrowsing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Core.Diagnostics;
+using Sockseek.Core.Sharing;
 
 
 namespace Sockseek.Core.Services
@@ -50,8 +51,8 @@ namespace Sockseek.Core.Services
             this.index          = index;
             this.slowMode       = slowMode;
             this.searchDelayMs  = searchDelayMs;
-            this.failingUsers   = new HashSet<string>(failingUsers ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-            this.localFilePaths = localFilePaths ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            this.failingUsers   = new HashSet<string>(failingUsers ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+            this.localFilePaths = localFilePaths ?? new Dictionary<string, string>(StringComparer.Ordinal);
             this.remainingFailedDownloads = Math.Max(0, failDownloads);
         }
 
@@ -74,7 +75,7 @@ namespace Sockseek.Core.Services
             var warningGate = new RepeatedWarningGate();
 
             var files = localPaths.SelectMany(EnumerateLocalFiles).ToList();
-            var localFilePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var localFilePaths = new Dictionary<string, string>(StringComparer.Ordinal);
 
             var fileList = files
                 .Select((entry, i) =>
@@ -91,19 +92,9 @@ namespace Sockseek.Core.Services
                         {
                             try
                             {
-                                using var file = TagLib.File.Create(path);
-                                if (file.Properties != null)
-                                {
-                                    attributes.Add(new Soulseek.FileAttribute(FileAttributeType.BitRate, file.Properties.AudioBitrate));
-                                    attributes.Add(new Soulseek.FileAttribute(FileAttributeType.Length, (int)file.Properties.Duration.TotalSeconds));
-                                    attributes.Add(new Soulseek.FileAttribute(FileAttributeType.VariableBitRate, file.Properties.BitsPerSample > 0 ? 1 : 0));
-
-                                    if (file.Properties.AudioSampleRate > 0)
-                                        attributes.Add(new Soulseek.FileAttribute(FileAttributeType.SampleRate, file.Properties.AudioSampleRate));
-
-                                    if (file.Properties.BitsPerSample > 0)
-                                        attributes.Add(new Soulseek.FileAttribute(FileAttributeType.BitDepth, file.Properties.BitsPerSample));
-                                }
+                                using var stream = System.IO.File.OpenRead(path);
+                                attributes.AddRange(ShareAudioMetadata.Read(path, stream)
+                                    .Select(attribute => new Soulseek.FileAttribute((FileAttributeType)attribute.Type, attribute.Value)));
                             }
                             catch (Exception ex)
                             {
@@ -243,7 +234,8 @@ namespace Sockseek.Core.Services
 
                 foreach (var file in user.Files)
                 {
-                    bool matches = query.Terms.All(term => file.Filename.Contains(term, StringComparison.OrdinalIgnoreCase));
+                    bool matches = query.Terms.All(term => file.Filename.Contains(term.TrimStart('*'), StringComparison.OrdinalIgnoreCase))
+                        && !query.Exclusions.Any(term => file.Filename.Contains(term, StringComparison.OrdinalIgnoreCase));
 
                     if (matches && (options.FileFilter?.Invoke(file) ?? true))
                     {

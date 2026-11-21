@@ -337,9 +337,11 @@ public sealed class JobPreviewStore(
         command.CommandText = "SELECT * FROM job_previews WHERE id = $id;";
         Add(command, "$id", previewId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
-            ? ReadPreview(reader)
-            : null;
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
+        var preview = ReadPreview(reader);
+        // Commit enforces the deadline even between maintenance sweeps.
+        return preview.State is "Ready" or "PartiallyReady" or "Planning" or "Failed"
+            && preview.ExpiresAtUtc <= clock.GetUtcNow() ? preview with { State = "Expired" } : preview;
     }
 
     public async Task<IReadOnlyList<StoredJobPreviewNode>> GetNodesAsync(

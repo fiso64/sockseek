@@ -13,6 +13,7 @@ public static class JobExtraction
         ExtractorContext? context = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
+        if (source.SourceUnavailableReason is { } reason) throw new InvalidDataException(reason);
         if (source.Config is null) throw new InvalidOperationException("Resolve settings before extraction.");
         var (inputType, extractor) = ExtractorRegistry.CreateExtractor(
             source.Input, source.InputType ?? InputType.None, source.Config);
@@ -21,15 +22,12 @@ public static class JobExtraction
         source.SourceInfo = extractor.DescribeSource(source, source) ?? source.SourceInfo;
 
         ExtractionSettings settings = source.Config.Extraction;
-        if (source.RequestedModeOverride is { } requested)
-        {
-            settings = SettingsCloner.Clone(settings);
-            settings.RequestedMode = requested;
-        }
         cancellationToken.ThrowIfCancellationRequested();
-        Job result = await extractor.ExtractAsync(source.Input, settings, context ?? ExtractorContext.None)
+        Job result = await extractor.ExtractAsync(source.UploadedFilePath ?? source.Input, settings, context ?? ExtractorContext.None)
             .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
+        if (source.UploadedFilePath is not null && result is JobList)
+            result.ItemName = Path.GetFileNameWithoutExtension(source.Input);
         return new(Normalize(source, result, settings.UpgradeToAlbum, extractor), inputType, extractor);
     }
 
@@ -68,7 +66,7 @@ public static class JobExtraction
             item.SourceInputType = source.InputType;
             if (collectionType is not null) item.SourceCollectionInputType = collectionType;
             item.ArtifactId = source.ArtifactId;
-            if (source.ArtifactId is not null) item.SourceMutation = null;
+            if (source.UploadedFilePath is not null || source.ArtifactId is not null) item.SourceMutation = null;
             if (source.ResultDownloadBehaviorPolicy is { } behavior)
             {
                 item.DownloadBehaviorPolicy = behavior;

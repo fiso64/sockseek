@@ -1,6 +1,5 @@
 using Sockseek.Core.Models;
 using Sockseek.Core.Jobs;
-using System.Web;
 using Sockseek.Core.Settings;
 
 namespace Sockseek.Core.Extractors;
@@ -21,7 +20,7 @@ namespace Sockseek.Core.Extractors;
             if (ReferenceEquals(source, item)) return new(
                 Detail: source.SourceInputType == InputType.List ? source.Input : "Soulseek import",
                 PreviewTitle: "Soulseek link",
-                NestedPreviewTitle: ClassifyLink(source.Input, source.RequestedModeOverride) == SoulseekLinkInterpretation.RemoteDirectory
+                NestedPreviewTitle: ClassifyLink(source.Input, source.Config?.Extraction.RequestedMode ?? source.RequestedModeOverride) == SoulseekLinkInterpretation.RemoteDirectory
                     ? "Soulseek directory" : "Soulseek link",
                 PreviewDetail: source.Input);
             return item switch
@@ -37,12 +36,18 @@ namespace Sockseek.Core.Extractors;
             return input.StartsWith("slsk://", StringComparison.OrdinalIgnoreCase);
         }
 
+        public static string FormatLink(string username, string remotePath, bool directory = false)
+        {
+            var components = remotePath.Replace('\\', '/').TrimEnd('/').Split('/');
+            string path = string.Join("/", components.Select(Uri.EscapeDataString));
+            return $"slsk://{Uri.EscapeDataString(username)}/{path}" + (directory ? "/" : "");
+        }
+
         public static SoulseekLinkInterpretation ClassifyLink(
             string input,
             ExtractionMode? requestedMode)
         {
-            var uri = HttpUtility.UrlDecode(input);
-            bool directoryLink = uri.EndsWith('/');
+            bool directoryLink = IsDirectoryLink(input);
 
             return requestedMode switch
             {
@@ -55,10 +60,7 @@ namespace Sockseek.Core.Extractors;
 
         public Task<Job> ExtractAsync(string input, ExtractionSettings extraction, ExtractorContext? context = null)
         {
-            var uri = HttpUtility.UrlDecode(input);
-
-            bool directoryLink = uri.EndsWith('/');
-            var (username, path) = ParseSoulseekUri(uri, directoryLink);
+            var (username, path) = ParseSoulseekUri(input);
             var interpretation = ClassifyLink(input, extraction.RequestedMode);
 
             if (interpretation == SoulseekLinkInterpretation.MusicAlbum)
@@ -66,8 +68,8 @@ namespace Sockseek.Core.Extractors;
                 var directory = path.TrimEnd('\\');
                 var query = new AlbumQuery
                 {
-                    Album = Path.GetFileName(directory),
-                    URI = uri,
+                    Album = Utils.GetFileNameSlsk(directory),
+                    URI = input,
                 };
                 var folder = new AlbumFolder(username, directory, []);
                 return Task.FromResult<Job>(new AlbumJob(query)
@@ -80,10 +82,10 @@ namespace Sockseek.Core.Extractors;
 
             if (interpretation == SoulseekLinkInterpretation.MusicTrack)
             {
-                if (directoryLink)
+                if (IsDirectoryLink(input))
                     throw new ArgumentException("A directory Soulseek URI cannot be interpreted as one music track.");
 
-                var query = new SongQuery { Title = Path.GetFileNameWithoutExtension(path), URI = uri };
+                var query = new SongQuery { Title = Utils.GetFileNameWithoutExtSlsk(path), URI = input };
                 return Task.FromResult<Job>(new SongJob(query)
                 {
                     ExactTarget = CreateTarget(username, path),
@@ -102,19 +104,20 @@ namespace Sockseek.Core.Extractors;
             return Task.FromResult<Job>(new RemoteFileJob(CreateTarget(username, path)));
         }
 
+        private static bool IsDirectoryLink(string input)
+            => input.EndsWith('/') || input.EndsWith("%2F", StringComparison.OrdinalIgnoreCase);
+
         private static PeerFileTarget CreateTarget(string username, string path)
             => new(
                 new PeerFileIdentity(username, path),
                 size: null,
                 extension: Path.GetExtension(path));
 
-        private static (string Username, string Path) ParseSoulseekUri(string uri, bool directoryLink)
+        private static (string Username, string Path) ParseSoulseekUri(string uri)
         {
             var parts = uri["slsk://".Length..].Split('/', 2);
-            var username = parts[0];
-            var path = parts.Length > 1 ? parts[1].Replace('/', '\\') : "";
-            if (directoryLink)
-                path = path.TrimEnd('\\');
+            var username = Uri.UnescapeDataString(parts[0]);
+            var path = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]).Replace('/', '\\') : "";
 
             if (username.Length == 0)
                 throw new ArgumentException("Invalid Soulseek URI: missing username.");

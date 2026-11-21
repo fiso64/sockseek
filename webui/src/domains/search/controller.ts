@@ -8,6 +8,7 @@ import type {
   SearchViewDirectoryPageDto,
   SearchViewFilePageDto,
   SearchViewSummaryDto,
+  SearchViewRequest,
 } from '../../api/types';
 import { sameWireInteger, wireInteger } from '../../api/types';
 import type { SearchDraft } from './model';
@@ -323,7 +324,7 @@ export class SearchViewController {
     this.timer = null;
   }
 
-  async refine(request: Schema<'CreateSearchViewRequestDto'>, resetSelection = false): Promise<boolean> {
+  async refine(request: SearchViewRequest, resetSelection = false): Promise<boolean> {
     const jobId = this.state.job?.jobId;
     if (!jobId || this.stopped || (resetSelection && this.selection.pendingCommit)
       || (!resetSelection && searchViewUnavailable(this.state))) return false;
@@ -334,7 +335,10 @@ export class SearchViewController {
     this.state = { ...this.state, refining: true, refinementError: null };
     this.emit();
     try {
-      let view = await this.api.createSearchView(jobId, request, controller.signal);
+      const checked = !resetSelection && request.filterText?.trim() && this.state.summary?.kind === 'GenericDirectories'
+        ? this.selection.checkedFileIdentities() : [];
+      let view = await this.api.createSearchView(jobId, { ...request,
+        keepVisibleFiles: checked.length ? checked : undefined }, controller.signal);
       if (this.stopped || version !== this.refinementGeneration || controller.signal.aborted) return false;
       // A view is a replaceable projection of the same search. Selections and
       // group choices stay browser-owned; the daemon resolves their stable
@@ -815,12 +819,12 @@ export class SearchViewController {
     return this.selection.isSelected(ref, parentRef);
   }
 
-  isDirectoryPathSelected(directoryRef: string, relativePath: string): boolean {
-    return this.selection.isDirectoryPathSelected(directoryRef, relativePath);
+  isDirectoryPathSelected(directoryRef: string, relativePath: string, filtered = false): boolean {
+    return this.selection.isDirectoryPathSelected(directoryRef, relativePath, filtered);
   }
 
-  toggleDirectoryPath(directoryRef: string, relativePath: string, selected: boolean): void {
-    if (!this.selection.toggleDirectoryPath(directoryRef, relativePath, selected)) return;
+  toggleDirectoryPath(directoryRef: string, relativePath: string, selected: boolean, includeFilteredFiles = false): void {
+    if (!this.selection.toggleDirectoryPath(directoryRef, relativePath, selected, includeFilteredFiles)) return;
     this.state = { ...this.state, receipt: null };
     this.emit();
   }

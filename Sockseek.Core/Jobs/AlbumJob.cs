@@ -58,6 +58,7 @@ namespace Sockseek.Core.Jobs;
         // Runtime child jobs for the currently selected/downloaded album folder.
         // AlbumFolder.Files stays as pure search-result candidate data.
         public List<SongJob> TrackJobs { get; } = [];
+        internal IReadOnlyList<string>? ExistingPlaylistTracks { get; set; }
 
         public List<SongJob> EnsureTrackJobs(AlbumFolder folder)
         {
@@ -88,7 +89,8 @@ namespace Sockseek.Core.Jobs;
             ArgumentNullException.ThrowIfNull(folder);
             var tracks = EnsureTrackJobs(folder);
             var attempt = BeginDirectoryAttempt(AlbumTransferPlanner.FromSelectedDirectory(folder));
-            MaterializeDirectoryChildren(tracks);
+            var byTarget = tracks.ToDictionary(song => song.ResolvedPeerTarget!.Identity);
+            MaterializeDirectoryChildren(attempt.Plan.Entries.Select(entry => byTarget[entry.Target.Identity]));
             BeginDirectoryTransfer();
             return attempt;
         }
@@ -144,8 +146,9 @@ namespace Sockseek.Core.Jobs;
 
             var jobs = EnsureSelectedTrackJobs(selectedImages);
 
-            BeginDirectoryAttempt(AlbumTransferPlanner.FromSelectedDirectory(folder, selectedImages));
-            MaterializeDirectoryChildren(jobs);
+            var attempt = BeginDirectoryAttempt(AlbumTransferPlanner.FromSelectedDirectory(folder, selectedImages));
+            var byTarget = jobs.ToDictionary(song => song.ResolvedPeerTarget!.Identity);
+            MaterializeDirectoryChildren(attempt.Plan.Entries.Select(entry => byTarget[entry.Target.Identity]));
             BeginDirectoryTransfer();
             return jobs;
         }

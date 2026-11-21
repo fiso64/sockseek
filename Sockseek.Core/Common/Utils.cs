@@ -13,11 +13,14 @@ public static partial class Utils
     // container extensions such as .webm must not be classified as unconditionally audio.
     public static IReadOnlySet<string> KnownAudioExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        ".mp3", ".flac", ".ogg", ".m4a", ".opus", ".wav", ".aac", ".alac",
+        ".mp3", ".flac", ".ogg", ".m4a", ".m4b", ".opus", ".wav", ".aac", ".alac",
         ".aif", ".aiff",
     };
 
     public static readonly string[] imageExtensions = new string[] { ".jpg", ".png", ".jpeg", ".gif", ".webp" };
+
+    // Matching, naming and sharing need tags and audio properties. Cover art can stay on disk.
+    internal const TagLib.ReadStyle AudioMetadataReadStyle = TagLib.ReadStyle.Average | TagLib.ReadStyle.PictureLazy;
 
     public static bool IsMusicExtension(string extension)
     {
@@ -39,18 +42,6 @@ public static partial class Utils
         str = str.TrimStart();
         return str.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
             || str.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
-    }
-
-    public async static Task WriteAllLinesAsync(string path, IEnumerable<string> lines, char separator)
-    {
-        using (var writer = new StreamWriter(path))
-        {
-            foreach (var line in lines)
-            {
-                await writer.WriteAsync(line);
-                await writer.WriteAsync(separator);
-            }
-        }
     }
 
     public static string GetFullPath(string path)
@@ -164,56 +155,171 @@ public static partial class Utils
         return count;
     }
 
-    public static void Move(string sourceFilePath, string destinationFilePath)
+    public static void Move(string sourceFilePath, string destinationFilePath, bool overwrite = true)
     {
-        if (File.Exists(sourceFilePath))
+        string source = Path.GetFullPath(sourceFilePath);
+        string destination = Path.GetFullPath(destinationFilePath);
+        if (!File.Exists(source))
+            throw new FileNotFoundException("Source file does not exist.", source);
+        if (source == destination) return;
+
+        if (Path.GetDirectoryName(source) == Path.GetDirectoryName(destination))
         {
-            if (File.Exists(destinationFilePath))
-            {
-                if (Path.GetFullPath(sourceFilePath) == Path.GetFullPath(destinationFilePath))
-                {
-                    return;
-                }
-                File.Delete(destinationFilePath);
-            }
-            File.Move(sourceFilePath, destinationFilePath);
+            File.Move(source, destination, overwrite);
+            return;
         }
-        else
+
+        // File.Move can fall back to a copy between mounts. Let that copy finish
+        // under a temporary name before replacing the user's previous recording.
+        string temporary = TemporarySibling(destination);
+        try
         {
-            throw new IOException($"Source file does not exist at path: {sourceFilePath}");
+            File.Move(source, temporary);
+        }
+        catch
+        {
+            File.Delete(temporary);
+            throw;
+        }
+        try
+        {
+            File.Move(temporary, destination, overwrite);
+        }
+        catch
+        {
+            File.Move(temporary, source);
+            throw;
         }
     }
+
+    internal static void CopyToDestination(string source, string destination, bool overwrite)
+    {
+        string temporary = TemporarySibling(destination);
+        try
+        {
+            File.Copy(source, temporary);
+            File.Move(temporary, destination, overwrite);
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
+    }
+
+    // Keep generated names portable to filesystems with a 255-byte component
+    // limit. Retain the file type and distinguish names with the same prefix.
+    internal static string FitPathComponent(string name)
+    {
+        const int maxBytes = 255;
+        if (Encoding.UTF8.GetByteCount(name) <= maxBytes) return name;
+        byte[] hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(name));
+        string suffix = "~" + Convert.ToHexStringLower(hash.AsSpan(0, 8));
+        string extension = Path.GetExtension(name);
+        int available = maxBytes - suffix.Length - Encoding.UTF8.GetByteCount(extension);
+        if (available < 1)
+        {
+            extension = "";
+            available = maxBytes - suffix.Length;
+        }
+        int chars = 0;
+        foreach (var rune in name.EnumerateRunes())
+        {
+            if (rune.Utf8SequenceLength > available) break;
+            available -= rune.Utf8SequenceLength;
+            chars += rune.Utf16SequenceLength;
+        }
+        return name[..chars] + suffix + extension;
+    }
+
+    // A planner whose reservations only grow can reuse the next suffix for the
+    // exact spelling of each path. Filesystem callers must check from the start.
+    internal static string ResolvePathCollision(string path, Func<string, bool> tryReserve,
+        Dictionary<string, int>? nextSuffixByPath = null)
+    {
+        if (tryReserve(path))
+            return path;
+
+        string directory = Path.GetDirectoryName(path)!;
+        string extension = Path.GetExtension(path);
+        string stem = Path.GetFileNameWithoutExtension(path);
+        int suffix = nextSuffixByPath?.GetValueOrDefault(path, 2) ?? 2;
+        for (; ; suffix++)
+        {
+            string candidate = Path.Combine(directory, FitPathComponent($"{stem} ({suffix}){extension}"));
+            if (tryReserve(candidate))
+            {
+                if (nextSuffixByPath != null) nextSuffixByPath[path] = suffix + 1;
+                return candidate;
+            }
+        }
+    }
+
+    internal static string FitFileName(string path)
+        => Path.Join(Path.GetDirectoryName(path), FitPathComponent(Path.GetFileName(path)));
+
+    // File replacement changes the inode. Lock the destination name so two
+    // Sockseek processes can read, merge and publish as one operation.
+    internal static void UpdateFile(string path, Action update)
+    {
+        string fullPath = Path.GetFullPath(path);
+        if (File.Exists(fullPath))
+            fullPath = File.ResolveLinkTarget(fullPath, returnFinalTarget: true)?.FullName ?? fullPath;
+        if (OperatingSystem.IsWindows()) fullPath = fullPath.ToUpperInvariant();
+        string name = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(fullPath)));
+        using var mutex = new Mutex(false, "Sockseek.File." + name);
+        try { mutex.WaitOne(); }
+        catch (AbandonedMutexException) { /* The previous writer exited. We own the mutex. */ }
+        try { update(); }
+        finally { mutex.ReleaseMutex(); }
+    }
+
+    internal static void WriteAtomically(string path, Action<FileStream> write)
+    {
+        path = Path.GetFullPath(path);
+        if (File.Exists(path))
+            path = File.ResolveLinkTarget(path, returnFinalTarget: true)?.FullName ?? path;
+        string temporary = TemporarySibling(path);
+        try
+        {
+            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
+            if (!OperatingSystem.IsWindows() && File.Exists(path))
+                options.UnixCreateMode = File.GetUnixFileMode(path);
+            using (var output = new FileStream(temporary, options))
+                write(output);
+            if (!OperatingSystem.IsWindows() && options.UnixCreateMode is { } mode)
+                File.SetUnixFileMode(temporary, mode);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally { File.Delete(temporary); }
+    }
+
+    private static string TemporarySibling(string destination) =>
+        Path.Combine(Path.GetDirectoryName(Path.GetFullPath(destination))!, $".{Guid.NewGuid():N}.incomplete");
 
     public static void DeleteAncestorsIfEmpty(string startDir, string root)
     {
-        string x = NormalizedPath(Path.GetFullPath(root));
-        string y = NormalizedPath(startDir);
-
-        if (x.Length == 0)
-            return;
-
-        while (y.StartsWith(x + '/') && FileCountRecursive(y) == 0)
+        if (string.IsNullOrWhiteSpace(root)) return;
+        string boundary = Path.GetFullPath(root);
+        for (string? path = Path.GetFullPath(startDir);
+             path != null && IsInDirectory(path, boundary, strict: true);
+             path = Path.GetDirectoryName(path))
         {
-            // Never recursively delete after an emptiness check: another process may
-            // create a payload between the check and deletion.
-            Directory.Delete(y, recursive: false);
-
-            string prev = y;
-            y = NormalizedPath(Path.GetDirectoryName(y) ?? "");
-
-            if (prev.Length == y.Length)
-                break;
+            // A nonempty folder or a concurrent creator ends cleanup. The
+            // completed file has already been published at its destination.
+            try { Directory.Delete(path, recursive: false); }
+            catch (IOException) { break; }
+            catch (UnauthorizedAccessException) { break; }
         }
     }
 
-    public static void MoveAndDeleteParent(string oldPath, string newPath, string recurseUntil)
+    public static void MoveAndDeleteParent(string oldPath, string newPath, string recurseUntil, bool overwrite = true)
     {
         if (Path.GetFullPath(oldPath) != Path.GetFullPath(newPath))
         {
             var newParent = Path.GetDirectoryName(newPath);
             if (!string.IsNullOrEmpty(newParent))
                 Directory.CreateDirectory(newParent);
-            Move(oldPath, newPath);
+            Move(oldPath, newPath, overwrite);
             var oldParent = Path.GetDirectoryName(oldPath);
             if (!string.IsNullOrEmpty(oldParent))
                 DeleteAncestorsIfEmpty(oldParent, recurseUntil);
@@ -731,7 +837,7 @@ public static partial class Utils
         }
 
         const string separator = " - ";
-        inputTitle = inputTitle.Replace(" — ", separator).Replace(" -- ", separator);
+        inputTitle = inputTitle.Replace(" — ", separator).Replace(" – ", separator).Replace(" -- ", separator);
 
         int separatorLength = separator.Length;
         int lastValidSeparatorIndex = -1;
@@ -774,6 +880,27 @@ public static partial class Utils
 
         return (null, inputTitle);
     }
+
+    // Display filters compare human-readable text. Wire names and path identities keep their exact spelling.
+    public static string FoldDisplayText(string value)
+    {
+        if (Ascii.IsValid(value)) return value;
+        try
+        {
+            return DisplayAccentMarks().Replace(value.Normalize(NormalizationForm.FormD), "");
+        }
+        catch (ArgumentException)
+        {
+            // An ill-formed peer name is still searchable by its literal spelling.
+            return value;
+        }
+    }
+
+    [GeneratedRegex(@"\p{M}+")]
+    private static partial Regex DisplayAccentMarks();
+
+    public static bool ContainsDisplayText(string value, string filter)
+        => FoldDisplayText(value).Contains(FoldDisplayText(filter), StringComparison.OrdinalIgnoreCase);
 
     public static bool RemoveDiacriticsIfExist(this string s, out string res)
     {

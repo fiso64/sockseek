@@ -32,20 +32,6 @@ public static class SharingSettingsValidator
             "share exclusions");
         ValidateCount(settings.Sharing.Filters.Count, MaximumFilters, "share filters");
         NormalizeRoots(settings.Sharing.Roots, pathContext);
-        foreach (ShareRootSettings root in settings.Sharing.Roots)
-        {
-            // Missing roots remain a scan-time RootUnavailable condition.
-            if (Directory.Exists(root.LocalPath))
-            {
-                FileAttributes attributes = File.GetAttributes(root.LocalPath);
-                if ((attributes & FileAttributes.Directory) == 0
-                    || (attributes & FileAttributes.ReparsePoint) != 0)
-                {
-                    throw new ArgumentException(
-                        $"Input error: Share root '{root.LocalPath}' must be a real directory, not a link or reparse point.");
-                }
-            }
-        }
         NormalizeExclusions(settings.Sharing, pathContext);
         NormalizeFilters(settings.Sharing.Filters);
         ValidatePeerRestrictions(settings.PeerRestrictions);
@@ -111,8 +97,8 @@ public static class SharingSettingsValidator
 
             ValidateEncodedValue(alias, "Share alias");
             root.LocalPath = fullPath;
-            root.Alias = root.Alias is null ? null : RemotePathKey.NormalizeAlias(alias);
-            root.EffectiveAlias = RemotePathKey.NormalizeAlias(alias);
+            if (root.Alias is not null) root.Alias = alias;
+            root.EffectiveAlias = alias;
         }
 
         RejectDuplicates(

@@ -244,6 +244,10 @@ internal sealed class TransferConfiguration : IEntityTypeConfiguration<TransferE
         builder.HasIndex(x => new { x.Username, x.RemovedAtUtc, x.CreatedAtUtc, x.Id });
         builder.HasIndex(x => new { x.TerminalOutcome, x.CompletedAtUtc });
         builder.HasIndex(x => new { x.LastRuntimeId, x.TerminalOutcome });
+        builder.Property(x => x.RecoveryPending).HasColumnName("recovery_pending");
+        builder.Property(x => x.RetryJobId).HasColumnName("retry_job_id");
+        builder.HasIndex(x => x.RetryJobId).HasFilter("retry_job_id IS NOT NULL");
+        builder.HasIndex(x => x.RecoveryPending).HasFilter("recovery_pending = 1");
         builder.HasIndex(x => x.CompletedAtUtc);
         builder.HasIndex(x => new { x.RemovedAtUtc, x.CreatedAtUtc, x.Id });
         builder.HasIndex(x => new { x.RemovedAtUtc, x.Direction, x.CreatedAtUtc, x.Id });

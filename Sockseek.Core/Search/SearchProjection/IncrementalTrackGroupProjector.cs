@@ -281,7 +281,7 @@ public sealed class IncrementalTrackGroupProjector
         }
 
         private bool ContainsFilter(string value)
-            => filterText is not null && value.Contains(filterText, StringComparison.OrdinalIgnoreCase);
+            => filterText is not null && Utils.ContainsDisplayText(value, filterText);
 
         private bool MeetsVisibility()
             => matchesText && ShareCount >= search.EffectiveMinGroupShares

@@ -24,6 +24,20 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
+        app.MapGet("/api/search-views/{viewId:guid}/revisions/{revision:long}/lifetime",
+            (Guid viewId, long revision, SearchViewCoordinator coordinator, HttpResponse response) =>
+            {
+                response.Headers.CacheControl = "no-store";
+                var remaining = coordinator.Cache.RemainingLifetime(viewId, revision);
+                return remaining is { } time
+                    ? Results.Ok(new SearchViewRevisionLifetimeDto((long)Math.Ceiling(time.TotalMilliseconds)))
+                    : NotFound();
+            })
+            .WithTags("Search Views")
+            .WithSummary("Checks how long a result revision remains available without extending its lifetime.")
+            .Produces<SearchViewRevisionLifetimeDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status404NotFound);
+
         app.MapGet("/api/search-views/{viewId:guid}/definition", GetDefinition)
             .WithTags("Search Views")
             .WithSummary("Gets the exact projection and effective search settings retained for this view.")
@@ -135,6 +149,15 @@ internal static class SearchViewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
+        app.MapPost("/api/search-views/{viewId:guid}/library-matches", LibraryMatches)
+            .WithTags("Search Views")
+            .WithSummary("Returns song or album group references with a matching local copy.")
+            .Produces<string[]>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
+            .Produces<ApiErrorDto>(StatusCodes.Status409Conflict)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+
         app.MapPost("/api/search-views/{viewId:guid}/selection-settings", ResolveSelectionSettings)
             .WithTags("Search Views")
             .WithSummary("Resolves the effective download defaults for a client-owned selection.")
@@ -190,6 +213,20 @@ internal static class SearchViewEndpoints
                 : Results.Accepted($"/api/submissions/{receipt.SubmissionId}", receipt);
         }
         catch (Exception exception)
+        {
+            return Failure(exception);
+        }
+    }
+
+    private static async Task<IResult> LibraryMatches(Guid viewId, SearchViewLibraryMatchesRequestDto request,
+        SearchViewCoordinator coordinator, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var matches = await coordinator.Selections.LibraryMatchesAsync(viewId, request, cancellationToken);
+            return matches == null ? NotFound() : Results.Ok(matches);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             return Failure(exception);
         }

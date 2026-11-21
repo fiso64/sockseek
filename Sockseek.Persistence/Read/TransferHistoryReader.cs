@@ -36,7 +36,13 @@ public sealed record PersistedTransfer(
     string? GroupDisplayPath = null,
     DateTimeOffset? RemovedAtUtc = null,
     string? GroupRelativePath = null,
-    string GroupKind = "Directory");
+    string GroupKind = "Directory",
+    Guid? RetryJobId = null)
+{
+    public bool CanRetry => Direction == "Download" && Source == "SoulseekPeer"
+        && TerminalOutcome is "Failed" or "Interrupted" && RemovedAtUtc == null && RetryJobId == null
+        && Username != null && RemotePath != null && LocalPath != null && JobId != null;
+}
 
 public sealed record PersistedTransferAttempt(
     Guid Id,
@@ -130,6 +136,8 @@ public sealed record TransferRemovalResult(
 
 public interface ITransferHistoryReader
 {
+    Task<List<string>> GetPendingDirectoryFilesAsync(Guid directoryId, Guid[] members, CancellationToken ct);
+    Task<List<Guid>> GetPendingRecoveryIdsAsync(CancellationToken ct);
     Task<PersistedTransferPage> GetTransfersAsync(TransferQuery query, CancellationToken cancellationToken = default);
     Task<PersistedTransferGroupProjection> GetGroupProjectionAsync(
         IReadOnlyCollection<TransferGroupKey> keys,
@@ -148,6 +156,23 @@ public sealed class TransferHistoryReader(
     TimeProvider? timeProvider = null) : ITransferHistoryReader
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+
+    public async Task<List<string>> GetPendingDirectoryFilesAsync(Guid directoryId, Guid[] members, CancellationToken ct)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        string ids = JsonSerializer.Serialize(members.Select(id => id.ToString("D").ToUpperInvariant()));
+        return await context.Database.SqlQuery<string>($"""
+            SELECT remote_path AS Value FROM transfers WHERE group_ref={directoryId.ToString("D")}
+            AND job_id IN (SELECT value FROM json_each({ids})) AND recovery_pending=1 AND removed_at_utc IS NULL
+            """).ToListAsync(ct);
+    }
+
+    public async Task<List<Guid>> GetPendingRecoveryIdsAsync(CancellationToken ct)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.Transfers.Where(t => t.RecoveryPending && t.RemovedAtUtc == null)
+            .OrderBy(t => t.CreatedAtUtc).Select(t => t.Id).ToListAsync(ct);
+    }
 
     public async Task<PersistedTransferPage> GetTransfersAsync(TransferQuery query, CancellationToken cancellationToken = default)
     {
@@ -471,6 +496,31 @@ public sealed class TransferHistoryReader(
                         transfer => transfer.RemovedAtUtc,
                         (long?)removalTime),
                     ct).ConfigureAwait(false);
+                if (changed > 0 && filter.Direction is not "Upload")
+                {
+                    var removedJobs = matching.Where(t => t.JobId != null && t.RemovedAtUtc == removalTime)
+                        .Select(t => t.JobId);
+                    var removedFolderMembers = from transfer in matching
+                        join child in context.Jobs on transfer.JobId equals child.Id
+                        where transfer.RemovedAtUtc == removalTime && child.ParentJobId != null
+                        select new { child.ParentJobId, transfer.Username, transfer.RemotePath };
+                    // A directory continuation owns child transfers. Release just the
+                    // removed member's claim, independently of visible siblings.
+                    await context.Transfers.Where(original => original.RetryJobId != null && original.RemovedAtUtc == null
+                            && removedFolderMembers.Any(m => m.ParentJobId == original.RetryJobId
+                                && m.Username == original.Username && m.RemotePath == original.RemotePath)
+                            && !(from t in context.Transfers join j in context.Jobs on t.JobId equals j.Id
+                                where j.ParentJobId == original.RetryJobId && t.Username == original.Username
+                                    && t.RemotePath == original.RemotePath && t.RemovedAtUtc == null select t.Id).Any())
+                        .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RetryJobId, (Guid?)null)
+                            .SetProperty(t => t.Revision, t => t.Revision + 1), ct);
+                    // Keep the retry claimed while its job still has a visible transfer.
+                    await context.Transfers.Where(original => original.RetryJobId != null
+                            && removedJobs.Contains(original.RetryJobId) && original.RemovedAtUtc == null
+                            && !context.Transfers.Any(t => t.JobId == original.RetryJobId && t.RemovedAtUtc == null))
+                        .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RetryJobId, (Guid?)null)
+                            .SetProperty(t => t.Revision, t => t.Revision + 1), ct).ConfigureAwait(false);
+                }
                 int noOp = resolved - rejected - changed;
                 var reasons = new Dictionary<string, int>(StringComparer.Ordinal);
                 if (rejected > 0)
@@ -523,7 +573,7 @@ public sealed class TransferHistoryReader(
             transfer.GroupRef,
             transfer.GroupDisplayPath,
             FromUnix(transfer.RemovedAtUtc),
-            transfer.GroupRelativePath, transfer.GroupKind);
+            transfer.GroupRelativePath, transfer.GroupKind, transfer.RetryJobId);
 
     private static TransferFileMetadataSnapshot? MapFile(
         Entities.TransferEntity transfer)

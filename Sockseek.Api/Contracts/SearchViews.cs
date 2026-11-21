@@ -23,7 +23,9 @@ public sealed record CreateSearchViewRequestDto(
     string? FilterText = null,
     ServerSearchViewSortOrder? SortOrder = null,
     // Layer view-relevant settings from these named profiles before explicit refinements.
-    IReadOnlyList<string>? ProfileNames = null);
+    IReadOnlyList<string>? ProfileNames = null,
+    // Explicit File Search checks remain visible across changes to the text filter.
+    IReadOnlyList<FileCandidateRefDto>? KeepVisibleFiles = null);
 
 public sealed record SearchViewCountersDto(
     long PublicFileCount,
@@ -60,6 +62,8 @@ public sealed record SearchViewDefinitionDto(
     SearchSettingsPatchDto EffectiveSearchSettings,
     // Settings before manual refinements, when different layers were requested.
     SearchSettingsPatchDto? BaseSearchSettings = null);
+
+public sealed record SearchViewRevisionLifetimeDto(long RemainingMilliseconds);
 
 public sealed record SearchViewRevisionDto(
     Guid ViewId,
@@ -126,7 +130,8 @@ public sealed record SearchViewDirectoryDto(
     SearchViewDirectoryRetrievalState RetrievalState,
     PeerInfoDto Peer,
     SearchViewFileDto BestChild,
-    SearchViewDirectoryFilePreviewDto? InitialFiles = null);
+    SearchViewDirectoryFilePreviewDto? InitialFiles = null,
+    bool HasFilteredFiles = false);
 
 public sealed record SearchViewDirectoryPageDto(
     SearchViewRevisionDto Revision,
@@ -136,7 +141,8 @@ public sealed record SearchViewDirectoryPageDto(
 public sealed record SearchViewDirectoryFileDto(
     string Ref,
     string RelativePath,
-    SearchViewFileDto File);
+    SearchViewFileDto File,
+    string? DeepestFilteredFolder = null);
 
 public sealed record SearchViewDirectoryFilePreviewDto(
     IReadOnlyList<SearchViewDirectoryFileDto> Items,
@@ -244,9 +250,12 @@ public sealed record CommitSearchViewSelectionRequestDto(
 public sealed record SearchViewDirectoryPathRuleDto(
     string DirectoryRef,
     string RelativePath,
-    bool Selected);
+    bool Selected,
+    bool IncludeFilteredFiles = false);
 
 /// <summary>Read-only effective defaults for the job kinds in a client-owned selection.</summary>
+public sealed record SearchViewLibraryMatchesRequestDto(long Revision, IReadOnlyList<string> GroupRefs, SubmissionOptionsDto? Options = null);
+
 public sealed record ResolveSearchViewSelectionSettingsRequestDto(
     long Revision,
     RefSelectionExpressionDto Selection,

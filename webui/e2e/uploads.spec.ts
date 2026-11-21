@@ -85,13 +85,15 @@ test('cancels queued uploads within a mixed folder without cancelling active fil
   await expect(page.locator('.mutation-status')).toContainText('1 transfer cancelled');
   await expect(queued.getByText('Cancelled', { exact: true })).toBeVisible();
   await expect(active.getByLabel('50% complete', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Remove all completed', exact: true }).click();
-  await expect(page.locator('.mutation-status')).toContainText('1 transfer removed');
-  await expect(queued).toHaveCount(0);
-  const remaining = page.locator('.file-item-card').filter({ hasText: 'Uploaded.txt' });
-  await expect(remaining.getByLabel('50% complete', { exact: true })).toBeVisible();
+  const removeCompleted = page.getByRole('button', { name: 'Remove all completed', exact: true });
+  await expect(removeCompleted).toBeDisabled();
   await daemon.command('release-upload');
-  await expect(remaining.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
+  await expect(active.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
+  await removeCompleted.click();
+  await expect(page.locator('.mutation-status')).toContainText('1 transfer removed');
+  await expect(page.getByText('Uploaded.txt', { exact: true })).toHaveCount(0);
+  const remaining = page.locator('.file-item-card').filter({ hasText: 'Queued.txt' });
+  await expect(remaining.getByRole('button', { name: 'Cancelled', exact: true })).toBeVisible();
 });
 
 test('serves a peer upload through live progress and retained history', async ({ page, daemon }) => {

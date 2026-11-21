@@ -58,12 +58,7 @@ internal static class HistoricalJobDtoMapper
 
     public static FolderSearchProjection? DefaultFolderProjection(JobExecutionPayload? payload)
         => payload is SearchJobSnapshotPayload { DefaultFolderProjection: { } projection }
-            ? new(new AlbumQuery
-            {
-                Artist = projection.Query.Artist ?? "", Album = projection.Query.Album ?? "",
-                SearchHint = projection.Query.SearchHint ?? "", URI = projection.Query.URI ?? "",
-                ArtistMaybeWrong = projection.Query.ArtistMaybeWrong,
-            }, projection.IncludeFiles) : null;
+            ? new(projection.Query.ToQuery(), projection.IncludeFiles) : null;
 
     public static JobSummaryDto ToSummary(PersistedJob job)
         => ToSummary(job, ReadSnapshot(job, tolerateInvalidPayload: true));
@@ -111,7 +106,8 @@ internal static class HistoricalJobDtoMapper
     internal static JobDetailDto ToDetail(PersistedJob job, int childCount)
     {
         var snapshot = ReadSnapshot(job);
-        return new(ToSummary(job, snapshot), ToPayload(snapshot), childCount);
+        // The source foreign key is cleared by SQLite when its job is deleted.
+        return new(ToSummary(job, snapshot), ToPayload(snapshot), childCount, job.SourceJobId.HasValue);
     }
 
     internal static PeerFileTargetDto? ToSelectedFileTarget(PersistedJob job)

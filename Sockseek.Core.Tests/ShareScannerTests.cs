@@ -51,10 +51,26 @@ public sealed class ShareScannerTests
     }
 
     [TestMethod]
-    public async Task ScanAsync_NestedCatalogFileCanBeOpenedForUpload()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ScanAsync_NestedCatalogFileCanBeOpenedForUpload(bool linkedRoot)
     {
-        await using var fixture = new ScannerFixture();
+        await using var fixture = new ScannerFixture(createRoot: !linkedRoot);
         string relative = Path.Combine("[testing] Artist", "[testing] Album", "01 - [testing] Track.txt");
+        if (linkedRoot)
+        {
+            string library = Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(fixture.RootPath)!, "library")).FullName;
+            try
+            {
+                Directory.CreateSymbolicLink(fixture.RootPath, library);
+                Directory.CreateSymbolicLink(Path.Combine(library, "linked-album"), "[testing] Artist");
+                File.CreateSymbolicLink(Path.Combine(library, "linked-track.txt"), relative);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
+            {
+                Assert.Inconclusive($"Cannot create test symlinks on this runner: {ex.Message}");
+            }
+        }
         string local = Path.Combine(fixture.RootPath, relative);
         Directory.CreateDirectory(Path.GetDirectoryName(local)!);
         await File.WriteAllTextAsync(local, "shared file contents");
@@ -64,7 +80,7 @@ public sealed class ShareScannerTests
         var file = writer.Files.Single();
         Assert.AreEqual(relative, file.RelativePath);
         Assert.AreEqual(@"Music\[testing] Artist\[testing] Album\01 - [testing] Track.txt", file.RemotePath);
-        await using var opened = SafeSharedFileOpener.Open(fixture.RootPath, file.RelativePath,
+        await using var opened = SafeSharedFileOpener.Open(writer.Roots.Single().LocalPath, file.RelativePath,
             new SharedFileFingerprint(file.SizeBytes, file.ModifiedAtUtc));
         using var reader = new StreamReader(opened.Stream);
         Assert.AreEqual("shared file contents", await reader.ReadToEndAsync());

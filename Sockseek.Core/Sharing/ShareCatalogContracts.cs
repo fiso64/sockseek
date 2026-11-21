@@ -4,7 +4,7 @@ namespace Sockseek.Core.Sharing;
 
 public static class ShareCatalogVersions
 {
-    public const int Schema = 6;
+    public const int Schema = 7;
     public const int BrowseWire = 1;
 }
 

@@ -730,11 +730,11 @@ public class CliEndToEndTests
             Assert.IsTrue(File.Exists(indexPath), $"Expected interactive CSV run to update list index at {indexPath}");
             var indexLines = File.ReadAllLines(indexPath).Select(line => line.Replace('\\', '/')).ToList();
 
-            Assert.IsTrue(indexLines.Any(line => line.Contains("Sonic Youth,Daydream Nation,,-1,1,1,0")),
+            Assert.IsTrue(indexLines.Any(line => line.Contains("Sonic Youth,Daydream Nation,,-1,2,1,0")),
                 string.Join("\n", indexLines));
-            Assert.IsTrue(indexLines.Any(line => line.Contains("Mitski,Be the Cowboy,,-1,1,1,0")),
+            Assert.IsTrue(indexLines.Any(line => line.Contains("Mitski,Be the Cowboy,,-1,2,1,0")),
                 string.Join("\n", indexLines));
-            Assert.IsTrue(indexLines.Any(line => line == $",Talking Heads,Remain in Light,,-1,1,2,{(int)JobFailureReason.NoSearchResults}"),
+            Assert.IsTrue(indexLines.Any(line => line == $",Talking Heads,Remain in Light,,-1,2,2,{(int)JobFailureReason.NoSearchResults}"),
                 string.Join("\n", indexLines));
         }
         finally

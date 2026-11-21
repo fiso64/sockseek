@@ -51,8 +51,7 @@ General Options
                                   compatible inputs)
   --no-write-index                Do not create/update the Sockseek index
   --index-path <path>             Override default path for Sockseek index
-  --no-incomplete-ext             Save files with their final name instead of a temporary
-                                  `.incomplete` extension.
+  --no-incomplete-ext             Write directly to the destination during download.
 
   --no-skip-existing              Download items even when index/file checks find an existing match
   --skip-mode-output-dir <mode>   How to match files in the output dir: name|tag|index
@@ -105,7 +104,7 @@ Search Options
   -d, --desperate                 Equivalent to --fallback-level 3
   --no-remove-special-chars       Keep special characters in Soulseek search terms
   --max-retries <num>             Max download retries per item (default: 10)
-  --unknown-error-retries <num>   Extra retries for unknown/transient errors (default: 2)
+  --unknown-error-retries <num>   Extra retries for transient errors (default: 2)
   --fails-to-downrank <num>       Failures within a workflow before downranking a peer (default: 2)
   --fails-to-ignore <num>         Failures within a workflow before ignoring a peer (default: 3)
 
@@ -115,7 +114,7 @@ Search Options
                                   Runs a YouTube search and downloads the first result. For
                                   YouTube inputs, downloads directly by ID instead.
   --yt-dlp-argument <str>         The command line arguments when running yt-dlp. Default:
-                                  ""{id}"" -f bestaudio/best -ci -o ""{savepath-noext}.%(ext)s"" -x
+                                  ""{id}"" -f bestaudio/best -o ""{savepath-noext}.%(ext)s"" -x
                                   Available vars are: {id}, {savedir}, {savepath},
                                   {savepath-noext}.
                                   Note that -x causes yt-dlp to download webms in case ffmpeg
@@ -123,7 +122,9 @@ Search Options
 
   --search-timeout <ms>           Stop a search attempt after this long without an accepted
                                   response (default: 5000 for CLI jobs, 15000 for webui searches)
-  --max-stale-time <ms>           Max download time without progress in ms (default: 30000)
+  --max-stale-time <ms>           Max download time without progress in ms (default: 30000).
+                                  Files you pick in Search or peer Shares can wait longer
+                                  if the peer confirms they’re still queued.
   --response-limit <num>          Max accepted peer responses per search attempt (default: 250)
   --searches-per-time <num>       Max searches per time interval. Higher values may cause
                                   30-minute bans, see `--help notes`. (default: 34)
@@ -548,7 +549,11 @@ File conditions
   # ignore locked items.
   pref-exclude-locked = true
 
-  Note: Format conditions are UNORDERED! --pref-format mp3,flac is the same as flac,mp3.
+  File Search in the UI starts with no file conditions. To set defaults for a particular search
+  mode, use an auto-profile with an input-type or a download-mode condition. See search defaults.
+  WARNING
+  The order of formats in a list has no effect. Both --pref-format mp3,flac and --pref-format
+  flac,mp3 give MP3 and FLAC equal preference.
   For album downloads, conditions like format, bitrate and sample rate operate based on coverage: A
   folder with 9 FLAC files and 1 MP3 is preferred over a mostly-MP3 folder, and the selected folder
   is still downloaded as a whole. Use --strict-album-quality to require every audio file in the
@@ -575,23 +580,31 @@ File conditions
 
     const string nameFormatHelp = @"
 Name format
-  Variables enclosed in {} will be replaced by the corresponding available value. Name format
-  supports subdirectories as well as conditional expressions like {tag1|tag2} - If tag1 is null, use
-  tag2. This can be chained arbitrarily many times. String literals enclosed in parentheses are
-  ignored in the null check. See Variables for the complete reference, also available with sockseek
-  --help variables.
-  Sockseek can format the downloaded filenames using --name-format <yourformat>. Variables enclosed
-  in {} will be replaced by the corresponding file tag value. Name format supports subdirectories as
-  well as conditional expressions like {tag1|tag2} - If tag1 is null, use tag2 (can be chained).
-  Examples:
-  - {artist} - {title} Always name it 'Artist - Title'. Because some files on Soulseek are untagged,
-    the following is generally preferred:
-  - {artist( - )title|filename} Everything inside round parentheses () inside braces {} is treated
-    as a raw string and ignored in the null check. Here, if artist and title are both not null, name
-    it 'Artist - Title', otherwise use the original filename.
-  - {albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename} Sort files
-    into artist/album folders if all tags are present, otherwise put them in the 'missing-tags'
-    folder.";
+  Use --name-format to choose how Sockseek names downloaded files and arranges them in folders.
+  When --name-format is blank (the default), songs keep their filenames, albums and whole folders
+  keep their tree, and a named list or playlist may add an enclosing folder.
+  Suppose 01.flac has the artist tag North Yard and the title tag Opening. Sockseek substitutes
+  those values wherever you write {artist} and {title}:
+
+  {artist} - {title}
+
+  Saves the file as North Yard - Opening.flac.
+
+  {artist}/{title}
+
+  Saves it as North Yard/Opening.flac, with a folder for the artist.
+
+  {artist( - )title|filename}
+
+  Tries the part before | first. If both tags are present, it inserts the text inside ( - ) between
+  them, giving North Yard - Opening.flac. If either tag is missing, it uses filename and keeps
+  01.flac. Note that you can chain | more than once.
+
+  {albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename}
+
+  Organizes tagged tracks by album artist and album. If a required tag is missing, the file goes
+  under missing-tags with its remote folder and filename.
+  See the variable reference or run sockseek --help variables.";
 
     const string variablesHelp = @"
 Variables
@@ -742,8 +755,8 @@ Configuration
 
     const string onCompleteHelp = @"
 On-Complete Actions
-  The --on-complete option allows executing commands after a track or album is downloaded. Multiple
-  actions can be chained using the + prefix (note the space after +).
+  The --on-complete option allows executing commands when a file or folder download finishes.
+  Multiple actions can be chained using the + prefix (note the space after +).
   Syntax: --on-complete [options] -- command
   Hint: You can use --mock-files-dir to test your commands (see Testing Options).
   Every on-complete command must include the -- delimiter. Sockseek options go before it; everything
@@ -751,7 +764,7 @@ On-Complete Actions
   When passing an on-complete action on the command line, quote the whole value so the delimiter is
   part of the --on-complete argument:
 
-  --on-complete ""when=success scope=album -- notify-send \""Downloaded\"" \""{path}\""""
+  --on-complete ""when=success scope=folder -- notify-send \""Downloaded\"" \""{path}\""""
 
   Options
     - when= omitted - Same as when=completed
@@ -763,14 +776,16 @@ On-Complete Actions
     - when=not-found-last-time - Execute only for not-found-last-time skipped jobs
     - when=cancelled - Execute only for cancelled jobs
     - when=any - Execute for every terminal outcome
-    - scope=track - Execute only for track-level completions
-    - scope=album - Execute only for album-level completions
+    - scope=file - Run for each file, including files in a folder or album download.
+    - scope=folder - Run once for the whole folder or album.
+    - Omit scope to run for both. A successful three-file folder triggers a when=success command
+      four times.
     - hidden - Hide the command window
     - shell - Use shell execute
     - lock - Serialize this action across jobs
-    - update-index - Read stdout as success;new_path, failed, or ignored;new_path to update the
-      track/album entry in the index and playlist. failed clears the stored path; ignored;new_path
-      leaves the state unchanged and updates only the path.
+    - update-index - Read stdout only if the command exits with code 0. Use success;new_path to
+      record success and the new path, failed to record failure and clear the path, or
+      ignored;new_path to update only the path.
     If when= is omitted, it behaves like when=completed. This preserves the usual ""run when work
     completed"" behavior while avoiding commands for already-existing or not-found-last-time skips.
     Chained actions evaluate when= and outcome/path variables against the result of the preceding
@@ -801,21 +816,24 @@ On-Complete Actions
 
     Sockseek captures stdout/stderr for ordinary on-complete commands, so chained commands can use
     output variables from the previous ones. Commands launched with shell cannot use stdout/stderr.
-    For album-only (scope=album) actions, tag-based variables such as {title}, {artist}, and {album}
-    are read from the first audio file in the album.
+    For folder actions on album jobs, tag-based variables such as {title}, {artist}, and {album} are
+    read from the first audio file in the album.
 
   Examples
-    Send a Linux desktop notification for album downloads:
+    This auto-profile applies to album downloads. The folder scope sends one Linux desktop
+    notification when the whole album succeeds.
 
-    on-complete = when=success scope=album -- notify-send ""Downloaded: {album}"" ""{path}""
+    [album-notification]
+    profile-cond = album
+    on-complete = when=success scope=folder -- notify-send ""Downloaded: {album}"" ""{path}""
 
     Search album art with Cover Fetcher:
 
-    on-complete = when=success scope=album hidden -- cmd /c start """" ""path\to\CoverFetcher.exe"" --from-dir ""{path}""
+    on-complete = when=success scope=folder hidden -- cmd /c start """" ""path\to\CoverFetcher.exe"" --from-dir ""{path}""
 
     Queue downloaded audio files in foobar2000:
 
-    on-complete = when=success hidden -- cmd /c if {is-audio}==true start """" ""path\to\foobar2000.exe"" /immediate /add ""{path}""
+    on-complete = when=success scope=file hidden -- cmd /c if {is-audio}==true start """" ""path\to\foobar2000.exe"" /immediate /add ""{path}""
 
     Convert downloaded audio files to MP3 on Windows (requires ffmpeg):
 
@@ -950,8 +968,7 @@ Daemon and remote access
 
     sockseek daemon --allow-http-auth
 
-    Open http://127.0.0.1:5030 and sign in as admin with your WebUI password. For a container
-    installation, follow the Docker Compose guide.
+    Open http://127.0.0.1:5030 and sign in as admin with your WebUI password.
 
   Your first WebUI search or download
     Use the main search bar to inspect results and choose the files or folder you want. For an
@@ -1025,7 +1042,7 @@ Daemon Options
   Sharing, Uploads and Chat
 
     --share <path|[alias]path>      Share a local directory, optionally under an alias.
-                                    Prefix with '+ ' to append.
+                                    The share root may be a symlink. Prefix with '+ ' to append.
     --share-exclude <path>          Exclude a local directory and its contents from shares.
                                     Prefix with '+ ' to append.
     --share-filter <regex>          Exclude files and directories whose remote relative paths
@@ -1131,7 +1148,8 @@ Shares
     --username <name>                 Filter either bulk action by peer
     --group-ref <ref>                 Limit either bulk action to a group (requires --username and --direction)",
         ["transfer"] = @"
-  sockseek transfer cancel|remove <id>
+  sockseek transfer cancel|retry|remove <id>
+  sockseek job rerun|retry-directory <id>
                                       Cancel one transfer or remove it from history",
     };
 }

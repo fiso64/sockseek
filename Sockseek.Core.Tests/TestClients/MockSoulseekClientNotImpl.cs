@@ -136,11 +136,6 @@ namespace Tests.ClientTests
             throw new NotImplementedException();
         }
 
-        public Task<int> GetDownloadPlaceInQueueAsync(string username, string filename, CancellationToken? cancellationToken = null)
-        {
-            throw new NotImplementedException();
-        }
-
         public int GetNextToken()
         {
             throw new NotImplementedException();

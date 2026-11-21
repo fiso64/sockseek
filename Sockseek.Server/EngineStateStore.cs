@@ -331,6 +331,7 @@ public sealed class EngineStateStore
         events.JobStructureChanged += OnJobStructureChanged;
         events.JobDiscoveryChanged += OnJobDiscoveryChanged;
         events.JobExecutionCompleted += OnJobExecutionCompleted;
+        events.RootExecution += ApplyJobChange;
         events.WorkflowRetired += OnWorkflowRetired;
         events.SearchResultsAdded += OnSearchResultsAdded;
         events.SearchCompleted += OnSearchCompleted;
@@ -362,6 +363,7 @@ public sealed class EngineStateStore
         events.JobStructureChanged -= OnJobStructureChanged;
         events.JobDiscoveryChanged -= OnJobDiscoveryChanged;
         events.JobExecutionCompleted -= OnJobExecutionCompleted;
+        events.RootExecution -= ApplyJobChange;
         events.WorkflowRetired -= OnWorkflowRetired;
         events.SearchResultsAdded -= OnSearchResultsAdded;
         events.SearchCompleted -= OnSearchCompleted;
@@ -381,7 +383,7 @@ public sealed class EngineStateStore
 
     internal bool IsJobAvailable(Guid jobId)
     {
-        using (LockJobReads()) return jobState.IsJobAvailable(jobId);
+        lock (gate) return jobState.IsJobAvailable(jobId);
     }
 
     public JobSummaryDto? GetJobSummary(Guid jobId)
@@ -392,6 +394,11 @@ public sealed class EngineStateStore
     public IReadOnlyList<JobSummaryDto> GetJobSummaries(IReadOnlyCollection<Guid> jobIds)
     {
         using (LockJobReads()) return jobState.GetJobSummaries(jobIds);
+    }
+
+    internal long? PendingTerminalJobRevision(Guid jobId)
+    {
+        lock (gate) return jobState.Persistence?.TerminalRevision(jobId);
     }
 
     public JobDetailDto? GetJobDetail(Guid jobId)
@@ -983,7 +990,7 @@ public sealed class EngineStateStore
             change.AttemptRevision,
             change.OccurredAtUtc,
             "Failed",
-            Sockseek.Core.Events.TransferFailureReason.PeerFailure.ToString(),
+            change.Reason.ToString(),
             change.Exception.Message);
 
     private void OnTransferAttemptCancelled(TransferAttemptCancelledChange change)

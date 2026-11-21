@@ -140,14 +140,14 @@ internal static class JobEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status503ServiceUnavailable);
 
-        app.MapPost("/api/jobs/{jobId:guid}/rerun-search", async (
+        app.MapPost("/api/jobs/{jobId:guid}/rerun", async (
             Guid jobId,
             JobSubmissions submissions,
             CancellationToken cancellationToken) =>
         {
             try
             {
-                JobSummaryDto? submitted = await submissions.RerunSearchJobAsync(
+                JobSummaryDto? submitted = await submissions.RerunJobAsync(
                     jobId, cancellationToken);
                 return submitted == null
                     ? Results.NotFound()
@@ -163,12 +163,27 @@ internal static class JobEndpoints
             }
         })
             .WithTags("Job Submission")
-            .WithSummary("Replays only one planned search job from its retained execution settings.")
-            .WithDescription("Replays the selected search while leaving sibling jobs in their current state.")
+            .WithSummary("Runs one accepted job again using its saved command and settings.")
+            .WithDescription("A child runs independently of its siblings.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status503ServiceUnavailable);
+
+        app.MapPost("/api/jobs/{jobId:guid}/retry-directory", async (Guid jobId, Guid? memberJobId,
+            JobSubmissions submissions, CancellationToken ct) =>
+        {
+            try
+            {
+                var job = await submissions.RetryDirectoryAsync(jobId, memberJobId, null, null, ct);
+                return job == null ? Results.NotFound() : Results.Ok(job);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(new ApiErrorDto(ex.Message, "DirectoryNotRetryable"));
+            }
+        }).WithTags("Jobs").WithSummary("Retries missing members of one retained peer selection.")
+            .Produces<JobSummaryDto>().Produces(StatusCodes.Status404NotFound).Produces<ApiErrorDto>(StatusCodes.Status409Conflict);
 
         app.MapGet("/api/jobs", async (
             JobReadService jobs,
@@ -321,8 +336,8 @@ internal static class JobEndpoints
                 return page != null
                     ? Results.Ok(page.Items)
                     : Results.NotFound(new ApiErrorDto(
-                        "The transfer was not found.",
-                        "TransferNotFound"));
+                        "Raw search results are unavailable for this job.",
+                        "SearchResultsUnavailable"));
             }
             catch (Exception ex) when (IsInvalidRequest(ex))
             {
@@ -331,7 +346,7 @@ internal static class JobEndpoints
         })
             .WithTags("Search Results")
             .WithSummary("Gets raw search responses for a search job.")
-            .WithDescription("Use afterSequence to incrementally fetch raw responses after the last seen sequence.")
+            .WithDescription("Use afterSequence to fetch responses after the last seen sequence. HTTP 404 with code SearchResultsUnavailable means the job has no available raw result history.")
             .Produces<IReadOnlyList<SearchRawResultDto>>()
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound);
 

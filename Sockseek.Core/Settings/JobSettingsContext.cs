@@ -1,3 +1,4 @@
+using Sockseek.Core.Extractors;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Planning;
 using Sockseek.Core.Services;
@@ -24,6 +25,12 @@ public readonly record struct JobSettingsContext(
     bool GroupResults = false,
     JobSelectionSource? SelectionSource = null)
 {
+    public bool IsOrdinaryRemoteTransfer(DownloadSettings settings)
+        => Kind is JobSnapshotKind.RemoteFile or JobSnapshotKind.RemoteDirectory
+            || Kind == JobSnapshotKind.Extract && Input is { } input && SoulseekExtractor.InputMatches(input)
+                && SoulseekExtractor.ClassifyLink(input, RequestedMode ?? settings.Extraction.RequestedMode)
+                    is SoulseekLinkInterpretation.RemoteFile or SoulseekLinkInterpretation.RemoteDirectory;
+
     public static JobSettingsContext FromCommand(NormalizedJobCommand command, Guid workflowId)
         => new(command.AcceptedJobId ?? Guid.Empty, workflowId, command.Kind,
             command.SourceInputType, command.Input, command.InputType, command.RequestedMode,

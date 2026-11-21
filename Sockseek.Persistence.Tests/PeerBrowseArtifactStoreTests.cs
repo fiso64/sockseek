@@ -512,13 +512,13 @@ public sealed class PeerBrowseArtifactStoreTests
         Assert.AreEqual(50, root.LockedMatchingBytes);
 
         PeerBrowseSearchPage directoryMatch = await store.SearchAsync(
-            resource.BrowseId, "ÁLBUM", null, null, null, 20);
+            resource.BrowseId, "ALBUM", null, null, null, 20);
         Assert.AreEqual(2, directoryMatch.PublicMatchingFileCount);
         Assert.AreEqual(120, directoryMatch.PublicMatchingBytes);
         Assert.AreEqual(2, directoryMatch.Items.Count(row => row.Kind == PeerBrowseSearchEntryKind.File));
 
         PeerBrowseSearchPage crossingPath = await store.SearchAsync(
-            resource.BrowseId, @"áLBUM\tRaCk oNe", null, null, null, 20);
+            resource.BrowseId, @"aLBUM\tRáCk oNe", null, null, null, 20);
         Assert.AreEqual(1, crossingPath.PublicMatchingFileCount);
         Assert.AreEqual("Track One.FLAC", crossingPath.Items.Single(
             row => row.Kind == PeerBrowseSearchEntryKind.File).Name);
@@ -531,7 +531,7 @@ public sealed class PeerBrowseArtifactStoreTests
 
         PeerBrowseSearchPage shortQuery = await store.SearchAsync(
             resource.BrowseId, "ú", null, null, null, 20);
-        Assert.AreEqual(2, shortQuery.PublicMatchingFileCount);
+        Assert.AreEqual(3, shortQuery.PublicMatchingFileCount);
 
         PeerBrowseSearchPage emptyDirectory = await store.SearchAsync(
             resource.BrowseId, "Empty", null, null, null, 20);
@@ -558,7 +558,7 @@ public sealed class PeerBrowseArtifactStoreTests
     }
 
     [TestMethod]
-    public async Task MixedSearch_SubstringsUseOrdinalIgnoreCaseForUnicodeAndLiteralPunctuation()
+    public async Task MixedSearch_SubstringsIgnoreCaseAndAccentsAndPreserveLiteralPunctuation()
     {
         await using var directory = new TemporaryDirectory();
         await using var store = new PeerBrowseArtifactStore(directory.Path);
@@ -578,17 +578,20 @@ public sealed class PeerBrowseArtifactStoreTests
         }
 
         foreach (string query in new[] { "οσος", "ΟΣΟΣ", "file", "ſou", "sou", "Kel", "kel",
-                     "A+B \"", "%_", "star*", "𐐨ab", "𐐀", "CAFÉ", "café", "Აbc", "აbc", "𞤀bc", "𞤢bc", "f", "fl", "not-present", "abcdefghi", "aaaa", "abc\"def", "[literal]", "\0ab",
+                     "A+B \"", "%_", "star*", "𐐨ab", "𐐀", "CAFÉ", "café", "cafe", "Აbc", "აbc", "𞤀bc", "𞤢bc", "f", "fl", "not-present", "abcdefghi", "aaaa", "abc\"def", "[literal]", "\0ab",
                      @"ROOT\f", @"\ſou", "root\\", "oot\\", @"Root\not-present", "Root\0\\f" })
         {
             PeerBrowseSearchPage page = await store.SearchAsync(resource.BrowseId, query, null, null, null, 500);
-            string[] expected = names.Where(name => (@"Root\" + name).Contains(query,
+            string[] expected = names.Where(name => Plain(@"Root\" + name).Contains(Plain(query),
                 StringComparison.OrdinalIgnoreCase)).ToArray();
             CollectionAssert.AreEquivalent(expected, page.Items
                 .Where(row => row.Kind == PeerBrowseSearchEntryKind.File).Select(row => row.Name).ToArray(), query);
             Assert.AreEqual(expected.Length, page.PublicMatchingFileCount, query);
             Assert.AreEqual(expected.Length, page.PublicMatchingBytes, query);
         }
+        static string Plain(string value) => value.Replace("é", "e").Replace("É", "E")
+            .Replace("e\u0301", "e").Replace("İ", "I").Replace("K", "K");
+
         // The same exact refs and UTF-8 ordering must survive disk reload.
         await using var restarted = new PeerBrowseArtifactStore(directory.Path);
         var pagedNames = new List<string>();

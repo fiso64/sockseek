@@ -63,7 +63,7 @@
       <header>
         <div class="login-heading">
           <div class="brand">
-            <img class="brand-mark" src="/sockseek-logo.svg" alt="" />
+            <img class="brand-mark" src="sockseek-logo.svg" alt="" />
             <div class="brand-copy"><strong>sockseek</strong></div>
           </div>
           <DocumentationLink />

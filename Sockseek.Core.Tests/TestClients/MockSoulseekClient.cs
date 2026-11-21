@@ -3,6 +3,7 @@ using Sockseek.Core;
 using Sockseek.Core.Services;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
+using Sockseek.Core.Sharing;
 using Soulseek;
 using Soulseek.Diagnostics;
 
@@ -43,6 +44,10 @@ namespace Tests.ClientTests
         public Func<string, string, CancellationToken, Task>? BeforeDownloadStartsAsync;
         public Func<string, string, CancellationToken, Task>? BeforeDownloadCompletesAsync;
         public Func<string, string, TransferStates, CancellationToken, Task>? AfterDownloadStateChangedAsync;
+        public Func<string, string, int>? QueuePosition;
+        public Task<int> GetDownloadPlaceInQueueAsync(string username, string filename, CancellationToken? cancellationToken = null)
+            => Task.FromResult(QueuePosition?.Invoke(username, filename) ?? -1);
+
         public Action<long, long>? AfterDownloadProgress;
         public Action<Stream>? DownloadStreamOpened;
         public bool BrowseReturnsBasenames { get; set; }
@@ -111,19 +116,9 @@ namespace Tests.ClientTests
                         {
                             try
                             {
-                                using var file = TagLib.File.Create(path);
-                                if (file.Properties != null)
-                                {
-                                    attributes.Add(new Soulseek.FileAttribute(FileAttributeType.BitRate, file.Properties.AudioBitrate));
-                                    attributes.Add(new Soulseek.FileAttribute(FileAttributeType.Length, (int)file.Properties.Duration.TotalSeconds));
-                                    attributes.Add(new Soulseek.FileAttribute(FileAttributeType.VariableBitRate, file.Properties.BitsPerSample > 0 ? 1 : 0));
-
-                                    if (file.Properties.AudioSampleRate > 0)
-                                        attributes.Add(new Soulseek.FileAttribute(FileAttributeType.SampleRate, file.Properties.AudioSampleRate));
-
-                                    if (file.Properties.BitsPerSample > 0)
-                                        attributes.Add(new Soulseek.FileAttribute(FileAttributeType.BitDepth, file.Properties.BitsPerSample));
-                                }
+                                using var stream = System.IO.File.OpenRead(path);
+                                attributes.AddRange(ShareAudioMetadata.Read(path, stream)
+                                    .Select(attribute => new Soulseek.FileAttribute((FileAttributeType)attribute.Type, attribute.Value)));
                             }
                             catch (Exception) { }
                         }

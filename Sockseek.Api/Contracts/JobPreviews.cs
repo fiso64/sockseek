@@ -57,7 +57,9 @@ public sealed record CommitJobPreviewRequestDto(
     long Revision,
     RefSelectionExpressionDto Selection,
     Guid IdempotencyKey,
-    IReadOnlyList<JobPreviewSelectionOverrideDto>? SubtreeOverrides = null);
+    IReadOnlyList<JobPreviewSelectionOverrideDto>? SubtreeOverrides = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DownloadSettingsPatchDto? DownloadOverrides = null);
 
 /// <summary>
 /// Client-owned selection rule for this preview node and its descendants. The

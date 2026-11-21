@@ -226,6 +226,9 @@ public sealed class SearchViewCoordinatorTests
     private sealed class ManualViewClock : TimeProvider
     {
         private long ticks;
+        private readonly DateTimeOffset started = DateTimeOffset.UtcNow;
+        public override DateTimeOffset GetUtcNow() => started.AddTicks(Interlocked.Read(ref ticks));
+        public void Advance(TimeSpan interval) => Interlocked.Add(ref ticks, interval.Ticks);
         private readonly TaskCompletionSource<ManualTimer> armed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task TimerArmed => armed.Task;
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
@@ -360,6 +363,8 @@ public sealed class SearchViewCoordinatorTests
             {
                 Assert.IsTrue(await observation.MoveNextAsync());
                 Assert.AreEqual(0L, observation.Current.Revision);
+                clock.Advance(TimeSpan.FromMinutes(32));
+                views.Cache.PruneExpired();
                 var caughtUp = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 void Published(Sockseek.Server.Planning.SearchViewInfo published) { if (published.Id == view.ViewId && published.Revision >= 2) caughtUp.TrySetResult(); }
                 views.ViewPublished += Published;
@@ -1050,8 +1055,10 @@ public sealed class SearchViewCoordinatorTests
             Assert.AreEqual(accepted.JobId, view.SourceJobId);
             Assert.AreEqual(ServerSearchViewProjectionKind.TrackGroups, view.Kind);
             Assert.IsFalse(view.IsComplete);
-            Assert.IsNull(await persistence.JobHistory!.GetJobAsync(accepted.JobId));
-            JobSummaryDto? replay = await supervisor.Submissions.RerunSearchJobAsync(accepted.JobId, CancellationToken.None);
+            var pending = await persistence.JobHistory!.GetJobAsync(accepted.JobId);
+            Assert.AreEqual("Pending", pending?.LifecycleState);
+            Assert.AreEqual(accepted.SubmissionId, pending?.SubmissionId);
+            JobSummaryDto? replay = await supervisor.Submissions.RerunJobAsync(accepted.JobId, CancellationToken.None);
             Assert.IsNotNull(replay, "Accepted live/pending searches must not depend on a historical job row.");
             Assert.AreNotEqual(accepted.JobId, replay.JobId);
             Assert.AreNotEqual(accepted.SubmissionId, replay.SubmissionId);
