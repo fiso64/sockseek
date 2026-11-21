@@ -24,10 +24,10 @@ export function jobFileTransfer(job: Schema<'JobSummaryDto'> | null | undefined,
   file: Schema<'FileDownloadStateDto'> | null | undefined,
   target?: Schema<'PeerFileTargetDto'> | null, live?: TransferStateDto, source?: Schema<'FallbackSourceDto'> | null): TransferPresentation {
   const current = live ? selectedJobFileTransfer(live) : undefined;
-  const terminal = job?.lifecycleState === 'Terminal';
+  const terminal = job?.lifecycle.lifecycleState === 'Terminal';
   // A transport describes the job only while it is transferring. Finalization,
   // fallback and search are owned by the job, even if an attempt is still open.
-  const transferring = !job || job.lifecycleState === 'Running' && job.activityPhase === 'Downloading';
+  const transferring = !job || job.lifecycle.lifecycleState === 'Running' && job.lifecycle.activityPhase === 'Downloading';
   const showTransfer = !terminal && transferring && current != null;
   const showProgress = terminal || transferring;
   // Fallback phases already hide progress through showProgress. An unscoped
@@ -47,8 +47,8 @@ export function jobFileTransfer(job: Schema<'JobSummaryDto'> | null | undefined,
     direction: 'download',
     speed: showTransfer ? current.speed : undefined,
     eta: showTransfer ? current.eta : undefined,
-    detail: job?.failureMessage ?? (terminal ? undefined : current?.detail),
-    progressPercent: !showProgress || job?.terminalOutcome === 'Skipped' || file?.reused ? undefined
+    detail: job?.lifecycle.failureMessage ?? (terminal ? undefined : current?.detail),
+    progressPercent: !showProgress || job?.lifecycle.terminalOutcome === 'Skipped' || file?.reused ? undefined
       : current?.progressPercent ?? fileProgress,
   };
 }

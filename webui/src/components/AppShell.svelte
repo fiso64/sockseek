@@ -58,10 +58,10 @@
 
 <div class="app-shell">
   <aside class="sidebar">
-    <div class="brand">
+    <button type="button" class="brand" aria-label="sockseek dashboard" onclick={() => onnavigate('dashboard')}>
       <img class="brand-mark" src="sockseek-logo.svg" alt="" />
-      <div class="brand-copy"><strong>sockseek</strong></div>
-    </div>
+      <span class="brand-copy"><strong>sockseek</strong></span>
+    </button>
 
     <Sidebar {activePage} {downloadCount} {uploadCount} {unreadChats} {onnavigate} />
     <div class="sidebar-spacer"></div>

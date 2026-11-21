@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'Sockseek.Cli.Tests' Or '$(MSBuildProjectName)' == 'Sockseek.Server.Tests'">
+    <Compile Include="$(MSBuildThisFileDirectory)tests/TestJobSummary.cs" Link="TestSupport/TestJobSummary.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)tests/TestServerHost.cs" Link="TestSupport/TestServerHost.cs" />
   </ItemGroup>
 
@@ -28,9 +29,4 @@
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'Sockseek.Persistence.Tests' Or '$(MSBuildProjectName)' == 'Sockseek.Server.Tests'">
     <Compile Include="$(MSBuildThisFileDirectory)tests/TestPersistenceWriter.cs" Link="TestSupport/TestPersistenceWriter.cs" />
   </ItemGroup>
-
-  <!-- Runtime-specific restores and publishes must leave the portable lock file intact. -->
-  <PropertyGroup Condition="'$(RuntimeIdentifier)' != '' Or '$(RuntimeIdentifiers)' != '' Or '$(SelfContained)' == 'true' Or '$(PublishSingleFile)' == 'true'">
-    <NuGetLockFilePath>obj/packages.publish.lock.json</NuGetLockFilePath>
-  </PropertyGroup>
 </Project>

@@ -352,7 +352,7 @@ internal static partial class Program
                     rootSettings.Extraction.InputType.ToInputName(),
                     Options: new SubmissionOptionsDto(workflowId)),
                 cts.Token);
-            interactiveCoordinatorTask = coordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token);
+            interactiveCoordinatorTask = coordinator.RunUntilCompleteAsync(submission.Display.WorkflowId, cts.Token);
             _ = interactiveCoordinatorTask
                 .ContinueWith(_ => engine.CompleteEnqueue(), TaskScheduler.Default);
         }
@@ -460,9 +460,9 @@ internal static partial class Program
             extractRequest = await RemoteCliBackend.PrepareSubmissionInputAsync(extractRequest, cts.Token);
             var detached = await api.SubmitExtractJobAsync(extractRequest, cts.Token);
             if (cliSettings.ProgressJson)
-                new JsonStreamProgressReporter(Console.Out).ReportWorkflowSubmitted(detached.WorkflowId);
+                new JsonStreamProgressReporter(Console.Out).ReportWorkflowSubmitted(detached.Display.WorkflowId);
             else
-                Console.WriteLine(detached.WorkflowId);
+                Console.WriteLine(detached.Display.WorkflowId);
             return LogCliSessionExit(logger, CliExitCode.Success, remoteSettings);
         }
 
@@ -512,17 +512,17 @@ internal static partial class Program
             using var consoleControls = StartConsoleControls(
                 backend,
                 cliReporter,
-                submission.WorkflowId,
+                submission.Display.WorkflowId,
                 cancelPrompt: "Cancel job ID or current workflow? id/[A]ll/n: ",
                 cancelAllMessage: "Cancelling workflow...",
                 cancelAll: async ct =>
                 {
-                    await backend.CancelWorkflowAsync(submission.WorkflowId, ct);
+                    await backend.CancelWorkflowAsync(submission.Display.WorkflowId, ct);
                 },
                 cts);
 
             if (interactiveCoordinator != null)
-                await backend.AwaitLiveAsync(interactiveCoordinator.RunUntilCompleteAsync(submission.WorkflowId, cts.Token));
+                await backend.AwaitLiveAsync(interactiveCoordinator.RunUntilCompleteAsync(submission.Display.WorkflowId, cts.Token));
 
             var terminalJobs = terminalUpdateObserver.WaitAsync(cts.Token);
             await backend.AwaitLiveAsync(terminalJobs);
@@ -539,7 +539,7 @@ internal static partial class Program
             {
                 await PrintRemoteRequestedOutputAsync(
                     backend,
-                    submission.WorkflowId,
+                    submission.Display.WorkflowId,
                     rootSettings,
                     cts.Token,
                     expectedJobIds: jobs.Select(job => job.JobId).ToArray());
@@ -745,7 +745,7 @@ internal static partial class Program
                 else
                 {
                     var children = await backend.GetJobsAsync(
-                        new JobQuery(null, null, null, detail.Summary.WorkflowId, IncludeAll: true,
+                        new JobQuery(null, null, null, detail.Summary.Display.WorkflowId, IncludeAll: true,
                             ParentJobId: detail.Summary.JobId),
                         cts.Token);
                     JobInfoPrinter.Print(detail, children);
@@ -1007,8 +1007,8 @@ internal static partial class Program
         }
 
         var rootDetails = details.Values
-            .Where(detail => detail.Summary.ParentJobId == null)
-            .OrderBy(detail => detail.Summary.DisplayId)
+            .Where(detail => detail.Summary.Relationships.ParentJobId == null)
+            .OrderBy(detail => detail.Summary.Display.DisplayId)
             .ToList();
 
         var visited = new HashSet<Guid>();
@@ -1098,7 +1098,7 @@ internal static partial class Program
         CancellationToken ct)
     {
         var job = new ExtractJob(extract.Input, ParseRemoteInputType(extract.InputType));
-        ApplyJobOutcome(job, detail.Summary.LifecycleState, detail.Summary.ActivityPhase, detail.Summary.TerminalOutcome, detail.Summary.SkipReason, detail.Summary.FailureReason, detail.Summary.FailureMessage, detail.Summary.CancellationSource);
+        ApplyJobOutcome(job, detail.Summary.Lifecycle.LifecycleState, detail.Summary.Lifecycle.ActivityPhase, detail.Summary.Lifecycle.TerminalOutcome, detail.Summary.Lifecycle.SkipReason, detail.Summary.Lifecycle.FailureReason, detail.Summary.Lifecycle.FailureMessage, detail.Summary.Lifecycle.CancellationSource);
 
         if (extract.ResultJobId is Guid resultJobId
             && details.TryGetValue(resultJobId, out var resultDetail))
@@ -1117,8 +1117,8 @@ internal static partial class Program
         HashSet<Guid> visited,
         CancellationToken ct)
     {
-        var jobList = new JobList(detail.Summary.ItemName ?? detail.Summary.QueryText);
-        ApplyJobOutcome(jobList, detail.Summary.LifecycleState, detail.Summary.ActivityPhase, detail.Summary.TerminalOutcome, detail.Summary.SkipReason, detail.Summary.FailureReason, detail.Summary.FailureMessage, detail.Summary.CancellationSource);
+        var jobList = new JobList(detail.Summary.Display.ItemName ?? detail.Summary.Display.QueryText);
+        ApplyJobOutcome(jobList, detail.Summary.Lifecycle.LifecycleState, detail.Summary.Lifecycle.ActivityPhase, detail.Summary.Lifecycle.TerminalOutcome, detail.Summary.Lifecycle.SkipReason, detail.Summary.Lifecycle.FailureReason, detail.Summary.Lifecycle.FailureMessage, detail.Summary.Lifecycle.CancellationSource);
 
         foreach (var child in ChildrenOf(detail, details))
         {
@@ -1253,7 +1253,7 @@ internal static partial class Program
             job = new SearchJob(search.QueryText);
         }
 
-        ApplyJobOutcome(job, summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, summary.FailureMessage, summary.CancellationSource);
+        ApplyJobOutcome(job, summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason, summary.Lifecycle.FailureReason, summary.Lifecycle.FailureMessage, summary.Lifecycle.CancellationSource);
         return job;
     }
 
@@ -1266,7 +1266,7 @@ internal static partial class Program
             RetrievalOutcome = ToCoreFolderRetrievalOutcome(folder.RetrievalOutcome),
         };
 
-        ApplyJobOutcome(job, summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, summary.FailureMessage, summary.CancellationSource);
+        ApplyJobOutcome(job, summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason, summary.Lifecycle.FailureReason, summary.Lifecycle.FailureMessage, summary.Lifecycle.CancellationSource);
         return job;
     }
 
@@ -1276,8 +1276,8 @@ internal static partial class Program
     private static DownloadSettings RemotePrintSettings(DownloadSettings inherited, JobSummaryDto summary)
     {
         var settings = SettingsCloner.Clone(inherited);
-        if (summary.PrintOption != ServerPrintOption.None)
-            settings.PrintOption = summary.PrintOption.ToCore();
+        if (summary.Display.PrintOption != ServerPrintOption.None)
+            settings.PrintOption = summary.Display.PrintOption.ToCore();
         return settings;
     }
 
@@ -1313,7 +1313,7 @@ internal static partial class Program
         }
 
         var children = await backend.GetJobsAsync(
-            new JobQuery(null, null, null, detail.Summary.WorkflowId, IncludeAll: true,
+            new JobQuery(null, null, null, detail.Summary.Display.WorkflowId, IncludeAll: true,
                 ParentJobId: detail.Summary.JobId),
             ct);
         if (children.Count != detail.ChildCount)
@@ -1332,8 +1332,8 @@ internal static partial class Program
         JobDetailDto detail,
         IReadOnlyDictionary<Guid, JobDetailDto> details)
         => details.Values
-            .Where(candidate => candidate.Summary.ParentJobId == detail.Summary.JobId)
-            .OrderBy(candidate => candidate.Summary.DisplayId)
+            .Where(candidate => candidate.Summary.Relationships.ParentJobId == detail.Summary.JobId)
+            .OrderBy(candidate => candidate.Summary.Display.DisplayId)
             .ToList();
 
     internal static SubmitExtractJobRequestDto BuildRemoteExtractRequest(
@@ -1492,7 +1492,7 @@ internal static partial class Program
 
         if (summary != null)
         {
-            ApplyJobOutcome(job, summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, summary.FailureMessage, summary.CancellationSource);
+            ApplyJobOutcome(job, summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason, summary.Lifecycle.FailureReason, summary.Lifecycle.FailureMessage, summary.Lifecycle.CancellationSource);
         }
 
         if (song.ExactTarget != null)
@@ -1529,7 +1529,7 @@ internal static partial class Program
         };
 
         if (summary != null)
-            ApplyJobOutcome(job, summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, summary.FailureMessage, summary.CancellationSource);
+            ApplyJobOutcome(job, summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason, summary.Lifecycle.FailureReason, summary.Lifecycle.FailureMessage, summary.Lifecycle.CancellationSource);
 
         return job;
     }
@@ -1550,7 +1550,7 @@ internal static partial class Program
     {
         var job = new AlbumGroupsJob(JobRequestMapper.ToCore(albumGroups.Query));
         if (summary != null)
-            ApplyJobOutcome(job, summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, summary.FailureMessage, summary.CancellationSource);
+            ApplyJobOutcome(job, summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason, summary.Lifecycle.FailureReason, summary.Lifecycle.FailureMessage, summary.Lifecycle.CancellationSource);
         return job;
     }
 

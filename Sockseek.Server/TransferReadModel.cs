@@ -168,8 +168,7 @@ internal static class TransferReadModel
     public static TransferStateDto FromRetained(PersistedTransfer transfer)
     {
         var outcome = Enum.Parse<TransferTerminalOutcome>(transfer.TerminalOutcome, ignoreCase: true);
-        var failure = Enum.TryParse<TransferFailureReason>(PublicFailureReason(transfer), out var reason)
-            ? reason : TransferFailureReason.Unknown;
+        var failure = PublicFailureReason(transfer);
         return new(transfer.Id, transfer.Revision,
             new(transfer.JobId, transfer.WorkflowId, transfer.Direction, transfer.Source,
                 transfer.Username, transfer.RemotePath, null, transfer.GroupRef,
@@ -192,16 +191,16 @@ internal static class TransferReadModel
         return TransferCancellationSource.None;
     }
 
-    private static string PublicFailureReason(PersistedTransfer transfer)
+    private static TransferFailureReason PublicFailureReason(PersistedTransfer transfer)
     {
         if (transfer.Direction.Equals("Upload", StringComparison.OrdinalIgnoreCase)
             && Enum.TryParse<UploadFailureReason>(transfer.FailureReason, true, out var upload) && Enum.IsDefined(upload))
-            return upload.ToServer().ToString();
+            return upload.ToServer();
         if (transfer.Direction.Equals("Download", StringComparison.OrdinalIgnoreCase)
             && Enum.TryParse<Sockseek.Core.Events.TransferFailureReason>(transfer.FailureReason, true, out var download)
             && Enum.IsDefined(download))
-            return ((Sockseek.Core.Events.TransferFailureReason?)download).ToServer().ToString();
-        return transfer.FailureReason;
+            return ApiEnumMapper.ToServer(download);
+        return Enum.TryParse<TransferFailureReason>(transfer.FailureReason, out var reason) ? reason : TransferFailureReason.Unknown;
     }
 
     private static FileMetadataDto? ToFileMetadata(

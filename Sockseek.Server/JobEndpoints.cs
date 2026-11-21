@@ -17,6 +17,12 @@ internal static class JobEndpoints
             .WithSummary("Gets one complete workflow replication snapshot and its workflow-local stream position.")
             .Produces<StateSnapshotDto>();
 
+        app.MapGet("/api/jobs/{jobId:guid}/failure-detail", async (Guid jobId, JobReadService jobs, CancellationToken ct) =>
+            await jobs.GetFailureDetailAsync(jobId, ct) is { } detail ? Results.Json(detail) : Results.NotFound())
+            .WithTags("Jobs")
+            .WithSummary("Gets the technical details recorded for a job failure.")
+            .Produces<string>().Produces(StatusCodes.Status404NotFound);
+
         app.MapGet("/api/profiles", (JobSubmissions submissions) => Results.Ok(submissions.GetProfiles()))
             .WithTags("Profiles")
             .WithSummary("Lists configured download profiles.")
@@ -122,7 +128,7 @@ internal static class JobEndpoints
                     cancellationToken);
                 return submitted == null
                     ? Results.NotFound()
-                    : Results.Accepted($"/api/submissions/{submitted.SubmissionId}", submitted);
+                    : Results.Accepted($"/api/submissions/{submitted.Display.SubmissionId}", submitted);
             }
             catch (NotSupportedException ex)
             {

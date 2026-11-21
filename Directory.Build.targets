@@ -1,0 +1,6 @@
+<Project>
+  <!-- The SDK can infer the runtime after Directory.Build.props has been evaluated. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != '' Or '$(RuntimeIdentifiers)' != '' Or '$(SelfContained)' == 'true' Or '$(PublishSingleFile)' == 'true'">
+    <NuGetLockFilePath>obj/packages.publish.lock.json</NuGetLockFilePath>
+  </PropertyGroup>
+</Project>

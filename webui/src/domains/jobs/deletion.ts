@@ -1,8 +1,8 @@
 import type { JobSummaryDto, Schema } from '../../api/types';
 
 export function canDeleteSubmission(job: JobSummaryDto): boolean {
-  return Boolean(job.submissionId && job.jobId && !job.parentJobId
-    && job.role === 'user-root' && job.lifecycleState === 'Terminal');
+  return Boolean(job.display.submissionId && job.jobId && !job.relationships.parentJobId
+    && job.display.role === 'user-root' && job.lifecycle.lifecycleState === 'Terminal');
 }
 
 export function requireDeleted(receipt: Schema<'DeleteSubmissionResponseDto'>): void {

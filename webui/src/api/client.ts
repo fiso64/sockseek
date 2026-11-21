@@ -48,7 +48,7 @@ export interface CursorPage<T> {
 }
 
 export const defaultPageSize = 500;
-export const nestedPageSize = 100;
+export const nestedPageSize = __DEFAULT_NESTED_PAGE_SIZE__;
 export const searchFilePageSize = 100;
 export const searchDirectoryPageSize = 50;
 
@@ -79,6 +79,10 @@ export class DaemonApiClient {
     return this.http.get(`/jobs/${encodeURIComponent(jobId)}`, signal);
   }
 
+  getJobFailureDetail(jobId: string, signal?: AbortSignal): Promise<string> {
+    return this.http.get(`/jobs/${encodeURIComponent(jobId)}/failure-detail`, signal);
+  }
+
   getJobSummaries(jobIds: readonly string[], signal?: AbortSignal): Promise<JobSummaryDto[]> {
     return this.http.post('/jobs/lookup', { jobIds }, signal);
   }
@@ -87,7 +91,7 @@ export class DaemonApiClient {
     return this.http.get(`/jobs/${encodeURIComponent(jobId)}/directory-files${queryString({ attemptNumber, afterOrdinal, limit })}`, signal);
   }
 
-  getJobChildren(jobId: string, cursor?: string | null, signal?: AbortSignal, kind?: JobSummaryDto['kind']): Promise<CursorPage<JobSummaryDto>> {
+  getJobChildren(jobId: string, cursor?: string | null, signal?: AbortSignal, kind?: JobSummaryDto['display']['kind']): Promise<CursorPage<JobSummaryDto>> {
     return this.http.getCursorPage<JobSummaryDto[]>(
       `/jobs${queryString({ parentJobId: jobId, kind, includeAll: false, excludeExtractResults: true, cursor, limit: nestedPageSize })}`,
       signal,
@@ -227,10 +231,10 @@ export class DaemonApiClient {
     const detail = await this.getJob(job.jobId, signal);
     if (detail.payload?.kind !== 'search') throw new Error('The retained job has no search definition.');
     const endpoint = canReplaySearchRoot(job)
-      ? `/submissions/${encodeURIComponent(job.submissionId)}/rerun`
+      ? `/submissions/${encodeURIComponent(job.display.submissionId)}/rerun`
       : `/jobs/${encodeURIComponent(job.jobId)}/rerun`;
     const rerun = await this.http.post<JobSummaryDto>(endpoint, undefined, signal);
-    if (!rerun.jobId || rerun.kind !== 'search') {
+    if (!rerun.jobId || rerun.display.kind !== 'search') {
       throw new Error('The daemon did not return a replayed search job.');
     }
     const nextView = await this.createSearchView(rerun.jobId, { kind: view.kind }, signal);
@@ -444,7 +448,7 @@ export class DaemonApiClient {
     );
   }
 
-  getSearchViewDirectoryFiles(viewId: string, directoryRef: string, revision: number | string, cursor?: string | null, limit = searchFilePageSize, signal?: AbortSignal): Promise<Schema<'SearchViewDirectoryFilePageDto'>> {
+  getSearchViewDirectoryFiles(viewId: string, directoryRef: string, revision: number | string, cursor?: string | null, limit = nestedPageSize, signal?: AbortSignal): Promise<Schema<'SearchViewDirectoryFilePageDto'>> {
     return this.http.get(
       `/search-views/${encodeURIComponent(viewId)}/directories/${encodeURIComponent(directoryRef)}/files${queryString({ revision, cursor, limit })}`,
       signal,
@@ -503,7 +507,7 @@ function searchDraftFromDetail(
   return {
     mode: split ? 'split' : 'simple',
     resultMode,
-    query: split ? '' : (group ? song?.artist ?? album?.artist : song?.title ?? album?.album ?? album?.searchHint) ?? payload?.queryText ?? detail.summary.queryText ?? detail.summary.itemName ?? '',
+    query: split ? '' : (group ? song?.artist ?? album?.artist : song?.title ?? album?.album ?? album?.searchHint) ?? payload?.queryText ?? detail.summary.display.queryText ?? detail.summary.display.itemName ?? '',
     artist: song?.artist ?? album?.artist ?? '',
     title: song?.title ?? album?.album ?? '',
     expectedLength: song?.length != null && Number(song.length) >= 0 ? Number(song.length) : undefined,

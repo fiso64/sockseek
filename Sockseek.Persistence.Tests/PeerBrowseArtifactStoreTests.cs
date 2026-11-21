@@ -716,6 +716,10 @@ public sealed class PeerBrowseArtifactStoreTests
         PeerBrowsePage<PeerBrowseDirectoryEntry> directoryMatch = await store.ReadDirectoriesAsync(
             resource.BrowseId, null, "mÚSICA", true, null, null, 10);
         PeerBrowseDirectoryEntry disc = directoryMatch.Items.Single(item => item.Name == "Disc");
+        var selection = await store.ResolveDownloadSelectionAsync(resource.BrowseId, [disc.DirectoryId], []);
+        var plan = selection.Plans.Single();
+        Assert.AreEqual(new PeerDirectoryIdentity("Peer", @"Root/Música\Disc"), plan.SourceDirectory);
+        Assert.AreEqual("Disc", plan.DisplayRoot);
         PeerBrowsePage<PeerBrowseFileEntry> fileMatch = await store.ReadFilesAsync(
             resource.BrowseId, disc.DirectoryId, "TRACK", null, null, 10);
         Assert.AreEqual("track.flac", fileMatch.Items.Single().Name);

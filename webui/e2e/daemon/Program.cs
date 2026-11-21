@@ -625,6 +625,12 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             options.StateChanged?.Invoke(new(Soulseek.TransferStates.InProgress, completed));
             return completed;
         };
+        var downloadOptions = new SettingsPatch([
+            new("Skip.SkipExisting", false),
+            new("Search.MaxStaleTime", 4321),
+            new("Extraction.MaxTracks", 20),
+            new("Extraction.Offset", 2),
+        ]);
         await using var app = ServerHost.Build(
             ["--webroot", webRoot],
             new ServerOptions
@@ -646,14 +652,13 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 },
                 Profiles = new ProfileCatalog { NamedProfiles = [new SettingsProfile
                 {
+                    Name = "download-options", Download = downloadOptions,
+                }, new SettingsProfile
+                {
                     Name = "download-preset",
-                    Download = new SettingsPatch([
-                        new("Skip.SkipExisting", false),
+                    Download = new SettingsPatch([.. downloadOptions.Operations,
                         new("Extraction.Input", "Do not use this saved input"),
                         new("Extraction.InputType", Sockseek.Core.InputType.List),
-                        new("Search.MaxStaleTime", 4321),
-                        new("Extraction.MaxTracks", 20),
-                        new("Extraction.Offset", 2),
                     ]),
                 }, new SettingsProfile
                 {
@@ -855,12 +860,11 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 }
                 case "retained-imports":
                 {
-                    // One hundred retained submissions, each with its source
-                    // Extract and generated Song. Avoid 100 live HTTP submissions
-                    // just to set up a listing/pagination check.
+                    // Seed a page of retained imports, each with its source Extract and generated Song.
+                    const int retainedCount = Sockseek.Api.ServerProtocol.DefaultNestedPageSize;
                     var persistence = app.Services.GetRequiredService<Sockseek.Server.Persistence.PersistenceCoordinator>();
                     int firstDisplayId = Sockseek.Core.Jobs.JobDisplayIds.Next();
-                    Sockseek.Core.Jobs.JobDisplayIds.ContinueAfter(firstDisplayId + 200);
+                    Sockseek.Core.Jobs.JobDisplayIds.ContinueAfter(firstDisplayId + retainedCount * 2);
                     await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
                     {
                         DataSource = SockseekDataPaths.ResolveDatabasePath(Path.Combine(temporary, "data")),
@@ -870,12 +874,12 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     await using var insert = connection.CreateCommand();
                     insert.CommandText = """
                         BEGIN;
-                        WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 100)
+                        WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < $count)
                         INSERT INTO submissions(id, submitted_at_utc, specification_schema_version, revision)
                         SELECT upper(printf('51000000-0000-0000-0000-%012x', x)), $created + x, $schema, 1 FROM n;
                         INSERT INTO submission_specifications(submission_id, specification_json)
                         SELECT id, $spec FROM submissions;
-                        WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 100),
+                        WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < $count),
                         entries AS (SELECT x, 0 AS result FROM n UNION ALL SELECT x, 1 FROM n)
                         INSERT INTO jobs (
                             id, workflow_id, submission_id, semantic_role, source_job_id, result_job_id,
@@ -907,6 +911,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     insert.Parameters.AddWithValue("$runtime", persistence.Runtime!.RuntimeId.ToString().ToUpperInvariant());
                     insert.Parameters.AddWithValue("$created", DateTimeOffset.UtcNow.AddMinutes(-5).ToUnixTimeMilliseconds());
                     insert.Parameters.AddWithValue("$first", firstDisplayId);
+                    insert.Parameters.AddWithValue("$count", retainedCount);
                     await insert.ExecuteNonQueryAsync();
                     break;
                 }

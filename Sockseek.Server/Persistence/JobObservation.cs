@@ -82,7 +82,7 @@ public sealed partial class JobReadService
             long membershipSequence = initial.ChildCount is null ? 0 : initial.Sequence;
             yield return new(StateDeltaDto.Empty with
             {
-                Jobs = observedJobs.Values.Select(row => new JobDeltaDto(row.JobId, row.Revision, Added: row.ToDto())).ToArray(),
+                Jobs = observedJobs.Values.Select(row => new JobDeltaDto(row.JobId, row.Revision, Added: row.Summary)).ToArray(),
                 Transfers = transfers.Select(row => new TransferDeltaDto(row.TransferId, row.Revision, Added: row)).ToArray(),
             }, childCount, retrievalCount, sourceAvailable, sourceId);
             while (await changed.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))

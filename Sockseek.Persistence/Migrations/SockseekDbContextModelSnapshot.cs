@@ -912,6 +912,14 @@ partial class SockseekDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("INTEGER")
                     .HasColumnName("attempt_number");
 
+                b.Property<string>("CancellationSource")
+                    .IsRequired()
+                    .ValueGeneratedOnAdd()
+                    .HasMaxLength(64)
+                    .HasColumnType("TEXT")
+                    .HasDefaultValue("None")
+                    .HasColumnName("cancellation_source");
+
                 b.Property<long?>("CompletedAtUtc")
                     .HasColumnType("INTEGER")
                     .HasColumnName("completed_at_utc");

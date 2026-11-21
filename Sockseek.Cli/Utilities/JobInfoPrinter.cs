@@ -18,13 +18,13 @@ internal static class JobInfoPrinter
             detail.Payload is SongJobPayloadDto songPayload ? songPayload.TransferState : null);
 
         Printing.WriteLine(force: true);
-        Printing.Write($"[{s.DisplayId:000}] {s.Kind}", ConsoleColor.White, force: true);
+        Printing.Write($"[{s.Display.DisplayId:000}] {s.Display.Kind}", ConsoleColor.White, force: true);
         Printing.Write(" • ", ConsoleColor.DarkGray, force: true);
 
         Printing.WriteLine(status.Label, status.Color, force: true);
         PrintSplitState(s);
-        if (!string.IsNullOrEmpty(s.SourceDetail))
-            Field("Source", s.SourceDetail);
+        if (!string.IsNullOrEmpty(s.Display.SourceDetail))
+            Field("Source", s.Display.SourceDetail);
 
         Action printPayload = detail.Payload switch
         {
@@ -40,14 +40,14 @@ internal static class JobInfoPrinter
             GenericJobPayloadDto generic => () => Field("Info", generic.Text),
             SearchJobPayloadDto or null => () =>
             {
-                if (s.ItemName != null) Field("Name", s.ItemName);
-                if (s.QueryText != null) Field("Query", s.QueryText);
+                if (s.Display.ItemName != null) Field("Name", s.Display.ItemName);
+                if (s.Display.QueryText != null) Field("Query", s.Display.QueryText);
             },
         };
         printPayload();
 
-        if (s.FailureMessage != null)
-            Field("Error", s.FailureMessage, ConsoleColor.Red);
+        if (s.Lifecycle.FailureMessage != null)
+            Field("Error", s.Lifecycle.FailureMessage, ConsoleColor.Red);
 
         Printing.WriteLine(force: true);
     }
@@ -121,8 +121,8 @@ internal static class JobInfoPrinter
         if (p.InputType != null) Field("Type", p.InputType);
 
         var result = children.Count > 0 ? children[0] : null;
-        if (result != null && result.DisplayId > 0)
-            Field("Result job", $"[{result.DisplayId:000}] {result.Kind}");
+        if (result != null && result.Display.DisplayId > 0)
+            Field("Result job", $"[{result.Display.DisplayId:000}] {result.Display.Kind}");
     }
 
     private static void PrintGroup(SongGroupsJobPayloadDto p, IReadOnlyList<JobSummaryDto> children)
@@ -220,28 +220,28 @@ internal static class JobInfoPrinter
     private static void PrintChildSummary(JobSummaryDto child)
     {
         var status = CliJobStatusPresenter.ForSummary(child);
-        var name = child.ItemName ?? child.QueryText ?? child.JobId.ToString("D");
-        Printing.Write($"    [{child.DisplayId:000}] ", ConsoleColor.DarkGray, force: true);
+        var name = child.Display.ItemName ?? child.Display.QueryText ?? child.JobId.ToString("D");
+        Printing.Write($"    [{child.Display.DisplayId:000}] ", ConsoleColor.DarkGray, force: true);
         Printing.Write($"{status.Label,-18}", status.Color, force: true);
         Printing.WriteLine(name, ConsoleColor.White, force: true);
     }
 
     private static void PrintSplitState(JobSummaryDto s)
     {
-        Field("Lifecycle", s.LifecycleState.ToString(), ConsoleColor.Gray);
-        if (s.ActivityPhase != ServerJobActivityPhase.None)
-            Field("Activity", s.ActivityPhase.ToString(), ConsoleColor.Cyan);
-        if (s.ActivityUntilUtc is DateTimeOffset until)
+        Field("Lifecycle", s.Lifecycle.LifecycleState.ToString(), ConsoleColor.Gray);
+        if (s.Lifecycle.ActivityPhase != ServerJobActivityPhase.None)
+            Field("Activity", s.Lifecycle.ActivityPhase.ToString(), ConsoleColor.Cyan);
+        if (s.Lifecycle.ActivityUntilUtc is DateTimeOffset until)
             Field("Activity until", until.ToLocalTime().ToString("u"), ConsoleColor.DarkCyan);
-        if (s.TerminalOutcome != ServerJobTerminalOutcome.None)
-            Field("Outcome", s.TerminalOutcome.ToString(),
-                s.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
-                    || (s.TerminalOutcome == ServerJobTerminalOutcome.Skipped && s.SkipReason == ServerJobSkipReason.AlreadyExists)
+        if (s.Lifecycle.TerminalOutcome != ServerJobTerminalOutcome.None)
+            Field("Outcome", s.Lifecycle.TerminalOutcome.ToString(),
+                s.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
+                    || (s.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Skipped && s.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists)
                     ? ConsoleColor.Green
                     : ConsoleColor.Yellow);
-        if (s.SkipReason != ServerJobSkipReason.None)
-            Field("Skip reason", s.SkipReason.ToString(), ConsoleColor.DarkGray);
-        if (s.FailureReason is { } reason)
+        if (s.Lifecycle.SkipReason != ServerJobSkipReason.None)
+            Field("Skip reason", s.Lifecycle.SkipReason.ToString(), ConsoleColor.DarkGray);
+        if (s.Lifecycle.FailureReason is { } reason)
             Field("Failure reason", CliJobStatusPresenter.FailureReasonLabel(reason), ConsoleColor.Yellow);
     }
 

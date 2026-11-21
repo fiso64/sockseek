@@ -93,10 +93,10 @@ public sealed class UserCommandsTests
         string browseId = Guid.NewGuid().ToString();
         (string[] Args, int DefaultLimit)[] commands =
         [
-            (["transfers"], 500),
-            (["chat", "conversations"], 500),
-            (["user", "shares-page", browseId, "--files", "1"], 500),
-            (["user", "shares-page", browseId], 100),
+            (["transfers"], ServerProtocol.DefaultPageSize),
+            (["chat", "conversations"], ServerProtocol.DefaultPageSize),
+            (["user", "shares-page", browseId, "--files", "1"], ServerProtocol.DefaultPageSize),
+            (["user", "shares-page", browseId], ServerProtocol.DefaultNestedPageSize),
         ];
         TextWriter originalOutput = Console.Out;
         TextWriter originalError = Console.Error;
@@ -233,10 +233,11 @@ public sealed class UserCommandsTests
     [TestMethod]
     public void BrowserTransitionsToFilesWhenFinalDirectoryPageIsExactlyFull()
     {
-        Assert.IsTrue(InteractiveShareBrowser.NeedsSeparateFilePage(100, null, 42));
-        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(99, null, 42));
-        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(100, "next", 42));
-        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(100, null, null));
+        const int pageSize = ServerProtocol.DefaultNestedPageSize;
+        Assert.IsTrue(InteractiveShareBrowser.NeedsSeparateFilePage(pageSize, null, 42));
+        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(pageSize - 1, null, 42));
+        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(pageSize, "next", 42));
+        Assert.IsFalse(InteractiveShareBrowser.NeedsSeparateFilePage(pageSize, null, null));
     }
 
     [TestMethod]

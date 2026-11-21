@@ -1,3 +1,4 @@
+import { jobSummary } from './job-fixture';
 import { expect, it } from 'vitest';
 import type { Schema } from '../src/api/types';
 import { directoryFileRow, directoryKnownSize, directoryManifestFileRow } from '../src/domains/jobs/directory-files';
@@ -11,7 +12,7 @@ it('keeps missing outcomes and unknown sizes distinct from success and empty fil
   });
   expect(directoryManifestFileRow({ ...supplemental, target: {
     username: 'OtherPeer', filename: 'Other\\Art\\Cover.jpg', size: 128, extension: '.jpg',
-  } }, { ownerTerminal: true, child: { lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' } }))
+  } }, { ownerTerminal: true, child: jobSummary({ lifecycle: { lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' } }) }))
     .toMatchObject({ relativePath: 'Cover.jpg', sourcePath: 'Other\\Art\\Cover.jpg', transfer: { state: 'Complete' } });
 
   const row = directoryFileRow({
@@ -28,18 +29,18 @@ it('keeps missing outcomes and unknown sizes distinct from success and empty fil
   expect(directoryFileRow({ id: 'three', relativePath: 'Not started', ownerTerminal: true }).transfer?.state).toBe('Not started');
   expect(directoryFileRow({
     id: 'four', relativePath: 'Cancelled.jpg', ownerTerminal: true,
-    child: { lifecycleState: 'Terminal', terminalOutcome: 'Cancelled' },
+    child: jobSummary({ lifecycle: { lifecycleState: 'Terminal', terminalOutcome: 'Cancelled' } }),
     file: { reused: false, downloadPath: null, bytesTransferred: 64, fileSize: 128, progressPercent: 50 },
   }).transfer).toMatchObject({ state: 'Cancelled', progressPercent: 50, tone: 'cancelled' });
   expect(directoryFileRow({
     id: 'five', relativePath: 'Existing.jpg', ownerTerminal: true,
-    child: { lifecycleState: 'Terminal', terminalOutcome: 'Skipped', skipReason: 'AlreadyExists' },
+    child: jobSummary({ lifecycle: { lifecycleState: 'Terminal', terminalOutcome: 'Skipped', skipReason: 'AlreadyExists' } }),
     file: { reused: false, downloadPath: '/downloads/Existing.jpg', bytesTransferred: 0, fileSize: 128, progressPercent: 0 },
   }).transfer).toMatchObject({ state: 'Skipped', progressPercent: undefined,
-    job: { skipReason: 'AlreadyExists' }, file: { reused: false, downloadPath: '/downloads/Existing.jpg' } });
+    job: { lifecycle: { skipReason: 'AlreadyExists' } }, file: { reused: false, downloadPath: '/downloads/Existing.jpg' } });
   const reused = directoryFileRow({
     id: 'reused', relativePath: 'Copy.jpg', ownerTerminal: true,
-    child: { lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' },
+    child: jobSummary({ lifecycle: { lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' } }),
     file: { reused: true, downloadPath: '/downloads/Copy.jpg', bytesTransferred: 0, fileSize: 128, progressPercent: 0 },
   }).transfer;
   expect(reused?.file?.reused).toBe(true);
@@ -69,7 +70,7 @@ it('reads linked summaries once and keeps missing siblings independent', async (
     calls++;
     expect(requested).toEqual(['one', 'missing', 'two']);
     expect(receivedSignal).toBe(signal);
-    return [{ jobId: 'two' }, { jobId: 'one' }, { jobId: 'unrequested' }];
+    return [jobSummary({ jobId: 'two' }), jobSummary({ jobId: 'one' }), jobSummary({ jobId: 'unrequested' })];
   }, signal);
   expect(calls).toBe(1);
   expect([...reads.keys()]).toEqual(['one', 'missing', 'two']);
@@ -88,7 +89,7 @@ it('keeps transport failure distinct from missing summaries and ignores cancelle
   expect(jobSummaryRetryIds(failed, 'one')).toEqual(['one', 'two']);
   const cancelled = await readJobSummaries(['one', 'two'], async () => {
     controller.abort();
-    return [{ jobId: 'one' }];
+    return [jobSummary({ jobId: 'one' })];
   }, controller.signal);
   expect(cancelled.size).toBe(0);
   let requested = false;

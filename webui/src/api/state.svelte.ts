@@ -1,7 +1,7 @@
 import { SvelteMap, createSubscriber } from 'svelte/reactivity';
 import { untrack } from 'svelte';
 import type {
-  DaemonStateDto, JobStateDto, SearchStateDto, StateSnapshotDto, StateUpdateBatchDto,
+  DaemonStateDto, JobSummaryDto, SearchStateDto, StateSnapshotDto, StateUpdateBatchDto,
   TransferStateDto, WireInteger, WorkflowStateDto, Schema,
 } from './types';
 import { wireInteger } from './types';
@@ -24,8 +24,8 @@ function activitySummary(value?: Schema<'LiveActivitySummaryDto'> | null): LiveA
 export interface ReplicatedDaemonState {
   readonly daemon: DaemonStateDto | null;
   readonly workflows: ReadonlyMap<string, WorkflowStateDto>;
-  readonly jobs: ReadonlyMap<string, JobStateDto>;
-  readonly rootJobs: ReadonlyMap<string, JobStateDto>;
+  readonly jobs: ReadonlyMap<string, JobSummaryDto>;
+  readonly rootJobs: ReadonlyMap<string, JobSummaryDto>;
   readonly childCounts: ReadonlyMap<string, { total: number; retrievals: number }>;
   readonly searches: ReadonlyMap<string, SearchStateDto>;
   readonly transfers: ReadonlyMap<string, TransferStateDto>;
@@ -42,7 +42,7 @@ export interface DaemonStateChanges {
   removedConversationIds: readonly string[];
   jobHistoryPosition: Schema<'StateStreamPositionDto'> | null;
   previousDaemon: DaemonStateDto | null;
-  jobs: ReadonlyMap<string, RowChange<JobStateDto>>;
+  jobs: ReadonlyMap<string, RowChange<JobSummaryDto>>;
   transfers: ReadonlyMap<string, RowChange<TransferStateDto>>;
 }
 
@@ -50,7 +50,7 @@ function newer(next: WireInteger, current: WireInteger): boolean {
   return wireInteger(next) > wireInteger(current);
 }
 
-export function updatedJob(current: JobStateDto | undefined, delta: Schema<'JobDeltaDto'>): JobStateDto | undefined {
+export function updatedJob(current: JobSummaryDto | undefined, delta: Schema<'JobDeltaDto'>): JobSummaryDto | undefined {
   if (current && !newer(delta.revision, current.revision)) return current;
   if (delta.added) return delta.added;
   return current ? {
@@ -131,8 +131,8 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
   private currentEpoch = $state<string | null>(null);
   private currentSequence = $state<WireInteger>(0);
   private workflowRows = new SvelteMap<string, WorkflowStateDto>();
-  private jobRows = new SvelteMap<string, JobStateDto>();
-  private roots = new SvelteMap<string, JobStateDto>();
+  private jobRows = new SvelteMap<string, JobSummaryDto>();
+  private roots = new SvelteMap<string, JobSummaryDto>();
   private children = new SvelteMap<string, { total: number; retrievals: number }>();
   private searchRows = new SvelteMap<string, SearchStateDto>();
   private transferRows = new TransferRows();
@@ -142,7 +142,7 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
   private searchesByWorkflow: Membership = new Map();
   private transfersByWorkflow: Membership = new Map();
   private transfersByJob: Membership = new Map();
-  private changedJobs = new Map<string, RowChange<JobStateDto>>();
+  private changedJobs = new Map<string, RowChange<JobSummaryDto>>();
   private changedTransfers = new Map<string, RowChange<TransferStateDto>>();
   private removedConversationIds: string[] = [];
   private snapshotApplied = false;
@@ -154,8 +154,8 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
   get epoch() { return this.currentEpoch; }
   get sequence() { return this.currentSequence; }
   get workflows(): ReadonlyMap<string, WorkflowStateDto> { return this.workflowRows; }
-  get jobs(): ReadonlyMap<string, JobStateDto> { return this.jobRows; }
-  get rootJobs(): ReadonlyMap<string, JobStateDto> { return this.roots; }
+  get jobs(): ReadonlyMap<string, JobSummaryDto> { return this.jobRows; }
+  get rootJobs(): ReadonlyMap<string, JobSummaryDto> { return this.roots; }
   get childCounts(): ReadonlyMap<string, { total: number; retrievals: number }> { return this.children; }
   get searches(): ReadonlyMap<string, SearchStateDto> { return this.searchRows; }
   get transfers(): ReadonlyMap<string, TransferStateDto> { return this.transferRows; }
@@ -243,7 +243,7 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
     for (const id of remaining) set(id, undefined);
   }
 
-  private setJob(id: string, row: JobStateDto | undefined): void {
+  private setJob(id: string, row: JobSummaryDto | undefined): void {
     const previous = this.jobRows.get(id);
     if (previous === row) return;
     move(this.jobsByWorkflow, id, previous?.display.workflowId, row?.display.workflowId);

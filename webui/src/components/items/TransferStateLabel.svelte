@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { daemonApi } from '../../api/client';
   import AppliedProfiles from '../AppliedProfiles.svelte';
   import Modal from '../Modal.svelte';
   import { jobSkipExplanation } from '../../domains/jobs/status';
@@ -17,7 +18,10 @@
     class?: string;
   } = $props();
   let open = $state(false);
-  let message = $derived(transfer.detail ?? transfer.job?.failureMessage);
+  let message = $derived(transfer.detail ?? transfer.job?.lifecycle.failureMessage);
+  let expanded = $state(false);
+  let technicalDetails = $derived(open && expanded && transfer.job?.lifecycle.hasFailureDetail && transfer.job.jobId
+    ? daemonApi.getJobFailureDetail(transfer.job.jobId) : undefined);
   let classes = $derived(`status-label ${circular ? 'status-label-icon folder-file-state' : 'transfer-state'} ${transfer.tone ?? ''} transfer-${transfer.direction ?? 'download'} ${extraClass}`);
 
   type Field = [string, string | undefined];
@@ -41,7 +45,7 @@
     const sources = folderSources(files ?? [], filesComplete);
     const remoteFolders = sources.folders;
     const peer = transfer.target?.username ?? row?.identity.username ?? group?.key.username ?? sources.peer;
-    const terminal = job ? job.lifecycleState === 'Terminal' : row?.status.isTerminal;
+    const terminal = job ? job.lifecycle.lifecycleState === 'Terminal' : row?.status.isTerminal;
     const localPath = file?.downloadPath ?? directory?.downloadPath ?? row?.status.localPath;
     const bytes = row?.progress.bytesTransferred ?? file?.bytesTransferred ?? directory?.bytesTransferred ?? group?.transferredBytes;
     const reportedTotal = file?.fileSize ?? (directory?.unknownFileSizeCount === 0 ? directory.totalKnownBytes : undefined) ?? row?.progress.totalBytes ?? (group && Number(group.unknownTotalCount) === 0 ? group.knownTotalBytes : sizeBytes);
@@ -56,15 +60,15 @@
         ['Source reference', fallback?.reference ?? undefined],
         [files ? 'Folder' : 'Remote path', fallback ? undefined : files ? path : transfer.target?.filename ?? row?.identity.remotePath ?? path],
         [sources.complete ? remoteFolders.length === 1 ? 'Remote folder' : 'Remote folders' : 'Remote folders (loaded files)', remoteFolders.length ? remoteFolders.join('\n') : undefined],
-        [job?.skipReason === 'AlreadyExists' ? 'Existing path' : 'Local path', localPath ?? undefined],
+        [job?.lifecycle.skipReason === 'AlreadyExists' ? 'Existing path' : 'Local path', localPath ?? undefined],
         ['Size', total == null ? undefined : formatBytes(total)],
         ['Attempts', row ? formatCount(row.status.attemptCount) : undefined],
         ['Folder attempt', directory?.attemptNumber == null ? undefined : formatCount(directory.attemptNumber)],
         ['Skip reason', jobSkipExplanation(job, file?.existingFileSource ?? directory?.existingFileSource) || undefined],
         ['Source', file?.reused ? 'Reused a completed local download from this workflow' : undefined],
-        ['Failure reason', meaningful(job && terminal ? job.failureReason : row?.status.failureReason)],
-        ['Cancellation', meaningful(job?.cancellationSource) ?? meaningful(row?.status.cancellationSource)],
-        ['Activity', terminal ? undefined : meaningful(job?.activityPhase)],
+        ['Failure reason', meaningful(job && terminal ? job.lifecycle.failureReason : row?.status.failureReason)],
+        ['Cancellation', meaningful(job?.lifecycle.cancellationSource) ?? meaningful(row?.status.cancellationSource)],
+        ['Activity', terminal ? undefined : meaningful(job?.lifecycle.activityPhase)],
       ] },
       { title: 'Progress', fields: [
         ['Transferred', bytes == null ? undefined : formatBytes(bytes)],
@@ -74,11 +78,11 @@
         ['Time remaining', transfer.eta],
       ] },
       { title: 'Timing', fields: [
-        ['Requested', date(row?.scheduling?.requestedAtUtc ?? transfer.createdAt ?? job?.createdAtUtc)],
+        ['Requested', date(row?.scheduling?.requestedAtUtc ?? transfer.createdAt ?? job?.display.createdAtUtc)],
         ['Started', date(row?.scheduling?.startedAtUtc)],
         ['Finished', date(row?.status.completedAtUtc ?? transfer.completedAt)],
         ['Last progress', date(row?.progress.lastProgressAtUtc)],
-        ['Resumes at', terminal ? undefined : date(job?.activityUntilUtc)],
+        ['Resumes at', terminal ? undefined : date(job?.lifecycle.activityUntilUtc)],
       ] },
     ];
     if (group) details.splice(1, 0, { title: 'Files', fields: [
@@ -98,15 +102,25 @@
 </script>
 
 <button type="button" class={classes} onclick={() => { open = true; }}
-  aria-label={circular ? transfer.state : undefined} aria-haspopup="dialog" title="Show transfer details">
+  aria-label={circular ? transfer.state : undefined} aria-haspopup="dialog" title={transfer.tone === 'failed' && message ? message : 'Show transfer details'}>
   {#if children}{@render children()}{:else}{transfer.state}{/if}
 </button>
 {#if open}
-  <Modal title="Transfer details" closeLabel="Close transfer details" onclose={() => { open = false; }}>
-    {#if message || transfer.tone === 'failed'}
+  <Modal title="Transfer details" closeLabel="Close transfer details" onclose={() => { open = false; expanded = false; }}>
+    {#if message || transfer.job?.lifecycle.hasFailureDetail || transfer.tone === 'failed'}
       <section class="transfer-details-message">
         <h3>{transfer.tone === 'failed' ? 'Failure' : 'Details'}</h3>
-        <p>{message ?? 'No further failure details were recorded.'}</p>
+        {#if message}<p>{message}</p>{:else if !transfer.job?.lifecycle.hasFailureDetail}<p>No further failure details were recorded.</p>{/if}
+        {#if transfer.job?.lifecycle.hasFailureDetail}
+          <details bind:open={expanded}>
+            <summary>Technical details</summary>
+            {#if technicalDetails}
+              {#await technicalDetails}<p>Loading…</p>
+              {:then detail}<p>{detail}</p>
+              {:catch error}<p role="alert">Could not load technical details. {error.message}</p>{/await}
+            {/if}
+          </details>
+        {/if}
       </section>
     {/if}
     {#each sections() as section (section.title)}
@@ -115,10 +129,7 @@
         <dl>{#each section.fields as [label, value] (label)}<dt>{label}</dt><dd>{value}</dd>{/each}</dl>
       </section>
     {/each}
-    {#if transfer.job?.appliedProfiles?.length}<section><h3>Profiles</h3><AppliedProfiles profiles={transfer.job.appliedProfiles} /></section>{/if}
-    {#if transfer.job?.failureDetail && transfer.job.failureDetail !== message}
-      <details><summary>Technical details</summary><p>{transfer.job.failureDetail}</p></details>
-    {/if}
+    {#if transfer.job?.display.appliedProfiles?.length}<section><h3>Profiles</h3><AppliedProfiles profiles={transfer.job.display.appliedProfiles} /></section>{/if}
   </Modal>
 {/if}
 

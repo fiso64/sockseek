@@ -215,7 +215,7 @@ public class CliProgressReporterTests
         var epoch = Guid.NewGuid();
         reporter.Reconcile(store, store.ApplySnapshot(Snapshot(epoch, 0, [job])));
 
-        var state = JobStateDto.FromSummary(job, revision: 1);
+        var state = job with { Revision = 1 };
         var terminalLifecycle = state.Lifecycle with
         {
             LifecycleState = ServerJobLifecycleState.Terminal,
@@ -255,27 +255,8 @@ public class CliProgressReporterTests
     private static JobSummaryDto Summary(
         ServerJobLifecycleState lifecycle,
         ServerJobActivityPhase activity)
-        => new(
-            Guid.NewGuid(),
-            1,
-            Guid.NewGuid(),
-            ServerJobKind.Search,
-            lifecycle,
-            activity,
-            null,
-            ServerJobTerminalOutcome.None,
-            ServerJobSkipReason.None,
-            "item",
-            "query",
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            [],
-            []);
+        => TestJobSummary.Create(ServerJobKind.Search, Guid.NewGuid(), Guid.NewGuid(), displayId: 1,
+            state: lifecycle, phase: activity, name: "item", query: "query");
 
     private static JobSummaryDto Job(
         Guid jobId,
@@ -286,27 +267,8 @@ public class CliProgressReporterTests
         ServerJobActivityPhase activity,
         ServerJobTerminalOutcome outcome = ServerJobTerminalOutcome.None,
         Guid? parentJobId = null)
-        => new(
-            jobId,
-            displayId,
-            workflowId,
-            kind,
-            lifecycle,
-            activity,
-            null,
-            outcome,
-            ServerJobSkipReason.None,
-            "item",
-            "query",
-            null,
-            null,
-            parentJobId,
-            null,
-            null,
-            null,
-            null,
-            [],
-            []);
+        => TestJobSummary.Create(kind, jobId, workflowId, displayId, state: lifecycle, phase: activity,
+            outcome: outcome, name: "item", query: "query", parentId: parentJobId);
 
     private static StateSnapshotDto Snapshot(
         Guid epoch,
@@ -318,7 +280,7 @@ public class CliProgressReporterTests
             DateTimeOffset.UtcNow,
             null,
             [],
-            jobs.Select(job => JobStateDto.FromSummary(job, revision: 1)).ToList(),
+            jobs.Select(job => job with { Revision = 1 }).ToList(),
             [],
             []);
 }

@@ -97,7 +97,7 @@ public class CliProgressReporter
         ActivityEventDto activity)
     {
         var summary = activity.JobId is Guid jobId ? store.GetJob(jobId) : null;
-        if (summary?.LifecycleState == ServerJobLifecycleState.Terminal
+        if (summary?.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal
             && activity.Payload is not DiagnosticActivityDto)
         {
             return;
@@ -188,10 +188,10 @@ public class CliProgressReporter
     {
         var retired = previousLiveJobs.Values
             .Where(job =>
-                job.LifecycleState == ServerJobLifecycleState.Terminal
+                job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal
                 && !currentJobs.ContainsKey(job.JobId))
             .Concat(changedJobs.Where(job =>
-                job.LifecycleState == ServerJobLifecycleState.Terminal
+                job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal
                 && !currentJobs.ContainsKey(job.JobId)))
             .DistinctBy(job => job.JobId);
 
@@ -282,24 +282,24 @@ public class CliProgressReporter
 
         var records = state.Jobs
             .Where(job => IsCountedJob(job, jobsById))
-            .OrderBy(job => job.DisplayId)
+            .OrderBy(job => job.Display.DisplayId)
             .ThenBy(job => job.JobId)
             .Select(job =>
             {
                 var status = CliJobStatusPresenter.ForSummary(job);
                 return new TerminalJobRecord(
                     job.JobId.ToString(),
-                    job.DisplayId,
-                    GetJobTypeLabel(job.Kind),
+                    job.Display.DisplayId,
+                    GetJobTypeLabel(job.Display.Kind),
                     status.Label,
                     status.Category,
-                    job.ParentJobId?.ToString());
+                    job.Relationships.ParentJobId?.ToString());
             })
             .ToList();
 
         var views = state.Jobs
             .Where(job => ShouldShowLiveJob(job, jobsById))
-            .OrderBy(job => job.DisplayId)
+            .OrderBy(job => job.Display.DisplayId)
             .ThenBy(job => job.JobId)
             .Select(job => ProjectJobView(
                 job,
@@ -326,7 +326,7 @@ public class CliProgressReporter
         transfersByJob.TryGetValue(job.JobId, out var transfer);
         var status = CliJobStatusPresenter.ForSummary(job, transfer?.Status.State);
         string state = transfer == null
-            && job.LifecycleState != ServerJobLifecycleState.Terminal
+            && job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal
             && activityStatuses.TryGetValue(job.JobId, out var activityStatus)
                 ? activityStatus
                 : status.Label;
@@ -339,20 +339,20 @@ public class CliProgressReporter
         IReadOnlyList<JobChildView> children = [];
         int? doneChildren = null;
         int? totalChildren = null;
-        if (job.Kind == ServerJobKind.Album)
+        if (job.Display.Kind == ServerJobKind.Album)
         {
             var songs = jobsById.Values
                 .Where(child =>
-                    child.ParentJobId == job.JobId
-                    && child.Kind == ServerJobKind.Song)
-                .OrderBy(child => child.DisplayId)
+                    child.Relationships.ParentJobId == job.JobId
+                    && child.Display.Kind == ServerJobKind.Song)
+                .OrderBy(child => child.Display.DisplayId)
                 .ToList();
             doneChildren = songs.Count(child =>
-                child.LifecycleState == ServerJobLifecycleState.Terminal);
+                child.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal);
             totalChildren = songs.Count;
             children = songs
                 .Where(child =>
-                    child.LifecycleState != ServerJobLifecycleState.Terminal)
+                    child.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal)
                 .Select(child => ProjectAlbumChild(
                     child,
                     transfersByJob,
@@ -365,15 +365,15 @@ public class CliProgressReporter
 
         return new JobView(
             job.JobId.ToString(),
-            job.DisplayId,
-            GetJobTypeLabel(job.Kind),
+            job.Display.DisplayId,
+            GetJobTypeLabel(job.Display.Kind),
             DisplayName(job, transfer),
             state,
             Percent: percent,
             SpeedBytesPerSecond: speed,
             DoneChildren: doneChildren,
             TotalChildren: totalChildren,
-            DiscoveryRawResultCount: job.DiscoveryRawResultCount,
+            DiscoveryRawResultCount: job.Discovery.RawResultCount,
             Children: children,
             ParentId: GetContainerParentId(job, jobsById));
     }
@@ -397,7 +397,7 @@ public class CliProgressReporter
 
         return new JobChildView(
             job.JobId.ToString(),
-            job.DisplayId,
+            job.Display.DisplayId,
             state,
             DisplayName(job, transfer),
             TransferPercent(transfer),
@@ -413,24 +413,24 @@ public class CliProgressReporter
             return false;
         if (IsInlineAlbumChild(job, jobsById))
             return false;
-        if (IsContainerJobKind(job.Kind))
+        if (IsContainerJobKind(job.Display.Kind))
             return !IsTransparentContainer(job, jobsById);
-        return !IsInfrastructureJobKind(job.Kind);
+        return !IsInfrastructureJobKind(job.Display.Kind);
     }
 
     private static bool IsCountedJob(
         JobSummaryDto job,
         IReadOnlyDictionary<Guid, JobSummaryDto> jobsById)
-        => !IsInfrastructureJobKind(job.Kind)
+        => !IsInfrastructureJobKind(job.Display.Kind)
             && !IsInlineAlbumChild(job, jobsById);
 
     private static bool IsInlineAlbumChild(
         JobSummaryDto job,
         IReadOnlyDictionary<Guid, JobSummaryDto> jobsById)
-        => job.Kind == ServerJobKind.Song
-            && job.ParentJobId is Guid parentId
+        => job.Display.Kind == ServerJobKind.Song
+            && job.Relationships.ParentJobId is Guid parentId
             && jobsById.TryGetValue(parentId, out var parent)
-            && parent.Kind == ServerJobKind.Album;
+            && parent.Display.Kind == ServerJobKind.Album;
 
     private static bool IsInfrastructureJobKind(ServerJobKind kind)
         => kind is ServerJobKind.Extract
@@ -448,31 +448,31 @@ public class CliProgressReporter
     private static bool IsTransparentContainer(
         JobSummaryDto job,
         IReadOnlyDictionary<Guid, JobSummaryDto> jobsById)
-        => job.Kind == ServerJobKind.JobList
-            && job.ParentJobId is Guid parentId
+        => job.Display.Kind == ServerJobKind.JobList
+            && job.Relationships.ParentJobId is Guid parentId
             && jobsById.TryGetValue(parentId, out var parent)
-            && parent.Kind is ServerJobKind.SongGroups
+            && parent.Display.Kind is ServerJobKind.SongGroups
                 or ServerJobKind.AlbumGroups;
 
     private static string? GetContainerParentId(
         JobSummaryDto job,
         IReadOnlyDictionary<Guid, JobSummaryDto> jobsById)
     {
-        if (job.ParentJobId is not Guid parentId
+        if (job.Relationships.ParentJobId is not Guid parentId
             || !jobsById.TryGetValue(parentId, out var parent))
         {
             return null;
         }
 
         if (IsTransparentContainer(parent, jobsById)
-            && parent.ParentJobId is Guid grandParentId
+            && parent.Relationships.ParentJobId is Guid grandParentId
             && jobsById.TryGetValue(grandParentId, out var grandParent)
-            && IsContainerJobKind(grandParent.Kind))
+            && IsContainerJobKind(grandParent.Display.Kind))
         {
             return grandParentId.ToString();
         }
 
-        return IsContainerJobKind(parent.Kind)
+        return IsContainerJobKind(parent.Display.Kind)
             ? parentId.ToString()
             : null;
     }
@@ -481,7 +481,7 @@ public class CliProgressReporter
         JobSummaryDto job,
         TransferStateDto? transfer)
     {
-        string name = job.QueryText ?? job.ItemName ?? "";
+        string name = job.Display.QueryText ?? job.Display.ItemName ?? "";
         if (transfer == null)
             return name;
 
@@ -535,7 +535,7 @@ public class CliProgressReporter
         string candidate = string.IsNullOrWhiteSpace(failure.Username)
             ? failure.RemotePath ?? ""
             : $"{failure.Username}\\{failure.RemotePath ?? ""}";
-        string itemName = summary?.QueryText ?? summary?.ItemName ?? candidate;
+        string itemName = summary?.Display.QueryText ?? summary?.Display.ItemName ?? candidate;
         string display = string.IsNullOrWhiteSpace(itemName)
             || itemName == candidate
                 ? candidate
@@ -545,12 +545,12 @@ public class CliProgressReporter
             + $"    Output: {failure.OutputPath}\n"
             + $"    Attempt: {failure.Attempt}/{failure.MaxAttempts}\n"
             + $"    {failure.ExceptionType}: {failure.ExceptionMessage}";
-        int displayId = summary?.DisplayId ?? failure.DisplayId;
+        int displayId = summary?.Display.DisplayId ?? failure.DisplayId;
         string jobType = summary == null
             ? "Song"
-            : GetJobTypeLabel(summary.Kind);
+            : GetJobTypeLabel(summary.Display.Kind);
 
-        if (summary?.ParentJobId is Guid parentId
+        if (summary?.Relationships.ParentJobId is Guid parentId
             && !albumAttemptWarnings.Add(parentId))
         {
             return;
@@ -595,12 +595,12 @@ public class CliProgressReporter
         CliJobStatus status)
         => !status.IsQueued
             && !status.IsTerminal
-            && IsContainerJobKind(summary.Kind);
+            && IsContainerJobKind(summary.Display.Kind);
 
     internal static bool ShouldStartLiveRenderingForSummary(
         JobSummaryDto summary,
         CliJobStatus status)
-        => !IsInfrastructureJobKind(summary.Kind)
+        => !IsInfrastructureJobKind(summary.Display.Kind)
             || ShouldShowContainerSummaryInLiveTable(summary, status);
 
     private static void RemoveMissingKeys<TValue>(

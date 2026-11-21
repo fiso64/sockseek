@@ -169,7 +169,7 @@ internal static class UserCommands
         if (submitted is not null)
         {
             WriteResolution(submitted.Resolution);
-            Console.WriteLine($"Started workflow {submitted.Workflow.WorkflowId:D}.");
+            Console.WriteLine($"Started workflow {submitted.Workflow.Display.WorkflowId:D}.");
         }
         return Program.CliExitCode.Success;
     }
@@ -246,7 +246,7 @@ internal static class UserCommands
         else
         {
             WriteResolution(response.Resolution);
-            Console.WriteLine($"Workflow: {response.Workflow.WorkflowId:D}");
+            Console.WriteLine($"Workflow: {response.Workflow.Display.WorkflowId:D}");
             Console.WriteLine($"Request ID: {requestId:D}");
         }
         return Program.CliExitCode.Success;

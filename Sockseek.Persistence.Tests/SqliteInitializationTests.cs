@@ -95,6 +95,34 @@ public sealed class SqliteInitializationTests
     }
 
     [TestMethod]
+    public async Task CancelledAttemptsKeepTheirSourceWhenUpgradingHistory()
+    {
+        await using var database = new TemporaryDatabase();
+        await using var context = await database.Factory.CreateDbContextAsync();
+        await context.Database.MigrateAsync("20261121140000_NormalizeAttemptFailureReasons");
+        var runtime = Guid.NewGuid();
+        context.RuntimeSessions.Add(new() { Id = runtime });
+        foreach (var (direction, storedReason, source) in new[] {
+            ("Download", "ManualSkip", "User"), ("Upload", "None", "Peer"),
+        })
+        {
+            var id = Guid.NewGuid();
+            context.Transfers.Add(new() { Id = id, LastRuntimeId = runtime, Direction = direction,
+                State = "Cancelled", TerminalOutcome = "Cancelled", AttemptCount = 1, CompletedAtUtc = 1, CancellationSource = source });
+            await context.SaveChangesAsync();
+            await context.Database.ExecuteSqlAsync($"""
+                INSERT INTO transfer_attempts (id,transfer_id,last_runtime_id,last_sequence,attempt_number,
+                    source,state,started_at_utc,failure_reason,revision)
+                VALUES ({Guid.NewGuid()},{id},{runtime},1,1,'SoulseekPeer','Cancelled',0,{storedReason},1);
+                """);
+        }
+        await database.Initializer.InitializeAsync();
+        var attempts = await context.TransferAttempts.AsNoTracking().ToArrayAsync();
+        CollectionAssert.AreEquivalent(new[] { "User", "Peer" }, attempts.Select(a => a.CancellationSource).ToArray());
+        Assert.IsTrue(attempts.All(a => a.FailureReason == "None"));
+    }
+
+    [TestMethod]
     public async Task RemovingChatArchiveKeepsDeletedThreadsOutOfTheSidebar()
     {
         await using var database = new TemporaryDatabase();

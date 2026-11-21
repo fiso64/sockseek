@@ -20,8 +20,7 @@
   import ConfigurationDialog from './domains/system/ConfigurationDialog.svelte';
   import type { SystemTab } from './domains/system/tabs';
   import { DaemonLiveClient, type LiveConnectionStatus } from './api/live';
-  import { jobStateSummary } from './api/job-summary';
-  import { updatedJob } from './api/state.svelte';
+    import { updatedJob } from './api/state.svelte';
   import { daemonApi } from './api/client';
   import { type JobSummaryDto, type Schema } from './api/types';
   import { SearchViewController, type SearchViewState } from './domains/search/controller';
@@ -63,7 +62,7 @@
   let activePage = $state<PageId>('dashboard');
   // The Jobs subview survives a visit to another top-level page.
   let showingSearch = $state(false);
-  let composer = $state<{ initialSearch: SearchDraft | null; open: boolean } | null>(null);
+  let composer = $state<{ initialSearch: SearchDraft | null } | null>(null);
   let composingJobCommitPending = $state(false);
   let automaticJobId = $state<string | null>(null);
   let automaticInitialDetail = $state<Schema<'JobDetailDto'> | null>(null);
@@ -123,10 +122,10 @@
     });
   });
 
-  let observedSearchJob = $state.raw<Schema<'JobStateDto'> | null>(null);
+  let observedSearchJob = $state.raw<Schema<'JobSummaryDto'> | null>(null);
   let searchJobError = $state<Error | null>(null);
   let searchJobRetry = $state(0);
-  let observedSearchId = $derived(activePage === 'jobs' && showingSearch && searchState.job?.parentJobId
+  let observedSearchId = $derived(activePage === 'jobs' && showingSearch && searchState.job?.relationships.parentJobId
     ? searchState.job.jobId : null);
   $effect(() => {
     const id = observedSearchId;
@@ -146,10 +145,8 @@
     ? observedSearchJob?.jobId === searchState.job.jobId ? observedSearchJob
       : liveState.jobs.get(searchState.job.jobId) ?? null
     : null);
-  let activeSearchJob = $derived(searchState.job
-    ? { ...searchState.job, ...(activeLiveJob ? jobStateSummary(activeLiveJob) : {}) }
-    : null);
-  let activeSearchAction = $derived(activeSearchJob?.availableActions?.some((action) => action.kind === 'cancel')
+  let activeSearchJob = $derived(activeLiveJob ?? searchState.job);
+  let activeSearchAction = $derived(activeSearchJob?.lifecycle.availableActions?.some((action) => action.kind === 'cancel')
     ? 'cancel' as const
     : activeSearchJob && canDeleteSubmission(activeSearchJob) ? 'delete' as const : null);
   let canRerunSearch = $derived(canReplaySearch(activeSearchJob));
@@ -171,6 +168,7 @@
   }
 
   function applyPath(pathname: string): void {
+    composer = null;
     cancelDeferredSearchRender();
     routeRequest?.abort();
     const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
@@ -254,7 +252,7 @@
     });
     const searchSubscription = searchController.subscribe((state) => (searchState = state));
     const popstate = () => {
-      if (composer?.open && composingJobCommitPending) {
+      if (composer && composingJobCommitPending) {
         // Back must not unmount the request owner before its commit receipt.
         // The matching forward entry is the current route; the second
         // popstate leaves the composer in place until the receipt arrives.
@@ -264,7 +262,7 @@
       applyPath(routePathname());
     };
     const beforeunload = (event: BeforeUnloadEvent) => {
-      if (!composer?.open || !composingJobCommitPending) return;
+      if (!composer || !composingJobCommitPending) return;
       event.preventDefault();
       event.returnValue = '';
     };
@@ -292,12 +290,12 @@
 
   function navigate(page: PageId): void {
     if (page === 'system') systemTab = 'status';
-    if (composer?.open && composingJobCommitPending) return;
+    if (composer && composingJobCommitPending) return;
     cancelDeferredSearchRender();
     const wasOnJobs = activePage === 'jobs';
     routeRequest?.abort();
     jobRouteError = null;
-    if (composer) composer.open = false;
+    composer = null;
     if (page === 'jobs') {
       activePage = 'jobs';
       if (wasOnJobs) {
@@ -332,14 +330,12 @@
   }
 
   function openJobDraft(): void {
-    if (composer) composer.open = true;
-    else composer = { initialSearch: null, open: true };
+    composer = { initialSearch: null };
   }
 
   function composeSearchDownload(draft: SearchDraft): void {
     if (composingJobCommitPending) return;
-    if (composer && !window.confirm('Discard your unfinished job draft and start one from this search?')) return;
-    composer = { initialSearch: $state.snapshot(draft), open: true };
+    composer = { initialSearch: $state.snapshot(draft) };
   }
 
   async function submit(next: SearchDraft): Promise<void> {
@@ -427,17 +423,16 @@
     automaticInitialDetail = detail;
     openingJobKey = null;
     showingSearch = false;
-    if (composer) composer.open = false;
+    composer = null;
     activePage = 'jobs';
     pendingJobId = jobId;
     mutationError = null;
     setPath(`/jobs/${encodeURIComponent(jobId)}`);
   }
 
-  async function openJob(job: JobSummaryDto, detail?: Schema<'JobDetailDto'>): Promise<void> {
-    if (!job.jobId) return;
-    if (!job.kind) {
-      await openJobFromPath(job.jobId, routeLocation());
+  async function openJob(job: JobSummaryDto | string, detail?: Schema<'JobDetailDto'>): Promise<void> {
+    if (typeof job === 'string') {
+      await openJobFromPath(job, routeLocation());
       return;
     }
     if (completedExtract(job)) {
@@ -455,7 +450,7 @@
       }
       return;
     }
-    jobsTab = job.kind === 'search' ? 'searches' : 'downloads';
+    jobsTab = job.display.kind === 'search' ? 'searches' : 'downloads';
     if (!showsSearchResults(job)) {
       openAutomaticJob(job.jobId, detail);
       return;
@@ -501,15 +496,15 @@
   }
 
   async function deleteSubmission(job: JobSummaryDto): Promise<boolean> {
-    if (!canDeleteSubmission(job) || deletingSubmissionIds.has(job.submissionId!)) return false;
-    deletingSubmissionIds = new Set([...deletingSubmissionIds, job.submissionId!]);
+    if (!canDeleteSubmission(job) || deletingSubmissionIds.has(job.display.submissionId!)) return false;
+    deletingSubmissionIds = new Set([...deletingSubmissionIds, job.display.submissionId!]);
     mutationError = null;
     try {
-      requireDeleted(await daemonApi.deleteSubmission(job.submissionId!));
-      for (const list of Object.values(jobLists)) list.afterArchive(job.submissionId!);
+      requireDeleted(await daemonApi.deleteSubmission(job.display.submissionId!));
+      for (const list of Object.values(jobLists)) list.afterArchive(job.display.submissionId!);
       return true;
     } catch (error) { mutationError = asError(error); return false; }
-    finally { deletingSubmissionIds = new Set([...deletingSubmissionIds].filter((id) => id !== job.submissionId)); }
+    finally { deletingSubmissionIds = new Set([...deletingSubmissionIds].filter((id) => id !== job.display.submissionId)); }
   }
 
   async function removeActiveSearch(): Promise<void> {
@@ -683,7 +678,6 @@
       refreshRevision={jobList.refreshRevision}
       connected={liveStatus === 'connected' && documentVisible}
       {observeJobs}
-      hasDraft={Boolean(composer)}
       onnew={openJobDraft}
       jobs={jobList.items}
       loading={jobList.loading || liveStatus === 'connecting' || liveStatus === 'reconnecting'}
@@ -776,8 +770,8 @@
 
 {#if composer}
   {#key composer}
-    <NewJobComposer open={composer.open} connected={liveStatus === 'connected' && documentVisible} initialSearch={composer.initialSearch}
-      onclose={(keep) => { if (keep && composer) composer.open = false; else composer = null; }}
+    <NewJobComposer connected={liveStatus === 'connected' && documentVisible} initialSearch={composer.initialSearch}
+      onclose={() => composer = null}
       oncommittingchange={(pending) => (composingJobCommitPending = pending)}
       onstarted={(rootJobId) => { composingJobCommitPending = false; composer = null; openAutomaticJob(rootJobId); }} />
   {/key}

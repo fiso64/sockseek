@@ -75,8 +75,8 @@ public class LocalCliBackendTests
                                 WritePlaylist: true),
                             Extraction: new ExtractionSettingsPatchDto(RequestedMode: ServerExtractionMode.Song)))]));
 
-            Assert.AreEqual(ServerJobKind.JobList, accepted.Kind);
-            Assert.AreNotEqual(Guid.Empty, accepted.WorkflowId);
+            Assert.AreEqual(ServerJobKind.JobList, accepted.Display.Kind);
+            Assert.AreNotEqual(Guid.Empty, accepted.Display.WorkflowId);
         }
         finally
         {
@@ -163,7 +163,7 @@ public class LocalCliBackendTests
             Assert.AreEqual(1, projection.Items.Count);
 
             Assert.IsTrue(seenUpdates.Any(update => update.ChangedJobs.Any(job => job.JobId == submitted.JobId)));
-            Assert.IsTrue(seenUpdates.Any(update => update.ChangedWorkflows.Any(workflow => workflow.WorkflowId == submitted.WorkflowId)));
+            Assert.IsTrue(seenUpdates.Any(update => update.ChangedWorkflows.Any(workflow => workflow.WorkflowId == submitted.Display.WorkflowId)));
             Assert.IsTrue(seenUpdates.Any(update => update.State.Searches.Any(search => search.JobId == submitted.JobId)));
         }
         finally
@@ -251,7 +251,7 @@ public class LocalCliBackendTests
                     Options: new SubmissionOptionsDto(Guid.NewGuid())),
                 cts.Token);
 
-            await coordinator.RunUntilCompleteAsync(summary.WorkflowId, cts.Token);
+            await coordinator.RunUntilCompleteAsync(summary.Display.WorkflowId, cts.Token);
 
             Assert.AreEqual(0, pickerCalls, "The MP3 folder must be filtered out by the list-line FLAC condition before prompting.");
             Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
@@ -594,8 +594,8 @@ public class LocalCliBackendTests
             Assert.IsTrue(updates.Any(update => update.ChangedTransfers.Any()));
             Assert.IsTrue(updates
                 .SelectMany(update => update.ChangedJobs)
-                .Any(job => job.Kind == ServerJobKind.Song
-                    && job.LifecycleState == ServerJobLifecycleState.Terminal));
+                .Any(job => job.Display.Kind == ServerJobKind.Song
+                    && job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal));
             Assert.IsFalse(activity.Any(item => item.Type is "download.started" or "download.state-changed" or "song.state-changed"));
         }
         finally

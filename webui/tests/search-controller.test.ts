@@ -1,5 +1,6 @@
+import { jobSummary } from './job-fixture';
 import { describe, expect, it, vi } from 'vitest';
-import { DaemonApiClient, type GroupOptionQuery } from '../src/api/client';
+import { DaemonApiClient, nestedPageSize, type GroupOptionQuery } from '../src/api/client';
 import { DaemonApiError } from '../src/api/http';
 import type { Schema, SearchViewRequest, SearchViewFilePageDto, SearchViewSummaryDto, SearchViewUpdateDto } from '../src/api/types';
 import { allSearchResultsSelected, SearchSelection } from '../src/domains/search/selection';
@@ -43,7 +44,7 @@ function deferred<T>() {
 }
 
 function open(controller: SearchViewController, id: string) {
-  return controller.open({ job: { jobId: id }, view: summary(id), draft: { ...emptySearchDraft, resultMode: 'track' } });
+  return controller.open({ job: jobSummary({ jobId: id }), view: summary(id), draft: { ...emptySearchDraft, resultMode: 'track' } });
 }
 
 describe('Search View request isolation', () => {
@@ -121,7 +122,7 @@ describe('Search View request isolation', () => {
       }
       const controller = new SearchViewController(new Api(), 60_000);
       try {
-        await controller.open({ job: { jobId: 'search' }, view: view(1), draft: { ...emptySearchDraft, resultMode: mode } });
+        await controller.open({ job: jobSummary({ jobId: 'search' }), view: view(1), draft: { ...emptySearchDraft, resultMode: mode } });
         expect(allSearchResultsSelected(controller.current())).toBe(false);
         controller.selectAll(true);
         expect(allSearchResultsSelected(controller.current())).toBe(true);
@@ -198,7 +199,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'source' }, view: wider,
+      await controller.open({ job: jobSummary({ jobId: 'source' }), view: wider,
         draft: { ...emptySearchDraft, resultMode: 'track' } });
       controller.selectAll(true);
       controller.toggle('excluded-file', false);
@@ -222,7 +223,7 @@ describe('Search View request isolation', () => {
       }
       override getSearchViewUpdate = vi.fn();
       override async getJob(id: string) {
-        return { summary: { jobId: id, lifecycleState: 'Terminal' as const }, childCount: 0, sourceJobAvailable: false };
+        return { summary: jobSummary({ jobId: id, lifecycle: { lifecycleState: 'Terminal' as const } }), childCount: 0, sourceJobAvailable: false };
       }
     }
     const api = new Api();
@@ -235,7 +236,7 @@ describe('Search View request isolation', () => {
     controller.subscribe(state => { if (state.summary?.revision === 3) displayed.resolve(); });
     controller.setLiveConnected(true);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Running' },
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Running' } }),
         view: { ...summary('search'), isComplete: false }, draft: { ...emptySearchDraft, resultMode: 'track' } });
       controller.pause();
       expect(subscriptions[0]!.release).toHaveBeenCalledOnce();
@@ -337,7 +338,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search' }, view: initial,
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view: initial,
         draft: { ...emptySearchDraft, resultMode: 'track' } });
       expect(pageReads).toBe(0);
       await controller.refresh();
@@ -362,7 +363,7 @@ describe('Search View request isolation', () => {
       const controller = new SearchViewController(new Api(), 60_000);
       controller.subscribe(state => { if (state.phase === 'ready') ready.push(state.summary!.revision); });
       try {
-        await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' },
+        await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }),
           view: { ...summary('search'), isComplete: false }, draft: { ...emptySearchDraft, resultMode: mode } });
         await controller.refresh(false, { ...summary('search', 2), isComplete: false });
         expect(controller.current().phase).toBe('loading');
@@ -393,7 +394,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' },
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }),
         view: { ...summary('search'), isComplete: false }, draft: { ...emptySearchDraft, resultMode: 'track' } });
       await controller.refresh();
       expect(controller.current().phase).toBe('failed');
@@ -424,7 +425,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' },
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }),
         view: { ...summary('search'), isComplete: false }, draft: { ...emptySearchDraft, resultMode: 'track' } });
       await vi.advanceTimersByTimeAsync(5);
       expect(updates).toEqual([{ revision: 1, wait: true }, { revision: 2, wait: true }]);
@@ -467,7 +468,7 @@ describe('Search View request isolation', () => {
     const controller = new SearchViewController(new Api(), 60_000);
     let refining: Promise<unknown> | undefined;
     try {
-      await controller.open({ job: { jobId: 'source', lifecycleState: 'Terminal' },
+      await controller.open({ job: jobSummary({ jobId: 'source', lifecycle: { lifecycleState: 'Terminal' } }),
         view: { ...summary('source'), kind: 'GenericDirectories' },
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       controller.toggle('folder', true);
@@ -523,7 +524,7 @@ describe('Search View request isolation', () => {
     const controller = new SearchViewController(new Api(), 60_000);
     const refine = () => controller.refine({ kind: 'GenericDirectories' });
     try {
-      await controller.open({ job: { jobId: 'source' }, view: projected('source'),
+      await controller.open({ job: jobSummary({ jobId: 'source' }), view: projected('source'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       if (all) controller.selectAll(true);
       controller.toggle('parent', !all);
@@ -604,7 +605,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 1_000);
     try {
-      await controller.open({ job: { jobId: 'search' }, view,
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view,
         draft: { ...emptySearchDraft, resultMode: 'track' } });
       controller.toggle('selected-file', true);
       controller.pause();
@@ -650,7 +651,7 @@ describe('Search View request isolation', () => {
     const seen: { id: string | undefined; rows: number }[] = [];
     let pending: Promise<unknown> | undefined;
     try {
-      await controller.open({ job: { jobId: 'job' }, view: view('source'),
+      await controller.open({ job: jobSummary({ jobId: 'job' }), view: view('source'),
         draft: { ...emptySearchDraft, resultMode: mode } });
       controller.subscribe(state => seen.push({ id: state.summary?.viewId, rows: state.rows.length }));
       pending = controller.refine({ kind, filterText: 'still matches' });
@@ -769,18 +770,17 @@ describe('Search View request isolation', () => {
       override async getSearchViewDirectories(id: string) {
         return { revision: summary(id), items: id === 'old-view' ? [directory] : [], nextCursor: null };
       }
-      override async retrieveSearchViewDirectory() { return { jobId: 'retrieval-job' }; }
+      override async retrieveSearchViewDirectory() { return jobSummary({ jobId: 'retrieval-job' }); }
       override async getJob() {
         jobReads += 1;
-        return { summary: { jobId: 'retrieval-job', lifecycleState: terminal ? 'Terminal' : 'Running',
-          terminalOutcome: terminal ? 'Succeeded' : null }, payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
+        return { summary: jobSummary({ jobId: 'retrieval-job', lifecycle: { lifecycleState: terminal ? 'Terminal' : 'Running', terminalOutcome: terminal ? 'Succeeded' : 'None' } }), payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) { return { summary: summary(id), hasNewRevision: false }; }
       override async createSearchView() { return summary('new-view'); }
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('old-view'),
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('old-view'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       await controller.retrieveDirectory('old-folder');
       expect(jobReads).toBe(1);
@@ -810,7 +810,7 @@ describe('Search View request isolation', () => {
       override async retrieveSearchViewDirectory() { return accepted.promise; }
       override async getJob() {
         jobReads += 1;
-        return { summary: { jobId: 'retrieval-job', lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' },
+        return { summary: jobSummary({ jobId: 'retrieval-job', lifecycle: { lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' } }),
           payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) { return { summary: summary(id), hasNewRevision: false }; }
@@ -818,11 +818,11 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('old-view'),
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('old-view'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       const retrieving = controller.retrieveDirectory('old-folder');
       await controller.refine({ kind: 'GenericDirectories', filterText: 'other' });
-      accepted.resolve({ jobId: 'retrieval-job' } as Schema<'JobSummaryDto'>);
+      accepted.resolve(jobSummary({ jobId: 'retrieval-job' }));
       await retrieving;
       await controller.refresh();
       expect(jobReads).toBe(1);
@@ -842,10 +842,10 @@ describe('Search View request isolation', () => {
       }
       override async retrieveSearchViewDirectory() {
         starts += 1;
-        return { jobId: 'retrieval-job' };
+        return jobSummary({ jobId: 'retrieval-job' });
       }
       override async getJob() {
-        return { summary: { jobId: 'retrieval-job', lifecycleState: 'Running' },
+        return { summary: jobSummary({ jobId: 'retrieval-job', lifecycle: { lifecycleState: 'Running' } }),
           payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) {
@@ -855,7 +855,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('old-view'),
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('old-view'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       await controller.retrieveDirectory('same-folder');
       await controller.refine({ kind: 'GenericDirectories' });
@@ -877,7 +877,7 @@ describe('Search View request isolation', () => {
         return accepted.promise;
       }
       override async getJob() {
-        return { summary: { jobId: 'retrieval-job', lifecycleState: 'Running' },
+        return { summary: jobSummary({ jobId: 'retrieval-job', lifecycle: { lifecycleState: 'Running' } }),
           payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) {
@@ -887,14 +887,14 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('old-view'),
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('old-view'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       const retrieving = controller.retrieveDirectory('same-folder');
       await controller.refine({ kind: 'GenericDirectories' });
       expect(controller.current().retrievals.get('same-folder')?.loading).toBe(true);
       await controller.retrieveDirectory('same-folder');
       expect(starts).toBe(1);
-      accepted.resolve({ jobId: 'retrieval-job' } as Schema<'JobSummaryDto'>);
+      accepted.resolve(jobSummary({ jobId: 'retrieval-job' }));
       await retrieving;
     } finally { controller.stop(); }
   });
@@ -908,10 +908,10 @@ describe('Search View request isolation', () => {
       }
       override async retrieveSearchViewDirectory(...args: Parameters<DaemonApiClient['retrieveSearchViewDirectory']>) {
         requests.push(args);
-        return requests.length === 1 ? accepted.promise : { jobId: 'retrieval-job' };
+        return requests.length === 1 ? accepted.promise : jobSummary({ jobId: 'retrieval-job' });
       }
       override async getJob() {
-        return { summary: { jobId: 'retrieval-job', lifecycleState: 'Running' },
+        return { summary: jobSummary({ jobId: 'retrieval-job', lifecycle: { lifecycleState: 'Running' } }),
           payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) {
@@ -921,7 +921,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('old-view'),
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('old-view'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       const retrieving = controller.retrieveDirectory('same-folder');
       await controller.refine({ kind: 'GenericDirectories' });
@@ -945,11 +945,11 @@ describe('Search View request isolation', () => {
       }
       override async retrieveSearchViewDirectory() {
         starts += 1;
-        return starts === 1 ? previous.promise : { jobId: 'new-retrieval' };
+        return starts === 1 ? previous.promise : jobSummary({ jobId: 'new-retrieval' });
       }
       override async getJob() {
         jobReads += 1;
-        return { summary: { jobId: 'new-retrieval', lifecycleState: 'Running' },
+        return { summary: jobSummary({ jobId: 'new-retrieval', lifecycle: { lifecycleState: 'Running' } }),
           payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) {
@@ -959,12 +959,12 @@ describe('Search View request isolation', () => {
     const controller = new SearchViewController(new Api(), 60_000);
     try {
       const draft = { ...emptySearchDraft, resultMode: 'generic' as const };
-      await controller.open({ job: { jobId: 'old-search', lifecycleState: 'Terminal' },
+      await controller.open({ job: jobSummary({ jobId: 'old-search', lifecycle: { lifecycleState: 'Terminal' } }),
         view: summary('old-view'), draft });
       const oldRetrieval = controller.retrieveDirectory('same-folder');
-      await controller.open({ job: { jobId: 'new-search', lifecycleState: 'Terminal' },
+      await controller.open({ job: jobSummary({ jobId: 'new-search', lifecycle: { lifecycleState: 'Terminal' } }),
         view: summary('new-view'), draft });
-      previous.resolve({ jobId: 'old-retrieval' } as Schema<'JobSummaryDto'>);
+      previous.resolve(jobSummary({ jobId: 'old-retrieval' }));
       await oldRetrieval;
       await controller.refresh();
       expect(jobReads).toBe(0);
@@ -1004,7 +1004,7 @@ describe('Search View request isolation', () => {
     view.counters.selectableOptionCount = 1;
     const controller = new SearchViewController(new Api());
     try {
-      await controller.open({ job: { jobId: 'search' }, view,
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view,
         draft: { ...emptySearchDraft, resultMode: 'track' } });
       controller.selectAll(true);
       const options: Schema<'SubmissionOptionsDto'> = {
@@ -1044,7 +1044,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search' }, view: summary('search'),
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view: summary('search'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       expect(fetchedCursor).toBeUndefined();
       expect(controller.current().directoryFiles.get('folder')?.items.map(item => item.ref)).toEqual(['first']);
@@ -1080,7 +1080,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('search'),
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('search'),
         draft: { ...emptySearchDraft, resultMode } });
       expect(reads).toHaveLength(0);
       await controller.loadDirectoryFiles('folder');
@@ -1089,8 +1089,8 @@ describe('Search View request isolation', () => {
       await controller.refresh();
       expect(controller.current().directoryFiles.get('folder')?.items.map(item => item.ref)).toEqual(['arrived', 'first']);
       expect(reads).toEqual([
-        { revision: 1, cursor: 'preview-1', limit: 100 },
-        { revision: 2, cursor: 'preview-2', limit: 100 },
+        { revision: 1, cursor: 'preview-1', limit: nestedPageSize },
+        { revision: 2, cursor: 'preview-2', limit: nestedPageSize },
       ]);
       await controller.refresh();
       expect(reads).toHaveLength(2);
@@ -1125,7 +1125,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('search'),
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('search'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       const old = controller.loadDirectoryFiles('folder');
       await controller.refresh(true);
@@ -1148,12 +1148,12 @@ describe('Search View request isolation', () => {
       await controller.loadDirectoryFiles('folder');
       expect(controller.current().directoryFiles.get('folder')?.items.map(item => item.ref)).toEqual(['folder-3', 'continued-3']);
       expect(reads).toEqual([
-        { revision: 1, cursor: 'preview-1', limit: 100 },
-        { revision: 2, cursor: 'preview-2', limit: 100 },
-        { revision: 3, cursor: 'preview-3', limit: 100 },
-        { revision: 3, cursor: 'preview-3', limit: 100 },
+        { revision: 1, cursor: 'preview-1', limit: nestedPageSize },
+        { revision: 2, cursor: 'preview-2', limit: nestedPageSize },
+        { revision: 3, cursor: 'preview-3', limit: nestedPageSize },
+        { revision: 3, cursor: 'preview-3', limit: nestedPageSize },
       ]);
-      await controller.open({ job: { jobId: 'fresh', lifecycleState: 'Terminal' }, view: summary('fresh'),
+      await controller.open({ job: jobSummary({ jobId: 'fresh', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('fresh'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       expect(reads).toHaveLength(4);
       expect(controller.current().directoryFiles.get('folder')?.items.map(item => item.ref)).toEqual(['folder-1']);
@@ -1195,7 +1195,7 @@ describe('Search View request isolation', () => {
       if (state.summary?.revision === 1 && state.selectionCounts) countDisplayed.resolve();
     });
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('search'),
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('search'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       await controller.loadDirectoryFiles('folder');
       controller.toggle('folder', true);
@@ -1257,7 +1257,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'group', lifecycleState: 'Terminal' }, view: summary('group'),
+      await controller.open({ job: jobSummary({ jobId: 'group', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('group'),
         draft: { ...emptySearchDraft, resultMode: 'album-groups' } });
       await controller.openGroupOptions('group');
       controller.chooseGroupOption('group', controller.current().groupOptions!.items.find(option => option.ref === chosen)!);
@@ -1348,7 +1348,7 @@ describe('Search View request isolation', () => {
     view.counters.topLevelItemCount = 1;
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search' }, view,
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view,
         draft: { ...emptySearchDraft, resultMode: 'album-groups' } });
       await controller.openGroupOptions('group');
       expect(controller.current().directoryFiles.get('second')?.items).toHaveLength(2);
@@ -1398,7 +1398,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'group' }, view,
+      await controller.open({ job: jobSummary({ jobId: 'group' }), view,
         draft: { ...emptySearchDraft, resultMode: 'song-groups' } });
       await controller.openGroupOptions('group');
       const oldRequest = controller.loadMoreGroupOptions();
@@ -1453,7 +1453,7 @@ describe('Search View request isolation', () => {
     view.counters.topLevelItemCount = 1;
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search' }, view,
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view,
         draft: { ...emptySearchDraft, resultMode: 'song-groups' } });
       await controller.stepGroupOption('group', 1);
       expect(controller.current().chosenOptions.get('group')?.ref).toBe('second-option');
@@ -1524,7 +1524,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'group' }, view,
+      await controller.open({ job: jobSummary({ jobId: 'group' }), view,
         draft: { ...emptySearchDraft, resultMode: 'song-groups' } });
       await controller.openGroupOptions('group');
       controller.chooseGroupOption('group', controller.current().groupOptions!.items[1]!);
@@ -1586,7 +1586,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'group', lifecycleState: 'Terminal' }, view,
+      await controller.open({ job: jobSummary({ jobId: 'group', lifecycle: { lifecycleState: 'Terminal' } }), view,
         draft: { ...emptySearchDraft, resultMode: 'song-groups' } });
       await controller.openGroupOptions('group');
       controller.chooseGroupOption('group', controller.current().groupOptions!.items[0]!);
@@ -1634,7 +1634,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'group', lifecycleState: 'Terminal' }, view,
+      await controller.open({ job: jobSummary({ jobId: 'group', lifecycle: { lifecycleState: 'Terminal' } }), view,
         draft: { ...emptySearchDraft, resultMode: 'song-groups' } });
       await controller.openGroupOptions('group');
       controller.chooseGroupOption('group', controller.current().groupOptions!.items[0]!);
@@ -1662,10 +1662,10 @@ describe('Search View request isolation', () => {
     let failFirst = true;
     class Api extends DaemonApiClient {
       override async getSearchViewDirectories(id: string) { return { revision: summary(id), items: directories, nextCursor: null }; }
-      override async retrieveSearchViewDirectory(_id: string, _revision: number | string, directory: Schema<'PeerDirectoryRefDto'>) { return { jobId: directory.ref }; }
+      override async retrieveSearchViewDirectory(_id: string, _revision: number | string, directory: Schema<'PeerDirectoryRefDto'>) { return jobSummary({ jobId: directory.ref }); }
       override async getJob(id: string): Promise<Schema<'JobDetailDto'>> {
         if (id === 'first' && failFirst) throw new Error('First status unavailable');
-        return { summary: { jobId: id, lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' }, payload: null, childCount: 0, sourceJobAvailable: false };
+        return { summary: jobSummary({ jobId: id, lifecycle: { lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' } }), payload: null, childCount: 0, sourceJobAvailable: false };
       }
       override async getSearchViewUpdate(id: string) { return { summary: summary(id), hasNewRevision: false }; }
       override async getSearchViewDirectoryFiles(id: string, ref: string) {
@@ -1675,7 +1675,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search' }, view: summary('search'), draft: { ...emptySearchDraft, resultMode: 'generic' } });
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view: summary('search'), draft: { ...emptySearchDraft, resultMode: 'generic' } });
       await controller.retrieveDirectory('first');
       await controller.retrieveDirectory('second');
       expect(controller.current().retrievals.get('first')?.error?.message).toBe('First status unavailable');
@@ -1698,16 +1698,16 @@ describe('Search View request isolation', () => {
       override async retrieveSearchViewDirectory(...args: Parameters<DaemonApiClient['retrieveSearchViewDirectory']>) {
         requests.push(args);
         if (requests.length === 1) throw new Error('Response lost');
-        return { jobId: 'original-retrieval' } as Schema<'JobSummaryDto'>;
+        return jobSummary({ jobId: 'original-retrieval' });
       }
       override async getJob() {
-        return { summary: { jobId: 'original-retrieval', lifecycleState: 'Running' }, payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
+        return { summary: jobSummary({ jobId: 'original-retrieval', lifecycle: { lifecycleState: 'Running' } }), payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string) { return { summary: summary(id), hasNewRevision: false }; }
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('search'),
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('search'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       await controller.retrieveDirectory('folder');
       expect(controller.current().retrievals.get('folder')?.error?.message).toBe('Response lost');
@@ -1732,14 +1732,13 @@ describe('Search View request isolation', () => {
         requests.push(args);
         if (args[2].ref === 'first') {
           if (++firstAttempts === 1) throw new Error('First response lost');
-          return { jobId: 'first-job' } as Schema<'JobSummaryDto'>;
+          return jobSummary({ jobId: 'first-job' });
         }
         revision = 2;
-        return { jobId: 'second-job' } as Schema<'JobSummaryDto'>;
+        return jobSummary({ jobId: 'second-job' });
       }
       override async getJob(id: string) {
-        return { summary: { jobId: id, lifecycleState: id === 'second-job' ? 'Terminal' : 'Running',
-          terminalOutcome: id === 'second-job' ? 'Succeeded' : null },
+        return { summary: jobSummary({ jobId: id, lifecycle: { lifecycleState: id === 'second-job' ? 'Terminal' : 'Running', terminalOutcome: id === 'second-job' ? 'Succeeded' : 'None' } }),
           payload: null, childCount: 0, sourceJobAvailable: false } as Schema<'JobDetailDto'>;
       }
       override async getSearchViewUpdate(id: string, requestedRevision: number | string) {
@@ -1752,7 +1751,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search', lifecycleState: 'Terminal' }, view: summary('search'),
+      await controller.open({ job: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }), view: summary('search'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       await controller.retrieveDirectory('first');
       expect(controller.current().retrievals.get('first')?.error?.message).toBe('First response lost');
@@ -1808,7 +1807,7 @@ describe('Search View request isolation', () => {
     try {
       const view = summary('search');
       view.counters.selectableOptionCount = 1;
-      await controller.open({ job: { jobId: 'search' }, view, draft: { ...emptySearchDraft, resultMode: 'track' } });
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view, draft: { ...emptySearchDraft, resultMode: 'track' } });
       controller.selectAll(true);
       controller.toggle('folder', false);
       controller.toggle('child', true, 'folder');
@@ -1838,7 +1837,7 @@ describe('Search View request isolation', () => {
       view.kind = 'GenericDirectories';
       view.counters.topLevelItemCount = 2;
       view.counters.selectableOptionCount = 7;
-      await controller.open({ job: { jobId: 'search' }, view, draft: { ...emptySearchDraft, resultMode: 'track' } });
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view, draft: { ...emptySearchDraft, resultMode: 'track' } });
       controller.selectAll(true);
       expect(controller.selectedCount()).toBe(2);
       controller.toggle('folder', false);
@@ -1910,7 +1909,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search' }, view: view('search'),
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view: view('search'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       if (selection === 'all-except') controller.selectAll(true);
       controller.toggle('folder', selection !== 'all-except');
@@ -1960,7 +1959,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'search' }, view: first,
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view: first,
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       controller.toggle('child-b', true);
       expect(controller.current().selectionRevision).toBe(1);
@@ -2021,7 +2020,7 @@ describe('Search View request isolation', () => {
     try {
       const view = summary('search');
       view.counters.selectableOptionCount = 1;
-      await controller.open({ job: { jobId: 'search' }, view, draft: { ...emptySearchDraft, resultMode: 'track' } });
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view, draft: { ...emptySearchDraft, resultMode: 'track' } });
       if (all) controller.selectAll(true);
       else controller.toggle('directory', true);
       expect(controller.isSelected('file', 'directory')).toBe(true);
@@ -2089,7 +2088,7 @@ describe('Search View request isolation', () => {
       const repeated = controller.loadMore();
       expect(nextCalls).toBe(0);
       if (!waitingForStatus) update.resolve({ summary: summary('search', 2), hasNewRevision: true });
-      status.resolve({ summary: { jobId: 'search', lifecycleState: 'Terminal' } } as Schema<'JobDetailDto'>);
+      status.resolve({ summary: jobSummary({ jobId: 'search', lifecycle: { lifecycleState: 'Terminal' } }) } as Schema<'JobDetailDto'>);
       await Promise.all([refreshing, first, repeated]);
       expect(nextCalls).toBe(1);
       expect(controller.current().nextCursor).toBeNull();
@@ -2127,7 +2126,7 @@ describe('Search View request isolation', () => {
     }
     const controller = new SearchViewController(new Api(), 60_000);
     try {
-      await controller.open({ job: { jobId: 'source' }, view: source,
+      await controller.open({ job: jobSummary({ jobId: 'source' }), view: source,
         draft: { ...emptySearchDraft, resultMode: mode } });
       const older = controller.loadMore();
       expect(controller.current().loadingMore).toBe(true);
@@ -2366,7 +2365,7 @@ describe('Search View read ordering', () => {
     }
     const controller = new SearchViewController(new Api());
     try {
-      await controller.open({ job: { jobId: 'source' }, view: source, draft: { ...emptySearchDraft, resultMode: mode } });
+      await controller.open({ job: jobSummary({ jobId: 'source' }), view: source, draft: { ...emptySearchDraft, resultMode: mode } });
       const selected = controller.current().rows[0]!.ref;
       controller.toggle(selected, true);
       await Promise.resolve();
@@ -2403,7 +2402,7 @@ describe('Search View read ordering', () => {
     }
     const controller = new SearchViewController(new Api());
     try {
-      await controller.open({ job: { jobId: 'source' }, view: summary('source'),
+      await controller.open({ job: jobSummary({ jobId: 'source' }), view: summary('source'),
         draft: { ...emptySearchDraft, resultMode: 'generic' } });
       await controller.loadDirectoryFiles(folder.ref.ref);
       const failed = controller.current().directoryFiles.get(folder.ref.ref)!;

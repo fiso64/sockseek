@@ -3,7 +3,6 @@ using Sockseek.Api;
 using Sockseek.Core;
 using Sockseek.Core.Models;
 using Sockseek.Core.Snapshots;
-using Sockseek.Persistence.Read;
 using Sockseek.Server.Persistence;
 
 namespace Sockseek.Server.Tests;
@@ -27,8 +26,8 @@ public sealed class HistoricalSongPayloadTests
         Assert.AreEqual(128L, selected.ResolvedSize);
         Assert.AreEqual(24, selected.ResolvedAttributes!.Single().Value);
 
-        var printJob = Job("Song", song) with { PrintOption = (int)(PrintOption.Results | PrintOption.Full) };
-        Assert.AreEqual(ServerPrintOption.Results | ServerPrintOption.Full, HistoricalJobDtoMapper.ToSummary(printJob).PrintOption);
+        var printJob = RetainedJobFixture.Create("Song", song) with { PrintOption = (int)(PrintOption.Results | PrintOption.Full) };
+        Assert.AreEqual(ServerPrintOption.Results | ServerPrintOption.Full, HistoricalJobDtoMapper.ToSummary(printJob).Display.PrintOption);
         Assert.AreEqual(PrintOption.Results | PrintOption.Full, HistoricalJobDtoMapper.ReadSnapshot(printJob).PrintOption);
 
         var unresolved = Read(song);
@@ -58,7 +57,7 @@ public sealed class HistoricalSongPayloadTests
     [TestMethod]
     public void RetainedGroupPreservesOutcomeCountsAndInvalidRowsDoNotHideNeighbors()
     {
-        var job = Job("SongGroups", new SongGroupsExecutionPayload(new(null, null, null, null, null, false), null, new(7, 7, 5, 2)));
+        var job = RetainedJobFixture.Create("SongGroups", new SongGroupsExecutionPayload(new(null, null, null, null, null, false), null, new(7, 7, 5, 2)));
         var payload = (SongGroupsJobPayloadDto)HistoricalJobDtoMapper.ToPayload(job);
         Assert.AreEqual(7, payload.SongCount);
         Assert.AreEqual(7, payload.CompletedSongCount);
@@ -79,14 +78,6 @@ public sealed class HistoricalSongPayloadTests
     }
 
     private static SongJobPayloadDto Read(SongJobSnapshotPayload payload)
-        => (SongJobPayloadDto)HistoricalJobDtoMapper.ToPayload(Job("Song", payload));
+        => (SongJobPayloadDto)HistoricalJobDtoMapper.ToPayload(RetainedJobFixture.Create("Song", payload));
 
-    private static PersistedJob Job(string kind, JobSnapshotPayload payload)
-    {
-        var now = DateTimeOffset.UtcNow;
-        return new(Guid.NewGuid(), 1, Guid.NewGuid(), null, null, null,
-            kind, "Terminal", "None", null, "Succeeded", "None", "None", "None",
-            null, null, null, "Track", now, now, now, 1, RetainedJobPayloadCodec.SchemaVersion,
-            RetainedJobPayloadCodec.Capture(payload).Value);
-    }
 }

@@ -1,3 +1,4 @@
+import { nestedPageSize } from '../api-defaults';
 import { test, expect } from './fixtures';
 import type { Schema } from '../src/api/types';
 import { readdir, stat, mkdir, writeFile } from 'node:fs/promises';
@@ -53,7 +54,7 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   await page.getByLabel('Output directory', { exact: true }).fill(destination);
   await page.getByLabel('Name format', { exact: true }).fill('direct/{stitle}');
   await page.getByRole('button', { name: 'Profiles', exact: true }).click();
-  await page.getByRole('checkbox', { name: 'download-preset', exact: true }).check();
+  await page.getByRole('checkbox', { name: 'download-options', exact: true }).check();
   await page.getByRole('button', { name: 'Profiles', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Skip existing downloads', exact: true })).not.toBeChecked();
   await expect(page.getByLabel('Output directory', { exact: true })).toHaveValue(destination);
@@ -64,7 +65,7 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled();
   await page.getByLabel('Name format', { exact: true }).press('Control+Enter');
   const started = (await request).postDataJSON() as Schema<'CreateJobPreviewRequestDto'>;
-  expect(started.options?.profileNames).toEqual(['download-preset']);
+  expect(started.options?.profileNames).toEqual(['download-options']);
   expect(started.options?.downloadSettings?.skip).toBeUndefined();
   expect(started.options?.downloadSettings?.search?.necessaryCond?.formats?.replace).toEqual(['flac']);
   expect(started.options?.downloadSettings?.output?.nameFormat).toBe('direct/{stitle}');
@@ -127,10 +128,6 @@ test('Ctrl+Enter opens New Job with the current query and edited search conditio
     await expect(page).toHaveURL(new RegExp(`${origin}$`));
   }
   expect(searches).toBe(0);
-  page.once('dialog', prompt => prompt.dismiss());
-  await page.locator('#global-search-simple').press('Control+Enter');
-  await expect(page.locator('.new-job-composer')).toHaveCount(0);
-  page.once('dialog', prompt => prompt.accept());
   await page.locator('#global-search-simple').press('Control+Enter');
   const dialog = page.getByRole('dialog', { name: 'New job', exact: true });
   await expect(dialog).toBeVisible();
@@ -184,12 +181,11 @@ test('keeps Review reachable with edited Album settings on narrow screens', asyn
   const dialog = page.getByRole('dialog', { name: 'New job' });
   await expect(dialog.locator('.new-job-source-disclosure')).not.toHaveAttribute('open', '');
   await expect(dialog.getByRole('button', { name: 'Spotify', exact: true })).not.toBeVisible();
+  await dialog.getByPlaceholder('Song title…').fill('Unsubmitted song');
   await page.mouse.click(5, 5);
   await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: 'New job', exact: false }).click();
-  await dialog.getByRole('button', { name: 'Close new job', exact: true }).click();
-  await expect(dialog).toHaveCount(0);
-  await page.getByRole('button', { name: 'New job', exact: false }).click();
+  await expect(dialog.getByPlaceholder('Song title…')).toHaveValue('');
   await dialog.getByRole('button', { name: 'Album', exact: true }).click();
   await dialog.getByPlaceholder('Album title…').fill('Fixture Album');
   await dialog.locator('#new-job-options-filtering').click();
@@ -374,7 +370,7 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   await artistMapping.fill('');
   await expect(mappingIndicator).toHaveCount(0);
   await page.getByRole('button', { name: 'Profiles', exact: true }).click();
-  await page.getByRole('checkbox', { name: 'download-preset', exact: true }).check();
+  await page.getByRole('checkbox', { name: 'download-options', exact: true }).check();
   await page.getByRole('button', { name: 'Profiles', exact: true }).click();
   await page.locator('#new-job-options-import').click();
   await expect(page.getByLabel('Offset', { exact: true })).toHaveValue('2');
@@ -413,7 +409,7 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   const firstCreation = await firstCreated;
   const original = await firstCreation.json() as Schema<'CreateJobPreviewResponseDto'>;
   const originalRequest = firstCreation.request().postDataJSON() as Schema<'CreateJobPreviewRequestDto'>;
-  expect(originalRequest.options?.profileNames).toEqual(['download-preset']);
+  expect(originalRequest.options?.profileNames).toEqual(['download-options']);
   expect(originalRequest.options?.downloadSettings?.extraction).toEqual({ offset: 0 });
   await expect(page.locator('.new-job-start-button')).toBeEnabled();
   await expect(page.locator('.job-preview-row').first()).toContainText('browser-input.csv');
@@ -476,11 +472,10 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   expect({ uploads, plans, commits, settingsReads }).toEqual({ uploads: 1, plans: 2, commits: 1, settingsReads: resolvedSettingsReads });
   // A reviewed shortlist must not turn into a whole-playlist download.
   await firstSong.getByRole('checkbox').check();
-  await page.keyboard.press('Escape');
   await daemon.command('forget-job-previews');
-  const missing = page.waitForResponse(reply => reply.request().method() === 'GET'
-    && new URL(reply.url()).pathname === `/api/job-previews/${next.preview.previewId}`);
-  await page.getByTestId('new-job').click();
+  const missing = page.waitForResponse(reply => reply.request().method() === 'POST'
+    && new URL(reply.url()).pathname === `/api/job-previews/${next.preview.previewId}/commit`);
+  await page.getByRole('button', { name: 'Start 1 job', exact: true }).click();
   expect((await missing).status()).toBe(404);
   await expect(page.getByRole('alert')).toContainText('not found');
   await expect(page.locator('.new-job-start-button')).toBeDisabled();
@@ -492,7 +487,7 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   expect(finalPreview.preview.previewId).not.toBe(next.preview.previewId);
   expect(restoring.request().postDataJSON()).toEqual(originalRequest);
   await expect(page.locator('.new-job-start-button')).toBeDisabled();
-  expect({ uploads, plans, commits, settingsReads }).toEqual({ uploads: 1, plans: 3, commits: 1, settingsReads: resolvedSettingsReads });
+  expect({ uploads, plans, commits, settingsReads }).toEqual({ uploads: 1, plans: 3, commits: 2, settingsReads: resolvedSettingsReads });
   // Re-extraction may produce different nodes; old subtree choices cannot be
   // silently applied to this new preview. Choose the desired row again.
   await firstSong.locator('input[type=checkbox]').check();
@@ -513,38 +508,35 @@ test('uploads and reviews a CSV with custom column mapping', async ({ page, daem
   const jobsResponse = await page.request.get(`/api/jobs?submissionId=${receipt.submissionId}&includeAll=true`);
   expect(jobsResponse.ok()).toBeTruthy();
   const jobs = await jobsResponse.json() as Schema<'JobSummaryDto'>[];
-  expect(jobs.some(job => job.queryText?.includes('Fixture CSV Song') || job.itemName?.includes('Fixture CSV Song'))).toBe(true);
-  expect(jobs.some(job => job.queryText?.includes('Second CSV Song') || job.itemName?.includes('Second CSV Song'))).toBe(false);
+  expect(jobs.some(job => job.display.queryText?.includes('Fixture CSV Song') || job.display.itemName?.includes('Fixture CSV Song'))).toBe(true);
+  expect(jobs.some(job => job.display.queryText?.includes('Second CSV Song') || job.display.itemName?.includes('Second CSV Song'))).toBe(false);
 });
 
 test('pages a CSV Review and commits an item beyond the first preview page', async ({ page }) => {
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job', exact: false }).click();
   await page.getByRole('button', { name: 'CSV file', exact: true }).click();
-  const rows = Array.from({ length: 101 }, (_, index) => `Fixture Artist,Paged Item ${String(index + 1).padStart(3, '0')}`);
+  const total = nestedPageSize + 1;
+  const lastTitle = `Paged Item ${String(total).padStart(3, '0')}`;
+  const rows = Array.from({ length: total }, (_, index) => `Fixture Artist,Paged Item ${String(index + 1).padStart(3, '0')}`);
   await page.locator('input[type=file]').setInputFiles({
     name: 'paged-review.csv', mimeType: 'text/csv',
     buffer: Buffer.from(['artist,title', ...rows, ''].join('\n')),
   });
   await page.getByRole('button', { name: 'Review', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Start 101 jobs' })).toBeEnabled();
-  await expect(page.locator('.job-preview-row').filter({ hasText: 'Paged Item 101' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: `Start ${total} jobs` })).toBeEnabled();
+  await expect(page.locator('.job-preview-row').filter({ hasText: lastTitle })).toHaveCount(0);
   await page.getByRole('button', { name: 'Load jobs' }).click();
-  const tail = page.locator('.job-preview-row').filter({ hasText: 'Paged Item 101' });
+  const tail = page.locator('.job-preview-row').filter({ hasText: lastTitle });
   await expect(tail).toHaveCount(1);
   await page.getByRole('button', { name: 'Deselect all' }).click();
   await tail.locator('input[type=checkbox]').check();
-  await page.keyboard.press('Escape');
-  const nav = page.getByRole('navigation', { name: 'Primary navigation' });
-  await nav.getByRole('button', { name: 'Downloads', exact: true }).click();
-  await nav.getByRole('button', { name: 'Jobs', exact: true }).click();
-  await page.getByTestId('new-job').click();
   await expect(tail.getByRole('checkbox')).toBeChecked();
   await expect(page.getByRole('button', { name: 'Start 1 job' })).toBeEnabled();
   await page.getByRole('button', { name: 'Start 1 job' }).click();
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('paged-review');
   await expect(page.locator('[data-testid="job-row"]')).toHaveCount(1);
-  await expect(page.locator('[data-testid="job-row"]')).toContainText('Paged Item 101');
+  await expect(page.locator('[data-testid="job-row"]')).toContainText(lastTitle);
 });
 
 

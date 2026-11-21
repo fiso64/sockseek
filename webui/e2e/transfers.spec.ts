@@ -30,8 +30,10 @@ test('retries unavailable transfer history without presenting it as empty', asyn
 
 test('retries one refused file from Downloads and from its job', async ({ page, daemon }) => {
   const retryLookups: string[] = [];
+  const detailLookups: string[] = [];
   page.on('request', request => {
     const url = new URL(request.url());
+    if (url.pathname.endsWith('/failure-detail')) detailLookups.push(url.pathname);
     if (url.pathname.endsWith('/repeat-options') || url.pathname === '/api/transfers' && url.searchParams.has('jobId'))
       retryLookups.push(url.pathname);
   });
@@ -48,10 +50,29 @@ test('retries one refused file from Downloads and from its job', async ({ page, 
     await page.goto('/downloads');
     const retry = page.getByRole('button', { name: `Retry ${surface}.txt`, exact: true });
     const history = async () => (await (await page.request.get('/api/transfers?direction=download')).json()).items as Schema<'TransferStateDto'>[];
-    await expect(page.getByText('Failed', { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: `${surface}.txt` }).getByRole('button', { name: 'Peer refused', exact: true })).toBeVisible();
     await expect(retry).toBeVisible();
     const failed = (await history()).find(row => row.identity.remotePath === filename)!;
     if (surface === 'jobs') await page.goto(`/jobs/${failed.identity.jobId}`);
+    expect(failed.status.failureReason).toBe('Denied');
+    await page.getByRole('article').filter({ hasText: `${surface}.txt` }).getByRole('button', { name: surface === 'downloads' ? 'Peer refused' : 'Failed', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Transfer details' });
+    const failure = dialog.locator('.transfer-details-message');
+    await expect(failure.locator(':scope > p')).toContainText('fixture-peer');
+    await expect(failure.locator(':scope > p')).toContainText('Fixture rejects the first attempt only.');
+    if (surface === 'jobs') {
+      const jobPath = `/api/jobs/${failed.identity.jobId}`;
+      const job = await (await page.request.get(jobPath)).json();
+      expect(job.summary.lifecycle.hasFailureDetail).toBe(true);
+      expect(job.summary).not.toHaveProperty('failureDetail');
+      expect(detailLookups).toEqual([]);
+      const details = failure.locator('details');
+      await expect(details).toHaveJSProperty('open', false);
+      await details.locator('summary').click();
+      await expect(details.locator('p')).toContainText('TransferRejectedException');
+      expect(detailLookups).toEqual([`${jobPath}/failure-detail`]);
+    }
+    await dialog.getByRole('button', { name: 'Close transfer details' }).click();
     const accepted = page.waitForResponse(response => response.url().endsWith(`/transfers/${failed.transferId}/retry`));
     await retry.click();
     expect((await accepted).status()).toBe(200);
@@ -77,6 +98,30 @@ test('retries one refused file from Downloads and from its job', async ({ page, 
     }
   }
   expect(retryLookups).toEqual([]);
+});
+
+test('records local output failures before the first peer attempt and can retry them', async ({ page, daemon }, info) => {
+  const { writeFile, unlink } = await import('node:fs/promises');
+  const destination = info.outputPath('blocked-output');
+  await writeFile(destination, 'existing file');
+  const submission = await page.request.post('/api/jobs/lists', { data: {
+    name: 'Local output failure', options: { outputParentDir: destination },
+    jobs: [{ kind: 'remote-file', target: { username: 'fixture-peer', filename: 'local.txt', size: 128 } }],
+  } satisfies Schema<'SubmitJobListRequestDto'> });
+  expect(submission.status()).toBe(202);
+  await daemon.command(`wait-job-complete:${(await submission.json()).jobId}`);
+  const history = await (await page.request.get('/api/transfers?direction=download')).json();
+  expect(history.items).toHaveLength(1);
+  expect(history.items[0].status).toMatchObject({ failureReason: 'LocalStorageError', attemptCount: 0 });
+  await page.goto('/downloads');
+  const card = page.getByRole('article').filter({ hasText: 'local.txt' });
+  await card.getByRole('button', { name: 'Local file error' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Transfer details' });
+  await expect(dialog.locator('.transfer-details-message')).toContainText(destination);
+  await dialog.getByRole('button', { name: 'Close transfer details' }).click();
+  await unlink(destination);
+  await card.getByRole('button', { name: 'Retry local.txt' }).click();
+  await expect(card.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
 });
 
 for (const button of ['file', 'folder']) test(`finishes the selected folder through its ${button} retry`, async ({ page, daemon }, testInfo) => {
@@ -243,9 +288,9 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await page.goto('/downloads');
   const folder = page.locator('.folder-item-card').filter({ hasText: 'Selected.txt' });
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
-  expect((await folder.locator('.folder-transfer-name').allTextContents()).sort()).toEqual(['Fixture', 'Nested']);
-  await expect(folder.locator('.folder-transfer-path')).toContainText('Shares\\Fixture');
-  await expect(folder).toContainText('Nested/Nested.txt');
+  await expect(folder.locator('.folder-transfer-path')).toHaveText('Fixture');
+  await expect(folder.locator('.folder-subfolder-path')).toHaveText('Nested');
+  await expect(folder.locator('.folder-file-path')).toHaveText(['Selected.txt', 'Nested.txt']);
   await expect(folder.locator('.folder-transfer-file-count')).toContainText('2');
   await expect(folder.locator('.item-data-state')).toHaveCount(0);
   await expect(folder.locator('.folder-transfer-summary .transfer-state')).toHaveCount(0);
@@ -381,10 +426,10 @@ test('groups directory downloads in live and retained transfer views', async ({ 
     } });
   });
   await page.reload();
-  const partialFolder = page.locator('.folder-item-card').filter({ has: page.locator('.folder-transfer-path', { hasText: 'Shares\\Fixture' }) });
+  const partialFolder = page.locator('.folder-item-card').filter({ has: page.locator('.folder-transfer-path', { hasText: /^Fixture$/ }) });
   await expect(partialFolder.locator('.folder-file-row')).toHaveCount(1);
-  await expect(partialFolder.locator('.folder-transfer-path')).toContainText('Shares\\Fixture');
-  await expect(partialFolder.locator('.folder-transfer-path')).toHaveAttribute('title', /^Remote folders of loaded files:/);
+  await expect(partialFolder.locator('.folder-transfer-path')).toHaveText('Fixture');
+  await expect(partialFolder.locator('.folder-transfer-path')).toHaveAttribute('title', 'Fixture');
   await expect(partialFolder.locator('.folder-transfer-file-count')).toContainText('1/2');
   await expect(partialFolder).toContainText('Showing loaded files');
   await expect(partialFolder.locator('.folder-file-state.complete')).toHaveCount(1);
@@ -437,7 +482,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await page.setViewportSize({ width: 1280, height: 720 });
   // Removing an expanded-only member must work even without folder totals.
   const expandedPath = nextMemberPage.items[0]!.identity.groupRelativePath!;
-  const expandedFile = partialFolder.locator('.folder-file-row').filter({ hasText: expandedPath });
+  const expandedFile = partialFolder.locator('.folder-file-row').filter({ has: page.getByLabel(`Remove ${expandedPath}`, { exact: true }) });
   await page.route(`**/api/transfers/${nextMemberPage.items[0]!.transferId}`, async route => {
     await route.fulfill({ contentType: 'application/json', json: {
       resolvedCount: 1, succeededCount: 0, noOpCount: 0, rejectedCount: 1, failedCount: 0,

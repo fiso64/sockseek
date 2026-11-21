@@ -6173,6 +6173,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{jobId}/failure-detail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gets the technical details recorded for a job failure. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    jobId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/profiles": {
         parameters: {
             query?: never;
@@ -10377,7 +10436,6 @@ export interface components {
                 maxAttempts: number | string;
                 exceptionType: string;
                 exceptionMessage: string;
-                exception: string;
             } | {
                 /** @enum {string} */
                 kind?: "trackBatchResolved";
@@ -10445,7 +10503,6 @@ export interface components {
             maxAttempts: number | string;
             exceptionType: string;
             exceptionMessage: string;
-            exception: string;
         } | {
             /** @enum {string} */
             kind?: "trackBatchResolved";
@@ -10481,7 +10538,6 @@ export interface components {
             maxAttempts: number | string;
             exceptionType: string;
             exceptionMessage: string;
-            exception: string;
         };
         ActivityPayloadDtoExtractionStartedActivityDto: {
             /** Format: int32 */
@@ -11349,7 +11405,6 @@ export interface components {
             maxAttempts: number | string;
             exceptionType: string;
             exceptionMessage: string;
-            exception: string;
         };
         DownloadBehaviorPolicyDto: {
             default?: components["schemas"]["ServerDownloadBehavior"];
@@ -11520,7 +11575,7 @@ export interface components {
             jobId: string;
             /** Format: int64 */
             revision: number | string;
-            added?: null | components["schemas"]["JobStateDto"];
+            added?: null | components["schemas"]["JobSummaryDto"];
             display?: null | components["schemas"]["JobDisplayFieldsDto"];
             lifecycle?: null | components["schemas"]["JobLifecycleFieldsDto"];
             discovery?: null | components["schemas"]["JobDiscoveryFieldsDto"];
@@ -11689,7 +11744,7 @@ export interface components {
             skipReason: components["schemas"]["ServerJobSkipReason"];
             failureReason?: null | components["schemas"]["ServerJobFailureReason"];
             failureMessage?: null | string;
-            failureDetail?: null | string;
+            hasFailureDetail: boolean;
             cancellationSource: components["schemas"]["ServerJobCancellationSource"];
             availableActions: components["schemas"]["ResourceActionDto"][];
         };
@@ -11697,7 +11752,7 @@ export interface components {
             query: components["schemas"]["JobQuery"];
             /**
              * Format: int32
-             * @default 100
+             * @default 80
              */
             limit: number | string;
         };
@@ -11944,7 +11999,7 @@ export interface components {
                             /** @enum {unknown} */
                             failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                             failureMessage?: null | string;
-                            failureDetail?: null | string;
+                            hasFailureDetail: boolean;
                             /** @enum {unknown} */
                             cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                             availableActions: {
@@ -12038,7 +12093,7 @@ export interface components {
                         /** @enum {unknown} */
                         failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                         failureMessage?: null | string;
-                        failureDetail?: null | string;
+                        hasFailureDetail: boolean;
                         /** @enum {unknown} */
                         cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                         availableActions: {
@@ -12728,7 +12783,12 @@ export interface components {
             /** Format: uuid */
             retryTransferId?: null | string;
         };
-        JobStateDto: {
+        JobStatusActivityDto: {
+            /** Format: int32 */
+            displayId: number | string;
+            status: string;
+        };
+        JobSummaryDto: {
             /** Format: uuid */
             jobId: string;
             /** Format: int64 */
@@ -12738,58 +12798,6 @@ export interface components {
             discovery: components["schemas"]["JobDiscoveryFieldsDto"];
             relationships: components["schemas"]["JobRelationshipFieldsDto"];
             stats?: null | components["schemas"]["JobSummaryStatsDto"];
-        };
-        JobStatusActivityDto: {
-            /** Format: int32 */
-            displayId: number | string;
-            status: string;
-        };
-        JobSummaryDto: {
-            /** Format: uuid */
-            jobId?: string;
-            /** Format: int32 */
-            displayId?: number | string;
-            /** Format: uuid */
-            workflowId?: string;
-            kind?: components["schemas"]["ServerJobKind"];
-            lifecycleState?: components["schemas"]["ServerJobLifecycleState"];
-            activityPhase?: components["schemas"]["ServerJobActivityPhase"];
-            /** Format: date-time */
-            activityUntilUtc?: null | string;
-            terminalOutcome?: components["schemas"]["ServerJobTerminalOutcome"];
-            skipReason?: components["schemas"]["ServerJobSkipReason"];
-            itemName?: null | string;
-            queryText?: null | string;
-            failureReason?: null | components["schemas"]["ServerJobFailureReason"];
-            failureMessage?: null | string;
-            /** Format: uuid */
-            parentJobId?: null | string;
-            /** Format: uuid */
-            resultJobId?: null | string;
-            /** Format: uuid */
-            sourceJobId?: null | string;
-            /** Format: int32 */
-            discoveryRawResultCount?: null | number | string;
-            /** Format: int32 */
-            discoveryLockedFileCount?: null | number | string;
-            appliedProfiles?: components["schemas"]["AppliedProfileDto"][];
-            availableActions?: components["schemas"]["ResourceActionDto"][];
-            failureDetail?: null | string;
-            cancellationSource?: components["schemas"]["ServerJobCancellationSource"];
-            printOption?: components["schemas"]["ServerPrintOption"];
-            /** Format: uuid */
-            submissionId?: null | string;
-            role?: components["schemas"]["ServerJobRole"];
-            /** Format: date-time */
-            createdAtUtc?: null | string;
-            /** Format: int32 */
-            discoveryPublicFileCount?: null | number | string;
-            /** Format: int32 */
-            discoveryObservedPeerCount?: null | number | string;
-            stats?: null | components["schemas"]["JobSummaryStatsDto"];
-            searchDefaultProjection?: null | components["schemas"]["ServerSearchDefaultProjectionKind"];
-            searchGroupResults?: null | boolean;
-            sourceDetail?: null | string;
         };
         JobSummaryStatsDto: {
             /** Format: int32 */
@@ -12851,7 +12859,7 @@ export interface components {
         /** @enum {unknown} */
         LiveClientInvocation: "SubscribeAll" | "UnsubscribeAll" | "SubscribeWorkflow" | "UnsubscribeWorkflow" | "SubscribeChat" | "UnsubscribeChat" | "SubscribeUserBrowse" | "UnsubscribeUserBrowse" | "ObserveUserPresence" | "ObserveSearchView" | "ObserveTransferTimeline" | "ObserveJobs" | "ObserveJobList";
         /** @enum {integer} */
-        LiveProtocolContractVersion: 20;
+        LiveProtocolContractVersion: 22;
         /** @enum {unknown} */
         LiveServerMessage: "stateUpdateBatch";
         LiveTransferPageDto: {
@@ -13104,6 +13112,9 @@ export interface components {
             hasDownloadSettings: boolean;
             /** @default false */
             hasInputSettings: boolean;
+            input?: null | string;
+            inputType?: null | string;
+            detectedInputType?: null | string;
         };
         RefSelectionExpressionDto: {
             mode: components["schemas"]["RefSelectionMode"];
@@ -13978,7 +13989,7 @@ export interface components {
                         /** @enum {unknown} */
                         failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                         failureMessage?: null | string;
-                        failureDetail?: null | string;
+                        hasFailureDetail: boolean;
                         /** @enum {unknown} */
                         cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                         availableActions: {
@@ -14072,7 +14083,7 @@ export interface components {
                     /** @enum {unknown} */
                     failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                     failureMessage?: null | string;
-                    failureDetail?: null | string;
+                    hasFailureDetail: boolean;
                     /** @enum {unknown} */
                     cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                     availableActions: {
@@ -14472,7 +14483,7 @@ export interface components {
             capturedAtUtc: string;
             daemon?: null | components["schemas"]["DaemonStateDto"];
             workflows: components["schemas"]["WorkflowStateDto"][];
-            jobs: components["schemas"]["JobStateDto"][];
+            jobs: components["schemas"]["JobSummaryDto"][];
             searches: components["schemas"]["SearchStateDto"][];
             transfers: components["schemas"]["TransferStateDto"][];
             chatTarget?: null | components["schemas"]["ChatTargetSnapshotDto"];
@@ -14742,7 +14753,7 @@ export interface components {
                             /** @enum {unknown} */
                             failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                             failureMessage?: null | string;
-                            failureDetail?: null | string;
+                            hasFailureDetail: boolean;
                             /** @enum {unknown} */
                             cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                             availableActions: {
@@ -14836,7 +14847,7 @@ export interface components {
                         /** @enum {unknown} */
                         failureReason?: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
                         failureMessage?: null | string;
-                        failureDetail?: null | string;
+                        hasFailureDetail: boolean;
                         /** @enum {unknown} */
                         cancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
                         availableActions: {
@@ -15293,7 +15304,6 @@ export interface components {
                     maxAttempts: number | string;
                     exceptionType: string;
                     exceptionMessage: string;
-                    exception: string;
                 } | {
                     /** @enum {string} */
                     kind?: "trackBatchResolved";
@@ -15431,10 +15441,11 @@ export interface components {
             startedAtUtc: string;
             /** Format: date-time */
             completedAtUtc?: null | string;
-            failureReason: string;
+            failureReason: components["schemas"]["TransferFailureReason"];
             failureMessage?: null | string;
             /** Format: int64 */
             revision: number | string;
+            cancellationSource: components["schemas"]["TransferCancellationSource"];
         };
         /**
          * @default All

@@ -177,7 +177,7 @@ public sealed class UserBrowseApiTests
             Assert.AreEqual(6, submitted.Resolution.TotalPublicBytes);
             Assert.AreEqual(2, submitted.Resolution.RedundantSelectionsRemoved);
             Assert.AreEqual(Path.GetFullPath(output), submitted.Resolution.OutputParent);
-            Assert.AreEqual(requestId, submitted.Workflow.SubmissionId);
+            Assert.AreEqual(requestId, submitted.Workflow.Display.SubmissionId);
             var accepted = await app.Services.GetRequiredService<PersistenceCoordinator>()
                 .Submissions!.GetSubmissionAsync(requestId);
             Assert.IsNotNull(accepted);
@@ -240,17 +240,17 @@ public sealed class UserBrowseApiTests
             await overwriteChanged.WaitUntilAsync(async () =>
             {
                 overwriteJob = await api.GetJobDetailAsync(overwrite.Workflow.JobId);
-                return overwriteJob?.Summary.LifecycleState == ServerJobLifecycleState.Terminal;
+                return overwriteJob?.Summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal;
             }, "The overwrite workflow did not finish.", timeoutMs: 10_000);
-            Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, overwriteJob!.Summary.TerminalOutcome,
-                overwriteJob.Summary.FailureMessage);
+            Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, overwriteJob!.Summary.Lifecycle.TerminalOutcome,
+                overwriteJob.Summary.Lifecycle.FailureMessage);
             Assert.AreEqual("333", await File.ReadAllTextAsync(overwritePath));
 
             await WaitUntilAsync(async () =>
             {
                 IReadOnlyList<JobSummaryDto> workflowJobs = await api.GetJobsAsync(
-                    new JobQuery(null, null, null, submitted.Workflow.WorkflowId, IncludeAll: true));
-                return workflowJobs.Count(job => job.Kind == ServerJobKind.RemoteDirectory) == 2;
+                    new JobQuery(null, null, null, submitted.Workflow.Display.WorkflowId, IncludeAll: true));
+                return workflowJobs.Count(job => job.Display.Kind == ServerJobKind.RemoteDirectory) == 2;
             });
 
             PageDto<UserBrowseDto> resources = await api.GetUserBrowsesAsync(
@@ -300,7 +300,7 @@ public sealed class UserBrowseApiTests
                 Assert.AreEqual(HttpStatusCode.Gone, missing.StatusCode);
                 var restored = await restartedApi.StartUserShareDownloadsAsync(complete.BrowseId, downloadRequest);
                 Assert.AreEqual(submitted.Workflow.JobId, restored.Workflow.JobId);
-                Assert.AreEqual(submitted.Workflow.SubmissionId, restored.Workflow.SubmissionId);
+                Assert.AreEqual(submitted.Workflow.Display.SubmissionId, restored.Workflow.Display.SubmissionId);
                 Assert.AreEqual(submitted.Resolution, restored.Resolution);
                 var conflict = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
                     restartedApi.StartUserShareDownloadsAsync(complete.BrowseId, downloadRequest with { ExcludedFileIds = [betaFile.FileId] }));

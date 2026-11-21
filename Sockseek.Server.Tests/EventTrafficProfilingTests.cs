@@ -32,29 +32,13 @@ public class EventTrafficProfilingTests
         var epoch = Guid.NewGuid();
         var workflowId = Guid.NewGuid();
         var jobs = Enumerable.Range(1, count)
-            .Select(index => JobStateDto.FromSummary(
-                new JobSummaryDto(
-                    Guid.NewGuid(),
-                    index,
-                    workflowId,
-                    ServerJobKind.Song,
-                    ServerJobLifecycleState.Running,
-                    ServerJobActivityPhase.Downloading,
-                    null,
-                    ServerJobTerminalOutcome.None,
-                    ServerJobSkipReason.None,
-                    $"Track {index}",
-                    $"Artist - Track {index}",
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    [new("profile-a", "automatic")],
-                    []),
-                2))
+            .Select(index =>
+            {
+                var job = TestJobSummary.Create(ServerJobKind.Song, Guid.NewGuid(), workflowId, index, revision: 2,
+                    state: ServerJobLifecycleState.Running, phase: ServerJobActivityPhase.Downloading,
+                    name: $"Track {index}", query: $"Artist - Track {index}");
+                return job with { Display = job.Display with { AppliedProfiles = [new("profile-a", "automatic")] } };
+            })
             .ToList();
         var fullJobs = Batch(
             workflowId,
@@ -161,15 +145,15 @@ public class EventTrafficProfilingTests
                     InputType: "CSV"),
                 CancellationToken.None);
 
-            await WaitForWorkflowJobCountAsync(supervisor, root.WorkflowId, jobCount + 2);
-            var beforeCancel = counter.Snapshot(root.WorkflowId);
+            await WaitForWorkflowJobCountAsync(supervisor, root.Display.WorkflowId, jobCount + 2);
+            var beforeCancel = counter.Snapshot(root.Display.WorkflowId);
 
-            int cancelled = supervisor.CancelWorkflow(root.WorkflowId);
-            await WaitForWorkflowInactiveAsync(supervisor, root.WorkflowId);
+            int cancelled = supervisor.CancelWorkflow(root.Display.WorkflowId);
+            await WaitForWorkflowInactiveAsync(supervisor, root.Display.WorkflowId);
 
             broadcaster.Dispose();
             broadcaster = null;
-            var afterCancel = counter.Snapshot(root.WorkflowId);
+            var afterCancel = counter.Snapshot(root.Display.WorkflowId);
 
             WriteSnapshot("before cancel", beforeCancel);
             WriteSnapshot("after cancel", afterCancel);
@@ -239,12 +223,12 @@ public class EventTrafficProfilingTests
                     InputType: "CSV"),
                 CancellationToken.None);
 
-            await WaitForWorkflowJobCountAsync(supervisor, root.WorkflowId, jobCount + 2);
-            await WaitForWorkflowInactiveAsync(supervisor, root.WorkflowId);
+            await WaitForWorkflowJobCountAsync(supervisor, root.Display.WorkflowId, jobCount + 2);
+            await WaitForWorkflowInactiveAsync(supervisor, root.Display.WorkflowId);
 
             broadcaster.Dispose();
             broadcaster = null;
-            var completed = counter.Snapshot(root.WorkflowId);
+            var completed = counter.Snapshot(root.Display.WorkflowId);
 
             WriteSnapshot("completed", completed);
 
@@ -310,12 +294,12 @@ public class EventTrafficProfilingTests
                     InputType: "CSV"),
                 CancellationToken.None);
 
-            await WaitForWorkflowJobCountAsync(supervisor, root.WorkflowId, jobCount + 2);
-            await WaitForWorkflowInactiveAsync(supervisor, root.WorkflowId);
+            await WaitForWorkflowJobCountAsync(supervisor, root.Display.WorkflowId, jobCount + 2);
+            await WaitForWorkflowInactiveAsync(supervisor, root.Display.WorkflowId);
 
             broadcaster.Dispose();
             broadcaster = null;
-            var completed = counter.Snapshot(root.WorkflowId);
+            var completed = counter.Snapshot(root.Display.WorkflowId);
 
             WriteSnapshot("completed no-result", completed);
 

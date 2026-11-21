@@ -67,7 +67,7 @@ internal static class HistoricalJobDtoMapper
         => ServerSnapshotMapper.ToJobSummary(snapshot, job.ParentJobId, job.ResultJobId, job.SourceJobId,
             stats: ServerSnapshotMapper.ToJobSummaryStats(snapshot), includeActions: false,
             discoveryCounts: (ToNullableInt(job.DiscoveryPublicFileCount), ToNullableInt(job.DiscoveryLockedFileCount),
-                ToNullableInt(job.DiscoveryObservedPeerCount)));
+                ToNullableInt(job.DiscoveryObservedPeerCount)), hasFailureDetail: job.HasFailureDetail);
 
     // A detail/manifest read decodes once and shares that capture between summary,
     // presentation and selected-file mapping. No cache retains database rows.
@@ -92,7 +92,7 @@ internal static class HistoricalJobDtoMapper
             Parse(job.LifecycleState, JobLifecycleState.Pending), Parse(job.ActivityPhase, JobActivityPhase.None),
             job.ActivityUntilUtc, Parse(job.TerminalOutcome, JobTerminalOutcome.None),
             Parse(job.SkipReason, JobSkipReason.None), Parse(job.CancellationSource, JobCancellationSource.None),
-            Parse(job.FailureReason, JobFailureReason.Other), job.FailureMessage, job.FailureDetail,
+            Parse(job.FailureReason, JobFailureReason.Other), job.FailureMessage, null,
             job.ItemName, job.QueryText, null,
             JsonSerializer.Deserialize<Sockseek.Core.Settings.AppliedProfile[]>(job.AppliedProfilesJson)!, (PrintOption)job.PrintOption, false, job.SourceDetail),
             payload ?? new GenericJobSnapshotPayload(job.Kind));

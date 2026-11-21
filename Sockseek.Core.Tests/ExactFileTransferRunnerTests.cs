@@ -466,18 +466,26 @@ public sealed class ExactFileTransferRunnerTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task FailedAttemptReportsWhetherTransportOrDestinationFailed(bool destinationFailed)
+    [DataRow(TransferFailureReason.ConnectionFailed)]
+    [DataRow(TransferFailureReason.LocalStorageError)]
+    [DataRow(TransferFailureReason.TimedOut)]
+    [DataRow(TransferFailureReason.FileChanged)]
+    [DataRow(TransferFailureReason.PeerFailure)]
+    public async Task FailedAttemptAndTerminalTransferReportTheSameCause(TransferFailureReason expected)
     {
         const string username = "Peer";
         const string filename = @"Share\File.bin";
         var client = new MockSoulseekClient([Response(username, filename)]);
-        Exception error = destinationFailed
-            ? new IOException("Transfer failed", new DownloadDestinationException(new IOException("Disk full")))
-            : new OperationCanceledException("Transport ended early");
+        Exception error = expected switch
+        {
+            TransferFailureReason.ConnectionFailed => new OperationCanceledException("Transport ended early"),
+            TransferFailureReason.LocalStorageError => new IOException("Transfer failed",
+                new DownloadDestinationException("Could not write the local file.", new IOException("Disk full"))),
+            TransferFailureReason.TimedOut => new ConnectionException("Transfer failed", new TimeoutException()),
+            TransferFailureReason.FileChanged => new TransferSizeMismatchException(16, 0),
+            _ => new IOException("Transfer failed"),
+        };
         client.BeforeDownloadStartsAsync = (_, _, _) => throw error;
-        var expected = destinationFailed ? TransferFailureReason.LocalStorageError : TransferFailureReason.PeerFailure;
         var (runner, active, events) = CreateRunner(client);
         var target = Target(username, filename);
         var owner = new RemoteFileJob(target);
@@ -493,7 +501,7 @@ public sealed class ExactFileTransferRunnerTests
         {
             var thrown = await Assert.ThrowsAsync<Exception>(() => runner.DownloadFile(
                 target, Path.Combine(root, "file.bin"), owner,
-                new TransferSettings { NoIncompleteExt = true }, root,
+                new TransferSettings { NoIncompleteExt = true, UnknownErrorRetries = 0 }, root,
                 30_000, publishToDuplicateCache: false));
 
             Assert.IsNotNull(failed);

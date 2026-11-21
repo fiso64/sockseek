@@ -124,7 +124,7 @@ public sealed class ReadServiceTests
             Assert.AreEqual(false, updates.Current.SourceJobAvailable);
             var retained = await service.GetJobAsync(root);
             Assert.IsNotNull(retained);
-            Assert.IsNull(retained.Summary.SourceJobId);
+            Assert.IsNull(retained.Summary.Relationships.SourceJobId);
             Assert.AreEqual(false, retained.SourceJobAvailable);
         }
         finally
@@ -190,7 +190,10 @@ public sealed class ReadServiceTests
             ("Download", "Cancelled", "None", "Requested", "None", TransferCancellationSource.User),
             ("Download", "Cancelled", "None", "ManualSkip", "None", TransferCancellationSource.User),
             ("Download", "Cancelled", "None", "Stale", "None", TransferCancellationSource.None),
-            ("Download", "Failed", "PeerFailure", "None", "ConnectionFailed", TransferCancellationSource.None),
+            ("Download", "Failed", "PeerFailure", "None", "Unknown", TransferCancellationSource.None),
+            ("Download", "Failed", "ConnectionFailed", "None", "ConnectionFailed", TransferCancellationSource.None),
+            ("Download", "Failed", "TimedOut", "None", "TransferTimedOut", TransferCancellationSource.None),
+            ("Download", "Failed", "FileChanged", "None", "FileChanged", TransferCancellationSource.None),
             ("Download", "Failed", "Stale", "None", "TransferTimedOut", TransferCancellationSource.None),
             ("Download", "Failed", "Finalization", "None", "Unknown", TransferCancellationSource.None),
             ("Upload", "Failed", "InternalFailure", "None", "InternalError", TransferCancellationSource.None),
@@ -738,7 +741,7 @@ public sealed class ReadServiceTests
                 SourceUsername: "retained-peer",
                 SourcePath: @"Share\Retained.mp3",
                 OutputPath: null,
-                FailureReason: "Unavailable",
+                FailureReason: "FileUnavailable",
                 FailureMessage: null);
             var live = new EngineStateStore();
             Guid liveAttemptId = Guid.NewGuid();
@@ -822,6 +825,7 @@ public sealed class ReadServiceTests
             Assert.AreEqual(retainedAttemptId, first.Items.Single().AttemptId);
             Assert.AreEqual("Failed", first.Items[0].State,
                 "The durable successor must beat an older captured attempt revision.");
+            Assert.AreEqual(Sockseek.Api.TransferFailureReason.FileUnavailable, first.Items[0].FailureReason);
             Assert.AreEqual(3, first.NextAttemptNumber);
             var second = await facade.GetTransferAttemptsAsync(transferId, first.NextAttemptNumber.GetValueOrDefault(), 1);
             Assert.IsNotNull(second);
@@ -940,10 +944,10 @@ public sealed class ReadServiceTests
                 jobs.Select(job => job.Id).ToArray(),
                 combined.Select(job => job.JobId).ToArray());
             Assert.AreEqual(6, combined.Select(job => job.JobId).Distinct().Count());
-            Assert.AreEqual("CSV row 2", combined.Single(job => job.JobId == jobs[0].Id).SourceDetail);
+            Assert.AreEqual("CSV row 2", combined.Single(job => job.JobId == jobs[0].Id).Display.SourceDetail);
             Assert.AreEqual(
                 ServerJobLifecycleState.Pending,
-                combined.Single(job => job.JobId == jobs[1].Id).LifecycleState,
+                combined.Single(job => job.JobId == jobs[1].Id).Lifecycle.LifecycleState,
                 "The live overlap must replace the persisted terminal row.");
 
             var newest = new List<JobSummaryDto>();
@@ -962,7 +966,7 @@ public sealed class ReadServiceTests
                 newest.Select(job => job.JobId).ToArray());
             Assert.AreEqual(6, newest.Select(job => job.JobId).Distinct().Count());
             Assert.AreEqual(ServerJobLifecycleState.Pending,
-                newest.Single(job => job.JobId == jobs[1].Id).LifecycleState);
+                newest.Single(job => job.JobId == jobs[1].Id).Lifecycle.LifecycleState);
             var descendingPage = await facade.GetJobsAsync(
                 new JobQuery(null, null, null, workflowId, IncludeAll: true, NewestFirst: true), null, limit: 2);
             await Assert.ThrowsExactlyAsync<ArgumentException>(() => facade.GetJobsAsync(
@@ -989,7 +993,7 @@ public sealed class ReadServiceTests
                     var expected = indexes.Select(index => jobs[index].Id);
                     if (descending) expected = expected.Reverse();
                     CollectionAssert.AreEqual(expected.ToArray(), filtered.Select(job => job.JobId).ToArray());
-                    Assert.IsTrue(filtered.All(job => job.LifecycleState == state));
+                    Assert.IsTrue(filtered.All(job => job.Lifecycle.LifecycleState == state));
                 }
 
             // The captured runtime owner remains authoritative until handoff,
@@ -1061,7 +1065,7 @@ public sealed class ReadServiceTests
             } while (cursor != null);
             CollectionAssert.AreEqual(jobs.Select(job => job.Id).Concat(new[] { liveExtract.Id, retainedExtract.Id }).ToArray(),
                 roots.Select(job => job.JobId).ToArray());
-            Assert.AreEqual("Text import", roots.Single(job => job.JobId == retainedExtract.Id).SourceDetail);
+            Assert.AreEqual("Text import", roots.Single(job => job.JobId == retainedExtract.Id).Display.SourceDetail);
             var onlyImports = await facade.GetJobsAsync(new JobQuery(null, null, null, workflowId,
                 IncludeAll: false, ExcludeExtractResults: true, ExcludeKinds: [ServerJobKind.Song, ServerJobKind.RetrieveFolder]), null, 2);
             CollectionAssert.AreEqual(new[] { liveExtract.Id, retainedExtract.Id },
@@ -1074,8 +1078,8 @@ public sealed class ReadServiceTests
             var lookedUp = await facade.LookupJobsAsync(new JobLookupRequestDto(
                 [retainedResult.Id, liveResult.Id, Guid.NewGuid(), jobs[0].Id, retainedResult.Id]));
             CollectionAssert.AreEqual(new[] { retainedResult.Id, liveResult.Id, jobs[0].Id }, lookedUp.Select(job => job.JobId).ToArray());
-            Assert.AreEqual(ServerJobLifecycleState.Pending, lookedUp.Single(job => job.JobId == liveResult.Id).LifecycleState);
-            Assert.AreEqual("CSV row 2", lookedUp.Single(job => job.JobId == jobs[0].Id).SourceDetail);
+            Assert.AreEqual(ServerJobLifecycleState.Pending, lookedUp.Single(job => job.JobId == liveResult.Id).Lifecycle.LifecycleState);
+            Assert.AreEqual("CSV row 2", lookedUp.Single(job => job.JobId == jobs[0].Id).Display.SourceDetail);
             var followup = new SongJob(new SongQuery { Title = "Independent follow-up" });
             followup.EnsureDisplayId();
             Assert.IsTrue(persistence.MutationSink!.TryEnqueue(new JobPersistenceMutation(

@@ -404,8 +404,8 @@ public sealed class EnginePersistenceTests
         Assert.AreEqual(registrationArrivesLate ? PersistenceMutationPriority.Terminal : PersistenceMutationPriority.Structural,
             mutation.Priority);
         Assert.AreEqual(registrationArrivesLate ? "Terminal" : "Pending", mutation.LifecycleState);
-        Assert.AreEqual(parent.Id, state.GetJobSummary(child.Id)!.ParentJobId);
-        Assert.AreEqual(source.Id, state.GetJobSummary(child.Id)!.SourceJobId);
+        Assert.AreEqual(parent.Id, state.GetJobSummary(child.Id)!.Relationships.ParentJobId);
+        Assert.AreEqual(source.Id, state.GetJobSummary(child.Id)!.Relationships.SourceJobId);
         Assert.IsFalse(mutation.PayloadJson!.IsValueCreated,
             "Event callbacks capture facts without serializing replaceable detail.");
         child.BytesTransferred = 77;
@@ -442,41 +442,17 @@ public sealed class EnginePersistenceTests
     [TestMethod]
     public void HistoricalSummary_MapsRawSearchDiscoveryCounts()
     {
-        var persisted = new PersistedJob(
-            Guid.NewGuid(),
-            1,
-            Guid.NewGuid(),
-            null,
-            null,
-            null,
-            "Search",
-            "Terminal",
-            "None",
-            null,
-            "Succeeded",
-            "None",
-            "None",
-            "None",
-            null,
-            null,
-            null,
-            "query",
-            DateTimeOffset.UnixEpoch,
-            DateTimeOffset.UnixEpoch,
-            DateTimeOffset.UnixEpoch,
-            1,
-            1,
-            null,
-            DiscoveryPublicFileCount: 7,
-            DiscoveryLockedFileCount: 3,
-            DiscoveryObservedPeerCount: 2);
+        var persisted = RetainedJobFixture.Create("Search") with
+        {
+            QueryText = "query", DiscoveryPublicFileCount = 7, DiscoveryLockedFileCount = 3, DiscoveryObservedPeerCount = 2,
+        };
 
         JobSummaryDto summary = HistoricalJobDtoMapper.ToSummary(persisted);
 
-        Assert.AreEqual(7, summary.DiscoveryRawResultCount);
-        Assert.AreEqual(7, summary.DiscoveryPublicFileCount);
-        Assert.AreEqual(3, summary.DiscoveryLockedFileCount);
-        Assert.AreEqual(2, summary.DiscoveryObservedPeerCount);
+        Assert.AreEqual(7, summary.Discovery.RawResultCount);
+        Assert.AreEqual(7, summary.Discovery.PublicFileCount);
+        Assert.AreEqual(3, summary.Discovery.LockedFileCount);
+        Assert.AreEqual(2, summary.Discovery.ObservedPeerCount);
     }
 
     [TestMethod]
@@ -1041,7 +1017,7 @@ public sealed class EnginePersistenceTests
         foreach (var (handler, change) in stale) Project(handler, change);
         Assert.AreEqual(acceptedWrites, sink.Mutations.Count,
             "Rejected older headers cannot mutate relationships or enter persistence.");
-        Assert.AreEqual(ServerJobLifecycleState.Terminal, store.GetJobSummary(job.Id)!.LifecycleState);
+        Assert.AreEqual(ServerJobLifecycleState.Terminal, store.GetJobSummary(job.Id)!.Lifecycle.LifecycleState);
         events.RaiseWorkflowRetired(job.WorkflowId, 1);
 
         Assert.IsTrue(readableDuringRetirement,
@@ -1115,7 +1091,7 @@ public sealed class EnginePersistenceTests
             mutation.CancellationSource,
             mutation.FailureReason,
             mutation.FailureMessage,
-            mutation.FailureDetail,
+            !string.IsNullOrEmpty(mutation.FailureDetail),
             mutation.ItemName,
             mutation.QueryText,
             mutation.OccurredAtUtc,

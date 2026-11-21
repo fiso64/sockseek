@@ -34,7 +34,7 @@ test('folds a running text extraction into one source-labelled root and opens it
     for (const frame of payload.toString().split('\u001e').filter(Boolean)) {
       const message = JSON.parse(frame) as { target?: string; arguments?: Schema<'StateUpdateBatchDto'>[] };
       if (message.target?.toLowerCase() === 'stateupdatebatch'
-        && message.arguments?.[0]?.state?.removedWorkflowIds.includes(submitted.workflowId!)) observeRetired();
+        && message.arguments?.[0]?.state?.removedWorkflowIds.includes(submitted.display.workflowId!)) observeRetired();
     }
   }));
   await page.goto('/jobs?tab=downloads');
@@ -47,10 +47,10 @@ test('folds a running text extraction into one source-labelled root and opens it
   await expect(row.getByTestId('job-remove')).toHaveCount(0);
   expect(detailReads.filter(path => path === `/api/jobs/${submitted.jobId}`),
     'Import context must use the job summary rather than fetch its source payload.').toHaveLength(0);
-  const response = await page.request.get(`/api/jobs?submissionId=${submitted.submissionId}&includeAll=false&limit=100`);
+  const response = await page.request.get(`/api/jobs?submissionId=${submitted.display.submissionId}&includeAll=false&limit=100`);
   const roots = await response.json() as Schema<'JobSummaryDto'>[];
-  const imported = roots.find((job) => job.kind === 'extract')!;
-  expect(imported.resultJobId).toBeTruthy();
+  const imported = roots.find((job) => job.display.kind === 'extract')!;
+  expect(imported.relationships.resultJobId).toBeTruthy();
   await resultObserved;
   await daemon.command('release-download');
   await retired;
@@ -61,13 +61,13 @@ test('folds a running text extraction into one source-labelled root and opens it
   expect(observations).toBe(1);
   expect(summaryReads, 'Progress and retirement must not refetch the linked summary.').toBe(1);
   await row.getByTestId('job-open').click();
-  await expect(page).toHaveURL(new RegExp(`/jobs/${imported.resultJobId}$`));
+  await expect(page).toHaveURL(new RegExp(`/jobs/${imported.relationships.resultJobId}$`));
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Fixture song');
   await page.reload();
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Fixture song');
   // An old import URL is a presentation entry point to its retained result too.
   await page.goto(`/jobs/${imported.jobId}`);
-  await expect(page).toHaveURL(new RegExp(`/jobs/${imported.resultJobId}$`));
+  await expect(page).toHaveURL(new RegExp(`/jobs/${imported.relationships.resultJobId}$`));
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Fixture song');
   await expect(page.getByTestId('delete-submission')).toHaveCount(0);
   await page.goto('/jobs?tab=downloads');

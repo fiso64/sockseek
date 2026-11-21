@@ -47,7 +47,8 @@ internal sealed class TransferPersistence(
             attempt.State == "Started" ? PersistenceMutationPriority.Structural : PersistenceMutationPriority.Terminal,
             attempt.TransferId, attempt.AttemptNumber, attempt.Source, attempt.State,
             attempt.SourceUsername, attempt.SourcePath, attempt.OutputPath,
-            attempt.FailureReason, attempt.FailureMessage, row.Direction,
+            attempt.FailureReason.ToString(), attempt.FailureMessage, row.Direction,
             GroupRef: row.GroupRef, GroupDisplayPath: row.GroupDisplayPath,
-            AccountingObservations: accounting, StartedAtUtc: attempt.StartedAtUtc);
+            AccountingObservations: accounting, StartedAtUtc: attempt.StartedAtUtc,
+            CancellationSource: attempt.CancellationSource.ToString());
 }

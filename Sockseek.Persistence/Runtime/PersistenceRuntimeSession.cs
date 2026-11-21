@@ -128,7 +128,7 @@ public sealed class PersistenceRuntimeSession(
                     .SetProperty(transfer => transfer.LastSequence, 0)
                     .SetProperty(transfer => transfer.State, "Interrupted")
                     .SetProperty(transfer => transfer.TerminalOutcome, "Interrupted")
-                    .SetProperty(transfer => transfer.FailureReason, "Interrupted")
+                    .SetProperty(transfer => transfer.FailureReason, "None")
                     .SetProperty(transfer => transfer.FailureMessage, "The daemon stopped before this transfer finished.")
                     .SetProperty(transfer => transfer.CancellationSource, "DaemonShutdown")
                     .SetProperty(transfer => transfer.CompletedAtUtc, now)
@@ -143,7 +143,8 @@ public sealed class PersistenceRuntimeSession(
                     .SetProperty(attempt => attempt.LastRuntimeId, runtime.RuntimeId)
                     .SetProperty(attempt => attempt.LastSequence, 0)
                     .SetProperty(attempt => attempt.State, "Interrupted")
-                    .SetProperty(attempt => attempt.FailureReason, "Interrupted")
+                    .SetProperty(attempt => attempt.FailureReason, "None")
+                    .SetProperty(attempt => attempt.CancellationSource, "DaemonShutdown")
                     .SetProperty(attempt => attempt.FailureMessage, "The daemon stopped before this transfer finished.")
                     .SetProperty(attempt => attempt.CompletedAtUtc, now)
                     .SetProperty(attempt => attempt.Revision, attempt => attempt.Revision + 1),

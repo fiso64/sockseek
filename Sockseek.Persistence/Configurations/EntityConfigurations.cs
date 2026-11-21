@@ -275,6 +275,7 @@ internal sealed class TransferAttemptConfiguration : IEntityTypeConfiguration<Tr
         builder.Property(x => x.AttemptNumber).HasColumnName("attempt_number");
         builder.Property(x => x.Source).HasColumnName("source").HasMaxLength(32);
         builder.Property(x => x.State).HasColumnName("state").HasMaxLength(32);
+        builder.Property(x => x.CancellationSource).HasColumnName("cancellation_source").HasMaxLength(64).HasDefaultValue("None");
         builder.Property(x => x.SourceUsername).HasColumnName("source_username").HasMaxLength(256);
         builder.Property(x => x.SourcePath).HasColumnName("source_path").HasMaxLength(4096);
         builder.Property(x => x.OutputPath).HasColumnName("output_path").HasMaxLength(4096);

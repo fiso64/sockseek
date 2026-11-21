@@ -131,10 +131,57 @@ namespace Tests.Core
                     _ => ["peer"],
                 };
                 CollectionAssert.AreEqual(expected, attempts);
+                if (mode == "exhausted")
+                {
+                    StringAssert.Contains(job.FailureMessage!, expected.Length.ToString());
+                    Assert.IsFalse(string.IsNullOrEmpty(job.FailureDetail));
+                }
                 Assert.AreEqual(mode == "automatic" ? 2 : 3, engine.GetPeerFailureCounts(job.WorkflowId)["peer"],
                     "Success must not reduce prior failures.");
             }
             finally { if (Directory.Exists(output)) Directory.Delete(output, recursive: true); }
+        }
+
+        [TestMethod]
+        [DataRow(true)]
+        [DataRow(false)]
+        public async Task SongFallbackSkipsCandidatesRequiringTheSameBlockedDestination(bool directoryBlocked)
+        {
+            var root = Directory.CreateTempSubdirectory();
+            try
+            {
+                string output = Path.Combine(root.FullName, "music");
+                if (directoryBlocked) System.IO.File.WriteAllText(output, "");
+                else Directory.CreateDirectory(Path.Combine(output, "Artist - Track.mp3.incomplete"));
+
+                var responses = new[] { "mp3", "mp3", "flac" }.Select((extension, i) => new SearchResponse(
+                    $"peer{i}", 1, true, 100, 0, [TestHelpers.CreateSlFile($@"Music\Artist - Track.{extension}", size: 128)])).ToList();
+                var client = new ClientTests.MockSoulseekClient(responses);
+                var settings = new DownloadSettings();
+                settings.Output.ParentDir = output;
+                settings.Output.NameFormat = "";
+                settings.Skip.SkipExisting = false;
+                settings.Transfer.MaxDownloadRetries = 1;
+                var login = new EngineSettings { Username = "u", Password = "p" };
+                await using var engine = new DownloadEngine(login, TestHelpers.CreateMockClientManager(client, login));
+                var failures = new List<TransferFailedChange>();
+                engine.Events.TransferFailed += failures.Add;
+                var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
+                {
+                    Candidates = responses.Select(peer => SoulseekSearchAdapter.ToFileCandidate(peer, peer.Files.Single())).ToList(),
+                };
+                engine.Enqueue(song, settings);
+                engine.CompleteEnqueue();
+                await engine.RunAsync(CancellationToken.None);
+
+                Assert.AreEqual(1, failures.Count);
+                Assert.AreEqual(TransferFailureReason.LocalStorageError, failures[0].Reason);
+                Assert.AreEqual(0, failures[0].Transfer.AttemptCount);
+                Assert.AreEqual(directoryBlocked ? 0 : 1, client.DownloadCallCount);
+                Assert.AreEqual(directoryBlocked ? JobTerminalOutcome.Failed : JobTerminalOutcome.Succeeded, song.TerminalOutcome);
+                if (!directoryBlocked) Assert.AreEqual("peer2", song.ResolvedTarget?.Username);
+            }
+            finally { root.Delete(recursive: true); }
         }
 
         [TestMethod]
@@ -1149,7 +1196,7 @@ namespace Tests.Core
                 string? attemptException = null;
                 app.Events.DownloadAttemptFailed += change =>
                 {
-                    attemptException = change.Exception.Detail;
+                    attemptException = change.Exception.Type;
                 };
                 app.Enqueue(new ExtractJob(dl.Extraction.Input, dl.Extraction.InputType), dl);
                 app.CompleteEnqueue();
@@ -1160,7 +1207,7 @@ namespace Tests.Core
                 Assert.IsNotNull(songJob);
                 Assert.IsTrue(songJob.IsUnsuccessfulTerminal, "SongJob should fail since MaxDownloadRetries was 1 and the first candidate failed.");
                 StringAssert.Contains(attemptException, nameof(SoulseekClientException));
-                Assert.IsNull(songJob.FailureDetail, "The attempt event carries known download exception detail, so terminal state should not duplicate it as diagnostic detail.");
+                StringAssert.Contains(songJob.FailureDetail, nameof(SoulseekClientException));
             }
             finally
             {
@@ -1321,12 +1368,15 @@ namespace Tests.Core
 
                 var song = new SongJob(new SongQuery { Artist = "Mock Artist", Title = "Standalone Song" });
                 var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                var failed = new List<TransferFailedChange>();
+                app.Events.TransferFailed += failed.Add;
                 app.Enqueue(song, dl);
                 app.CompleteEnqueue();
 
                 await app.RunAsync(CancellationToken.None);
 
                 Assert.IsTrue(song.IsUnsuccessfulTerminal, "A song whose name-formatted final placement fails must not be reported as successful.");
+                Assert.AreEqual(TransferFailureReason.LocalStorageError, failed.Single().Reason);
                 Assert.AreEqual(JobFailureReason.Other, song.FailureReason);
                 StringAssert.Contains(song.FailureMessage ?? "", "Failed to move organized file");
                 StringAssert.Contains(song.FailureMessage ?? "", "Downloaded payload retained at:");

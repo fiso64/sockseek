@@ -89,7 +89,7 @@ public sealed partial class JobReadService
                     pending.Remove(id);
                 SetBoundary();
             }
-            yield return new(observed.Values.Select(row => new JobDeltaDto(row.Id, row.Revision, Added: row.ToDto())).ToArray(),
+            yield return new(observed.Values.Select(row => new JobDeltaDto(row.Id, row.Revision, Added: row.Summary)).ToArray(),
                 [], page.NextCursor, page.Items.Select(row => row.JobId).ToArray());
 
             while (await changed.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))

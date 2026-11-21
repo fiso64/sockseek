@@ -1,3 +1,4 @@
+using Tests;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
@@ -288,7 +289,7 @@ public sealed class SubmissionCommitCoordinatorTests
 
     private static StartUserShareDownloadsResponseDto Response()
         => new(
-            new JobSummaryDto(),
+            TestJobSummary.Create(),
             new UserShareResolutionSummaryDto(1, 0, 1, 1, 0, 0, "downloads"));
 
     private static void AssertReceipt(

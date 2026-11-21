@@ -172,7 +172,6 @@ namespace Sockseek.Api;
 [JsonSerializable(typeof(JobLifecycleFieldsDto))]
 [JsonSerializable(typeof(JobDiscoveryFieldsDto))]
 [JsonSerializable(typeof(JobRelationshipFieldsDto))]
-[JsonSerializable(typeof(JobStateDto))]
 [JsonSerializable(typeof(JobDeltaDto))]
 [JsonSerializable(typeof(WorkflowStateDto))]
 [JsonSerializable(typeof(SearchStateDto))]

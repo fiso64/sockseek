@@ -4,12 +4,12 @@ import type { JobSummaryDto } from '../../api/types';
 export function canReplaySearchRoot(
   job: JobSummaryDto | null | undefined,
 ): boolean {
-  return Boolean(job?.jobId && job.submissionId && !job.parentJobId
-    && job.role === 'user-root' && job.kind === 'search');
+  return Boolean(job?.jobId && job.display.submissionId && !job.relationships.parentJobId
+    && job.display.role === 'user-root' && job.display.kind === 'search');
 }
 
 export function canReplaySearch(
   job: JobSummaryDto | null | undefined,
-): job is JobSummaryDto & { jobId: string; submissionId: string } {
-  return Boolean(job?.jobId && job.submissionId && job.kind === 'search');
+): job is JobSummaryDto & { display: { submissionId: string } } {
+  return Boolean(job?.jobId && job.display.submissionId && job.display.kind === 'search');
 }

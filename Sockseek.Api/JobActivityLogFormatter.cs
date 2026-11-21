@@ -65,7 +65,7 @@ public sealed class JobActivityLogFormatter
         lock (sync)
         {
             RememberStructure(summary);
-            if (summary.LifecycleState != ServerJobLifecycleState.Terminal)
+            if (summary.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal)
                 return null;
             if (!loggedTerminalJobs.Add(summary.JobId))
                 return null;
@@ -76,21 +76,21 @@ public sealed class JobActivityLogFormatter
                 ? LogLevel.Error
                 : LogLevel.Information;
             string status = StatusLabel(summary);
-            string detail = summary.QueryText ?? summary.ItemName ?? "";
+            string detail = summary.Display.QueryText ?? summary.Display.ItemName ?? "";
             string message = string.IsNullOrWhiteSpace(detail)
                 ? status
                 : $"{status}: {detail}";
-            if (!string.IsNullOrWhiteSpace(summary.FailureMessage))
-                message += $"\n    Error: {summary.FailureMessage}";
+            if (!string.IsNullOrWhiteSpace(summary.Lifecycle.FailureMessage))
+                message += $"\n    Error: {summary.Lifecycle.FailureMessage}";
 
             bool albumChild = IsAlbumChild(summary);
             if (albumChild)
                 displayKind = AlbumTrackDisplayKind(displayKind);
 
             return JobEntry(
-                summary.WorkflowId,
-                summary.DisplayId,
-                albumChild ? AlbumFileJobType : JobTypeLabel(summary.Kind),
+                summary.Display.WorkflowId,
+                summary.Display.DisplayId,
+                albumChild ? AlbumFileJobType : JobTypeLabel(summary.Display.Kind),
                 message,
                 level,
                 displayKind,
@@ -117,7 +117,7 @@ public sealed class JobActivityLogFormatter
                 ExtractionStartedActivityDto extraction when summary != null
                     && !string.IsNullOrWhiteSpace(extraction.InputType) =>
                     JobEntry(
-                        summary.WorkflowId,
+                        summary.Display.WorkflowId,
                         extraction.DisplayId,
                         "ExtractJob",
                         $"Input: {extraction.Input}",
@@ -136,9 +136,9 @@ public sealed class JobActivityLogFormatter
         var level = ParseLogLevel(message.Level);
         bool error = level >= LogLevel.Error;
         return JobEntry(
-            summary.WorkflowId,
+            summary.Display.WorkflowId,
             message.DisplayId,
-            JobTypeLabel(summary.Kind),
+            JobTypeLabel(summary.Display.Kind),
             message.Message,
             level,
             error ? ActivityLogDisplayKind.Failed : ActivityLogDisplayKind.Status,
@@ -170,9 +170,9 @@ public sealed class JobActivityLogFormatter
         if (summary != null)
         {
             return JobEntry(
-                summary.WorkflowId,
-                diagnostic.DisplayId ?? summary.DisplayId,
-                JobTypeLabel(summary.Kind),
+                summary.Display.WorkflowId,
+                diagnostic.DisplayId ?? summary.Display.DisplayId,
+                JobTypeLabel(summary.Display.Kind),
                 body,
                 LogLevel.Error,
                 ActivityLogDisplayKind.Failed,
@@ -216,24 +216,24 @@ public sealed class JobActivityLogFormatter
 
     private void RememberStructure(JobSummaryDto summary)
     {
-        jobKinds[summary.JobId] = summary.Kind;
-        if (summary.ParentJobId is Guid parentId)
+        jobKinds[summary.JobId] = summary.Display.Kind;
+        if (summary.Relationships.ParentJobId is Guid parentId)
             parentJobIds[summary.JobId] = parentId;
         else
             parentJobIds.Remove(summary.JobId);
     }
 
     private bool IsAlbumChild(JobSummaryDto summary)
-        => summary.Kind == ServerJobKind.Song
-            && summary.ParentJobId is Guid parentId
+        => summary.Display.Kind == ServerJobKind.Song
+            && summary.Relationships.ParentJobId is Guid parentId
             && jobKinds.GetValueOrDefault(parentId) == ServerJobKind.Album;
 
     private static ActivityLogDisplayKind DisplayKind(JobSummaryDto summary)
-        => summary.TerminalOutcome switch
+        => summary.Lifecycle.TerminalOutcome switch
         {
             ServerJobTerminalOutcome.Succeeded => ActivityLogDisplayKind.Succeeded,
             ServerJobTerminalOutcome.Skipped
-                when summary.SkipReason == ServerJobSkipReason.AlreadyExists =>
+                when summary.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists =>
                 ActivityLogDisplayKind.AlreadyExists,
             ServerJobTerminalOutcome.Skipped => ActivityLogDisplayKind.Skipped,
             ServerJobTerminalOutcome.Cancelled => ActivityLogDisplayKind.Cancelled,
@@ -255,20 +255,20 @@ public sealed class JobActivityLogFormatter
         };
 
     private static string StatusLabel(JobSummaryDto summary)
-        => summary.TerminalOutcome switch
+        => summary.Lifecycle.TerminalOutcome switch
         {
             ServerJobTerminalOutcome.Succeeded => "succeeded",
             ServerJobTerminalOutcome.Skipped
-                when summary.SkipReason == ServerJobSkipReason.AlreadyExists =>
+                when summary.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists =>
                 "already exists",
             ServerJobTerminalOutcome.Skipped
-                when summary.SkipReason == ServerJobSkipReason.NotFoundLastTime =>
+                when summary.Lifecycle.SkipReason == ServerJobSkipReason.NotFoundLastTime =>
                 "not found",
             ServerJobTerminalOutcome.Skipped => "skipped",
             ServerJobTerminalOutcome.Cancelled => "cancelled",
             ServerJobTerminalOutcome.PartialSuccess => "partial",
             ServerJobTerminalOutcome.Failed =>
-                ServerFailureReasonDisplay.FailedLabel(summary.FailureReason),
+                ServerFailureReasonDisplay.FailedLabel(summary.Lifecycle.FailureReason),
             _ => "terminal",
         };
 

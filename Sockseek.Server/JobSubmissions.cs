@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Sockseek.Api;
 using Sockseek.Core;
+using Sockseek.Core.Extractors;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Planning;
@@ -107,13 +108,16 @@ public sealed partial class JobSubmissions
 
     public IReadOnlyList<ProfileSummaryDto> GetProfiles()
         => Volatile.Read(ref configuration).Profiles.NamedProfiles
-            .Select(profile => new ProfileSummaryDto(
-                profile.Name,
-                profile.Condition,
-                profile.Condition != null,
-                profile.HasEngineSettings,
-                profile.HasDownloadSettings,
-                profile.Download.Operations.Any(operation => operation.Path is "Extraction.Input" or "Extraction.InputType")))
+            .Select(profile =>
+            {
+                var inputSettings = DownloadSettingsPatchDtoMapper.FromCore(new SettingsPatch(profile.Download.Operations
+                    .Where(change => change.Path is "Extraction.Input" or "Extraction.InputType" or "Extraction").ToArray()))?.Extraction;
+                var detectedType = ExtractorRegistry.TryResolveInputType(inputSettings?.Input, InputType.None, out var detected)
+                    ? detected.ToInputName() : null;
+                return new ProfileSummaryDto(profile.Name, profile.Condition, profile.Condition != null,
+                    profile.HasEngineSettings, profile.HasDownloadSettings, inputSettings != null,
+                    inputSettings?.Input, inputSettings?.InputType?.ToCore().ToInputName(), detectedType);
+            })
             .OrderBy(profile => profile.Name)
             .ToList();
 
@@ -628,7 +632,7 @@ public sealed partial class JobSubmissions
         // the durably accepted command below, never mutable live configuration.
         if (StateStore.GetJobSummary(sourceJobId) is { } liveSource)
         {
-            if (liveSource.SubmissionId is not Guid liveSubmissionId)
+            if (liveSource.Display.SubmissionId is not Guid liveSubmissionId)
                 throw new ArgumentException("Only a retained job can run again.");
             submissionId = liveSubmissionId;
         }

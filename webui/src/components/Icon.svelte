@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AppIconName } from '../app/icons';
+  import { folderItemIconPaths, type AppIconName } from '../app/icons';
 
   interface Props {
     name: AppIconName;
@@ -37,12 +37,8 @@
   {:else if name === 'user'}
     <circle cx="12" cy="8.5" r="3.2" />
     <path d="M5.8 20a6.2 6.2 0 0 1 12.4 0" />
-  {:else if name === 'folder'}
-    <path d="M3.5 7h6l1.8 2h9.2v8.5A2.5 2.5 0 0 1 18 20H6a2.5 2.5 0 0 1-2.5-2.5z" />
-    <path d="M3.5 7V5.5A1.5 1.5 0 0 1 5 4h4l1.5 1.5" />
-  {:else if name === 'file'}
-    <path d="M7 3.5h6l4 4V20H7z" />
-    <path d="M13 3.5V8h4" />
+  {:else if name === 'folder' || name === 'file' || name === 'track'}
+    <path d={folderItemIconPaths[name]} />
   {:else if name === 'download'}
     <path d="M12 4v11" />
     <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
@@ -87,10 +83,6 @@
     <path d="M12.5 3.5V8h4" />
     <circle cx="15.5" cy="15.5" r="3.2" />
     <path d="m18 18 2.2 2.2" />
-  {:else if name === 'track'}
-    <path d="M9 17.5V6.5l9-2v10.8" />
-    <circle cx="6.5" cy="17.5" r="2.5" />
-    <circle cx="15.5" cy="15.5" r="2.5" />
   {:else if name === 'album'}
     <rect x="4" y="4" width="16" height="16" rx="2.5" />
     <circle cx="12" cy="12" r="4.2" />

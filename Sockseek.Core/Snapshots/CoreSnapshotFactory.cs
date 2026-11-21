@@ -227,7 +227,7 @@ public static class CoreSnapshotFactory
     }
 
     public static ExceptionSnapshot CreateException(Exception exception)
-        => new(exception.GetType().Name, Diagnostics.ExceptionText.Summary(exception), Diagnostics.ExceptionText.Detail(exception));
+        => new(exception.GetType().Name, DownloadOutcomes.FailureMessage(exception));
 
     public static JobExecutionSnapshot CreateExecution(Job job, long revision)
         => new(CreateHeader(job, revision), CreateExecutionPayload(job));

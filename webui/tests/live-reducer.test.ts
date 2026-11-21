@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { ChatStateReducer, DaemonStateReducer, UserBrowseStateReducer } from '../src/api/live';
-import type { ChatMessageDto, JobStateDto, StateSnapshotDto, StateUpdateBatchDto, UserBrowseDto } from '../src/api/types';
+import type { ChatMessageDto, JobSummaryDto, StateSnapshotDto, StateUpdateBatchDto, UserBrowseDto } from '../src/api/types';
 
 const workflowId = '10000000-0000-0000-0000-000000000001';
 const jobId = '20000000-0000-0000-0000-000000000001';
 const epoch = '30000000-0000-0000-0000-000000000001';
 
-function job(revision: number, phase: JobStateDto['lifecycle']['activityPhase'] = 'Searching'): JobStateDto {
+function job(revision: number, phase: JobSummaryDto['lifecycle']['activityPhase'] = 'Searching'): JobSummaryDto {
   return {
     jobId,
     revision,
@@ -30,7 +30,7 @@ function job(revision: number, phase: JobStateDto['lifecycle']['activityPhase'] 
       skipReason: 'None',
       failureReason: null,
       failureMessage: null,
-      failureDetail: null,
+      hasFailureDetail: false,
       cancellationSource: 'None',
       availableActions: [],
     },
@@ -231,7 +231,7 @@ describe('DaemonStateReducer', () => {
 
   it('tracks child membership and removes only the retiring job or workflow dependents', () => {
     const reducer = new DaemonStateReducer();
-    const child: JobStateDto = { ...job(1), jobId: 'child', display: { ...job(1).display, kind: 'retrieve-folder' },
+    const child: JobSummaryDto = { ...job(1), jobId: 'child', display: { ...job(1).display, kind: 'retrieve-folder' },
       relationships: { ...job(1).relationships, parentJobId: jobId } };
     const unrelated = { ...job(1), jobId: 'unrelated', display: { ...job(1).display, workflowId: 'other' } };
     reducer.applySnapshot({ ...snapshot(), jobs: [job(1), child, unrelated],

@@ -1,3 +1,4 @@
+import { nestedPageSize } from '../api-defaults';
 import { test, expect, deferInitialDaemonSnapshot } from './fixtures';
 import type { Schema } from '../src/api/types';
 
@@ -26,7 +27,7 @@ test('separates search and download tabs with narrow rows, retained jobs and bro
       const response = await page.request.get('/api/jobs?includeAll=false&newestFirst=true&limit=100');
       expect(response.ok()).toBeTruthy();
       const jobs = await response.json() as Schema<'JobSummaryDto'>[];
-      if (jobs.length !== 2 || jobs.some(job => job.lifecycleState !== 'Terminal')) return false;
+      if (jobs.length !== 2 || jobs.some(job => job.lifecycle.lifecycleState !== 'Terminal')) return false;
       const snapshot = await page.request.get('/api/daemon/snapshot');
       expect(snapshot.ok()).toBeTruthy();
       return ((await snapshot.json()) as Schema<'StateSnapshotDto'>).jobs.length === 0;
@@ -106,14 +107,17 @@ test('keeps loaded Jobs rows visible when a later observation fails', async ({ p
 test.describe('Jobs paging', () => {
 
 test('renders full Jobs scopes and child pages without redundant detail reads', async ({ page, daemon }) => {
+  const total = nestedPageSize + 1;
+  const visibleImports = nestedPageSize - 1;
+  const parentName = (index: number) => `Paging parent ${index}`;
   await daemon.command('retained-imports');
   // This result exists only in history: completion must not depend on a live event.
   await daemon.command('wait-job-complete:53000000-0000-0000-0000-000000000001');
   await daemon.command('hold-download');
   const response = await page.request.post('/api/jobs/lists', { data: {
-    name: 'Paging parent 101', jobs: Array.from({ length: 101 }, (_, child) => ({
+    name: parentName(total), jobs: Array.from({ length: total }, (_, child) => ({
       kind: 'remote-file', target: {
-        username: 'fixture-peer', filename: `Fixture\\Paging-101-${child}.txt`, size: 128, extension: '.txt',
+        username: 'fixture-peer', filename: `Fixture\\Paging-${child}.txt`, size: 128, extension: '.txt',
       },
     })),
   } satisfies Schema<'SubmitJobListRequestDto'> });
@@ -122,14 +126,14 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   const newestPage = await page.request.get('/api/jobs?includeAll=false&newestFirst=true&limit=3');
   expect(newestPage.status()).toBe(200);
   const newestRows = await newestPage.json() as Schema<'JobSummaryDto'>[];
-  expect(newestRows.map((job) => job.itemName)).toEqual(['Paging parent 101', 'Paging parent 100', 'Paging parent 100']);
+  expect(newestRows.map((job) => job.display.itemName)).toEqual([parentName(total), parentName(nestedPageSize), parentName(nestedPageSize)]);
   const newestCursor = newestPage.headers()['x-next-cursor'];
   expect(newestCursor).toBeTruthy();
   const wrongDirection = await page.request.get(`/api/jobs?includeAll=false&limit=3&cursor=${encodeURIComponent(newestCursor!)}`);
   expect(wrongDirection.status()).toBe(400);
   const olderPage = await page.request.get(`/api/jobs?includeAll=false&newestFirst=true&limit=3&cursor=${encodeURIComponent(newestCursor!)}`);
-  expect((await olderPage.json() as Schema<'JobSummaryDto'>[]).map((job) => job.itemName))
-    .toEqual(['Paging parent 99', 'Paging parent 99', 'Paging parent 98']);
+  expect((await olderPage.json() as Schema<'JobSummaryDto'>[]).map((job) => job.display.itemName))
+    .toEqual([parentName(nestedPageSize - 1), parentName(nestedPageSize - 1), parentName(nestedPageSize - 2)]);
   const observedLimits: number[] = [];
   page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
     for (const frame of payload.toString().split('\u001e').filter(Boolean)) {
@@ -151,42 +155,42 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
     if (listing && request.method() === 'GET' && /^\/api\/jobs\/[^/]+$/.test(url.pathname)) detailReads.push(url.pathname);
     if (listing && url.pathname === '/api/jobs/lookup') lookups.push(request.postDataJSON().jobIds.length);
     if (url.pathname !== '/api/jobs') return;
-    expect(url.searchParams.get('limit')).toBe('100');
+    expect(url.searchParams.get('limit')).toBe(String(nestedPageSize));
     if (url.searchParams.has('parentJobId')) childReads++;
     else historyReads++;
   });
   await daemon.command('wait-download-started');
   await page.goto(`/jobs/${latest!.jobId}`);
   await expect(page.getByTestId('job-info-card').locator('.search-status-badge')).toHaveText('Running');
-  await expect(page.locator('[data-testid="job-row"]')).toHaveCount(100);
+  await expect(page.locator('[data-testid="job-row"]')).toHaveCount(nestedPageSize);
   const previousChildReads = childReads;
   await page.getByRole('button', { name: 'Load more', exact: true }).click();
-  await expect(page.locator('[data-testid="job-row"]')).toHaveCount(101);
+  await expect(page.locator('[data-testid="job-row"]')).toHaveCount(total);
   expect(childReads).toBe(previousChildReads + 1);
   await expect(page.getByRole('button', { name: 'Load more', exact: true })).toHaveCount(0);
   await daemon.command('release-download');
-  await expect(page.locator('[data-testid="job-row"] .search-status-badge')).toHaveText(Array(101).fill('Complete'));
+  await expect(page.locator('[data-testid="job-row"] .search-status-badge')).toHaveText(Array(total).fill('Complete'));
   listing = true;
   await page.getByRole('button', { name: 'Jobs', exact: true }).click();
   await expect(page.locator('.search-history-query')).toHaveText(
-    Array.from({ length: 100 }, (_, index) => `Paging parent ${101 - index}`));
-  await expect(page.locator('.search-history-row .search-status-badge.complete')).toHaveCount(100);
-  await expect(page.getByRole('img', { name: 'Text import' })).toHaveCount(99);
-  expect(lookups).toEqual([99]);
+    Array.from({ length: nestedPageSize }, (_, index) => parentName(total - index)));
+  await expect(page.locator('.search-history-row .search-status-badge.complete')).toHaveCount(nestedPageSize);
+  await expect(page.getByRole('img', { name: 'Text import' })).toHaveCount(visibleImports);
+  expect(lookups).toEqual([visibleImports]);
   expect(detailReads).toEqual([]);
   const earlier = page.getByRole('button', { name: 'Load more', exact: true });
   await expect(earlier).toBeEnabled();
-  expect(observedLimits).toEqual([100]);
+  expect(observedLimits).toEqual([nestedPageSize]);
   expect(historyReads).toBe(0);
   await earlier.click();
-  await expect(page.locator('.search-history-row')).toHaveCount(101);
+  await expect(page.locator('.search-history-row')).toHaveCount(total);
   await expect(page.locator('.search-history-query').last()).toHaveText('Paging parent 1');
-  expect(observedLimits).toEqual([100, 200]);
+  expect(observedLimits).toEqual([nestedPageSize, 2 * nestedPageSize]);
   expect(historyReads).toBe(0);
   await expect(earlier).toHaveCount(0);
-  await expect(page.getByRole('img', { name: 'Text import' })).toHaveCount(100);
-  await expect(page.locator('.search-history-row .search-status-badge.complete')).toHaveCount(101);
-  expect(lookups).toEqual([99, 1]);
+  await expect(page.getByRole('img', { name: 'Text import' })).toHaveCount(nestedPageSize);
+  await expect(page.locator('.search-history-row .search-status-badge.complete')).toHaveCount(total);
+  expect(lookups).toEqual([visibleImports, 1]);
   expect(detailReads).toEqual([]);
 
   await page.locator('.page-content').evaluate(element => { element.scrollTop = 400; element.dispatchEvent(new Event('scroll')); });
@@ -195,23 +199,23 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   await page.getByRole('tab', { name: 'Searches', exact: true }).dispatchEvent('click');
   await expect(page.getByText('No searches yet', { exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Download jobs', exact: true }).click();
-  await expect(page.locator('.search-history-row')).toHaveCount(101);
+  await expect(page.locator('.search-history-row')).toHaveCount(total);
   expect(Math.abs(await page.locator('.page-content').evaluate(element => element.scrollTop) - 400)).toBeLessThan(20);
-  expect(observedLimits.slice(-2)).toEqual([100, 200]);
+  expect(observedLimits.slice(-2)).toEqual([nestedPageSize, 2 * nestedPageSize]);
   // Linked result summaries refresh on remount, once for the displayed window.
   lookups.length = 0;
 
   // One failed batch must keep the unrelated parent healthy, and one Retry
-  // must recover all affected imports rather than demand 99 separate clicks.
+  // must recover all affected imports rather than demand a separate click for each job.
   await page.route('**/api/jobs/lookup', route => route.fulfill({
     status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Linked summaries temporarily unavailable' }),
   }), { times: 1 });
   await page.reload();
   await expect(page.locator('.search-history-row .search-status-badge.pending'))
-    .toHaveText(Array(99).fill('Result unavailable'));
+    .toHaveText(Array(visibleImports).fill('Result unavailable'));
   await page.getByRole('button', { name: 'Retry', exact: true }).first().click();
-  await expect(page.locator('.search-history-row .search-status-badge.complete')).toHaveCount(100);
-  expect(lookups).toEqual([99, 99]);
+  await expect(page.locator('.search-history-row .search-status-badge.complete')).toHaveCount(nestedPageSize);
+  expect(lookups).toEqual([visibleImports, visibleImports]);
   expect(detailReads).toEqual([]);
 });
 
@@ -260,7 +264,7 @@ test('keeps completed Jobs through a delayed list snapshot and reconnect', async
     for (const frame of payload.toString().split('\u001e').filter(Boolean)) {
       const message = JSON.parse(frame) as { target?: string; arguments?: Schema<'StateUpdateBatchDto'>[] };
       if (message.target?.toLowerCase() === 'stateupdatebatch'
-        && message.arguments?.[0]?.state?.removedWorkflowIds.includes(root.workflowId!)) observeRetirement();
+        && message.arguments?.[0]?.state?.removedWorkflowIds.includes(root.display.workflowId!)) observeRetirement();
     }
   }));
   let httpPages = 0;

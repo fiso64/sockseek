@@ -5,7 +5,7 @@
   import Icon from './Icon.svelte';
   let { value = [], applied = [], onchange, disabled = false, quiet = false }: {
     value?: string[]; applied?: Schema<'AppliedProfileDto'>[]; disabled?: boolean; quiet?: boolean;
-    onchange: (names: string[]) => void;
+    onchange: (names: string[], catalog: Schema<'ProfileSummaryDto'>[]) => void;
   } = $props();
   let catalog = $state<Schema<'ProfileSummaryDto'>[]>([]);
   let error = $state('');
@@ -53,7 +53,7 @@
         <label class="menu-item profile-option" title={automatic ? `Applied by ${automatic.source === 'automatic' ? 'auto-profile' : 'daemon startup'}` : undefined}>
           <input type="checkbox" aria-label={name} checked={value.includes(name) || Boolean(automatic)}
             disabled={disabled || Boolean(automatic)}
-            onchange={(event) => onchange(event.currentTarget.checked ? [...value, name] : value.filter(item => item !== name))} />
+            onchange={(event) => onchange(event.currentTarget.checked ? [...value, name] : value.filter(item => item !== name), catalog)} />
           <span class="profile-check"><Icon name="check" /></span>
           <span class="profile-name">{name}</span>
         </label>

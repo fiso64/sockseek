@@ -1,8 +1,7 @@
 import { nestedPageSize, type DaemonApiClient } from '../../api/client';
 import type { DaemonLiveClient, LiveConnectionStatus } from '../../api/live';
-import { jobStateSummary } from '../../api/job-summary';
 import { updatedJob } from '../../api/state.svelte';
-import type { JobStateDto, JobSummaryDto, Schema } from '../../api/types';
+import type { JobSummaryDto, Schema } from '../../api/types';
 
 export type JobsTab = 'searches' | 'downloads';
 
@@ -25,7 +24,7 @@ export class JobListController {
     this.scrollTop = 0;
     this.refresh();
   }
-  private rows = new Map<string, JobStateDto>();
+  private rows = new Map<string, JobSummaryDto>();
   private ids: string[] = [];
   private limit = nestedPageSize;
   private active = false;
@@ -59,7 +58,7 @@ export class JobListController {
   }
 
   afterArchive(submissionId: string): void {
-    this.items = this.items.filter(row => row.submissionId !== submissionId);
+    this.items = this.items.filter(row => row.display.submissionId !== submissionId);
     // Commands may finish while an old snapshot is in flight. Replace its scope
     // after acceptance rather than maintaining deletion tombstones in the client.
     if (this.active) this.refresh();
@@ -117,7 +116,7 @@ export class JobListController {
     if (membershipChanged) this.ids = [...this.rows.values()]
       .sort((a, b) => Number(b.display.displayId) - Number(a.display.displayId) || b.jobId.localeCompare(a.jobId))
       .map(row => row.jobId);
-    this.items = this.ids.map(id => jobStateSummary(this.rows.get(id)!));
+    this.items = this.ids.map(id => this.rows.get(id)!);
     this.cursor = update.nextCursor ?? null;
   }
 }

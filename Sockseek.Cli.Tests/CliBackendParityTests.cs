@@ -36,7 +36,7 @@ public class CliBackendParityTests
                 void CaptureTerminal(DaemonClientUpdate update)
                 {
                     foreach (JobSummaryDto job in update.ChangedJobs.Where(job =>
-                        job.LifecycleState == ServerJobLifecycleState.Terminal))
+                        job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal))
                         terminalJobs[job.JobId] = job;
                 }
                 ctx.Backend.StateUpdated += CaptureTerminal;
@@ -45,8 +45,8 @@ public class CliBackendParityTests
                         new SongQueryDto("Artist", "Track One", "", "", -1, false),
                         GroupResults: true),
                     ctx.Token);
-                Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, summary.SearchDefaultProjection, ctx.Name);
-                Assert.AreEqual(true, summary.SearchGroupResults, ctx.Name);
+                Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, summary.Display.SearchDefaultProjection, ctx.Name);
+                Assert.AreEqual(true, summary.Display.SearchGroupResults, ctx.Name);
                 try
                 {
                     JobSummaryDto? observedTerminal = await BackendTestWaiter.UntilAsync(
@@ -57,13 +57,13 @@ public class CliBackendParityTests
                         job => job == null ? "<missing>" : FormatState(job));
                     Assert.IsNotNull(observedTerminal);
                     JobSummaryDto terminal = observedTerminal;
-                    Assert.AreEqual(summary.SearchDefaultProjection, terminal.SearchDefaultProjection, ctx.Name);
-                    Assert.AreEqual(summary.SearchGroupResults, terminal.SearchGroupResults, ctx.Name);
+                    Assert.AreEqual(summary.Display.SearchDefaultProjection, terminal.Display.SearchDefaultProjection, ctx.Name);
+                    Assert.AreEqual(summary.Display.SearchGroupResults, terminal.Display.SearchGroupResults, ctx.Name);
                     projections.Add(
                     [
-                        $"{terminal.Kind}:{terminal.LifecycleState}:{terminal.ActivityPhase}:" +
-                        $"{terminal.TerminalOutcome}:{terminal.ParentJobId.HasValue}:" +
-                        $"{terminal.SearchDefaultProjection}:{terminal.SearchGroupResults}",
+                        $"{terminal.Display.Kind}:{terminal.Lifecycle.LifecycleState}:{terminal.Lifecycle.ActivityPhase}:" +
+                        $"{terminal.Lifecycle.TerminalOutcome}:{terminal.Relationships.ParentJobId.HasValue}:" +
+                        $"{terminal.Display.SearchDefaultProjection}:{terminal.Display.SearchGroupResults}",
                     ]);
                 }
                 finally
@@ -93,7 +93,7 @@ public class CliBackendParityTests
                 void CaptureTerminal(DaemonClientUpdate update)
                 {
                     foreach (JobSummaryDto job in update.ChangedJobs.Where(job =>
-                        job.LifecycleState == ServerJobLifecycleState.Terminal))
+                        job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal))
                         terminalJobs[job.JobId] = job;
                 }
                 ctx.Backend.StateUpdated += CaptureTerminal;
@@ -114,18 +114,18 @@ public class CliBackendParityTests
                     await BackendTestWaiter.UntilAsync(
                         ctx.Backend,
                         _ => Task.FromResult(
-                            ctx.Backend.ClientStore.GetWorkflowJobs(summary.WorkflowId).Count == 0),
+                            ctx.Backend.ClientStore.GetWorkflowJobs(summary.Display.WorkflowId).Count == 0),
                         "Remote workflow did not retire from live state.");
 
                     var retainedJobs = await ctx.Backend.GetJobsAsync(
-                        new JobQuery(null, null, null, summary.WorkflowId, IncludeAll: true),
+                        new JobQuery(null, null, null, summary.Display.WorkflowId, IncludeAll: true),
                         ctx.Token);
                     JobSummaryDto retained = retainedJobs.Single(job => job.JobId == summary.JobId);
-                    Assert.AreEqual(liveTerminal.LifecycleState, retained.LifecycleState);
-                    Assert.AreEqual(liveTerminal.TerminalOutcome, retained.TerminalOutcome);
-                    Assert.AreEqual(liveTerminal.ActivityPhase, retained.ActivityPhase);
-                    Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, retained.SearchDefaultProjection);
-                    Assert.AreEqual(false, retained.SearchGroupResults);
+                    Assert.AreEqual(liveTerminal.Lifecycle.LifecycleState, retained.Lifecycle.LifecycleState);
+                    Assert.AreEqual(liveTerminal.Lifecycle.TerminalOutcome, retained.Lifecycle.TerminalOutcome);
+                    Assert.AreEqual(liveTerminal.Lifecycle.ActivityPhase, retained.Lifecycle.ActivityPhase);
+                    Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, retained.Display.SearchDefaultProjection);
+                    Assert.AreEqual(false, retained.Display.SearchGroupResults);
 
                     var projection = await ctx.Backend.GetFileResultsAsync(summary.JobId, ctx.Token);
                     Assert.IsNotNull(projection);
@@ -235,7 +235,7 @@ public class CliBackendParityTests
             foreach (string mode in modes)
             {
                 var requested = await Submit(mode, printOptions);
-                await WaitForWorkflowStateAsync(ctx.Backend, requested.WorkflowId, ServerWorkflowState.Completed);
+                await WaitForWorkflowStateAsync(ctx.Backend, requested.Display.WorkflowId, ServerWorkflowState.Completed);
                 string output = await ctx.PrintRequestedOutputAsync(requested, printSettings);
                 Assert.AreEqual(3, output.Split("(nec:", StringSplitOptions.None).Length - 1, ctx.Name + ":" + mode + "\n" + output);
                 Assert.AreEqual(2, output.Split("[locked]", StringSplitOptions.None).Length - 1, ctx.Name + ":" + mode + "\n" + output);
@@ -251,7 +251,7 @@ public class CliBackendParityTests
                 var download = await Submit(mode, new SubmissionOptionsDto(DownloadSettings: new DownloadSettingsPatchDto(
                     Output: new OutputSettingsPatchDto(ParentDir: output))));
                 await WaitForJobStateAsync(ctx.Backend, download.JobId, ExpectedJobStatus.Succeeded);
-                await WaitForWorkflowStateAsync(ctx.Backend, download.WorkflowId, ServerWorkflowState.Completed);
+                await WaitForWorkflowStateAsync(ctx.Backend, download.Display.WorkflowId, ServerWorkflowState.Completed);
             }
             var paths = ctx.DownloadedRelativePaths();
             Assert.AreEqual(4, paths.Length, ctx.Name);
@@ -447,7 +447,7 @@ public class CliBackendParityTests
                     var automatic = await ctx.Backend.SubmitSongJobAsync(
                         new SubmitSongJobRequestDto(new SongQueryDto("Artist", "First", "", "", -1, false)), ctx.Token);
                     await WaitForJobStateAsync(ctx.Backend, automatic.JobId, ExpectedJobStatus.Succeeded);
-                    await WaitForWorkflowStateAsync(ctx.Backend, automatic.WorkflowId, ServerWorkflowState.Completed);
+                    await WaitForWorkflowStateAsync(ctx.Backend, automatic.Display.WorkflowId, ServerWorkflowState.Completed);
                     CollectionAssert.AreEqual(new[] { "Album/Artist - First.mp3" }, ctx.DownloadedRelativePaths(), ctx.Name);
                 }
                 var query = new SongQueryDto("Artist", "", "", "", -1, false);
@@ -479,7 +479,7 @@ public class CliBackendParityTests
                 }
 
                 await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.Succeeded);
-                await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId, ServerWorkflowState.Completed);
+                await WaitForWorkflowStateAsync(ctx.Backend, summary.Display.WorkflowId, ServerWorkflowState.Completed);
 
                 CollectionAssert.AreEqual(group
                     ? new[] { "Album/Artist - First.mp3", "Album/Artist - Second.mp3" }
@@ -532,7 +532,7 @@ public class CliBackendParityTests
                 Assert.AreEqual(summary.JobId, download.JobId, ctx.Name);
 
                 await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.Succeeded);
-                await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId, ServerWorkflowState.Completed);
+                await WaitForWorkflowStateAsync(ctx.Backend, summary.Display.WorkflowId, ServerWorkflowState.Completed);
 
                 CollectionAssert.AreEqual(
                     new[]
@@ -612,8 +612,8 @@ public class CliBackendParityTests
                     Console.WriteLine($"CLI album selection {ctx.Name}: exact={exactSelection}, "
                         + $"acceptance-ms={System.Diagnostics.Stopwatch.GetElapsedTime(selectionStarted).TotalMilliseconds:F1}.");
                     Assert.IsNotNull(download, ctx.Name);
-                    Assert.AreEqual(summary.WorkflowId, download.WorkflowId, ctx.Name);
-                    Assert.AreEqual(summary.JobId, download.SourceJobId, ctx.Name);
+                    Assert.AreEqual(summary.Display.WorkflowId, download.Display.WorkflowId, ctx.Name);
+                    Assert.AreEqual(summary.JobId, download.Relationships.SourceJobId, ctx.Name);
 
                     await WaitForJobStateAsync(ctx.Backend, download.JobId, ExpectedJobStatus.Succeeded);
                     if (exactSelection)
@@ -646,31 +646,31 @@ public class CliBackendParityTests
                         Assert.AreEqual(download.JobId, repeated.JobId, ctx.Name);
                         var repeatedDetail = await BackendTestWaiter.UntilAsync(ctx.Backend,
                             ct => ctx.Backend.GetJobDetailAsync(download.JobId, ct),
-                            current => current?.Summary.LifecycleState == ServerJobLifecycleState.Terminal
-                                && (current.Summary.SkipReason == ServerJobSkipReason.AlreadyExists
+                            current => current?.Summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal
+                                && (current.Summary.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists
                                     || current.Payload is AlbumJobPayloadDto album
                                         && album.Directory.AttemptNumber > state.AttemptNumber),
                             $"{ctx.Name}: repeated selection did not produce a fresh terminal outcome.");
                         var repeatedChildren = await ctx.Backend.GetJobsAsync(
                             new JobQuery(null, null, null, null, ParentJobId: download.JobId, IncludeAll: true), ctx.Token);
                         Assert.IsTrue(repeatedChildren.Any(child =>
-                            child.TerminalOutcome == ServerJobTerminalOutcome.Skipped
-                            && child.SkipReason == ServerJobSkipReason.AlreadyExists),
+                            child.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Skipped
+                            && child.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists),
                             $"{ctx.Name}: repeat must exercise existing-file completion.");
-                        Assert.IsTrue(repeatedDetail!.Summary.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
-                            || repeatedDetail.Summary.TerminalOutcome == ServerJobTerminalOutcome.Skipped
-                                && repeatedDetail.Summary.SkipReason == ServerJobSkipReason.AlreadyExists,
+                        Assert.IsTrue(repeatedDetail!.Summary.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
+                            || repeatedDetail.Summary.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Skipped
+                                && repeatedDetail.Summary.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists,
                             $"{ctx.Name}: repeat {FormatState(repeatedDetail.Summary)} "
-                            + $"{repeatedDetail.Summary.FailureReason}: {repeatedDetail.Summary.FailureMessage}; "
-                            + $"{repeatedDetail.Summary.FailureDetail}; outputs={string.Join(", ", ctx.DownloadedRelativePaths())}; "
-                            + $"children={string.Join("; ", repeatedChildren.Select(child => $"{child.TerminalOutcome}:{child.SkipReason}:{child.FailureReason}:{child.FailureMessage}:{child.FailureDetail}"))}.");
+                            + $"{repeatedDetail.Summary.Lifecycle.FailureReason}: {repeatedDetail.Summary.Lifecycle.FailureMessage}; "
+                            + $"outputs={string.Join(", ", ctx.DownloadedRelativePaths())}; "
+                            + $"children={string.Join("; ", repeatedChildren.Select(child => $"{child.Lifecycle.TerminalOutcome}:{child.Lifecycle.SkipReason}:{child.Lifecycle.FailureReason}:{child.Lifecycle.FailureMessage}"))}.");
                     }
                 }
                 Assert.AreEqual(1, exactPlans, ctx.Name);
 
                 Assert.IsTrue(await ctx.Backend.CompleteManualSelectionAsync(summary.JobId, ctx.Token), ctx.Name);
                 await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.Succeeded);
-                await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId, ServerWorkflowState.Completed);
+                await WaitForWorkflowStateAsync(ctx.Backend, summary.Display.WorkflowId, ServerWorkflowState.Completed);
 
                 CollectionAssert.AreEqual(
                     new[]
@@ -741,11 +741,11 @@ public class CliBackendParityTests
                         RequestedMode: generalMode ? ServerExtractionMode.General : null),
                     ctx.Token);
                 Assert.IsNotNull(download, ctx.Name);
-                Assert.AreEqual(search.JobId, download.SourceJobId, ctx.Name);
-                Assert.AreEqual(generalMode ? ServerJobKind.RemoteDirectory : ServerJobKind.Album, download.Kind, ctx.Name);
+                Assert.AreEqual(search.JobId, download.Relationships.SourceJobId, ctx.Name);
+                Assert.AreEqual(generalMode ? ServerJobKind.RemoteDirectory : ServerJobKind.Album, download.Display.Kind, ctx.Name);
 
                 await WaitForJobStateAsync(ctx.Backend, download.JobId, ExpectedJobStatus.Succeeded);
-                await WaitForWorkflowStateAsync(ctx.Backend, search.WorkflowId, ServerWorkflowState.Completed);
+                await WaitForWorkflowStateAsync(ctx.Backend, search.Display.WorkflowId, ServerWorkflowState.Completed);
 
                 CollectionAssert.AreEqual(
                     exactSelectionWithOutputOverride
@@ -782,11 +782,11 @@ public class CliBackendParityTests
                             RequestedMode: ServerExtractionMode.General), ctx.Token);
                     Assert.IsNotNull(selected, ctx.Name);
                     var fileJob = selected.Single();
-                    Assert.AreEqual(ServerJobKind.RemoteFile, fileJob.Kind, ctx.Name);
-                    Assert.AreEqual(search.JobId, fileJob.SourceJobId, ctx.Name);
-                    Assert.AreEqual(search.WorkflowId, fileJob.WorkflowId, ctx.Name);
+                    Assert.AreEqual(ServerJobKind.RemoteFile, fileJob.Display.Kind, ctx.Name);
+                    Assert.AreEqual(search.JobId, fileJob.Relationships.SourceJobId, ctx.Name);
+                    Assert.AreEqual(search.Display.WorkflowId, fileJob.Display.WorkflowId, ctx.Name);
                     await WaitForJobStateAsync(ctx.Backend, fileJob.JobId, ExpectedJobStatus.Succeeded);
-                    await WaitForWorkflowStateAsync(ctx.Backend, search.WorkflowId, ServerWorkflowState.Completed);
+                    await WaitForWorkflowStateAsync(ctx.Backend, search.Display.WorkflowId, ServerWorkflowState.Completed);
                     CollectionAssert.AreEqual(new[] {
                         "exact-output/picked/02. Artist - Track Two.mp3", "file-output/loose/notes.txt",
                     }, ctx.DownloadedRelativePaths(), ctx.Name);
@@ -800,7 +800,7 @@ public class CliBackendParityTests
                     Assert.AreEqual(5L, filePayload.File.BytesTransferred, ctx.Name);
                 }
 
-                var jobs = await ctx.Backend.GetJobsAsync(new JobQuery(null, null, null, search.WorkflowId, IncludeAll: true), ctx.Token);
+                var jobs = await ctx.Backend.GetJobsAsync(new JobQuery(null, null, null, search.Display.WorkflowId, IncludeAll: true), ctx.Token);
                 int requestedDownloads = exactSelectionWithOutputOverride && generalMode ? 2 : 1;
                 Assert.AreEqual(new DownloadRunSummary(requestedDownloads, 0, 0, Sockseek.Cli.Program.CliExitCode.Success),
                     DownloadRunSummary.FromJobs(jobs), ctx.Name);
@@ -845,16 +845,16 @@ public class CliBackendParityTests
                     Assert.IsTrue(await ctx.Backend.CancelJobAsync(summary.JobId, ctx.Token), ctx.Name);
                 else
                     Assert.IsTrue(
-                        await ctx.Backend.TryNextCandidateByDisplayIdAsync(summary.DisplayId, summary.WorkflowId, ctx.Token),
+                        await ctx.Backend.TryNextCandidateByDisplayIdAsync(summary.Display.DisplayId, summary.Display.WorkflowId, ctx.Token),
                         ctx.Name);
 
                 await BackendTestWaiter.UntilAsync(ctx.Backend,
                     ct => ctx.Backend.GetJobDetailAsync(summary.JobId, ct),
-                    detail => detail?.Summary.LifecycleState == ServerJobLifecycleState.Terminal
-                        && detail.Summary.TerminalOutcome == (cancel
+                    detail => detail?.Summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal
+                        && detail.Summary.Lifecycle.TerminalOutcome == (cancel
                             ? ServerJobTerminalOutcome.Cancelled : ServerJobTerminalOutcome.Succeeded),
                     "Song must retain its actual cancellation/success outcome.");
-                await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId,
+                await WaitForWorkflowStateAsync(ctx.Backend, summary.Display.WorkflowId,
                     cancel ? ServerWorkflowState.Failed : ServerWorkflowState.Completed);
 
                 var detail = await ctx.Backend.GetJobDetailAsync(summary.JobId, ctx.Token);
@@ -909,9 +909,9 @@ public class CliBackendParityTests
                     await ctx.Backend.TryNextCandidateAsync(summary.JobId, ctx.Token),
                     ctx.Name);
 
-                await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId, ServerWorkflowState.Completed);
-                var jobs = await ctx.Backend.GetJobsAsync(new JobQuery(null, null, null, summary.WorkflowId, IncludeAll: true), ctx.Token);
-                var song = jobs.Single(job => job.Kind == ServerJobKind.Song);
+                await WaitForWorkflowStateAsync(ctx.Backend, summary.Display.WorkflowId, ServerWorkflowState.Completed);
+                var jobs = await ctx.Backend.GetJobsAsync(new JobQuery(null, null, null, summary.Display.WorkflowId, IncludeAll: true), ctx.Token);
+                var song = jobs.Single(job => job.Display.Kind == ServerJobKind.Song);
                 var detail = await ctx.Backend.GetJobDetailAsync(song.JobId, ctx.Token);
                 var payload = Assert.IsInstanceOfType<SongJobPayloadDto>(detail?.Payload);
                 Assert.AreNotEqual(ctx.Gate.BlockedUsername, payload.ResolvedUsername, ctx.Name);
@@ -945,7 +945,7 @@ public class CliBackendParityTests
                     new SubmitAlbumJobRequestDto(new AlbumQueryDto("Artist", "Album", "", "", false)),
                     ctx.Token);
 
-                await WaitForWorkflowStateAsync(ctx.Backend, summary.WorkflowId, ServerWorkflowState.Completed);
+                await WaitForWorkflowStateAsync(ctx.Backend, summary.Display.WorkflowId, ServerWorkflowState.Completed);
                 await WaitForConditionAsync(
                     ctx.Backend,
                     () => messages.Contains("Auto profiles active: album-auto"),
@@ -973,12 +973,12 @@ public class CliBackendParityTests
                 var first = await SubmitManualListAlbumWorkflowAsync(ctx, listPath);
                 var firstAlbum = await WaitForWorkflowJobAsync(
                     ctx.Backend,
-                    first.WorkflowId,
-                    job => job.Kind == ServerJobKind.Album
-                        && job.LifecycleState == ServerJobLifecycleState.AwaitingSelection);
+                    first.Display.WorkflowId,
+                    job => job.Display.Kind == ServerJobKind.Album
+                        && job.Lifecycle.LifecycleState == ServerJobLifecycleState.AwaitingSelection);
 
                 var visibleRoots = await ctx.Backend.GetJobsAsync(new JobQuery(
-                    null, null, null, first.WorkflowId, IncludeAll: false, ExcludeExtractResults: true), ctx.Token);
+                    null, null, null, first.Display.WorkflowId, IncludeAll: false, ExcludeExtractResults: true), ctx.Token);
                 CollectionAssert.AreEqual(new[] { first.JobId }, visibleRoots.Select(job => job.JobId).ToArray(), ctx.Name);
 
                 Assert.IsTrue(await ctx.Backend.SkipManualSelectionAsync(firstAlbum.JobId, ctx.Token), ctx.Name);
@@ -987,9 +987,9 @@ public class CliBackendParityTests
                 var second = await SubmitManualListAlbumWorkflowAsync(ctx, listPath);
                 var secondAlbum = await WaitForWorkflowJobAsync(
                     ctx.Backend,
-                    second.WorkflowId,
-                    job => job.Kind == ServerJobKind.Album
-                        && job.LifecycleState is ServerJobLifecycleState.AwaitingSelection
+                    second.Display.WorkflowId,
+                    job => job.Display.Kind == ServerJobKind.Album
+                        && job.Lifecycle.LifecycleState is ServerJobLifecycleState.AwaitingSelection
                             or ServerJobLifecycleState.Terminal);
 
                 Assert.AreEqual(
@@ -1112,12 +1112,12 @@ public class CliBackendParityTests
                 {
                     var detail = await BackendTestWaiter.UntilAsync(ctx.Backend,
                         ct => ctx.Backend.GetJobDetailAsync(id, ct),
-                        value => value?.Summary.LifecycleState == ServerJobLifecycleState.Terminal,
+                        value => value?.Summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal,
                         "Cancelling a manual selection must finish its selected work.");
-                    Assert.AreEqual(ServerJobTerminalOutcome.Cancelled, detail!.Summary.TerminalOutcome, ctx.Name);
-                    Assert.AreEqual(cause, detail.Summary.CancellationSource, ctx.Name);
+                    Assert.AreEqual(ServerJobTerminalOutcome.Cancelled, detail!.Summary.Lifecycle.TerminalOutcome, ctx.Name);
+                    Assert.AreEqual(cause, detail.Summary.Lifecycle.CancellationSource, ctx.Name);
                 }
-                await WaitForWorkflowStateAsync(ctx.Backend, source.WorkflowId, ServerWorkflowState.Failed);
+                await WaitForWorkflowStateAsync(ctx.Backend, source.Display.WorkflowId, ServerWorkflowState.Failed);
                 Assert.AreEqual(0, ctx.DownloadedRelativePaths().Length, ctx.Name);
             }
             else
@@ -1126,11 +1126,11 @@ public class CliBackendParityTests
                 await AssertRejected();
                 ctx.Gate.Open();
                 await WaitForJobStateAsync(ctx.Backend, source.JobId, ExpectedJobStatus.Succeeded);
-                await WaitForWorkflowStateAsync(ctx.Backend, source.WorkflowId, ServerWorkflowState.Completed);
+                await WaitForWorkflowStateAsync(ctx.Backend, source.Display.WorkflowId, ServerWorkflowState.Completed);
             }
-            var jobs = await ctx.Backend.GetJobsAsync(new JobQuery(null, null, null, source.WorkflowId, IncludeAll: true), ctx.Token);
-            Assert.AreEqual(group ? 1 : 0, jobs.Count(job => job.SourceJobId == source.JobId
-                && job.Kind == (albumMode ? ServerJobKind.Album : ServerJobKind.Song)), ctx.Name);
+            var jobs = await ctx.Backend.GetJobsAsync(new JobQuery(null, null, null, source.Display.WorkflowId, IncludeAll: true), ctx.Token);
+            Assert.AreEqual(group ? 1 : 0, jobs.Count(job => job.Relationships.SourceJobId == source.JobId
+                && job.Display.Kind == (albumMode ? ServerJobKind.Album : ServerJobKind.Song)), ctx.Name);
         });
     }
 
@@ -1160,14 +1160,14 @@ public class CliBackendParityTests
             Assert.IsTrue(await ctx.Backend.CancelJobAsync(picker.JobId, ctx.Token), ctx.Name);
             var cancelled = await BackendTestWaiter.UntilAsync(ctx.Backend,
                 ct => ctx.Backend.GetJobDetailAsync(picker.JobId, ct),
-                detail => detail?.Summary.TerminalOutcome == ServerJobTerminalOutcome.Cancelled,
+                detail => detail?.Summary.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Cancelled,
                 "An idle picker must cancel while unrelated work holds the execution slot.");
             Console.WriteLine($"Busy-picker cancellation {ctx.Name}: "
                 + $"{System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1} ms.");
-            Assert.AreEqual(ServerJobCancellationSource.UserRequestedJob, cancelled!.Summary.CancellationSource, ctx.Name);
+            Assert.AreEqual(ServerJobCancellationSource.UserRequestedJob, cancelled!.Summary.Lifecycle.CancellationSource, ctx.Name);
             var active = await ctx.Backend.GetJobDetailAsync(unrelated.JobId, ctx.Token);
-            Assert.AreEqual(ServerJobLifecycleState.Running, active!.Summary.LifecycleState, ctx.Name);
-            Assert.AreEqual(ServerJobCancellationSource.None, active.Summary.CancellationSource, ctx.Name);
+            Assert.AreEqual(ServerJobLifecycleState.Running, active!.Summary.Lifecycle.LifecycleState, ctx.Name);
+            Assert.AreEqual(ServerJobCancellationSource.None, active.Summary.Lifecycle.CancellationSource, ctx.Name);
             var pickerPayload = Assert.IsInstanceOfType<SongJobPayloadDto>(cancelled.Payload);
             Assert.IsNull(pickerPayload.LastAttemptedFile, "Cancelling the picker must not start its candidates.");
             ctx.Gate.Open();
@@ -1253,10 +1253,10 @@ public class CliBackendParityTests
         Console.WriteLine($"CLI group song selection {ctx.Name}: acceptance-ms={System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1}.");
         Assert.IsNotNull(selected, ctx.Name);
         var child = selected.Single();
-        Assert.AreEqual(source.WorkflowId, child.WorkflowId, ctx.Name);
-        Assert.AreEqual(source.JobId, child.SourceJobId, ctx.Name);
-        Assert.AreEqual(source.JobId, child.ParentJobId, ctx.Name);
-        Assert.AreEqual(source.SubmissionId, child.SubmissionId, ctx.Name);
+        Assert.AreEqual(source.Display.WorkflowId, child.Display.WorkflowId, ctx.Name);
+        Assert.AreEqual(source.JobId, child.Relationships.SourceJobId, ctx.Name);
+        Assert.AreEqual(source.JobId, child.Relationships.ParentJobId, ctx.Name);
+        Assert.AreEqual(source.Display.SubmissionId, child.Display.SubmissionId, ctx.Name);
         await WaitForJobStateAsync(ctx.Backend, child.JobId, ExpectedJobStatus.Succeeded);
         var childDetail = await ctx.Backend.GetJobDetailAsync(child.JobId, ctx.Token);
         var song = Assert.IsInstanceOfType<SongJobPayloadDto>(childDetail?.Payload);
@@ -1283,12 +1283,12 @@ public class CliBackendParityTests
         Assert.IsTrue(await ctx.Backend.CompleteManualSelectionAsync(source.JobId, ctx.Token), ctx.Name);
         var completed = await BackendTestWaiter.UntilAsync(ctx.Backend,
             ct => ctx.Backend.GetJobDetailAsync(source.JobId, ct),
-            detail => detail?.Summary.LifecycleState == ServerJobLifecycleState.Terminal,
+            detail => detail?.Summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal,
             $"{ctx.Name}: manual group selection never completed.");
         Assert.IsNotNull(completed, ctx.Name);
-        Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, completed.Summary.TerminalOutcome,
-            $"{ctx.Name}: selected group child succeeded but root is {completed.Summary.TerminalOutcome}: {completed.Summary.FailureReason}.");
-        await WaitForWorkflowStateAsync(ctx.Backend, source.WorkflowId, ServerWorkflowState.Completed);
+        Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, completed.Summary.Lifecycle.TerminalOutcome,
+            $"{ctx.Name}: selected group child succeeded but root is {completed.Summary.Lifecycle.TerminalOutcome}: {completed.Summary.Lifecycle.FailureReason}.");
+        await WaitForWorkflowStateAsync(ctx.Backend, source.Display.WorkflowId, ServerWorkflowState.Completed);
         string expectedContent = filename.EndsWith("First.mp3", StringComparison.Ordinal) ? "first" : "second";
         Assert.AreEqual(expectedContent, await File.ReadAllTextAsync(Path.Combine(output, "from-profile", filename)), ctx.Name);
         CollectionAssert.AreEqual(before.Append($"manual-group/from-profile/{filename}")
@@ -1330,7 +1330,7 @@ public class CliBackendParityTests
         Assert.IsNotNull(selected, ctx.Name);
         Assert.AreEqual(missing.Job.JobId, selected.Single().JobId, ctx.Name);
         await WaitForJobStateAsync(ctx.Backend, missing.Job.JobId, ExpectedJobStatus.Failed);
-        await WaitForWorkflowStateAsync(ctx.Backend, missing.Job.WorkflowId, ServerWorkflowState.Failed);
+        await WaitForWorkflowStateAsync(ctx.Backend, missing.Job.Display.WorkflowId, ServerWorkflowState.Failed);
         started = System.Diagnostics.Stopwatch.GetTimestamp();
         var failed = await ctx.Backend.GetJobDetailAsync(missing.Job.JobId, ctx.Token);
         Console.WriteLine($"CLI manual song {ctx.Name}: read=failed-detail, ms={System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1}.");
@@ -1355,7 +1355,7 @@ public class CliBackendParityTests
         Assert.IsNotNull(selected, ctx.Name);
         Assert.AreEqual(survivor.Job.JobId, selected.Single().JobId, ctx.Name);
         await WaitForJobStateAsync(ctx.Backend, survivor.Job.JobId, ExpectedJobStatus.Succeeded);
-        await WaitForWorkflowStateAsync(ctx.Backend, survivor.Job.WorkflowId, ServerWorkflowState.Completed);
+        await WaitForWorkflowStateAsync(ctx.Backend, survivor.Job.Display.WorkflowId, ServerWorkflowState.Completed);
         string expected = Path.Combine(output, "from-profile", remainingName);
         string expectedContents = remainingName == "PeerDrop - Missing.mp3" ? "missing" : "survivor";
         Assert.AreEqual(expectedContents, await File.ReadAllTextAsync(expected), ctx.Name);
@@ -1365,7 +1365,7 @@ public class CliBackendParityTests
         // Selection-specific profiles/paths cannot become the daemon/CLI defaults.
         var unchanged = await ctx.Backend.SubmitSongJobAsync(new SubmitSongJobRequestDto(
             new SongQueryDto("Artist", "First", "", "", -1, false)), ctx.Token);
-        await WaitForWorkflowStateAsync(ctx.Backend, unchanged.WorkflowId, ServerWorkflowState.Completed);
+        await WaitForWorkflowStateAsync(ctx.Backend, unchanged.Display.WorkflowId, ServerWorkflowState.Completed);
         started = System.Diagnostics.Stopwatch.GetTimestamp();
         var unchangedDetail = await ctx.Backend.GetJobDetailAsync(unchanged.JobId, ctx.Token);
         Console.WriteLine($"CLI manual song {ctx.Name}: read=default-detail, ms={System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1}.");
@@ -1400,10 +1400,10 @@ public class CliBackendParityTests
             : await ctx.Backend.SubmitAlbumJobAsync(new SubmitAlbumJobRequestDto(query, options), ctx.Token);
         Console.WriteLine($"CLI automatic album {ctx.Name}: group={group}, "
             + $"acceptance-ms={System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1}.");
-        Assert.IsNull(submitted.SourceJobId, ctx.Name);
-        Assert.IsNull(submitted.ParentJobId, ctx.Name);
+        Assert.IsNull(submitted.Relationships.SourceJobId, ctx.Name);
+        Assert.IsNull(submitted.Relationships.ParentJobId, ctx.Name);
         await WaitForJobStateAsync(ctx.Backend, submitted.JobId, ExpectedJobStatus.Succeeded);
-        await WaitForWorkflowStateAsync(ctx.Backend, submitted.WorkflowId, ServerWorkflowState.Completed);
+        await WaitForWorkflowStateAsync(ctx.Backend, submitted.Display.WorkflowId, ServerWorkflowState.Completed);
 
         long metadataStarted = System.Diagnostics.Stopwatch.GetTimestamp();
         var detail = await ReadMetadataAsync("root detail",
@@ -1421,19 +1421,19 @@ public class CliBackendParityTests
             var children = await ReadMetadataAsync("root children", () => ctx.Backend.GetJobsAsync(
                 new JobQuery(null, null, null, null, ParentJobId: submitted.JobId, IncludeAll: true), ctx.Token));
             Assert.AreEqual(3, children.Count, ctx.Name);
-            var container = children.Single(child => child.Kind == ServerJobKind.JobList);
-            Assert.AreEqual(submitted.SubmissionId, container.SubmissionId, ctx.Name);
-            Assert.AreEqual(ServerJobRole.Orchestration, container.Role, ctx.Name);
+            var container = children.Single(child => child.Display.Kind == ServerJobKind.JobList);
+            Assert.AreEqual(submitted.Display.SubmissionId, container.Display.SubmissionId, ctx.Name);
+            Assert.AreEqual(ServerJobRole.Orchestration, container.Display.Role, ctx.Name);
             children = await ReadMetadataAsync("generated albums", () => ctx.Backend.GetJobsAsync(
                 new JobQuery(null, null, ServerJobKind.Album, null, ParentJobId: submitted.JobId, IncludeAll: true), ctx.Token));
             Assert.AreEqual(2, children.Count, ctx.Name);
             foreach (var child in children)
             {
-                Assert.AreEqual(ServerJobKind.Album, child.Kind, ctx.Name);
-                Assert.AreEqual(submitted.JobId, child.ParentJobId, ctx.Name);
-                Assert.AreEqual(submitted.WorkflowId, child.WorkflowId, ctx.Name);
-                Assert.AreEqual(submitted.SubmissionId, child.SubmissionId, ctx.Name);
-                Assert.AreEqual(ServerJobRole.ExecutionChild, child.Role, ctx.Name);
+                Assert.AreEqual(ServerJobKind.Album, child.Display.Kind, ctx.Name);
+                Assert.AreEqual(submitted.JobId, child.Relationships.ParentJobId, ctx.Name);
+                Assert.AreEqual(submitted.Display.WorkflowId, child.Display.WorkflowId, ctx.Name);
+                Assert.AreEqual(submitted.Display.SubmissionId, child.Display.SubmissionId, ctx.Name);
+                Assert.AreEqual(ServerJobRole.ExecutionChild, child.Display.Role, ctx.Name);
                 var album = await ReadMetadataAsync("album detail",
                     () => ctx.Backend.GetJobDetailAsync(child.JobId, ctx.Token));
                 Assert.IsNotNull(album, ctx.Name);
@@ -1687,7 +1687,7 @@ public class CliBackendParityTests
         {
             using var output = new StringWriter();
             if (engine == null)
-                await Sockseek.Cli.Program.PrintRemoteRequestedOutputAsync(Backend, submitted.WorkflowId, settings, Token, output);
+                await Sockseek.Cli.Program.PrintRemoteRequestedOutputAsync(Backend, submitted.Display.WorkflowId, settings, Token, output);
             else
             {
                 var root = engine.GetJob(submitted.JobId)
@@ -1832,7 +1832,7 @@ public class CliBackendParityTests
             items => items.Any(predicate),
             "Timed out waiting for matching workflow job.",
             items => string.Join(", ", items.Select(job =>
-                $"[{job.DisplayId}] {job.Kind}:{ProjectState(job)}")),
+                $"[{job.Display.DisplayId}] {job.Display.Kind}:{ProjectState(job)}")),
             timeoutMs);
         return jobs.First(predicate);
     }
@@ -1849,7 +1849,7 @@ public class CliBackendParityTests
             timeoutMs);
 
     private static ExpectedJobStatus ProjectState(JobSummaryDto summary)
-        => ProjectState(summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason);
+        => ProjectState(summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason);
 
     private static ExpectedJobStatus ProjectState(
         ServerJobLifecycleState lifecycle,

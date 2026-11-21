@@ -517,9 +517,8 @@ test('excludes an unloaded subfolder and restores a deeper branch with a file ex
   await page.goto('/downloads');
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
   await expect(page.locator('.folder-file-row')).toHaveCount(3);
-  for (const path of ['Selected.txt', 'Unselected.txt', 'Nested/Deep/DeepTwo.txt']) {
-    await expect(page.locator('.folder-file-row').filter({ has: page.getByText(path, { exact: true }) })).toBeVisible();
-  }
+  await expect(page.locator('.folder-subfolder-path')).toHaveText(['Nested', 'Deep']);
+  await expect(page.locator('.folder-file-path')).toHaveText(['Selected.txt', 'Unselected.txt', 'DeepTwo.txt']);
   await expect(page.locator('.folder-file-row').filter({ hasText: 'Nested.txt' })).toHaveCount(0);
   await expect(page.locator('.folder-file-row').filter({ hasText: 'DeepOne.txt' })).toHaveCount(0);
 });

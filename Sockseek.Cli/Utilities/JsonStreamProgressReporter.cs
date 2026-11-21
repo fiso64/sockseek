@@ -66,11 +66,11 @@ public class JsonStreamProgressReporter
             if (update.Status != DaemonClientApplyStatus.Applied)
                 return;
 
-            foreach (var job in update.ChangedJobs.Where(job => job.Kind == ServerJobKind.Song))
+            foreach (var job in update.ChangedJobs.Where(job => job.Display.Kind == ServerJobKind.Song))
             {
-                if (EnteredSearch(job.JobId, job.ActivityPhase == ServerJobActivityPhase.Searching))
+                if (EnteredSearch(job.JobId, job.Lifecycle.ActivityPhase == ServerJobActivityPhase.Searching))
                     ReportSearchStart(job);
-                if (job.LifecycleState == ServerJobLifecycleState.Terminal)
+                if (job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
                     ReportStateChanged(job);
             }
 
@@ -112,7 +112,7 @@ public class JsonStreamProgressReporter
         WriteEvent("search_start", new
         {
             jobId = song.JobId,
-            query = song.QueryText ?? song.ItemName,
+            query = song.Display.QueryText ?? song.Display.ItemName,
         });
     }
 
@@ -121,7 +121,7 @@ public class JsonStreamProgressReporter
         WriteEvent("download_start", new
         {
             jobId = transfer.Identity.JobId,
-            query = song?.QueryText ?? song?.ItemName,
+            query = song?.Display.QueryText ?? song?.Display.ItemName,
             username = transfer.Identity.Username,
             filename = transfer.Identity.RemotePath,
             size = transfer.Progress.TotalBytes,
@@ -154,14 +154,14 @@ public class JsonStreamProgressReporter
         WriteEvent("track_state", new
         {
             jobId = song.JobId,
-            query = song.QueryText ?? song.ItemName,
-            lifecycleState = song.LifecycleState,
-            activityPhase = song.ActivityPhase,
-            terminalOutcome = song.TerminalOutcome,
-            skipReason = song.SkipReason,
-            failureReason = song.FailureReason,
-            rawResultCount = song.DiscoveryRawResultCount,
-            lockedCount = song.DiscoveryLockedFileCount,
+            query = song.Display.QueryText ?? song.Display.ItemName,
+            lifecycleState = song.Lifecycle.LifecycleState,
+            activityPhase = song.Lifecycle.ActivityPhase,
+            terminalOutcome = song.Lifecycle.TerminalOutcome,
+            skipReason = song.Lifecycle.SkipReason,
+            failureReason = song.Lifecycle.FailureReason,
+            rawResultCount = song.Discovery.RawResultCount,
+            lockedCount = song.Discovery.LockedFileCount,
         });
     }
 

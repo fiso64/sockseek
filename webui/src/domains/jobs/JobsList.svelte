@@ -9,8 +9,7 @@
   import { daemonApi } from '../../api/client';
   import type { DaemonLiveClient } from '../../api/live';
   import { updatedJob } from '../../api/state.svelte';
-  import { jobStateSummary } from '../../api/job-summary';
-  import LoadMoreButton from '../../components/LoadMoreButton.svelte';
+    import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import { presentedJobs, sortPresentedJobsNewestFirst, type PresentedJob } from './presentation';
   import { readJobSummaries, jobSummaryRetryIds, type JobSummaryRead } from './detail-reads';
 
@@ -35,11 +34,10 @@
     ondelete: (job: JobSummaryDto) => void;
     deletingSubmissions?: ReadonlySet<string>;
     onloadmore?: () => void;
-    hasDraft: boolean;
     onnew: () => void;
   }
 
-  let { jobs, tab, submissionId, onclearfilter, ontabchange, position, refreshRevision = 0, connected, observeJobs, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, ondelete, deletingSubmissions = new Set<string>(), onloadmore, hasDraft, onnew }: Props = $props();
+  let { jobs, tab, submissionId, onclearfilter, ontabchange, position, refreshRevision = 0, connected, observeJobs, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, ondelete, deletingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
   let section: HTMLElement;
   onMount(() => {
     const scroller = section.closest('main')!;
@@ -66,7 +64,7 @@
     for (const entry of ordered) {
       const id = entry.missingResultId ?? entry.job.jobId!;
       const cached = reads.get(id)?.summary;
-      if (entry.missingResultId || !connected && cached && cached.lifecycleState !== 'Terminal'
+      if (entry.missingResultId || !connected && cached && cached.lifecycle.lifecycleState !== 'Terminal'
         && !provided.has(id)) wanted.set(id, `linked-result:${refreshRevision}`);
     }
     return [...wanted].filter(([id, version]) => readVersions.get(id) !== version);
@@ -76,20 +74,20 @@
   // only the active linked summaries being displayed; the server handles their
   // live/history handoff just as it does for an open job detail.
   const activeResultIds = $derived(ordered.filter(entry => !entry.missingResultId
-    && entry.job.jobId !== entry.root.jobId && entry.job.lifecycleState !== 'Terminal')
+    && entry.job.jobId !== entry.root.jobId && entry.job.lifecycle.lifecycleState !== 'Terminal')
     .map(entry => entry.job.jobId!).sort().join(','));
   $effect(() => {
     const ids = activeResultIds ? activeResultIds.split(',') : [];
     if (!connected || !ids.length) return;
     return untrack(() => {
-      const rows = new Map<string, Schema<'JobStateDto'>>();
+      const rows = new Map<string, Schema<'JobSummaryDto'>>();
       return observeJobs(ids[0]!, ids, update => {
         const next = new Map(reads);
         for (const delta of update.state.jobs) {
           const row = updatedJob(rows.get(delta.jobId), delta);
           if (!row) continue;
           rows.set(row.jobId, row);
-          next.set(row.jobId, { summary: jobStateSummary(row), error: null });
+          next.set(row.jobId, { summary: row, error: null });
         }
         reads = next;
       }, cause => {
@@ -143,7 +141,7 @@
           items={[{ id: 'searches', label: 'Searches' }, { id: 'downloads', label: 'Download jobs' }]} />
       </div>
     </div>
-    <button type="button" data-testid="new-job" class="button new-job-button" onclick={onnew}>{#if hasDraft}Resume draft{:else}<span>+</span> New job{/if}</button>
+    <button type="button" data-testid="new-job" class="button new-job-button" onclick={onnew}><span>+</span> New job</button>
   </header>
 
   {#if submissionId}<div class="jobs-filter">Showing one download request <button type="button" onclick={onclearfilter}>Show all download jobs</button></div>{/if}
@@ -165,7 +163,7 @@
         {@const entryError = presentationError(entry)}
         <JobRow {job} root={entry.root}
           resultState={entryError ? 'unavailable' : entry.missingResultId ? 'loading' : undefined}
-          deleting={deletingSubmissions.has(job.submissionId!)}
+          deleting={deletingSubmissions.has(job.display.submissionId!)}
           {onopen} {oncancel} {ondelete} />
         {#if entryError}<div class="resource-state-notice unavailable" role="alert"><span>Import unavailable: {entryError.message}</span><button class="button" type="button" onclick={() => retry(entry)}>Retry</button></div>{/if}
       {/each}

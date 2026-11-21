@@ -56,6 +56,8 @@
       </span>
     </label>
   {/if}
+{:else if draft.choice === 'string'}
+  <label class="new-job-source-field"><span>Input</span><input class="field" value={draft.source} oninput={(event) => setField('source', event)} /></label>
 {:else}
   {#if draft.choice === 'spotify'}
     <div class="new-job-source-mode">

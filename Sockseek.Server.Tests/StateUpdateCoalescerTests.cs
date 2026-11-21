@@ -115,16 +115,11 @@ public class StateUpdateCoalescerTests
         var jobId = Guid.NewGuid();
         var transferId = Guid.NewGuid();
         var transfer = Transfer(transferId, jobId, workflowId, 1, 10, terminal: false);
-        var job = new JobSummaryDto
-        {
-            JobId = jobId, WorkflowId = workflowId, Kind = ServerJobKind.Song,
-            LifecycleState = ServerJobLifecycleState.Pending,
-        };
+        var job = TestJobSummary.Create(ServerJobKind.Song, jobId, workflowId);
         var running = job with
         {
-            LifecycleState = ServerJobLifecycleState.Running,
-            ActivityPhase = ServerJobActivityPhase.Searching,
-            DiscoveryRawResultCount = 5,
+            Lifecycle = job.Lifecycle with { LifecycleState = ServerJobLifecycleState.Running, ActivityPhase = ServerJobActivityPhase.Searching },
+            Discovery = job.Discovery with { RawResultCount = 5 },
         };
 
         CaptureUpdate(coalescer, Batch(
@@ -175,13 +170,16 @@ public class StateUpdateCoalescerTests
         CaptureUpdate(coalescer, Batch(epoch, 2, 3, workflowId, StateDelta.Empty with
         {
             Jobs = [new(new JobReadState(running with
-                { ActivityPhase = ServerJobActivityPhase.Downloading, DiscoveryRawResultCount = 7 }, 3, false),
+                {
+                    Lifecycle = running.Lifecycle with { ActivityPhase = ServerJobActivityPhase.Downloading },
+                    Discovery = running.Discovery with { RawResultCount = 7 },
+                }, 3, false),
                 Added: false, Fields: JobFields.Lifecycle | JobFields.Discovery)],
             Transfers = [Change(transferId, 3, TransferFields.Progress, bytes: 90)],
         }));
         CaptureUpdate(coalescer, Batch(epoch, 3, 4, workflowId, StateDelta.Empty with
         {
-            Jobs = [new(new JobReadState(running with { DiscoveryRawResultCount = 7 }, 4, false),
+            Jobs = [new(new JobReadState(running with { Discovery = running.Discovery with { RawResultCount = 7 } }, 4, false),
                 Added: false, Fields: JobFields.Lifecycle)],
         }));
         coalescer.Flush();
@@ -286,12 +284,8 @@ public class StateUpdateCoalescerTests
         var coalescer = new StateUpdateCoalescer(batches => published.AddRange(batches.Select(batch => batch.ToDto())));
         var epoch = Guid.NewGuid();
         var workflowId = Guid.NewGuid();
-        var parent = new JobSummaryDto
-        {
-            JobId = Guid.NewGuid(), WorkflowId = workflowId, Kind = ServerJobKind.JobList,
-            LifecycleState = ServerJobLifecycleState.Running,
-            Stats = new JobSummaryStatsDto(MemberCount: children, CompletedMemberCount: 0),
-        };
+        var parent = TestJobSummary.Create(ServerJobKind.JobList, Guid.NewGuid(), workflowId, state: ServerJobLifecycleState.Running)
+            with { Stats = new(MemberCount: children, CompletedMemberCount: 0) };
         CaptureUpdate(coalescer, Batch(epoch, 0, 1, workflowId, StateDelta.Empty with
         {
             Jobs = [new(new JobReadState(parent, 1, false), Added: parentAdded, Fields: JobFields.Stats)],
@@ -299,11 +293,8 @@ public class StateUpdateCoalescerTests
         for (int index = 1; index <= children; index++)
         {
             var transferId = Guid.NewGuid();
-            var child = new JobSummaryDto
-            {
-                JobId = Guid.NewGuid(), WorkflowId = workflowId, Kind = ServerJobKind.Song,
-                LifecycleState = ServerJobLifecycleState.Terminal, TerminalOutcome = ServerJobTerminalOutcome.Cancelled,
-            };
+            var child = TestJobSummary.Create(ServerJobKind.Song, Guid.NewGuid(), workflowId,
+                state: ServerJobLifecycleState.Terminal, outcome: ServerJobTerminalOutcome.Cancelled);
             CaptureUpdate(coalescer, Batch(epoch, index, index + 1, workflowId, StateDelta.Empty with
             {
                 Jobs = [new(new JobReadState(child, 1, false), Added: false, Fields: JobFields.Lifecycle),

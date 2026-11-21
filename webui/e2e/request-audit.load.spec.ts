@@ -328,7 +328,7 @@ test('pages 2 named tracks and 1001 supplemental images without child-detail req
       expect(url.searchParams.get('limit')).toBe('500');
       expect(value.items.length).toBeLessThanOrEqual(500);
       if (verifyFinalPaths) for (const entry of value.items) {
-        expect(entry.child?.terminalOutcome).toBe('Succeeded');
+        expect(entry.child?.lifecycle.terminalOutcome).toBe('Succeeded');
         const filename = entry.target!.filename.replaceAll('\\', '/').split('/').at(-1)!;
         const expectedPath = join(destination, 'Organized', 'Fixture Album', filename);
         expect(entry.file?.downloadPath).toBe(expectedPath);
@@ -493,7 +493,7 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
         && item.target?.filename === entries[index]!.target.filename
         && item.relativeDirectoryComponents?.[0] === entries[index]!.relativeDirectoryComponents[0])).toBe(true);
       return { milliseconds, rows: body.items.length,
-        succeeded: body.items.filter(item => item.child?.terminalOutcome === 'Succeeded').length };
+        succeeded: body.items.filter(item => item.child?.lifecycle.terminalOutcome === 'Succeeded').length };
     })(),
   ]);
   await expect(folder.locator('.transfer-state').first()).toHaveText('Complete');
@@ -515,7 +515,7 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
       expect(tail.items).toHaveLength(500);
       expect(Number(tail.entryCount)).toBe(count);
       expect(tail.nextOrdinal ?? null).toBeNull();
-      expect(tail.items.every(item => item.child?.terminalOutcome === 'Succeeded')).toBe(true);
+      expect(tail.items.every(item => item.child?.lifecycle.terminalOutcome === 'Succeeded')).toBe(true);
     }
   }
 
@@ -528,7 +528,7 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
   expect(timeline.nextCursor).toBeTruthy();
   expect(new Set(timeline.items.map(item => item.transferId)).size).toBe(500);
   const targets = new Set(entries.map(entry => entry.target.filename));
-  expect(timeline.items.every(item => item.identity.workflowId === root.workflowId && item.status.terminalOutcome === 'Succeeded'
+  expect(timeline.items.every(item => item.identity.workflowId === root.display.workflowId && item.status.terminalOutcome === 'Succeeded'
     && item.progress.bytesTransferred === 128 && item.status.attemptCount === 1 && targets.has(item.identity.remotePath!))).toBe(true);
   for (const transfer of [timeline.items[0]!, timeline.items.at(-1)!]) {
 
@@ -542,7 +542,7 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
       sourceUsername: 'fixture-peer', sourcePath: transfer.identity.remotePath, state: 'Completed', failureReason: 'None' });
     expect(attempts[0]!.completedAtUtc).toBeTruthy();
   }
-  expect(completed.summary.terminalOutcome).toBe('Succeeded');
+  expect(completed.summary.lifecycle.terminalOutcome).toBe('Succeeded');
   expect(completed.payload?.kind).toBe('remote-directory');
   if (completed.payload?.kind !== 'remote-directory') throw new Error('Expected a completed directory.');
   expect(Number(completed.payload.directory.successfulFileCount)).toBe(count);
@@ -562,7 +562,8 @@ test('opens a 1k-file directory and verifies paged downloads and retained outcom
   await page.goto('/downloads');
   const downloadsFolder = page.locator('.folder-item-card').filter({ has: page.getByRole('button', { name: 'Remove Large directory', exact: true }) });
   await expect(downloadsFolder.locator('.folder-file-row')).toHaveCount(500);
-  await expect(downloadsFolder.locator('.folder-file-path').first()).toHaveText(/^\s*Part\d{2}\/File\d{5}\.bin\s*$/);
+  await expect(downloadsFolder.locator('.folder-subfolder-path').first()).toHaveText(/^Part\d{2}$/);
+  await expect(downloadsFolder.locator('.folder-file-path').first()).toHaveText(/^\s*File\d{5}\.bin\s*$/);
   expect(reads.filter(read => /^\/api\/jobs\/[^/?]+$/.test(read.path)
     && ![root.jobId, directoryId].some(id => read.path === `/api/jobs/${id}`)), 'File pages carry their state.').toEqual([]);
   console.log('PERF_DIRECTORY_HISTORY ' + JSON.stringify({ count, acceptedMs, readyToDownloadMs, rootNavigationMs,

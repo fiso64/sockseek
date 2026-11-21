@@ -53,34 +53,34 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
 
     private async Task<JobDetailDto> WithSourceAvailabilityAsync(JobDetailDto detail, CancellationToken cancellationToken, Job? owner)
         => await WithRepeatOptionsAsync(detail with {
-            SourceJobAvailable = await IsSourceJobAvailableAsync(detail.Summary.SourceJobId, cancellationToken, owner).ConfigureAwait(false)
+            SourceJobAvailable = await IsSourceJobAvailableAsync(detail.Summary.Relationships.SourceJobId, cancellationToken, owner).ConfigureAwait(false)
         }, cancellationToken);
 
     private async Task<JobDetailDto> WithRepeatOptionsAsync(JobDetailDto detail, CancellationToken ct)
     {
         var job = detail.Summary;
-        if (job.LifecycleState != ServerJobLifecycleState.Terminal || job.SubmissionId is not Guid submission ||
+        if (job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal || job.Display.SubmissionId is not Guid submission ||
             persistence.JobHistory == null || persistence.Submissions == null) return detail;
         bool canRun = false;
-        if (job.Kind is not (ServerJobKind.RemoteFile or ServerJobKind.RemoteDirectory))
+        if (job.Display.Kind is not (ServerJobKind.RemoteFile or ServerJobKind.RemoteDirectory))
         {
             var json = await persistence.Submissions.GetSpecificationJsonAsync(submission, ct);
             canRun = json != null && SubmissionSpecificationCodec.Deserialize(json).CanRunAgain(job.JobId);
         }
         int missing = 0;
         Guid? file = null;
-        if (!canRun && job.TerminalOutcome is not ServerJobTerminalOutcome.Succeeded
-            && job.Kind is ServerJobKind.RemoteDirectory or ServerJobKind.Album or ServerJobKind.RemoteFile or ServerJobKind.Song)
+        if (!canRun && job.Lifecycle.TerminalOutcome is not ServerJobTerminalOutcome.Succeeded
+            && job.Display.Kind is ServerJobKind.RemoteDirectory or ServerJobKind.Album or ServerJobKind.RemoteFile or ServerJobKind.Song)
         {
             try { await persistence.WaitForRetryHistoryAsync(live, job.JobId, ct); }
             catch (PersistenceHandoffException) { return detail; } // Live details survive loss of retry history.
-            if (job.Kind is ServerJobKind.RemoteDirectory or ServerJobKind.Album)
+            if (job.Display.Kind is ServerJobKind.RemoteDirectory or ServerJobKind.Album)
             {
                 var key = new DirectoryRetryKey(job.JobId);
                 var status = await persistence.JobHistory.GetDirectoryRetryStatusAsync([key], ct);
                 missing = status.GetValueOrDefault(key)?.MissingFiles ?? 0;
             }
-            else if (job.Kind is ServerJobKind.RemoteFile or ServerJobKind.Song && persistence.TransferHistory != null)
+            else if (job.Display.Kind is ServerJobKind.RemoteFile or ServerJobKind.Song && persistence.TransferHistory != null)
             {
                 var page = await persistence.TransferHistory.GetTransfersAsync(new(Limit: 1, JobId: job.JobId, Direction: "Download"), ct);
                 if (page.Items.FirstOrDefault() is { CanRetry: true } candidate) file = candidate.Id;
@@ -98,8 +98,8 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         var candidates = await submissions.GetCompletedIdsAsync(category == CompletedJobCategory.Searches, cancellationToken).ConfigureAwait(false);
         var active = live.GetJobs(new JobQuery(null, null, null, null, IncludeAll: true))
-            .Where(job => job.LifecycleState != ServerJobLifecycleState.Terminal)
-            .Select(job => job.SubmissionId).OfType<Guid>().ToHashSet();
+            .Where(job => job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal)
+            .Select(job => job.Display.SubmissionId).OfType<Guid>().ToHashSet();
         active.UnionWith(supervisor.GetPendingSubmissionIds());
         var eligible = candidates.Where(id => !active.Contains(id)).ToArray();
         foreach (Guid id in eligible)
@@ -129,7 +129,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         var liveJobs = live.GetJobs(new JobQuery(
             null, null, null, null, IncludeAll: true, SubmissionId: submissionId));
         if (supervisor.GetPendingSubmissionIds().Contains(submissionId)
-            || liveJobs.Any(job => job.LifecycleState != ServerJobLifecycleState.Terminal))
+            || liveJobs.Any(job => job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal))
             return new(submissionId, 0, 0, 1, [new("nonterminal-jobs", 1)]);
 
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -159,7 +159,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         if (persistence.Submissions == null)
             throw new NotSupportedException("Submission history is unavailable because persistence is disabled or not started.");
         var liveJobs = live.GetJobs(new JobQuery(null, null, null, null, IncludeAll: true))
-            .ToLookup(job => job.SubmissionId);
+            .ToLookup(job => job.Display.SubmissionId);
         persistence.EnsureJobProjectionsAvailable();
         var page = await persistence.Submissions.GetSubmissionsAsync(
             new SubmissionHistoryQuery(cursor, limit),
@@ -203,9 +203,9 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         return summary with
         {
             TotalJobCount = jobs.Count,
-            UserRootJobCount = jobs.Count(job => job.Role == ServerJobRole.UserRoot),
-            ActiveJobCount = jobs.Count(job => job.LifecycleState != ServerJobLifecycleState.Terminal),
-            FailedJobCount = jobs.Count(job => job.TerminalOutcome == ServerJobTerminalOutcome.Failed),
+            UserRootJobCount = jobs.Count(job => job.Display.Role == ServerJobRole.UserRoot),
+            ActiveJobCount = jobs.Count(job => job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal),
+            FailedJobCount = jobs.Count(job => job.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Failed),
         };
     }
 
@@ -298,7 +298,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
             bool more = capture.Items.Count > limit;
             var items = capture.Items.Take(limit).ToArray();
             return new(items, more && items.Length > 0
-                ? JobHistoryReader.EncodeCursor(items[^1].DisplayId, items[^1].JobId, query.NewestFirst) : null,
+                ? JobHistoryReader.EncodeCursor(items[^1].Display.DisplayId, items[^1].JobId, query.NewestFirst) : null,
                 capture.Position, capture.ReadSequence);
         }
         persistence.EnsureJobProjectionsAvailable(query.WorkflowId);
@@ -312,13 +312,13 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         // different authorities for detail, status filtering and list paging.
         var merged = persisted.Items.Select(HistoricalJobDtoMapper.ToSummary).Concat(capture.Items);
         var ordered = (query.NewestFirst
-                ? merged.OrderByDescending(row => row.DisplayId).ThenByDescending(row => row.JobId)
-                : merged.OrderBy(row => row.DisplayId).ThenBy(row => row.JobId))
+                ? merged.OrderByDescending(row => row.Display.DisplayId).ThenByDescending(row => row.JobId)
+                : merged.OrderBy(row => row.Display.DisplayId).ThenBy(row => row.JobId))
             .Take(limit == int.MaxValue ? limit : limit + 1).ToArray();
         bool hasMore = ordered.Length > limit || persisted.NextCursor is not null || capture.Items.Count > limit;
         var pageItems = ordered.Take(limit).ToArray();
         return new(pageItems, hasMore && pageItems.Length > 0
-            ? JobHistoryReader.EncodeCursor(pageItems[^1].DisplayId, pageItems[^1].JobId, query.NewestFirst) : null,
+            ? JobHistoryReader.EncodeCursor(pageItems[^1].Display.DisplayId, pageItems[^1].JobId, query.NewestFirst) : null,
             capture.Position, capture.ReadSequence);
     }
 
@@ -335,6 +335,13 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
             foreach (var job in await history.GetJobsByIdsAsync(missing, cancellationToken).ConfigureAwait(false))
                 found[job.Id] = HistoricalJobDtoMapper.ToSummary(job);
         return ids.Where(found.ContainsKey).Select(id => found[id]).ToArray();
+    }
+
+    public async Task<string?> GetFailureDetailAsync(Guid jobId, CancellationToken ct)
+    {
+        if (live.TryGetJobFailureDetail(jobId, out var detail)) return detail;
+        await persistence.WaitForJobHandoffAsync(jobId, ct, includeSearchResults: false);
+        return persistence.JobHistory is { } history ? await history.GetFailureDetailAsync(jobId, ct) : null;
     }
 
     public async Task<JobDetailDto?> GetJobAsync(Guid jobId, CancellationToken cancellationToken = default)

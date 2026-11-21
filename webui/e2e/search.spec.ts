@@ -119,13 +119,13 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
     await page.goBack();
     await expect(sourceRow).toBeVisible();
     const source = await (await page.request.get(`/api/jobs/${view.sourceJobId}`)).json() as Schema<'JobDetailDto'>;
-    if (source.summary.lifecycleState !== 'Terminal') await daemon.command(`wait-job-complete:${view.sourceJobId}`);
-    expect(source.summary.submissionId).toBeTruthy();
+    if (source.summary.lifecycle.lifecycleState !== 'Terminal') await daemon.command(`wait-job-complete:${view.sourceJobId}`);
+    expect(source.summary.display.submissionId).toBeTruthy();
     const reads: string[] = [];
     page.on('request', request => {
       if (request.method() === 'GET' && new URL(request.url()).pathname === `/api/jobs/${view.sourceJobId}`) reads.push(request.url());
     });
-    const deleteUrl = `/api/submissions/${source.summary.submissionId}`;
+    const deleteUrl = `/api/submissions/${source.summary.display.submissionId}`;
     const deletion = await page.request.delete(deleteUrl);
     expect((await deletion.json()).rejectedSubmissionCount).toBe(0);
     await expect(sourceRow).toHaveCount(0);
@@ -156,13 +156,13 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
       const jobsResponse = await page.request.get(`/api/jobs?submissionId=${receipt.submissionId}&includeAll=true&limit=100`);
       expect(jobsResponse.ok()).toBe(true);
       const jobs = await jobsResponse.json() as Schema<'JobSummaryDto'>[];
-      const directory = jobs.find(job => job.kind === 'remote-directory')!;
-      expect(directory.itemName).toBe('Selected files');
+      const directory = jobs.find(job => job.display.kind === 'remote-directory')!;
+      expect(directory.display.itemName).toBe('Selected files');
       await page.goto(`/jobs/${directory.jobId}`);
-      await expect(page.locator('.folder-transfer-path')).toHaveText('(peer root)');
+      await expect(page.locator('.folder-transfer-path')).toHaveText('Selected files');
       await expect(page.locator('.folder-file-row')).toHaveCount(1);
       await page.reload();
-      await expect(page.locator('.folder-transfer-path')).toHaveText('(peer root)');
+      await expect(page.locator('.folder-transfer-path')).toHaveText('Selected files');
 
   });
 
@@ -801,7 +801,7 @@ test('keeps a grouped track choice and all-except plan through live group reorde
   const jobsResponse = await page.request.get(
     `/api/jobs?submissionId=${receipt.submissionId}&includeAll=true&limit=100`);
   expect(jobsResponse.ok(), await jobsResponse.text()).toBe(true);
-  const songs = (await jobsResponse.json() as Schema<'JobSummaryDto'>[]).filter(job => job.kind === 'song');
+  const songs = (await jobsResponse.json() as Schema<'JobSummaryDto'>[]).filter(job => job.display.kind === 'song');
   expect(songs).toHaveLength(2);
   for (const song of songs) {
     const detailResponse = await page.request.get(`/api/jobs/${song.jobId}`);
@@ -1024,7 +1024,7 @@ test('preserves an independent global draft when opening a retained search', asy
   const response = await accepted;
   expect(response.request().postDataJSON().albumQuery).toMatchObject({ artist: 'Fixture', album: null, searchHint: null });
   const job = await response.json() as Schema<'JobSummaryDto'>;
-  const title = job.itemName ?? job.queryText!;
+  const title = job.display.itemName ?? job.display.queryText!;
   expect(title).toBe('Fixture');
   await expect(page.locator('.search-results-title h1')).toHaveText(title);
   await expect(page.locator('.group-results-list > .group-result-group')).not.toHaveCount(0);
@@ -1442,7 +1442,7 @@ test('searches again from one conditioned child, including after a whole-submiss
     ],
   } });
   expect(response.status(), await response.text()).toBe(202);
-  const original = await response.json() as { jobId: string; submissionId: string };
+  const original = await response.json() as Schema<'JobSummaryDto'>;
   let root = original;
   const replayRequests: string[] = [];
   page.on('request', (request) => {
@@ -1453,11 +1453,11 @@ test('searches again from one conditioned child, including after a whole-submiss
   });
   for (const fromRerun of [false, true]) {
     if (fromRerun) {
-      const rerun = await page.request.post(`/api/submissions/${original.submissionId}/rerun`);
+      const rerun = await page.request.post(`/api/submissions/${original.display.submissionId}/rerun`);
       expect(rerun.status(), await rerun.text()).toBe(202);
       root = await rerun.json() as typeof original;
       expect(root.jobId).not.toBe(original.jobId);
-      expect(root.submissionId).not.toBe(original.submissionId);
+      expect(root.display.submissionId).not.toBe(original.display.submissionId);
     }
     await page.goto(`/jobs/${root.jobId}`);
     await expect(page.locator('[data-testid="job-row"]')).toHaveCount(2);
@@ -1485,11 +1485,11 @@ test('searches again from one conditioned child, including after a whole-submiss
     const replayedJobId = new URL(page.url()).pathname.split('/').at(-1)!;
     const replayedDetail = await page.request.get(`/api/jobs/${replayedJobId}`);
     expect(replayedDetail.ok()).toBeTruthy();
-    const replayed = await replayedDetail.json() as { summary: { submissionId: string } };
-    expect(replayed.summary.submissionId).toBeTruthy();
-    expect(replayed.summary.submissionId).not.toBe(root.submissionId);
+    const replayed = await replayedDetail.json() as Schema<'JobDetailDto'>;
+    expect(replayed.summary.display.submissionId).toBeTruthy();
+    expect(replayed.summary.display.submissionId).not.toBe(root.display.submissionId);
     const replayedJobs = await page.request.get(
-      `/api/jobs?submissionId=${replayed.summary.submissionId}&includeAll=true`);
+      `/api/jobs?submissionId=${replayed.summary.display.submissionId}&includeAll=true`);
     if (!replayedJobs.ok()) throw new Error(`Replayed jobs query ${replayedJobs.status()}: ${await replayedJobs.text()}`);
     expect((await replayedJobs.json() as unknown[])).toHaveLength(1);
   }
@@ -1732,7 +1732,7 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
   await expect(page.locator('.folder-file-row')).toHaveCount(5);
   const subfolders = page.locator('.folder-subfolder-row');
   await expect(subfolders).toHaveCount(2);
-  await expect(subfolders.locator('.folder-subfolder-path strong')).toHaveText(['Nested', 'Deep']);
+  await expect(subfolders.locator('.folder-subfolder-path')).toHaveText(['Nested', 'Deep']);
   await expect(subfolders.locator('.folder-subfolder-count')).toHaveText(['3 files', '2 files']);
 
     const workspace = await page.locator('.workspace').boundingBox();
@@ -1743,8 +1743,8 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
     expect(card).not.toBeNull();
     expect(content!.x + content!.width).toBeLessThanOrEqual(workspace!.x + workspace!.width + 1);
     expect(card!.x + card!.width).toBeLessThanOrEqual(390);
-    const parent = await subfolders.nth(0).locator('.folder-subfolder-path strong').boundingBox();
-    const child = await subfolders.nth(1).locator('.folder-subfolder-path strong').boundingBox();
+    const parent = await subfolders.nth(0).locator('.folder-subfolder-path').boundingBox();
+    const child = await subfolders.nth(1).locator('.folder-subfolder-path').boundingBox();
     expect(parent).not.toBeNull();
     expect(child).not.toBeNull();
     expect(child!.x).toBeGreaterThan(parent!.x + 10);

@@ -122,7 +122,7 @@ QA found a download marked **Completed** while its only file still had a `.incom
 
 The checkboxes in **New job** belong to a draft until the listener presses **Start**. If you left Review to look up one recording in Shares and lost the draft, Jobs had no submitted job to reopen. You had to review the playlist and pick the songs again.
 
-**Decision.** Keep the draft and its checked songs when the listener returns in the same tab. Reloading or signing out clears the draft.
+**Decision.** Closing **New job** discards the unsubmitted job and its selections. Reopening it starts fresh. To check Shares without losing your selections, leave the modal open and browse in another tab.
 
 ### D20 · Should an open tab switch theme or search mode as soon as the operator changes the default?
 

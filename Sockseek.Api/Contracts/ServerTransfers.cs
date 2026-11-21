@@ -176,6 +176,7 @@ public sealed record TransferAttemptHistoryDto(
     string? OutputPath,
     DateTimeOffset StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
-    string FailureReason,
+    TransferFailureReason FailureReason,
     string? FailureMessage,
-    long Revision);
+    long Revision,
+    TransferCancellationSource CancellationSource);

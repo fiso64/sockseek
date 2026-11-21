@@ -20,11 +20,11 @@
   import { daemonApi } from '../../api/client';
   import { PreviewController, previewNeedsReview, type PreviewState } from './preview-controller';
   import { projectPreviewSelection, toggleSubtree, type SubtreeRule } from './preview-selection';
-  import { buildJobPreviewRequest, buildJobSettingsRequest, createNewJobDraft, newJobDraftFromSearch, type NewJobChoice, type NewJobDraft } from './submission';
+  import { applyProfileInput, profileInputDefaults, buildJobPreviewRequest, buildJobSettingsRequest, createNewJobDraft, newJobDraftFromSearch, type NewJobChoice, type NewJobDraft } from './submission';
   import { jobKindIcon, jobKindLabel } from './kind';
   import { basename } from '../presentation/items';
 
-  let { open, connected, initialSearch = null, onclose, onstarted, oncommittingchange }: { open: boolean; connected: boolean; onclose: (keep: boolean) => void; initialSearch?: SearchDraft | null; onstarted: (rootJobId: string) => void; oncommittingchange: (committing: boolean) => void } = $props();
+  let { connected, initialSearch = null, onclose, onstarted, oncommittingchange }: { connected: boolean; onclose: () => void; initialSearch?: SearchDraft | null; onstarted: (rootJobId: string) => void; oncommittingchange: (committing: boolean) => void } = $props();
   const initial = untrack(() => initialSearch);
   let draft = $state(initial ? newJobDraftFromSearch(initial) : createNewJobDraft());
   const initialChoice = untrack(() => draft.choice);
@@ -54,7 +54,6 @@
   let settingsLoading = $state(false);
   let settingsReady: Promise<void> = Promise.resolve();
   let preparing = $state(false);
-  let closeCount = 0;
   let stopped = false;
   let settingsError = $state<Error | null>(null);
   let settingsRetry = $state(0);
@@ -96,11 +95,11 @@
   let selectedCount = $derived(selection.total);
   let committable = $derived(connected && !needsReview && (preview.summary?.state === 'Ready' || preview.summary?.state === 'PartiallyReady'));
   $effect(() => {
-    if (open && connected) untrack(() => void controller.recheckReady());
+    if (connected) untrack(() => void controller.recheckReady());
   });
   const expiry = $derived(committable ? preview.summary?.expiresAtUtc : null);
   $effect(() => {
-    if (!open || !expiry) return;
+    if (!expiry) return;
     const delay = Date.parse(expiry) - Date.now();
     if (delay > 0) {
       const timer = setTimeout(() => void controller.recheckReady(), delay);
@@ -195,7 +194,7 @@
       if (state.summary && state.summary.previewId !== preview.summary?.previewId) optionsTab = 'review';
       else if (!state.summary && optionsTab === 'review') optionsTab = 'download';
       preview = state;
-      if (open && automaticStart && (state.summary?.state === 'Ready' || state.summary?.state === 'PartiallyReady')) {
+      if (automaticStart && (state.summary?.state === 'Ready' || state.summary?.state === 'PartiallyReady')) {
         automaticStart = false;
         void controller.commit({ mode: 'AllExcept', refs: [] });
       }
@@ -212,6 +211,39 @@
       next = { ...next, artifactId: null };
     }
     draft = next;
+  }
+
+  let beforeProfile: { draft: NewJobDraft; fileName: string } | null = null;
+  function selectProfiles(names: string[], catalog: Schema<'ProfileSummaryDto'>[]): void {
+    if (preview.committing) return;
+    const previous = profileInputDefaults(profileNames, catalog);
+    const next = profileInputDefaults(names, catalog);
+    profileNames = names;
+    if (next.input === previous.input && next.type === previous.type) {
+      invalidatePreview();
+      return;
+    }
+    if (!next.input && !next.type) {
+      invalidatePreview();
+      if (beforeProfile) {
+        upload?.abort();
+        upload = null;
+        uploading = false;
+        draft = beforeProfile.draft;
+        fileName = beforeProfile.fileName;
+        beforeProfile = null;
+      }
+      return;
+    }
+    beforeProfile ??= { draft: { ...draft }, fileName };
+    const base = !next.input && previous.input ? beforeProfile.draft : draft;
+    const input = next.resolvedType && next.input === previous.input ? undefined : next.input?.input ?? undefined;
+    const updated = applyProfileInput(base, input, next.resolvedType);
+    if (updated) change(updated);
+    else {
+      change(createNewJobDraft());
+      error = new Error('Unrecognized profile input. Select a job type and enter its source.');
+    }
   }
 
   function choose(choice: NewJobChoice): void {
@@ -264,12 +296,11 @@
   async function plan(start: boolean): Promise<void> {
     if (busy) return;
     preparing = true;
-    const openedAt = closeCount;
     try {
       // Flush the latest input and freeze editing before awaiting its settings.
       await tick();
       await settingsReady;
-      if (stopped || !open || openedAt !== closeCount || settingsError || !valid) return;
+      if (stopped || settingsError || !valid) return;
       const settings: Schema<'DownloadSettingsPatchDto'> = { ...downloadPatch.downloadSettings, search: carriedSearchSettings };
       if (conditionSession && draft.choice !== 'soulseek-link') {
         const searchEdits = searchConditionsPatchForFamily(family, conditionSession.baseline, conditionSession.values);
@@ -306,15 +337,6 @@
       Object.keys(settings).length ? settings : undefined);
   }
 
-  function closeDraft(): void {
-    closeCount++;
-    automaticStart = false;
-    // A ready review is idle. Stop watching an unfinished plan when the editor closes.
-    if ((!preview.summary && preview.loading) || preview.summary?.state === 'Planning') invalidatePreview();
-    onclose(Boolean(initial || draft.choice !== 'song' || valid || draft.artist || draft.album
-      || profileNames.length || filteringCustomized || rankingCustomized || downloadCustomized));
-  }
-
   function toggle(ref: string, selected: boolean): void {
     if (preview.committing) return;
     selectionRules = toggleSubtree(ref, selected, all, selectionRules);
@@ -322,15 +344,14 @@
 
 </script>
 
-{#if open}
-<Modal title="Create new job" label="New job" closeLabel="Close new job" wide locked={Boolean(preview.committing)} onclose={closeDraft}>
+<Modal title="Create new job" label="New job" closeLabel="Close new job" wide locked={Boolean(preview.committing)} {onclose}>
 <section class="new-job-composer" aria-label="New job">
   <div class="new-job-layout" inert={preparing || preview.committing ? true : undefined}>
     <JobTypeNav value={draft.choice} onchange={choose} />
     <div class="new-job-workspace">
       <div class="new-job-scroll-area">
         <header class="new-job-current-choice"><div><strong>{choiceMetadata.label}</strong><small>{choiceMetadata.detail}</small></div>
-          <ProfilePicker value={profileNames} applied={appliedProfiles} onchange={(names) => { profileNames = names; invalidatePreview(); }} />
+          <ProfilePicker value={profileNames} applied={appliedProfiles} disabled={Boolean(preview.committing)} onchange={selectProfiles} />
         </header>
         <div class="new-job-config">
           <JobInputs {draft} {fileName} onchange={change} onfile={(file) => void chooseFile(file)} />
@@ -382,7 +403,6 @@
         {#if uploading}<p role="status">Uploading source file…</p>{/if}
       </div>
       <footer class="new-job-footer">
-        <button type="button" class="button quiet" disabled={Boolean(preview.committing)} onclick={() => onclose(false)}>Discard draft</button>
         {#if preview.summary}
           <span class="new-job-footer-status">{selectedCount} selected</span>
           <div class="new-job-footer-actions">
@@ -401,7 +421,6 @@
   </div>
 </section>
 </Modal>
-{/if}
 
 {#snippet branch(parent: string | null, depth: number)}
   {@const page = preview.branches.get(parent)}

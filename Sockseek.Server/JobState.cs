@@ -258,6 +258,13 @@ internal sealed class JobState
     public bool IsJobAvailable(Guid jobId)
         => records.ContainsKey(jobId);
 
+    public bool TryGetJobFailureDetail(Guid id, out string? detail)
+    {
+        bool found = jobs.TryGetValue(id, out var job);
+        detail = job?.FailureDetail;
+        return found;
+    }
+
     public JobSummaryDto? GetJobSummary(Guid jobId)
     {
         return records.TryGetValue(jobId, out var record)

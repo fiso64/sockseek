@@ -1695,7 +1695,7 @@ namespace Tests.Eventing
             var engine = new DownloadEngine(engineSettings, clientManager);
 
             JobFailureReason capturedReason = JobFailureReason.None;
-            string? capturedDetail = "not-captured";
+            string? capturedDetail = null;
             bool failedFired = false;
 
             engine.Events.JobStateChanged += change =>
@@ -1716,7 +1716,7 @@ namespace Tests.Eventing
             Assert.IsTrue(failedFired, "JobStateChanged should fire for a failed terminal outcome.");
             Assert.AreEqual(JobFailureReason.AllDownloadsFailed, capturedReason, 
                 "FailureReason must be populated BEFORE the JobStateChanged event is fired for download failures.");
-            Assert.IsNull(capturedDetail, "Known download attempt exceptions are reported by DownloadAttemptFailed and should not be duplicated as terminal diagnostic detail.");
+            StringAssert.Contains(capturedDetail, nameof(Soulseek.SoulseekClientException));
         }
     }
 }

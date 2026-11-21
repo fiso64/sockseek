@@ -60,7 +60,7 @@ public sealed class DaemonClientStore
 {
     private readonly Lock gate = new();
     private readonly Dictionary<Guid, WorkflowStateDto> liveWorkflows = [];
-    private readonly Dictionary<Guid, JobStateDto> liveJobs = [];
+    private readonly Dictionary<Guid, JobSummaryDto> liveJobs = [];
     private readonly Dictionary<Guid, SearchStateDto> liveSearches = [];
     private readonly Dictionary<Guid, TransferStateDto> liveTransfers = [];
     private readonly Dictionary<Guid, UserNotificationDto> liveNotifications = [];
@@ -89,7 +89,7 @@ public sealed class DaemonClientStore
                 [],
                 IsSnapshot: true,
                 ChangedWorkflows: snapshot.Workflows.Select(row => row.Summary).ToList(),
-                ChangedJobs: snapshot.Jobs.Select(row => row.ToSummary()).ToList(),
+                ChangedJobs: snapshot.Jobs,
                 ChangedTransfers: snapshot.Transfers,
                 ChangedUserBrowse: snapshot.UserBrowse);
         }
@@ -245,8 +245,7 @@ public sealed class DaemonClientStore
                     .ThenBy(workflow => workflow.WorkflowId)
                     .ToList(),
                 liveJobs.Values
-                    .Select(job => job.ToSummary())
-                    .OrderBy(job => job.DisplayId)
+                    .OrderBy(job => job.Display.DisplayId)
                     .ThenBy(job => job.JobId)
                     .ToList(),
                 liveSearches.Values
@@ -275,23 +274,21 @@ public sealed class DaemonClientStore
     public IReadOnlyList<JobSummaryDto> GetJobs()
     {
         lock (gate)
-            return liveJobs.Values.Select(row => row.ToSummary()).OrderBy(job => job.DisplayId).ThenBy(job => job.JobId).ToList();
+            return liveJobs.Values.OrderBy(job => job.Display.DisplayId).ThenBy(job => job.JobId).ToList();
     }
 
     public JobSummaryDto? GetJob(Guid jobId)
     {
         lock (gate)
-            return liveJobs.TryGetValue(jobId, out var live)
-                ? live.ToSummary()
-                : null;
+            return liveJobs.GetValueOrDefault(jobId);
     }
 
     public IReadOnlyList<JobSummaryDto> GetWorkflowJobs(Guid workflowId)
     {
         lock (gate)
-            return liveJobs.Values.Select(row => row.ToSummary())
-                .Where(job => job.WorkflowId == workflowId)
-                .OrderBy(job => job.DisplayId)
+            return liveJobs.Values
+                .Where(job => job.Display.WorkflowId == workflowId)
+                .OrderBy(job => job.Display.DisplayId)
                 .ThenBy(job => job.JobId)
                 .ToList();
     }
@@ -301,14 +298,14 @@ public sealed class DaemonClientStore
         lock (gate)
         {
             var workflows = liveWorkflows.Values.Select(row => row.Summary).ToDictionary(workflow => workflow.WorkflowId);
-            return liveJobs.Values.Select(row => row.ToSummary())
-                .GroupBy(job => job.WorkflowId)
+            return liveJobs.Values
+                .GroupBy(job => job.Display.WorkflowId)
                 .OrderBy(group => workflows.GetValueOrDefault(group.Key)?.Title)
                 .ThenBy(group => group.Key)
                 .Select(group => new WorkflowJobGroupDto(
                     group.Key,
                     workflows.GetValueOrDefault(group.Key),
-                    group.OrderBy(job => job.DisplayId).ThenBy(job => job.JobId).ToList()))
+                    group.OrderBy(job => job.Display.DisplayId).ThenBy(job => job.JobId).ToList()))
                 .ToList();
         }
     }
@@ -316,18 +313,18 @@ public sealed class DaemonClientStore
     public IReadOnlyList<JobSummaryDto> GetActiveJobs()
     {
         lock (gate)
-            return liveJobs.Values.Select(row => row.ToSummary())
-                .Where(job => job.LifecycleState != ServerJobLifecycleState.Terminal)
-                .OrderBy(job => job.DisplayId)
+            return liveJobs.Values
+                .Where(job => job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal)
+                .OrderBy(job => job.Display.DisplayId)
                 .ToList();
     }
 
     public IReadOnlyList<JobSummaryDto> GetTerminalJobs()
     {
         lock (gate)
-            return liveJobs.Values.Select(row => row.ToSummary())
-                .Where(job => job.LifecycleState == ServerJobLifecycleState.Terminal)
-                .OrderBy(job => job.DisplayId)
+            return liveJobs.Values
+                .Where(job => job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
+                .OrderBy(job => job.Display.DisplayId)
                 .ToList();
     }
 
@@ -477,7 +474,7 @@ public sealed class DaemonClientStore
             .OfType<WorkflowSummaryDto>()
             .ToList();
         var changedJobs = state.Jobs
-            .Select(job => liveJobs.GetValueOrDefault(job.JobId)?.ToSummary())
+            .Select(job => liveJobs.GetValueOrDefault(job.JobId))
             .OfType<JobSummaryDto>()
             .ToList();
         var changedTransfers = state.Transfers

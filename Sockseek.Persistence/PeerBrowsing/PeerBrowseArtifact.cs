@@ -534,7 +534,8 @@ public sealed class PeerBrowseArtifact
                 string[] relative = directory == index ? [] : identities[directory][(identities[index].Length + 1)..].Split('\\');
                 return new DirectoryTransferEntry(Target(username, file), relative);
             }).ToArray();
-            var plan = new DirectoryTransferPlan(PeerBrowsePath.Leaf(identities[index]), transfers);
+            var plan = new DirectoryTransferPlan(PeerBrowsePath.Leaf(identities[index]), transfers,
+                sourceDirectory: new PeerDirectoryIdentity(username, data.Directories[index].WirePath));
             plans.Add(("0\0" + directories[index].DisplayPath, plan));
             totalFiles += plan.Entries.Count;
             totalBytes = Sum(totalBytes, plan.TotalKnownBytes);

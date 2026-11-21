@@ -133,11 +133,5 @@ public sealed class HistoricalDirectoryPayloadTests
         => (RemoteDirectoryJobPayloadDto)HistoricalJobDtoMapper.ToPayload(Job(payload));
 
     private static PersistedJob Job(JobSnapshotPayload payload)
-    {
-        var now = DateTimeOffset.UtcNow;
-        return new PersistedJob(Guid.NewGuid(), 1, Guid.NewGuid(), null, null, null,
-            "RemoteDirectory", "Terminal", "None", null, "Succeeded", "None", "None", "None",
-            null, null, null, "Directory", now, now, now, 1, RetainedJobPayloadCodec.SchemaVersion,
-            RetainedJobPayloadCodec.Capture(payload).Value);
-    }
+        => RetainedJobFixture.Create("RemoteDirectory", payload);
 }

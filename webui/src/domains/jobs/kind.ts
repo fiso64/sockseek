@@ -4,11 +4,11 @@ import type { AppIconName } from '../../app/icons';
 import type { SearchResultMode } from '../search/model';
 
 export function searchJobMode(job: JobSummaryDto): SearchResultMode | null {
-  if (job.kind !== 'search' || job.searchDefaultProjection == null || job.searchGroupResults == null) return null;
-  switch (job.searchDefaultProjection) {
+  if (job.display.kind !== 'search' || job.display.searchDefaultProjection == null || job.display.searchGroupResults == null) return null;
+  switch (job.display.searchDefaultProjection) {
     case 'GenericFile': return 'generic';
-    case 'Track': return job.searchGroupResults ? 'song-groups' : 'track';
-    case 'Album': return job.searchGroupResults ? 'album-groups' : 'album';
+    case 'Track': return job.display.searchGroupResults ? 'song-groups' : 'track';
+    case 'Album': return job.display.searchGroupResults ? 'album-groups' : 'album';
   }
 }
 

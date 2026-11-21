@@ -60,14 +60,14 @@ public class JobActivityLogFormatterTests
         var activity = Activity(
             summary,
             "job.message",
-            new JobMessageActivityDto(summary.DisplayId, "Warning", "resolver", "candidate rejected"));
+            new JobMessageActivityDto(summary.Display.DisplayId, "Warning", "resolver", "candidate rejected"));
 
         var entry = formatter.Format(activity, store);
 
         Assert.IsNotNull(entry);
         Assert.AreEqual(LogLevel.Warning, entry.Level);
         StringAssert.Contains(entry.Message, "resolver: candidate rejected");
-        Assert.AreEqual(summary.DisplayId, entry.Display?.DisplayId);
+        Assert.AreEqual(summary.Display.DisplayId, entry.Display?.DisplayId);
     }
 
     [TestMethod]
@@ -99,7 +99,7 @@ public class JobActivityLogFormatterTests
             summary,
             "diagnostic.error",
             new DiagnosticActivityDto(
-                summary.DisplayId,
+                summary.Display.DisplayId,
                 "job",
                 "failed",
                 "System.InvalidOperationException",
@@ -143,12 +143,12 @@ public class JobActivityLogFormatterTests
     {
         var store = new DaemonClientStore();
         store.ApplySnapshot(new StateSnapshotDto(
-            StateStreamScopeDto.Workflow(summary.WorkflowId),
+            StateStreamScopeDto.Workflow(summary.Display.WorkflowId),
             new StateStreamPositionDto(Guid.NewGuid(), 0),
             DateTimeOffset.UtcNow,
             null,
             [],
-            [JobStateDto.FromSummary(summary, 1)],
+            [summary with { Revision = 1 }],
             [],
             []));
         return store;
@@ -162,7 +162,7 @@ public class JobActivityLogFormatterTests
             1,
             DateTimeOffset.UtcNow,
             type,
-            summary.WorkflowId,
+            summary.Display.WorkflowId,
             summary.JobId,
             null,
             payload);
@@ -175,29 +175,14 @@ public class JobActivityLogFormatterTests
         ServerJobKind kind = ServerJobKind.Search,
         Guid? parentJobId = null,
         ServerJobSkipReason skipReason = ServerJobSkipReason.None)
-        => new(
-            jobId ?? Guid.NewGuid(),
-            7,
-            workflowId ?? Guid.NewGuid(),
-            kind,
-            lifecycle,
-            lifecycle == ServerJobLifecycleState.Running
+        => new(jobId ?? Guid.NewGuid(),
+            0,
+            new(7, workflowId ?? Guid.NewGuid(), kind, "item", "Artist - Title", [], ServerPrintOption.None, null, ServerJobRole.UserRoot, null),
+            new(lifecycle, lifecycle == ServerJobLifecycleState.Running
                 ? ServerJobActivityPhase.Searching
-                : ServerJobActivityPhase.None,
-            null,
-            outcome,
-            skipReason,
-            "item",
-            "Artist - Title",
-            outcome == ServerJobTerminalOutcome.Failed
+                : ServerJobActivityPhase.None, null, outcome, skipReason, outcome == ServerJobTerminalOutcome.Failed
                 ? ServerJobFailureReason.AllDownloadsFailed
-                : null,
-            outcome == ServerJobTerminalOutcome.Failed ? "boom" : null,
-            parentJobId,
-            null,
-            null,
-            null,
-            null,
-            [],
-            []);
+                : null, outcome == ServerJobTerminalOutcome.Failed ? "boom" : null, false, ServerJobCancellationSource.None, []),
+            new(null, null),
+            new(parentJobId, null, null));
 }

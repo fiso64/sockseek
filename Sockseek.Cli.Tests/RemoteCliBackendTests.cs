@@ -215,7 +215,7 @@ public class RemoteCliBackendTests
 
         Assert.AreEqual(201, jobs.Count);
         Assert.AreEqual(201, jobs.Select(job => job.JobId).Distinct().Count());
-        Assert.AreEqual(ServerJobTerminalOutcome.Failed, jobs.Single(job => job.DisplayId == 201).TerminalOutcome);
+        Assert.AreEqual(ServerJobTerminalOutcome.Failed, jobs.Single(job => job.Display.DisplayId == 201).Lifecycle.TerminalOutcome);
         Assert.AreEqual(2, handler.RequestCount);
         StringAssert.Contains(handler.SecondRequestUri!.Query, "cursor=second-page");
         var page = await client.GetJobsPageAsync(new JobQuery(null, null, null, workflowId, IncludeAll: true));
@@ -297,9 +297,9 @@ public class RemoteCliBackendTests
             Assert.IsNotNull(downloadSummary);
             Assert.AreEqual(1, downloadSummary.Count);
             var downloadedSummary = downloadSummary[0];
-            Assert.AreEqual(searchSummary.WorkflowId, downloadedSummary.WorkflowId);
-            Assert.IsNull(downloadedSummary.ParentJobId);
-            Assert.AreEqual(searchSummary.JobId, downloadedSummary.SourceJobId);
+            Assert.AreEqual(searchSummary.Display.WorkflowId, downloadedSummary.Display.WorkflowId);
+            Assert.IsNull(downloadedSummary.Relationships.ParentJobId);
+            Assert.AreEqual(searchSummary.JobId, downloadedSummary.Relationships.SourceJobId);
 
             await WaitForJobStateAsync(backend, downloadedSummary.JobId, ExpectedJobStatus.Succeeded);
 
@@ -408,7 +408,7 @@ public class RemoteCliBackendTests
                 searchSummary.JobId,
                 new StartFolderDownloadRequestDto(folders.Items[0].Ref, AlbumQuery: albumQuery));
             Assert.IsNotNull(downloadSummary);
-            Assert.AreEqual(searchSummary.JobId, downloadSummary.SourceJobId);
+            Assert.AreEqual(searchSummary.JobId, downloadSummary.Relationships.SourceJobId);
 
             await WaitForJobStateAsync(backend, downloadSummary.JobId, ExpectedJobStatus.Succeeded);
 
@@ -476,7 +476,7 @@ public class RemoteCliBackendTests
             var summary = await backend.SubmitExtractJobAsync(
                 Sockseek.Cli.Program.BuildRemoteExtractRequest(invocation, download, cli));
 
-            await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
+            await WaitForWorkflowStateAsync(backend, summary.Display.WorkflowId, ServerWorkflowState.Completed);
 
             var downloaded = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
                 .Where(path => string.Equals(Path.GetExtension(path), ".mp3", StringComparison.OrdinalIgnoreCase))
@@ -485,7 +485,7 @@ public class RemoteCliBackendTests
                 .ToArray();
             CollectionAssert.AreEqual(new[] { "01. Track One.mp3", "02. Track Two.mp3" }, downloaded);
 
-            var jobs = await backend.GetJobsAsync(new JobQuery(null, null, null, summary.WorkflowId, IncludeAll: true));
+            var jobs = await backend.GetJobsAsync(new JobQuery(null, null, null, summary.Display.WorkflowId, IncludeAll: true));
             Assert.AreEqual(new DownloadRunSummary(1, 0, 0, Sockseek.Cli.Program.CliExitCode.Success), DownloadRunSummary.FromJobs(jobs));
         }
         finally
@@ -570,8 +570,8 @@ public class RemoteCliBackendTests
             void ObserveAlbumReadiness(DaemonClientUpdate _)
             {
                 if (backend.ClientStore.GetWorkflowJobs(workflowId).Count(job =>
-                    job.Kind == ServerJobKind.Album
-                    && job.LifecycleState == ServerJobLifecycleState.AwaitingSelection) >= 2)
+                    job.Display.Kind == ServerJobKind.Album
+                    && job.Lifecycle.LifecycleState == ServerJobLifecycleState.AwaitingSelection) >= 2)
                     bothAlbumsReady.TrySetResult();
             }
             backend.StateUpdated += ObserveAlbumReadiness;
@@ -622,7 +622,7 @@ public class RemoteCliBackendTests
                 CancellationToken.None);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            await coordinator.RunUntilCompleteAsync(summary.WorkflowId, timeout.Token);
+            await coordinator.RunUntilCompleteAsync(summary.Display.WorkflowId, timeout.Token);
 
             Assert.AreEqual(2, pickerCalls, "Both extracted album searches should reach the interactive picker.");
             Assert.AreEqual(1, maxActivePickers, "Remote interactive album prompts must not overlap.");
@@ -721,7 +721,7 @@ public class RemoteCliBackendTests
                 CancellationToken.None);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            await coordinator.RunUntilCompleteAsync(summary.WorkflowId, timeout.Token);
+            await coordinator.RunUntilCompleteAsync(summary.Display.WorkflowId, timeout.Token);
 
             Assert.AreEqual(0, pickerCalls, "The MP3 folder must be filtered out by the list-line FLAC condition before prompting.");
             Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
@@ -817,7 +817,7 @@ public class RemoteCliBackendTests
                 CancellationToken.None);
 
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            await coordinator.RunUntilCompleteAsync(summary.WorkflowId, timeout.Token);
+            await coordinator.RunUntilCompleteAsync(summary.Display.WorkflowId, timeout.Token);
 
             Assert.AreEqual(2, promptedBuckets.Count, "Each album-groups bucket should reach the interactive picker.");
             Assert.IsTrue(promptedBuckets.Any(x => x.Contains("Time", StringComparison.OrdinalIgnoreCase)));
@@ -900,7 +900,7 @@ public class RemoteCliBackendTests
             await WaitForConditionAsync(
                 backend,
                 () => Task.FromResult(
-                    backend.ClientStore.GetWorkflowJobs(searchSummary.WorkflowId).Count == 0),
+                    backend.ClientStore.GetWorkflowJobs(searchSummary.Display.WorkflowId).Count == 0),
                 "Timed out waiting for the search workflow to retire from live state.");
             SearchResultSnapshotDto<AlbumFolderDto>? projection =
                 await backend.GetFolderResultsAsync(searchSummary.JobId, includeFiles: false);
@@ -924,19 +924,19 @@ public class RemoteCliBackendTests
                 },
                 "Timed out waiting for remote album file downloads to start.");
 
-            Assert.IsTrue(await backend.CancelWorkflowAsync(downloadSummary.WorkflowId) > 0);
+            Assert.IsTrue(await backend.CancelWorkflowAsync(downloadSummary.Display.WorkflowId) > 0);
             await WaitForJobStateAsync(backend, downloadSummary.JobId, ExpectedJobStatus.Failed);
             await WaitForConditionAsync(
                 backend,
                 () => Task.FromResult(
-                    backend.ClientStore.GetWorkflowJobs(downloadSummary.WorkflowId).Count == 0),
+                    backend.ClientStore.GetWorkflowJobs(downloadSummary.Display.WorkflowId).Count == 0),
                 "Timed out waiting for the cancelled album workflow to retire from live state.");
             var retained = await backend.GetJobsAsync(new JobQuery(
-                null, null, null, downloadSummary.WorkflowId, IncludeAll: true));
+                null, null, null, downloadSummary.Display.WorkflowId, IncludeAll: true));
             Assert.IsTrue(retained.Any(job =>
                 job.JobId == downloadSummary.JobId
-                && job.LifecycleState == ServerJobLifecycleState.Terminal
-                && job.TerminalOutcome == ServerJobTerminalOutcome.Cancelled));
+                && job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal
+                && job.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Cancelled));
 
             Assert.AreEqual(new DownloadRunSummary(0, 1, 0, Sockseek.Cli.Program.CliExitCode.Cancelled), DownloadRunSummary.FromJobs(retained));
         }
@@ -1012,10 +1012,10 @@ public class RemoteCliBackendTests
             await WaitForAlbumFileDownloadToStartAsync(backend, secondDownload.JobId);
 
             Assert.IsFalse(
-                await backend.CancelJobByDisplayIdAsync(secondDownload.DisplayId, firstDownload.WorkflowId),
+                await backend.CancelJobByDisplayIdAsync(secondDownload.Display.DisplayId, firstDownload.Display.WorkflowId),
                 "A remote CLI scoped to one workflow must not cancel another workflow's display id.");
 
-            Assert.IsTrue(await backend.CancelJobByDisplayIdAsync(firstDownload.DisplayId, firstDownload.WorkflowId));
+            Assert.IsTrue(await backend.CancelJobByDisplayIdAsync(firstDownload.Display.DisplayId, firstDownload.Display.WorkflowId));
             await WaitForJobStateAsync(backend, firstDownload.JobId, ExpectedJobStatus.Failed);
 
             var secondDetail = await backend.GetJobDetailAsync(secondDownload.JobId);
@@ -1027,7 +1027,7 @@ public class RemoteCliBackendTests
                 secondState,
                 "Cancelling the first workflow by display id must not fail the second workflow's job.");
 
-            Assert.IsTrue(await backend.CancelWorkflowAsync(secondDownload.WorkflowId) > 0);
+            Assert.IsTrue(await backend.CancelWorkflowAsync(secondDownload.Display.WorkflowId) > 0);
             await WaitForJobStateAsync(backend, secondDownload.JobId, ExpectedJobStatus.Failed);
         }
         finally
@@ -1116,20 +1116,20 @@ public class RemoteCliBackendTests
                         OutputParentDir: outputDir,
                         DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(args.ToArray())))));
 
-            await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
+            await WaitForWorkflowStateAsync(backend, summary.Display.WorkflowId, ServerWorkflowState.Completed);
 
             using var output = new StringWriter();
             await Sockseek.Cli.Program.PrintRemoteRequestedOutputAsync(
                 backend,
-                summary.WorkflowId,
+                summary.Display.WorkflowId,
                 printSettings,
                 CancellationToken.None,
                 output);
 
             var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
-            await supervisor.WaitForSubmissionExecutionAsync(summary.SubmissionId!.Value, CancellationToken.None);
+            await supervisor.WaitForSubmissionExecutionAsync(summary.Display.SubmissionId!.Value, CancellationToken.None);
             var persistence = app.Services.GetRequiredService<Sockseek.Server.Persistence.PersistenceCoordinator>();
-            Assert.IsNull(await persistence.Submissions!.GetSpecificationJsonAsync(summary.SubmissionId.Value));
+            Assert.IsNull(await persistence.Submissions!.GetSpecificationJsonAsync(summary.Display.SubmissionId.Value));
             Assert.IsNull(await persistence.JobHistory!.GetJobAsync(summary.JobId));
             Assert.IsNull(await persistence.SearchHistory!.GetMetadataAsync(summary.JobId));
             Assert.HasCount(0, await backend.GetJobsAsync(new JobQuery(null, null, null, null, IncludeAll: true)),
@@ -1242,13 +1242,13 @@ public class RemoteCliBackendTests
                         OutputParentDir: outputDir,
                         DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch([inputPath, "--input-type", "list", "--print", "jobs"])))));
 
-            await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
+            await WaitForWorkflowStateAsync(backend, summary.Display.WorkflowId, ServerWorkflowState.Completed);
             Guid[] expectedJobIds = await terminalJobs.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             using var output = new StringWriter();
             await Sockseek.Cli.Program.PrintRemoteRequestedOutputAsync(
                 backend,
-                summary.WorkflowId,
+                summary.Display.WorkflowId,
                 printSettings,
                 CancellationToken.None,
                 output,
@@ -1307,13 +1307,13 @@ public class RemoteCliBackendTests
                     Options: new SubmissionOptionsDto(
                         DownloadSettings: DownloadSettingsPatchDtoMapper.FromCore(ConfigManager.CreateCliDownloadSettingsPatch(
                             [inputPath, "--input-type", "csv", "--print", "jobs-full"])))));
-            await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
-            await Sockseek.Cli.Program.PrintRemoteRequestedOutputAsync(backend, summary.WorkflowId,
+            await WaitForWorkflowStateAsync(backend, summary.Display.WorkflowId, ServerWorkflowState.Completed);
+            await Sockseek.Cli.Program.PrintRemoteRequestedOutputAsync(backend, summary.Display.WorkflowId,
                 new DownloadSettings { PrintOption = PrintOption.Jobs | PrintOption.Full },
                 CancellationToken.None, output);
             using var http = await global::Tests.TestServerHost.CreateHttpClientAsync(app);
             var api = new SockseekApiClient(http);
-            var released = await api.DeleteSubmissionAsync(summary.SubmissionId!.Value);
+            var released = await api.DeleteSubmissionAsync(summary.Display.SubmissionId!.Value);
             Assert.IsTrue(released.AffectedJobCount > 205);
             string rendered = output.ToString();
             StringAssert.Contains(rendered, "205 jobs:");
@@ -1377,10 +1377,10 @@ public class RemoteCliBackendTests
             await WaitForConditionAsync(
                 monitor,
                 () => Task.FromResult(
-                    monitor.ClientStore.GetWorkflowJobs(first.WorkflowId)
-                        .Any(job => job.LifecycleState == ServerJobLifecycleState.AwaitingSelection)
-                    && monitor.ClientStore.GetWorkflowJobs(second.WorkflowId)
-                        .Any(job => job.LifecycleState == ServerJobLifecycleState.AwaitingSelection)),
+                    monitor.ClientStore.GetWorkflowJobs(first.Display.WorkflowId)
+                        .Any(job => job.Lifecycle.LifecycleState == ServerJobLifecycleState.AwaitingSelection)
+                    && monitor.ClientStore.GetWorkflowJobs(second.Display.WorkflowId)
+                        .Any(job => job.Lifecycle.LifecycleState == ServerJobLifecycleState.AwaitingSelection)),
                 "Daemon monitor did not observe both active workflows.");
 
             Assert.IsTrue(scopes.Count > 0);
@@ -1477,7 +1477,7 @@ public class RemoteCliBackendTests
                     () => Task.FromResult(
                         monitor.ClientStore.GetPosition(StateStreamScopeDto.Daemon) is { } position
                         && position.Epoch != firstPosition.Epoch
-                        && monitor.ClientStore.GetJob(submitted.JobId)?.LifecycleState
+                        && monitor.ClientStore.GetJob(submitted.JobId)?.Lifecycle.LifecycleState
                             == ServerJobLifecycleState.AwaitingSelection),
                     "Monitor did not recover the restarted daemon epoch and active workflow.",
                     timeoutMs: 15000);
@@ -1632,7 +1632,7 @@ public class RemoteCliBackendTests
             await WaitForAlbumFileDownloadToStartAsync(controller, first.JobId);
             await WaitForAlbumFileDownloadToStartAsync(controller, second.JobId);
 
-            Console.SetIn(new StringReader(first.DisplayId + Environment.NewLine));
+            Console.SetIn(new StringReader(first.Display.DisplayId + Environment.NewLine));
             await ConsoleInputManager.OnCancelRequested!();
             await WaitForJobStateAsync(
                 controller,
@@ -1641,7 +1641,7 @@ public class RemoteCliBackendTests
             var secondBeforeCancelAll = await controller.GetJobDetailAsync(second.JobId);
             Assert.AreNotEqual(
                 ServerJobLifecycleState.Terminal,
-                secondBeforeCancelAll?.Summary.LifecycleState,
+                secondBeforeCancelAll?.Summary.Lifecycle.LifecycleState,
                 "Cancelling one daemon job by display id must not cancel another workflow.");
 
             Console.SetIn(new StringReader("all" + Environment.NewLine));
@@ -1800,13 +1800,13 @@ public class RemoteCliBackendTests
                             new SongQueryDto("Artist", "Track One", "", "", -1, false)),
                     ]));
 
-            await WaitForWorkflowStateAsync(backend, summary.WorkflowId, ServerWorkflowState.Completed);
+            await WaitForWorkflowStateAsync(backend, summary.Display.WorkflowId, ServerWorkflowState.Completed);
 
             IReadOnlyList<JobSummaryDto> jobs = await backend.GetJobsAsync(new JobQuery(
-                null, null, null, summary.WorkflowId, IncludeAll: true));
-            Assert.IsTrue(jobs.Any(job => job.Kind == ServerJobKind.JobList));
-            Assert.IsTrue(jobs.Any(job => job.Kind == ServerJobKind.Search));
-            Assert.IsTrue(jobs.All(job => job.WorkflowId == summary.WorkflowId));
+                null, null, null, summary.Display.WorkflowId, IncludeAll: true));
+            Assert.IsTrue(jobs.Any(job => job.Display.Kind == ServerJobKind.JobList));
+            Assert.IsTrue(jobs.Any(job => job.Display.Kind == ServerJobKind.Search));
+            Assert.IsTrue(jobs.All(job => job.Display.WorkflowId == summary.Display.WorkflowId));
         }
         finally
         {
@@ -1855,7 +1855,7 @@ public class RemoteCliBackendTests
                 backend,
                 () => Task.FromResult(
                     observed.Any(job => job.JobId == first.JobId
-                        && job.LifecycleState == ServerJobLifecycleState.Terminal)
+                        && job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
                     && backend.ClientStore.GetWorkflowJobs(workflowId).Count == 0),
                 "The first workflow generation did not retire from live state.");
 
@@ -1865,11 +1865,11 @@ public class RemoteCliBackendTests
             await WaitForConditionAsync(
                 backend,
                 () => Task.FromResult(observed.Any(job => job.JobId == successor.JobId
-                    && job.LifecycleState == ServerJobLifecycleState.Terminal)),
+                    && job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)),
                 "The reused workflow subscription did not observe its successor generation.");
 
             Assert.AreNotEqual(first.JobId, successor.JobId);
-            Assert.AreEqual(workflowId, successor.WorkflowId);
+            Assert.AreEqual(workflowId, successor.Display.WorkflowId);
         }
         finally
         {
@@ -1917,7 +1917,7 @@ public class RemoteCliBackendTests
     }
 
     private static ExpectedJobStatus ProjectState(JobSummaryDto summary)
-        => ProjectState(summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason);
+        => ProjectState(summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason);
 
     private static ExpectedJobStatus ProjectState(SongJobPayloadDto song)
         => ProjectState(
@@ -2161,15 +2161,8 @@ public class RemoteCliBackendTests
         }
 
         private JobSummaryDto Job(int displayId, ServerJobTerminalOutcome outcome)
-            => new()
-            {
-                JobId = Guid.Parse($"10000000-0000-0000-0000-{displayId:D12}"),
-                DisplayId = displayId,
-                WorkflowId = workflowId,
-                Kind = ServerJobKind.Song,
-                LifecycleState = ServerJobLifecycleState.Terminal,
-                TerminalOutcome = outcome,
-            };
+            => TestJobSummary.Create(ServerJobKind.Song, Guid.Parse($"10000000-0000-0000-0000-{displayId:D12}"),
+                workflowId, displayId, state: ServerJobLifecycleState.Terminal, outcome: outcome);
     }
 
     private sealed class FailFirstDaemonSnapshotHandler()

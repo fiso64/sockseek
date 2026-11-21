@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using Soulseek;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
@@ -83,6 +84,13 @@ public sealed class ExactPeerFileTransferRunner
         this.logger = logger ?? NullLogger<ExactPeerFileTransferRunner>.Instance;
     }
 
+    internal static string IncompletePath(string outputPath, bool noIncompleteExt, Guid? selectionId = null)
+    {
+        if (noIncompleteExt) return outputPath;
+        string name = selectionId?.ToString("N") ?? Path.GetFileName(outputPath);
+        return Path.Combine(Path.GetDirectoryName(outputPath)!, Utils.FitPathComponent(name + OutputStaging.IncompleteExtension));
+    }
+
     public async Task<ExactFileTransferOutcome> DownloadFile(
         PeerFileTarget target,
         string outputPath,
@@ -109,24 +117,34 @@ public sealed class ExactPeerFileTransferRunner
             outputPath,
             cancellationToken).ConfigureAwait(false);
 
-        // Cached work remains usable while disconnected. The cheap presence
-        // probe is only an optimization; PrepareAsync rechecks under the owner.
-        if (!clientManager.IsConnectedAndLoggedIn || (allowReuse && fileOperations.MayHaveReusable(target, owner.WorkflowId)))
-        {
-            var reused = await fileOperations.TryReuseAsync(target, outputPath, owner.Id, owner.WorkflowId,
-                publishToDuplicateCache, allowOverwrite, allowReuse, owner as SongJob, selectionLayout);
-            if (reused != null) return reused;
-        }
-
-        await clientManager.WaitUntilReadyAsync(cancellationToken);
         var transferId = TransferIds.New();
         string directory = Path.GetDirectoryName(outputPath)!;
-        string partialName = selectionLayout ? transferId.ToString("N") : Path.GetFileName(outputPath);
-        // --no-incomplete-ext writes directly to the destination. A crash can leave
-        // a partial file there, including when replacing an existing download.
-        string incompleteOutputPath = transfer.NoIncompleteExt
-            ? outputPath
-            : Path.Combine(directory, Utils.FitPathComponent(partialName + OutputStaging.IncompleteExtension));
+        string incompleteOutputPath = IncompletePath(outputPath, transfer.NoIncompleteExt, selectionLayout ? transferId : null);
+        DownloadFileOperations.DownloadOutput preparedOutput;
+        try
+        {
+            // Cached work remains usable while disconnected. The cheap presence
+            // probe is only an optimization; PrepareAsync rechecks under the owner.
+            if (!clientManager.IsConnectedAndLoggedIn || (allowReuse && fileOperations.MayHaveReusable(target, owner.WorkflowId)))
+            {
+                var reused = await fileOperations.TryReuseAsync(target, outputPath, owner.Id, owner.WorkflowId,
+                    publishToDuplicateCache, allowOverwrite, allowReuse, owner as SongJob, selectionLayout);
+                if (reused != null) return reused;
+            }
+
+            await clientManager.WaitUntilReadyAsync(cancellationToken);
+            var prepared = await fileOperations.PrepareAsync(target, outputPath, incompleteOutputPath, owner.Id, owner.WorkflowId,
+                publishToDuplicateCache, allowOverwrite, allowReuse, owner as SongJob, selectionLayout);
+            if (prepared.Reused != null) return prepared.Reused;
+            preparedOutput = prepared.Output!;
+        }
+        catch (DownloadDestinationException ex)
+        {
+            events.RaiseTransferFailed(transferId, owner, target, outputPath, 0, target.Size ?? 0, 0,
+                TransferFailureReason.LocalStorageError, ex);
+            throw;
+        }
+        incompleteOutputPath = preparedOutput.Path;
         int attemptCount = 0;
         Guid currentAttemptId = Guid.Empty;
         long totalBytes = target.Size ?? 0;
@@ -214,18 +232,13 @@ public sealed class ExactPeerFileTransferRunner
                 totalBytes, Math.Max(attemptCount, 1), reason);
         }
 
-        var prepared = await fileOperations.PrepareAsync(target, outputPath, incompleteOutputPath, owner.Id, owner.WorkflowId,
-            publishToDuplicateCache, allowOverwrite, allowReuse, owner as SongJob, selectionLayout);
-        if (prepared.Reused != null) return prepared.Reused;
-        incompleteOutputPath = prepared.Output!.Path;
-
         try
         {
             using var downloadCts = ct != null
                 ? CancellationTokenSource.CreateLinkedTokenSource((CancellationToken)ct)
                 : new CancellationTokenSource();
 
-            await using var output = prepared.Output!;
+            await using var output = preparedOutput;
             Stream outputStream = output.Stream;
 
             owner.UpdateActivity(JobActivityPhase.Downloading);
@@ -267,6 +280,10 @@ public sealed class ExactPeerFileTransferRunner
                                     startOffset: outputStream.Position,
                                     options: transferOptions,
                                     cancellationToken: downloadCts.Token);
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException && FailureReason(ex) == TransferFailureReason.Denied)
+                            {
+                                throw new TransferRejectedException($"Peer '{target.Username}' refused the download. {DownloadOutcomes.FailureMessage(ex)}", ex);
                             }
                             finally
                             {
@@ -397,7 +414,7 @@ public sealed class ExactPeerFileTransferRunner
                         owner,
                         target,
                         outputPath,
-                        ex);
+                        ex, FailureReason(ex));
                 }
                 events.RaiseTransferFailed(
                     transferId,
@@ -453,7 +470,7 @@ public sealed class ExactPeerFileTransferRunner
                     cleanupEx.GetType().Name);
             }
 
-            var finalizationException = new IOException(
+            var finalizationException = new DownloadDestinationException(
                 $"Failed to rename incomplete file from '{incompleteOutputPath}' to '{outputPath}'.",
                 ex);
             events.RaiseTransferFailed(
@@ -464,7 +481,7 @@ public sealed class ExactPeerFileTransferRunner
                 owner.BytesTransferred,
                 totalBytes,
                 Math.Max(attemptCount, 1),
-                TransferFailureReason.Finalization,
+                TransferFailureReason.LocalStorageError,
                 finalizationException);
             throw finalizationException;
         }
@@ -491,9 +508,19 @@ public sealed class ExactPeerFileTransferRunner
 
     private static TransferFailureReason FailureReason(Exception exception)
     {
+        var reason = TransferFailureReason.PeerFailure;
         for (Exception? cause = exception; cause != null; cause = cause.InnerException)
+        {
             if (cause is DownloadDestinationException) return TransferFailureReason.LocalStorageError;
-        return TransferFailureReason.PeerFailure;
+            if (cause is TransferRejectedException) return TransferFailureReason.Denied;
+            if (cause is TimeoutException or SocketException { SocketErrorCode: SocketError.TimedOut })
+                return TransferFailureReason.TimedOut;
+            if (cause is TransferSizeMismatchException) return TransferFailureReason.FileChanged;
+            if (cause is ConnectionException or UserOfflineException or UserEndPointException
+                or UserNotFoundException or OperationCanceledException or SocketException)
+                reason = TransferFailureReason.ConnectionFailed;
+        }
+        return reason;
     }
 
     private static bool IsRetryableTransferFailure(Exception exception)

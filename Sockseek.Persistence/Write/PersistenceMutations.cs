@@ -135,7 +135,8 @@ public sealed record TransferAttemptPersistenceMutation(
     string? GroupRef = null,
     string? GroupDisplayPath = null,
     IReadOnlyList<TransferAccountingObservation>? AccountingObservations = null,
-    DateTimeOffset? StartedAtUtc = null)
+    DateTimeOffset? StartedAtUtc = null,
+    string CancellationSource = "None")
     : PersistenceMutation(RuntimeId, Sequence, OccurredAtUtc, AttemptId, Revision, Priority);
 
 public sealed record SearchResultsPersistenceMutation(

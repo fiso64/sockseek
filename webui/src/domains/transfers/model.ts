@@ -346,6 +346,8 @@ export function liveTransferPresentation(value: TransferStateDto, createdAt?: st
   let state: string;
   if (finalizing) state = 'Finalizing';
   else if (transferring) state = value.identity.source === 'Fallback' ? 'Running fallback' : activeTransferState(direction);
+  else if (direction === 'download' && value.status.terminalOutcome === 'Failed')
+    state = downloadFailureLabels[value.status.failureReason ?? 'Unknown'] ?? 'Failed';
   else state = transferState(value.status.state, value.status.terminalOutcome ?? 'None');
   return {
     record: value,
@@ -450,7 +452,7 @@ function combineGroupSummary(
       : toneValue === 'failed' ? 'Failed'
       : toneValue === 'cancelled' ? 'Cancelled' : 'Queued',
     tone: toneValue,
-    detail: failed ? `${failed} ${failed === 1 ? 'file failed' : 'files failed'}. Select a file’s Failed label for its failure details.` : undefined,
+    detail: failed ? `${failed} ${failed === 1 ? 'file failed' : 'files failed'}. Select a failed file’s status for details.` : undefined,
     cancellable: active + queued > 0,
     progressPercent: percent,
     progressText: statusParts.join(' · ') || formatBytes(transferred),
@@ -472,6 +474,14 @@ function remainingEta(remainingBytes: number, bytesPerSecond: number): string | 
 function groupKey(direction: string, username: string | null | undefined, groupRef: string): string {
   return JSON.stringify([direction.toLowerCase(), username ?? null, groupRef]);
 }
+
+const downloadFailureLabels: Partial<Record<Schema<'TransferFailureReason'>, string>> = {
+  Denied: 'Peer refused',
+  TransferTimedOut: 'Timed out',
+  FileChanged: 'File size mismatch',
+  LocalStorageError: 'Local file error',
+  ConnectionFailed: 'Connection failed',
+};
 
 function transferState(state: string, outcome: string): string {
   if (outcome && outcome.toLowerCase() !== 'none') return outcome === 'Succeeded' ? 'Complete' : outcome;

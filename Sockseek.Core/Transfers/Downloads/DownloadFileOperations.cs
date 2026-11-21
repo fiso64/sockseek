@@ -32,7 +32,7 @@ internal sealed class DownloadFileOperations : IDisposable
     private bool preferOutputUpdate;
     private bool stopping;
 
-    private static StringComparer PathComparer { get; } = OperatingSystem.IsWindows()
+    internal static StringComparer PathComparer { get; } = OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     public DownloadFileOperations(int concurrency, ILogger? logger = null)
@@ -166,7 +166,7 @@ internal sealed class DownloadFileOperations : IDisposable
         {
             if (Directory.Exists(candidate)) return false;
             try { output = Open(state, candidate, FileMode.CreateNew); }
-            catch (IOException) when (File.Exists(candidate)) { return false; }
+            catch (DownloadDestinationException ex) when (ex.InnerException is IOException && File.Exists(candidate)) { return false; }
             return true;
         });
         return output!;
@@ -174,23 +174,40 @@ internal sealed class DownloadFileOperations : IDisposable
 
     public ValueTask<Stream> OpenAsync(string path) => WithCacheAsync(state => Open(state, path).Stream);
 
+    private static void CreateOutputDirectory(string path)
+    {
+        var directory = Path.GetDirectoryName(path)!;
+        try { Directory.CreateDirectory(directory); }
+        catch (Exception ex) when (DownloadDestinationException.IsFileError(ex))
+        {
+            throw new DownloadPreparationException($"Sockseek could not create directory '{directory}'.", ex, directory, isDirectory: true);
+        }
+    }
+
     private DownloadOutput Open(Cache state, string path, FileMode mode = FileMode.OpenOrCreate)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        // FileMode.Create unconditionally ftruncates even a new file on Unix.
-        // On ext4 that can force buffered downloads through the journal at close,
-        // stalling unrelated FULL-WAL commits. Only truncate an actual old payload.
-        var output = new FileStream(path, mode, FileAccess.ReadWrite, FileShare.Read,
-            bufferSize: 1, FileOptions.SequentialScan);
+        CreateOutputDirectory(path);
         try
         {
-            state.InvalidatePath(path);
-            if (mode == FileMode.OpenOrCreate && output.Length != 0) output.SetLength(0);
+            // FileMode.Create unconditionally ftruncates even a new file on Unix.
+            // On ext4 that can force buffered downloads through the journal at close,
+            // stalling unrelated FULL-WAL commits. Only truncate an actual old payload.
+            var output = new FileStream(path, mode, FileAccess.ReadWrite, FileShare.Read,
+                bufferSize: 1, FileOptions.SequentialScan);
+            try
+            {
+                state.InvalidatePath(path);
+                if (mode == FileMode.OpenOrCreate && output.Length != 0) output.SetLength(0);
+            }
+            catch { output.Dispose(); throw; }
+            // One managed buffer preserves cheap tiny writes; large async writes
+            // pass through WorkerStream onto these same owned I/O workers.
+            return new DownloadOutput(output.Name, new BufferedStream(new WorkerStream(output, this), 4096), this);
         }
-        catch { output.Dispose(); throw; }
-        // One managed buffer preserves cheap tiny writes; large async writes
-        // pass through WorkerStream onto these same owned I/O workers.
-        return new DownloadOutput(output.Name, new BufferedStream(new WorkerStream(output, this), 4096), this);
+        catch (Exception ex) when (DownloadDestinationException.IsFileError(ex))
+        {
+            throw new DownloadPreparationException($"Sockseek could not open '{path}' for writing.", ex, path);
+        }
     }
 
     internal sealed class DownloadOutput(string path, Stream stream, DownloadFileOperations owner) : IAsyncDisposable
@@ -218,25 +235,32 @@ internal sealed class DownloadFileOperations : IDisposable
             jobId,
             "reusing existing transfer");
 
-        if (selectionLayout)
+        try
         {
-            var placed = cache.PlaceFile(existingPath, outputPath, cleanupRoot: null);
-            if (placed.Matched) return ExactFileTransferOutcome.AlreadyExists(target, placed.Path);
-            outputPath = placed.Path;
-        }
-        else if (!PathEquals(existingPath, outputPath))
-        {
-            DownloadLogMessages.JobDecision(
-                logger,
-                jobId,
-                "copying reused transfer");
-            cache.InvalidatePath(outputPath);
-            Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-            try { Utils.CopyToDestination(existingPath, outputPath, allowOverwrite); }
-            catch (IOException) when (!allowOverwrite && File.Exists(outputPath))
+            if (selectionLayout)
             {
-                return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
+                var placed = cache.PlaceFile(existingPath, outputPath, cleanupRoot: null);
+                if (placed.Matched) return ExactFileTransferOutcome.AlreadyExists(target, placed.Path);
+                outputPath = placed.Path;
             }
+            else if (!PathEquals(existingPath, outputPath))
+            {
+                DownloadLogMessages.JobDecision(
+                    logger,
+                    jobId,
+                    "copying reused transfer");
+                cache.InvalidatePath(outputPath);
+                CreateOutputDirectory(outputPath);
+                try { Utils.CopyToDestination(existingPath, outputPath, allowOverwrite); }
+                catch (IOException) when (!allowOverwrite && File.Exists(outputPath))
+                {
+                    return ExactFileTransferOutcome.AlreadyExists(target, outputPath);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not DownloadPreparationException && DownloadDestinationException.IsFileError(ex))
+        {
+            throw new DownloadDestinationException($"Sockseek could not copy '{existingPath}' to '{outputPath}'.", ex);
         }
 
         // A reused path belongs to this workflow too. Staging copies remain
@@ -484,7 +508,7 @@ internal sealed class DownloadFileOperations : IDisposable
                         Utils.MoveAndDeleteParent(source, candidate, cleanupRoot, overwrite);
                     else
                     {
-                        Directory.CreateDirectory(Path.GetDirectoryName(candidate)!);
+                        CreateOutputDirectory(candidate);
                         Utils.CopyToDestination(source, candidate, overwrite);
                     }
                 }
@@ -578,20 +602,20 @@ internal sealed class DownloadFileOperations : IDisposable
             try { file.SetLength(value); }
             catch (Exception e) when (value >= 0 && DownloadDestinationException.IsFileError(e))
             {
-                throw new DownloadDestinationException(e);
+                throw new DownloadDestinationException($"Sockseek could not resize '{file.Name}'.", e);
             }
         }
         public override void Flush()
         {
             try { file.Flush(); }
-            catch (Exception e) when (DownloadDestinationException.IsFileError(e)) { throw new DownloadDestinationException(e); }
+            catch (Exception e) when (DownloadDestinationException.IsFileError(e)) { throw new DownloadDestinationException($"Sockseek could not flush '{file.Name}'.", e); }
         }
         public override int Read(byte[] buffer, int offset, int count) => file.Read(buffer, offset, count);
         public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
         public override void Write(ReadOnlySpan<byte> buffer)
         {
             try { file.Write(buffer); }
-            catch (Exception e) when (DownloadDestinationException.IsFileError(e)) { throw new DownloadDestinationException(e); }
+            catch (Exception e) when (DownloadDestinationException.IsFileError(e)) { throw new DownloadDestinationException($"Sockseek could not write to '{file.Name}'.", e); }
         }
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
             => owner.Enqueue(() => { cancellationToken.ThrowIfCancellationRequested(); Write(buffer.Span); });
@@ -606,14 +630,24 @@ internal sealed class DownloadFileOperations : IDisposable
         protected override void Dispose(bool disposing)
         {
             try { if (disposing) file.Dispose(); }
-            catch (Exception e) when (DownloadDestinationException.IsFileError(e)) { throw new DownloadDestinationException(e); }
+            catch (Exception e) when (DownloadDestinationException.IsFileError(e)) { throw new DownloadDestinationException($"Sockseek could not finish writing '{file.Name}'.", e); }
             base.Dispose(disposing);
         }
         public override ValueTask DisposeAsync() => owner.CloseAsync(this);
     }
 }
 
-internal sealed class DownloadDestinationException(Exception cause) : IOException(cause.Message, cause)
+internal sealed class DownloadPreparationException(string operation, Exception cause, string blockedPath, bool isDirectory = false)
+    : DownloadDestinationException(operation, cause)
+{
+    internal string BlockedPath { get; } = Path.GetFullPath(blockedPath);
+    internal bool IsDirectory { get; } = isDirectory;
+}
+
+internal class DownloadDestinationException(string operation, Exception cause)
+    : IOException(cause is UnauthorizedAccessException
+        ? $"{operation} Check that the account running Sockseek has write access to the destination."
+        : $"{operation} {cause.Message}", cause)
 {
     // .NET can translate EFBIG from write or truncate to ArgumentOutOfRangeException.
     internal static bool IsFileError(Exception error) => error is IOException or UnauthorizedAccessException or ArgumentOutOfRangeException;

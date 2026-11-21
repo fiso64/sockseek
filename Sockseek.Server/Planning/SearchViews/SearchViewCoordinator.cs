@@ -81,7 +81,6 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
     // Keep first results prompt and bound each turn of projection work. Sparse
     // streams publish without waiting for a full batch; publication does no SQL.
     private int ProjectionBatchSize => persistence.SearchResultBatchSize;
-    // Directory pages fan out; embed up to 100 files per folder, then continue in 500-file pages.
     private const int InitialDirectoryFileLimit = ServerProtocol.DefaultNestedPageSize;
     private readonly ConcurrentDictionary<Guid, RuntimeView> runtimes = [];
     private readonly ConcurrentDictionary<Guid, byte> pending = [];

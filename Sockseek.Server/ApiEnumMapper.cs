@@ -19,9 +19,12 @@ public static class ApiEnumMapper
     public static TransferFailureReason ToServer(this Sockseek.Core.Events.TransferFailureReason? reason)
         => reason switch
         {
-            Sockseek.Core.Events.TransferFailureReason.PeerFailure => TransferFailureReason.ConnectionFailed,
+            Sockseek.Core.Events.TransferFailureReason.ConnectionFailed => TransferFailureReason.ConnectionFailed,
+            Sockseek.Core.Events.TransferFailureReason.PeerFailure => TransferFailureReason.Unknown,
+            Sockseek.Core.Events.TransferFailureReason.Denied => TransferFailureReason.Denied,
             Sockseek.Core.Events.TransferFailureReason.LocalStorageError => TransferFailureReason.LocalStorageError,
-            Sockseek.Core.Events.TransferFailureReason.Stale => TransferFailureReason.TransferTimedOut,
+            Sockseek.Core.Events.TransferFailureReason.FileChanged => TransferFailureReason.FileChanged,
+            Sockseek.Core.Events.TransferFailureReason.Stale or Sockseek.Core.Events.TransferFailureReason.TimedOut => TransferFailureReason.TransferTimedOut,
             Sockseek.Core.Events.TransferFailureReason.Finalization or Sockseek.Core.Events.TransferFailureReason.Unknown => TransferFailureReason.Unknown,
             _ => TransferFailureReason.None,
         };

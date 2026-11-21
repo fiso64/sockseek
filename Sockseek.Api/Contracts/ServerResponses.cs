@@ -87,7 +87,10 @@ public sealed record ProfileSummaryDto(
     bool IsAutoProfile,
     bool HasEngineSettings,
     bool HasDownloadSettings,
-    bool HasInputSettings = false);
+    bool HasInputSettings = false,
+    string? Input = null,
+    string? InputType = null,
+    string? DetectedInputType = null);
 
 /// <summary>
 /// Error response body for rejected API requests.
@@ -133,135 +136,6 @@ public sealed record JobSummaryStatsDto(
     int? SkippedMemberCount = null,
     int? DownloadedMemberCount = null,
     int? ReusedMemberCount = null);
-
-/// <summary>
-/// Lightweight job list item. Fetch JobDetailDto for a selected job's typed payload.
-/// </summary>
-/// <param name="Kind">Stable job kind.</param>
-/// <param name="LifecycleState">High-level lifecycle state.</param>
-/// <param name="ActivityPhase">Current activity phase for non-terminal jobs.</param>
-/// <param name="TerminalOutcome">Terminal result when LifecycleState is Terminal.</param>
-/// <param name="SkipReason">Reason when TerminalOutcome is Skipped.</param>
-/// <param name="FailureReason">Stable failure reason when TerminalOutcome is failed or cancelled.</param>
-/// <param name="CancellationSource">Source of a cancellation outcome, when known.</param>
-/// <param name="ParentJobId">Execution parent. Parent cancellation propagates to this job.</param>
-/// <param name="ResultJobId">For extract jobs, the semantic result job produced by extraction.</param>
-/// <param name="SourceJobId">Provenance link for independently submitted follow-up jobs, such as downloads started from search results.</param>
-/// <param name="AvailableActions">Actions currently valid for this job.</param>
-/// <param name="PrintOption">Effective print mode for this job, when print-only behavior is active.</param>
-/// <param name="DiscoveryPublicFileCount">Raw public files observed by a search job; null for non-search jobs or unavailable history.</param>
-/// <param name="DiscoveryObservedPeerCount">Distinct exact peer identities that supplied public or locked files. Locked-only peers count.</param>
-/// <param name="SearchDefaultProjection">Accepted default search presentation, when retained; null for other jobs or unavailable definitions.</param>
-/// <param name="SearchGroupResults">Accepted group presentation preference, when retained; null for other jobs or unavailable definitions.</param>
-/// <param name="Stats">Compact per-kind counts from the job owner; absent values must not be inferred from loaded children.</param>
-public sealed record JobSummaryDto(
-    Guid JobId,
-    int DisplayId,
-    Guid WorkflowId,
-    ServerJobKind Kind,
-    ServerJobLifecycleState LifecycleState,
-    ServerJobActivityPhase ActivityPhase,
-    DateTimeOffset? ActivityUntilUtc,
-    ServerJobTerminalOutcome TerminalOutcome,
-    ServerJobSkipReason SkipReason,
-    string? ItemName,
-    string? QueryText,
-    ServerJobFailureReason? FailureReason,
-    string? FailureMessage,
-    Guid? ParentJobId,
-    Guid? ResultJobId,
-    Guid? SourceJobId,
-    int? DiscoveryRawResultCount,
-    int? DiscoveryLockedFileCount,
-    IReadOnlyList<AppliedProfileDto> AppliedProfiles,
-    IReadOnlyList<ResourceActionDto> AvailableActions,
-    string? FailureDetail = null,
-    ServerJobCancellationSource CancellationSource = ServerJobCancellationSource.None,
-    ServerPrintOption PrintOption = ServerPrintOption.None,
-    Guid? SubmissionId = null,
-    ServerJobRole Role = ServerJobRole.UserRoot,
-    DateTimeOffset? CreatedAtUtc = null,
-    int? DiscoveryPublicFileCount = null,
-    int? DiscoveryObservedPeerCount = null,
-    JobSummaryStatsDto? Stats = null,
-    ServerSearchDefaultProjectionKind? SearchDefaultProjection = null,
-    bool? SearchGroupResults = null,
-    string? SourceDetail = null)
-{
-    public JobSummaryDto()
-        : this(
-            Guid.Empty,
-            0,
-            Guid.Empty,
-            ServerJobKind.Generic,
-            ServerJobLifecycleState.Pending,
-            ServerJobActivityPhase.None,
-            null,
-            ServerJobTerminalOutcome.None,
-            ServerJobSkipReason.None,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            [],
-            [],
-            null,
-            ServerJobCancellationSource.None)
-    {
-    }
-
-    public JobSummaryDto(
-        Guid JobId,
-        int DisplayId,
-        Guid WorkflowId,
-        ServerJobKind Kind,
-        ServerJobLifecycleState LifecycleState,
-        ServerJobActivityPhase ActivityPhase,
-        DateTimeOffset? ActivityUntilUtc,
-        ServerJobTerminalOutcome TerminalOutcome,
-        string? ItemName,
-        string? QueryText,
-        ServerJobFailureReason? FailureReason,
-        string? FailureMessage,
-        Guid? ParentJobId,
-        Guid? ResultJobId,
-        Guid? SourceJobId,
-        int? DiscoveryRawResultCount,
-        int? DiscoveryLockedFileCount,
-        IReadOnlyList<AppliedProfileDto> AppliedProfiles,
-        IReadOnlyList<ResourceActionDto> AvailableActions,
-        string? FailureDetail = null)
-        : this(
-            JobId,
-            DisplayId,
-            WorkflowId,
-            Kind,
-            LifecycleState,
-            ActivityPhase,
-            ActivityUntilUtc,
-            TerminalOutcome,
-            ServerJobSkipReason.None,
-            ItemName,
-            QueryText,
-            FailureReason,
-            FailureMessage,
-            ParentJobId,
-            ResultJobId,
-            SourceJobId,
-            DiscoveryRawResultCount,
-            DiscoveryLockedFileCount,
-            AppliedProfiles,
-            AvailableActions,
-            FailureDetail)
-    {
-    }
-
-}
 
 /// <summary>
 /// Fixed-size selected-job snapshot. Direct children are listed through the jobs collection.

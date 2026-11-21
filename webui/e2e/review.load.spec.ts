@@ -1,3 +1,4 @@
+import { nestedPageSize } from '../api-defaults';
 import { performance } from 'node:perf_hooks';
 import { stat } from 'node:fs/promises';
 import { test, expect, measureApi } from './fixtures';
@@ -17,8 +18,8 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
     const url = new URL(response.url());
     if (url.pathname !== '/api/jobs' || !url.searchParams.has('parentJobId')) return;
     void response.json().then((items: Schema<'JobSummaryDto'>[]) => {
-      childPages.push({ query: url.search, count: items.length, first: items[0]?.displayId,
-        last: items.at(-1)?.displayId, nextCursor: response.headers()['x-next-cursor'] });
+      childPages.push({ query: url.search, count: items.length, first: items[0]?.display.displayId,
+        last: items.at(-1)?.display.displayId, nextCursor: response.headers()['x-next-cursor'] });
     }).catch(error => childPages.push({ query: url.search, count: 0, error: String(error) }));
   });
   page.on('requestfinished', request => {
@@ -39,7 +40,8 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       ...Array.from({ length: 9_999 }, (_, index) => `Fixture,Review Item ${String(index + 1).padStart(5, '0')}`), ''].join('\n')),
   });
   // Measure display from the click itself; locator assertions remain watchdogs.
-  const previewTiming = await page.evaluateHandle(() => {
+  const previewRows = 2 + nestedPageSize; // Extract row, list row, and first page of leaves.
+  const previewTiming = await page.evaluateHandle(expectedRows => {
     let clickedAt: number | null = null;
     const timing = { readyDomMs: null as number | null, treeDomMs: null as number | null };
     let displayed!: () => void;
@@ -54,7 +56,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       const start = document.querySelector<HTMLButtonElement>('.new-job-start-button');
       if (start && !start.disabled && start.textContent?.trim() === 'Start 10000 jobs')
         timing.readyDomMs ??= Math.round(performance.now() - clickedAt);
-      if (document.querySelectorAll('.job-preview-row').length === 102)
+      if (document.querySelectorAll('.job-preview-row').length === expectedRows)
         timing.treeDomMs ??= Math.round(performance.now() - clickedAt);
       if (timing.readyDomMs !== null && timing.treeDomMs !== null) displayed();
     });
@@ -67,7 +69,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
         .map(entry => ({ path: new URL(entry.name).pathname + new URL(entry.name).search,
           startMs: Math.round(entry.startTime - clickedAt!), endMs: Math.round(entry.responseEnd - clickedAt!) })) };
     } };
-  });
+  }, previewRows);
   const previewStart = performance.now();
   const createdResponse = page.waitForResponse(response => response.ok()
     && response.request().method() === 'POST'
@@ -76,7 +78,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
   const created = await (await createdResponse).json() as Schema<'CreateJobPreviewResponseDto'>;
   await previewTiming.evaluate(timing => timing.waitUntilDisplayed());
   await expect(page.getByRole('button', { name: 'Start 10000 jobs', exact: true })).toBeEnabled({ timeout: 120_000 });
-  await expect(page.locator('.job-preview-row')).toHaveCount(102);
+  await expect(page.locator('.job-preview-row')).toHaveCount(previewRows);
   // Includes Playwright actionability/assertion waiting. The DOM markers below
   // measure the user's wait and belong in the canonical performance report.
   const previewObservedMs = Math.round(performance.now() - previewStart);
@@ -89,7 +91,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
   expect(readinessReads).toHaveLength(1);
   expect(readinessReads[0]!.path).toContain('waitForCompletion=true');
   const nodeReads = requests.filter(request => request.method === 'GET' && request.path.includes('/nodes?'));
-  expect(nodeReads).toHaveLength(3); // Extract -> List -> first 100 leaves.
+  expect(nodeReads).toHaveLength(3); // Extract -> List -> first page of leaves.
   expect(new Set(nodeReads.map(request => request.path)).size).toBe(3);
   const screenshot = testInfo.outputPath('large-review-first-page.png');
   await page.screenshot({ path: screenshot });
@@ -159,7 +161,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       if (start && document.querySelector('.automatic-job-detail h1')?.textContent === 'large-review'
         && document.querySelectorAll('[data-testid="job-row"]').length === count)
         return { elapsedMs: performance.now() - start.startTime };
-    }, Math.min(expectedCount, 100));
+    }, Math.min(expectedCount, nestedPageSize));
     await expect(root).toBeVisible();
     await root.click();
     const detailTiming = await detailReady;
@@ -174,7 +176,7 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
     expect(detailApiMs, 'Accepted root metadata must not scan its selected descendants.').toBeLessThan(100);
     const detail = JSON.parse(detailResponse.body) as Schema<'JobDetailDto'>;
     expect(detail.payload).toMatchObject({ kind: 'job-list', count: expectedCount });
-    await expect(page.locator('[data-testid="job-row"]')).toHaveCount(Math.min(expectedCount, 100));
+    await expect(page.locator('[data-testid="job-row"]')).toHaveCount(Math.min(expectedCount, nestedPageSize));
     console.log('PERF_REVIEW_PHASE ' + JSON.stringify({ allExcept, phase: 'accepted detail visible', elapsedMs: detailUiMs, jobReads }));
     if (allExcept) expect(detailUiMs, 'The accepted plan must appear without waiting for a one-second detail polling tick.')
       .toBeLessThan(1_000);
@@ -234,12 +236,12 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       expect(queuedJobs).toHaveLength(100);
       expect(queuedPage.headers.get('x-next-cursor')).toBeTruthy();
       const queuedChild = queuedJobs[31]!;
-      expect(queuedChild.lifecycleState).toBe('Pending');
+      expect(queuedChild.lifecycle.lifecycleState).toBe('Pending');
       console.log('PERF_REVIEW_QUEUED_READ ' + JSON.stringify({ queuedRootApiMs, queuedPageApiMs,
         childCount: queuedDetail.childCount }));
       try {
         await page.getByRole('button', { name: 'Load more', exact: true }).click();
-        await expect(page.locator('[data-testid="job-row"]')).toHaveCount(200);
+        await expect(page.locator('[data-testid="job-row"]')).toHaveCount(2 * nestedPageSize);
       } finally {
         console.log('PERF_REVIEW_PAGING ' + JSON.stringify({ jobReads, childPages }));
       }
@@ -255,13 +257,13 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
       expect((await queuedCancellation).status()).toBe(202);
       console.log('PERF_REVIEW_QUEUED ' + JSON.stringify({ declaredChildren: expectedCount,
         visibleChildren: queuedDetail.childCount, queuedRootApiMs, queuedPageApiMs,
-        displayedRows: 200, cancelledQueuedJobId: queuedChild.jobId }));
+        displayedRows: 2 * nestedPageSize, cancelledQueuedJobId: queuedChild.jobId }));
       const running = await page.request.get(`/api/jobs?workflowId=${receipt.workflowId}&includeAll=true&limit=100`);
       expect(running.ok(), await running.text()).toBe(true);
       const jobs = await running.json() as Schema<'JobSummaryDto'>[];
-      const runningSongs = jobs.filter(job => job.kind === 'song' && job.lifecycleState === 'Running');
+      const runningSongs = jobs.filter(job => job.display.kind === 'song' && job.lifecycle.lifecycleState === 'Running');
       expect(runningSongs.length).toBeGreaterThan(0);
-      expect(runningSongs.some(job => job.activityPhase === 'Searching')).toBe(true);
+      expect(runningSongs.some(job => job.lifecycle.activityPhase === 'Searching')).toBe(true);
       console.log('PERF_REVIEW_PHASE ' + JSON.stringify({ allExcept, phase: 'cancelling accepted workflow',
         expectedCount, runningSongCount: runningSongs.length }));
       // Install before the request. Locator assertions retry at up to one-
@@ -313,19 +315,19 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
         retainedRootApiMs = finalDetailResponse.elapsedMs;
         expect(retainedRootApiMs, 'Retained root metadata must remain a bounded read after 10k cancellations.').toBeLessThan(100);
         console.log('PERF_REVIEW_CANCEL_ROOT ' + JSON.stringify({ retainedRootApiMs,
-          lifecycle: finalDetail.summary.lifecycleState, outcome: finalDetail.summary.terminalOutcome,
+          lifecycle: finalDetail.summary.lifecycle.lifecycleState, outcome: finalDetail.summary.lifecycle.terminalOutcome,
           stats: finalDetail.summary.stats }));
       }
       const rootTerminalObservedMs = Math.round(performance.now() - cancellationStart);
       expect(rootTerminalPublishedMs, 'Observe the actual terminal DOM transition, not a later assertion poll.').not.toBeNull();
       const rootTerminalUiMs = Math.round(rootTerminalPublishedMs!);
-      expect(finalDetail.summary).toMatchObject({ lifecycleState: 'Terminal', terminalOutcome: 'Cancelled' });
+      expect(finalDetail.summary.lifecycle).toMatchObject({ lifecycleState: 'Terminal', terminalOutcome: 'Cancelled' });
       expect(finalDetail.payload).toMatchObject({ kind: 'job-list', count: expectedCount,
         activeJobCount: 0, completedJobCount: expectedCount, succeededJobCount: 0, failedJobCount: expectedCount });
       expect(finalDetail.childCount).toBe(expectedCount);
       const retainedQueued = await page.request.get(`/api/jobs/${queuedChild.jobId}`);
       expect(retainedQueued.ok(), await retainedQueued.text()).toBe(true);
-      expect((await retainedQueued.json() as Schema<'JobDetailDto'>).summary).toMatchObject({
+      expect((await retainedQueued.json() as Schema<'JobDetailDto'>).summary.lifecycle).toMatchObject({
         lifecycleState: 'Terminal', terminalOutcome: 'Cancelled', cancellationSource: 'UserRequestedJob',
       });
 

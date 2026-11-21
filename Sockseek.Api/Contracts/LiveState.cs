@@ -5,7 +5,7 @@ namespace Sockseek.Api;
 /// <summary>The live replication protocol implemented by this API.</summary>
 public static class LiveProtocol
 {
-    public const int Version = 20;
+    public const int Version = 22;
     public const string HubPath = "api/events";
     public const string StateUpdateBatchMethod = "stateUpdateBatch";
     public const string SubscribeAllMethod = nameof(LiveClientInvocation.SubscribeAll);
@@ -282,7 +282,7 @@ public sealed record JobLifecycleFieldsDto(
     ServerJobSkipReason SkipReason,
     ServerJobFailureReason? FailureReason,
     string? FailureMessage,
-    string? FailureDetail,
+    bool HasFailureDetail,
     ServerJobCancellationSource CancellationSource,
     IReadOnlyList<ResourceActionDto> AvailableActions);
 
@@ -299,92 +299,15 @@ public sealed record JobRelationshipFieldsDto(
     Guid? ResultJobId,
     Guid? SourceJobId);
 
-/// <summary>A complete replicated job row.</summary>
-public sealed record JobStateDto(
+/// <summary>One complete job summary used by HTTP reads and live snapshots.</summary>
+public sealed record JobSummaryDto(
     Guid JobId,
     long Revision,
     JobDisplayFieldsDto Display,
     JobLifecycleFieldsDto Lifecycle,
     JobDiscoveryFieldsDto Discovery,
     JobRelationshipFieldsDto Relationships,
-    JobSummaryStatsDto? Stats = null)
-{
-    public static JobStateDto FromSummary(JobSummaryDto summary, long revision)
-        => new(
-            summary.JobId,
-            revision,
-            new JobDisplayFieldsDto(
-                summary.DisplayId,
-                summary.WorkflowId,
-                summary.Kind,
-                summary.ItemName,
-                summary.QueryText,
-                summary.AppliedProfiles,
-                summary.PrintOption,
-                summary.SubmissionId,
-                summary.Role,
-                summary.CreatedAtUtc,
-                summary.SearchDefaultProjection,
-                summary.SearchGroupResults,
-                summary.SourceDetail),
-            new JobLifecycleFieldsDto(
-                summary.LifecycleState,
-                summary.ActivityPhase,
-                summary.ActivityUntilUtc,
-                summary.TerminalOutcome,
-                summary.SkipReason,
-                summary.FailureReason,
-                summary.FailureMessage,
-                summary.FailureDetail,
-                summary.CancellationSource,
-                summary.AvailableActions),
-            new JobDiscoveryFieldsDto(
-                summary.DiscoveryRawResultCount,
-                summary.DiscoveryLockedFileCount,
-                summary.DiscoveryPublicFileCount,
-                summary.DiscoveryObservedPeerCount),
-            new JobRelationshipFieldsDto(
-                summary.ParentJobId,
-                summary.ResultJobId,
-                summary.SourceJobId),
-            summary.Stats);
-
-    public JobSummaryDto ToSummary()
-        => new(
-            JobId,
-            Display.DisplayId,
-            Display.WorkflowId,
-            Display.Kind,
-            Lifecycle.LifecycleState,
-            Lifecycle.ActivityPhase,
-            Lifecycle.ActivityUntilUtc,
-            Lifecycle.TerminalOutcome,
-            Lifecycle.SkipReason,
-            Display.ItemName,
-            Display.QueryText,
-            Lifecycle.FailureReason,
-            Lifecycle.FailureMessage,
-            Relationships.ParentJobId,
-            Relationships.ResultJobId,
-            Relationships.SourceJobId,
-            Discovery.RawResultCount,
-            Discovery.LockedFileCount,
-            Display.AppliedProfiles,
-            Lifecycle.AvailableActions,
-            Lifecycle.FailureDetail,
-            Lifecycle.CancellationSource,
-            Display.PrintOption,
-            Display.SubmissionId,
-            Display.Role,
-            Display.CreatedAtUtc,
-            DiscoveryPublicFileCount: Discovery.PublicFileCount,
-            DiscoveryObservedPeerCount: Discovery.ObservedPeerCount,
-            Stats: Stats,
-            SearchDefaultProjection: Display.SearchDefaultProjection,
-            SearchGroupResults: Display.SearchGroupResults,
-            SourceDetail: Display.SourceDetail);
-
-}
+    JobSummaryStatsDto? Stats = null);
 
 /// <summary>
 /// A new job uses Added. Existing jobs replace only the supplied cohesive components.
@@ -393,7 +316,7 @@ public sealed record JobStateDto(
 public sealed record JobDeltaDto(
     Guid JobId,
     long Revision,
-    JobStateDto? Added = null,
+    JobSummaryDto? Added = null,
     JobDisplayFieldsDto? Display = null,
     JobLifecycleFieldsDto? Lifecycle = null,
     JobDiscoveryFieldsDto? Discovery = null,
@@ -587,7 +510,7 @@ public sealed record StateSnapshotDto(
     DateTimeOffset CapturedAtUtc,
     DaemonStateDto? Daemon,
     IReadOnlyList<WorkflowStateDto> Workflows,
-    IReadOnlyList<JobStateDto> Jobs,
+    IReadOnlyList<JobSummaryDto> Jobs,
     IReadOnlyList<SearchStateDto> Searches,
     IReadOnlyList<TransferStateDto> Transfers,
     ChatTargetSnapshotDto? ChatTarget = null,
@@ -667,8 +590,7 @@ public sealed record DownloadAttemptFailedActivityDto(
     int Attempt,
     int MaxAttempts,
     string ExceptionType,
-    string ExceptionMessage,
-    string Exception) : ActivityPayloadDto;
+    string ExceptionMessage) : ActivityPayloadDto;
 
 public sealed record TrackBatchResolvedActivityDto(
     int DisplayId,

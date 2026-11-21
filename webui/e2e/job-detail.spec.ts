@@ -1,3 +1,4 @@
+import { jobSummary } from '../tests/job-fixture';
 import { test, expect } from './fixtures';
 import type { Schema } from '../src/api/types';
 import type { Page, WebSocketRoute } from '@playwright/test';
@@ -44,14 +45,14 @@ for (const mode of ['song', 'album'] as const) {
         : detail.payload?.kind === 'album' ? detail.payload.directory : undefined;
       expect(output).toBeDefined();
       if (run === 0) {
-        expect(detail.summary.terminalOutcome).toBe('Succeeded');
+        expect(detail.summary.lifecycle.terminalOutcome).toBe('Succeeded');
         firstPath = output!.downloadPath;
         expect(firstPath).toBeTruthy();
         await page.goto(`/jobs/${job.jobId}`);
         await expect(page.getByTestId('job-info-card')).toHaveCount(0);
         continue;
       }
-      expect(detail.summary.terminalOutcome).toBe('Skipped');
+      expect(detail.summary.lifecycle.terminalOutcome).toBe('Skipped');
       expect(output!.existingFileSource).toBe('CompletionHistory');
       expect(output!.downloadPath).toBe(firstPath);
       await page.goto(`/jobs/${job.jobId}`);
@@ -85,7 +86,7 @@ test('removes a terminal user root from detail, preserving rejected actions and 
   } satisfies Schema<'SubmitJobListRequestDto'> });
   expect(response.status()).toBe(202);
   const root = await response.json() as Schema<'JobSummaryDto'>;
-  expect(root.submissionId).toBeTruthy();
+  expect(root.display.submissionId).toBeTruthy();
   await page.goto(`/jobs/${root.jobId}`);
   const remove = page.getByTestId('delete-submission');
   await expect(remove).toBeVisible();
@@ -124,14 +125,14 @@ test('removes a terminal user root from detail, preserving rejected actions and 
   const released = new Promise<void>((resolve) => { release = resolve; });
   let admitted!: () => void;
   const admission = new Promise<void>((resolve) => { admitted = resolve; });
-  await page.route(`**/api/submissions/${root.submissionId}`, async (route) => {
+  await page.route(`**/api/submissions/${root.display.submissionId}`, async (route) => {
     if (route.request().method() !== 'DELETE' || !rejectDeletion) return route.continue();
     admitted();
     await released;
     // Exercise the wire receipt failure path, not just a non-2xx request. The
     // real daemon handles the successful retry below; this receipt is injected.
     const rejected: Schema<'DeleteSubmissionResponseDto'> = {
-      submissionId: root.submissionId!, affectedSubmissionCount: 0,
+      submissionId: root.display.submissionId!, affectedSubmissionCount: 0,
       affectedJobCount: 0, rejectedSubmissionCount: 1,
       rejectionReasons: [{ reason: 'nonterminal-jobs', count: 1 }],
     };
@@ -168,7 +169,7 @@ test('does not navigate away from a new page when an earlier detail deletion fin
   let admitted!: () => void, release!: () => void;
   const admission = new Promise<void>((resolve) => { admitted = resolve; });
   const released = new Promise<void>((resolve) => { release = resolve; });
-  const deletionPath = `/api/submissions/${root.submissionId}`;
+  const deletionPath = `/api/submissions/${root.display.submissionId}`;
   await page.route(`**${deletionPath}`, async (route) => { if (route.request().method() === 'DELETE') { admitted(); await released; } await route.continue(); });
   const deletiond = page.waitForResponse((reply) => new URL(reply.url()).pathname === deletionPath && reply.request().method() === 'DELETE' && reply.ok());
   await page.getByTestId('delete-submission').click();
@@ -272,7 +273,7 @@ test('reconciles an open job when a recovery snapshot misses its entire live wor
     if (!capture) return route.continue();
     capture = false;
     const response = await route.fetch();
-    expect((await response.json() as Schema<'JobDetailDto'>).summary.lifecycleState).toBe('Running');
+    expect((await response.json() as Schema<'JobDetailDto'>).summary.lifecycle.lifecycleState).toBe('Running');
     observed();
     await released;
     await route.fulfill({ response });
@@ -355,7 +356,8 @@ test('shows the accepted remote-directory files and keeps them after completion'
   const folder = page.locator('.folder-item-card');
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
   await expect(folder).toContainText('Selected.txt');
-  await expect(folder).toContainText('Nested/Nested.jpg');
+  await expect(folder.locator('.folder-subfolder-path')).toHaveText('Nested');
+  await expect(folder.locator('.folder-file-path')).toHaveText(['Selected.txt', 'Nested.jpg']);
   await expect(folder.locator('.folder-transfer-footer').getByLabel('50% complete', { exact: true })).toBeVisible();
   await expect(folder.locator('.folder-file-progress')).toHaveCount(2);
   const jobId = new URL(page.url()).pathname.split('/').at(-1)!;
@@ -390,7 +392,7 @@ test('shows the accepted remote-directory files and keeps them after completion'
     await rootRefreshed;
     await expect(folder.locator('.folder-file-row').filter({ hasText: 'Selected.txt' })
       .getByLabel('Complete', { exact: true })).toBeVisible();
-    await expect(folder.locator('.folder-file-row').filter({ hasText: 'Nested/Nested.jpg' })
+    await expect(folder.locator('.folder-file-row').filter({ hasText: 'Nested.jpg' })
       .getByLabel('Downloading', { exact: true })).toBeVisible();
     expect(manifestRequests, 'Live child outcomes do not change the file-page membership.').toBe(0);
   } finally {
@@ -463,7 +465,8 @@ test('shows the accepted remote-directory files and keeps them after completion'
   await manifestAlert.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
   await expect(manifestAlert).toHaveCount(0);
-  await expect(folder).toContainText('Nested/Nested.jpg');
+  await expect(folder.locator('.folder-subfolder-path')).toHaveText('Nested');
+  await expect(folder.locator('.folder-file-path')).toHaveText(['Selected.txt', 'Nested.jpg']);
   await expect(folder.locator('.transfer-state').first()).toHaveText('Complete');
   // A failed manifest read must leave the independently known root outcome visible.
   manifestRead = 'missing';
@@ -609,7 +612,7 @@ test('retains named album outputs and pages appended artwork through missing his
   const history = (await historyResponse.json() as Schema<'TransferTimelinePageDto'>).items;
   expect(history).toHaveLength(3);
   for (const entry of finalManifest.items) {
-    expect(entry.child?.terminalOutcome).toBe('Succeeded');
+    expect(entry.child?.lifecycle.terminalOutcome).toBe('Succeeded');
     const transfer = history.find(item => item.identity.jobId === entry.childJobId)!;
     expect(transfer).toBeDefined();
     expect(transfer.status.localPath).toBe(entry.file?.downloadPath);
@@ -639,8 +642,8 @@ test('retains named album outputs and pages appended artwork through missing his
 test('shows fallback stages and retained output without a fictitious peer or stale progress', async ({ page }) => {
   const jobId = '00000000-0000-4000-8000-000000000099';
   const detail: Schema<'JobDetailDto'> = {
-    summary: { jobId, kind: 'song', itemName: 'Artist - Song', lifecycleState: 'Running',
-      activityPhase: 'SearchingFallback', availableActions: [] },
+    summary: jobSummary({ jobId, display: { kind: 'song', itemName: 'Artist - Song' },
+      lifecycle: { lifecycleState: 'Running', activityPhase: 'SearchingFallback' } }),
     payload: { kind: 'song', query: { artistMaybeWrong: false }, candidateCount: 1,
       fallback: { provider: 'Fixture provider', title: 'Source recording', reference: 'source-id' },
       lastAttemptedFile: { peer: { username: 'Previous peer' }, target: { username: 'Previous peer', filename: 'old.flac', size: 128 } },
@@ -650,7 +653,7 @@ test('shows fallback stages and retained output without a fictitious peer or sta
   await page.route(`**/api/jobs/${jobId}`, route => route.fulfill({ json: detail }));
   const card = page.locator('.job-content-section .file-item-card');
   for (const phase of ['SearchingFallback', 'DownloadingFallback', 'ProcessingFallback'] as const) {
-    detail.summary.activityPhase = phase;
+    detail.summary.lifecycle.activityPhase = phase;
     await page.goto(`/jobs/${jobId}`);
     await expect(page.locator('.job-source-summary')).toContainText('Fixture provider');
     await expect(page.locator('.job-source-summary a')).toHaveCount(0);
@@ -659,9 +662,9 @@ test('shows fallback stages and retained output without a fictitious peer or sta
     await expect(card.locator('[role="progressbar"]')).toHaveCount(0);
     await expect(card).not.toContainText('old.flac');
   }
-  detail.summary.lifecycleState = 'Terminal';
-  detail.summary.terminalOutcome = 'Succeeded';
-  detail.summary.activityPhase = 'None';
+  detail.summary.lifecycle.lifecycleState = 'Terminal';
+  detail.summary.lifecycle.terminalOutcome = 'Succeeded';
+  detail.summary.lifecycle.activityPhase = 'None';
   if (detail.payload?.kind !== 'song') throw new Error('Expected song fixture');
   detail.payload.downloadSource = 'Fallback';
   detail.payload.file = { reused: false, downloadPath: '/music/actual.opus', bytesTransferred: 512,

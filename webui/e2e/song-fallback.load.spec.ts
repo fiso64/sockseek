@@ -1,3 +1,4 @@
+import { nestedPageSize } from '../api-defaults';
 import { readFile, readdir, rm } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import type { Page } from '@playwright/test';
@@ -44,8 +45,8 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
     const acceptanceMs = response.elapsedMs;
     expect(response.status, response.body).toBe(202);
     const root = JSON.parse(response.body) as Schema<'JobSummaryDto'>;
-    expect(workflowIds.has(root.workflowId!)).toBe(false);
-    workflowIds.add(root.workflowId!);
+    expect(workflowIds.has(root.display.workflowId!)).toBe(false);
+    workflowIds.add(root.display.workflowId!);
     const retired = observeRetirement(page, root.jobId!);
     const browserDetailReads: string[] = [];
     const childPages: URLSearchParams[] = [];
@@ -74,11 +75,11 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
     expect(activeResponse.ok(), await activeResponse.text()).toBe(true);
     const active = await activeResponse.json() as Schema<'JobDetailDto'>;
     expect(active.payload).toMatchObject({ kind: 'song', candidateCount: 100 });
-    expect(active.summary.lifecycleState).not.toBe('Terminal');
+    expect(active.summary.lifecycle.lifecycleState).not.toBe('Terminal');
     const activeTransfersResponse = await page.request.get('/api/transfers?direction=download&limit=500');
     expect(activeTransfersResponse.ok(), await activeTransfersResponse.text()).toBe(true);
     const activeTransfers = (await activeTransfersResponse.json() as Schema<'TransferTimelinePageDto'>).items
-      .filter(item => item.identity.workflowId === root.workflowId);
+      .filter(item => item.identity.workflowId === root.display.workflowId);
     expect(activeTransfers).toHaveLength(100);
     expect(activeTransfers.filter(item => item.status.terminalOutcome === 'Failed')).toHaveLength(99);
     expect(activeTransfers.find(item => item.identity.username === 'Péér 099')).toMatchObject({
@@ -128,7 +129,7 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
     expect(retainedResponse.ok, retainedResponse.body).toBe(true);
     const retained = JSON.parse(retainedResponse.body) as Schema<'JobDetailDto'>;
     const detailMs = retainedResponse.elapsedMs;
-    expect(retained.summary).toMatchObject({ lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' });
+    expect(retained.summary.lifecycle).toMatchObject({ lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' });
     expect(retained.payload).toMatchObject({ kind: 'song', candidateCount: 100,
       resolvedUsername: 'Péér 099', resolvedFilename: expectedPath(99), resolvedSize: 1_024 });
     const retainedRaw = await readRawSource(true);
@@ -151,7 +152,7 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
     expect(timelineResponse.ok, timelineResponse.body).toBe(true);
     const timeline = JSON.parse(timelineResponse.body) as Schema<'TransferTimelinePageDto'>;
     const timelineMs = timelineResponse.elapsedMs;
-    const transfers = timeline.items.filter(item => item.identity.workflowId === root.workflowId);
+    const transfers = timeline.items.filter(item => item.identity.workflowId === root.display.workflowId);
     expect(transfers).toHaveLength(100);
     expect(new Set(transfers.map(item => item.transferId)).size).toBe(100);
     expect(transfers.every(item => item.identity.jobId === songId && item.status.attemptCount === 1)).toBe(true);
@@ -176,7 +177,7 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
       expect(attempts).toHaveLength(1);
       expect(attempts[0]).toMatchObject({ transferId: transfer.transferId, attemptNumber: 1,
         sourceUsername: expectedPeers[index], sourcePath: expectedPath(index),
-        state: index === 99 ? 'Completed' : 'Failed', failureReason: index === 99 ? 'None' : 'PeerFailure' });
+        state: index === 99 ? 'Completed' : 'Failed', failureReason: index === 99 ? 'None' : 'Denied' });
       expect(attempts[0]!.completedAtUtc).toBeTruthy();
     }
     const successful = transfers.find(item => item.status.terminalOutcome === 'Succeeded')!;
@@ -188,7 +189,7 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
     expect(new Set(browserDetailReads)).toEqual(new Set([root.jobId, songId].map(id => `/api/jobs/${id}`)));
     if (group) {
       expect(childPages.length).toBeGreaterThan(0);
-      expect(childPages.every(query => query.get('kind') === 'song' && query.get('limit') === '100')).toBe(true);
+      expect(childPages.every(query => query.get('kind') === 'song' && query.get('limit') === String(nestedPageSize))).toBe(true);
     } else expect(childPages).toHaveLength(0);
     page.off('request', onRequest);
     measurements.push({ mode, acceptanceMs, fallbackUiMs, detailMs, timelineMs, attemptsMs, rawApiMs,

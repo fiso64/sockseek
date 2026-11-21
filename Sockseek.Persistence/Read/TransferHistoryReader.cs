@@ -57,7 +57,8 @@ public sealed record PersistedTransferAttempt(
     DateTimeOffset? CompletedAtUtc,
     string FailureReason,
     string? FailureMessage,
-    long Revision);
+    long Revision,
+    string CancellationSource);
 
 public sealed record PersistedTransferDetail(PersistedTransfer Transfer, PersistedTransferAttempt? LatestAttempt);
 // Source facts needed to select a page before hydrating presentation metadata.
@@ -599,7 +600,7 @@ public sealed class TransferHistoryReader(
             attempt.Id, attempt.TransferId, attempt.AttemptNumber, attempt.Source, attempt.State,
             attempt.SourceUsername, attempt.SourcePath, attempt.OutputPath,
             DateTimeOffset.FromUnixTimeMilliseconds(attempt.StartedAtUtc), FromUnix(attempt.CompletedAtUtc),
-            attempt.FailureReason, attempt.FailureMessage, attempt.Revision);
+            attempt.FailureReason, attempt.FailureMessage, attempt.Revision, attempt.CancellationSource);
 
     public static string EncodeCursor(long createdAtUtc, Guid id)
         => Convert.ToBase64String(Encoding.UTF8.GetBytes($"{createdAtUtc}:{id:N}"));

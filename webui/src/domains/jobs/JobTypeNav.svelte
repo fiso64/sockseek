@@ -21,6 +21,7 @@
     ] },
   ];
   export function jobChoiceMetadata(value: NewJobChoice) {
+    if (value === 'string') return { label: 'Text input', detail: 'Song or album search text' };
     return groups.flatMap((group) => group.choices).find((choice) => choice.value === value)!;
   }
 </script>

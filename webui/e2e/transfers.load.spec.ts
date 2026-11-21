@@ -560,7 +560,7 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
   const rootResponse = await page.request.get(`/api/jobs/${root.jobId}`);
   expect(rootResponse.ok(), await rootResponse.text()).toBe(true);
   const completedRoot = await rootResponse.json() as Schema<'JobDetailDto'>;
-  expect(completedRoot.summary.terminalOutcome).toBe('Succeeded');
+  expect(completedRoot.summary.lifecycle.terminalOutcome).toBe('Succeeded');
   expect([...globalJobIds], 'A Downloads overview must receive roots, never all downloaded child jobs.').toEqual([root.jobId]);
   const outputFiles = (await readdir(outputDirectory, { recursive: true })).filter(name => name.endsWith('.bin')).sort();
   expect(outputFiles).toEqual(expectedFiles.sort());

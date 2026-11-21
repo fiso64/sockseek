@@ -1,7 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { buildJobPreviewRequest, buildJobSettingsRequest, createNewJobDraft } from '../src/domains/jobs/submission';
+import { applyProfileInput, profileInputDefaults, buildJobPreviewRequest, buildJobSettingsRequest, createNewJobDraft } from '../src/domains/jobs/submission';
 
 describe('New Job submission', () => {
+  it('applies the latest selected input and type independently to the submitted job', () => {
+    const profile = { isAutoProfile: false, hasDownloadSettings: true, hasEngineSettings: false, hasInputSettings: true };
+    const catalog = [
+      { ...profile, name: 'collection', input: '/old.txt', inputType: 'List' },
+      { ...profile, name: 'source', input: '/new.csv', detectedInputType: 'CSV' },
+      { ...profile, name: 'format', inputType: 'CSV' },
+    ];
+    const job = (names: string[]) => {
+      const { input, resolvedType } = profileInputDefaults(names, catalog);
+      return buildJobPreviewRequest(applyProfileInput(createNewJobDraft(), input?.input ?? undefined, resolvedType)!).job;
+    };
+    expect(job(['collection', 'format', 'source'])).toEqual({ kind: 'extract', input: '/new.csv', inputType: 'csv' });
+    expect(job(['source', 'format', 'collection'])).toEqual({ kind: 'extract', input: '/old.txt', inputType: 'list' });
+    expect(job(['source'])).toEqual({ kind: 'extract', input: '/new.csv', inputType: 'csv' });
+  });
+
   it('preserves song metadata and passes settings to the daemon unchanged', () => {
     const draft = { ...createNewJobDraft(), artist: 'Artist', title: 'Track', album: 'Album' };
     const request = buildJobPreviewRequest(draft);

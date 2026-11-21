@@ -187,8 +187,8 @@ public class RemoteProfileTests
         var completed = new TaskCompletionSource<JobSummaryDto>(TaskCreationOptions.RunContinuationsAsynchronously);
         void OnJobUpserted(JobSummaryDto summary)
         {
-            if (summary.Kind != ServerJobKind.Extract || summary.ParentJobId != null) return;
-            if (summary.TerminalOutcome != ServerJobTerminalOutcome.None) completed.TrySetResult(summary);
+            if (summary.Display.Kind != ServerJobKind.Extract || summary.Relationships.ParentJobId != null) return;
+            if (summary.Lifecycle.TerminalOutcome != ServerJobTerminalOutcome.None) completed.TrySetResult(summary);
         }
         stateStore.JobUpserted += OnJobUpserted;
         try
@@ -239,11 +239,11 @@ public class RemoteProfileTests
 
             Assert.AreEqual((int)Sockseek.Cli.Program.CliExitCode.Success, exit, stderr.ToString());
             var summary = await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, summary.TerminalOutcome, summary.FailureMessage);
+            Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.FailureMessage);
             if (detach)
             {
                 Assert.IsTrue(Guid.TryParse(stdout.ToString().Trim(), out Guid reported), stdout.ToString());
-                Assert.AreEqual(summary.WorkflowId, reported);
+                Assert.AreEqual(summary.Display.WorkflowId, reported);
             }
             Assert.IsNotNull(submittedRequest);
             var expectedInput = explicitInput ? overrideInput : daemonInput;
@@ -254,7 +254,7 @@ public class RemoteProfileTests
             {
                 Assert.IsNull(submittedRequest.ArtifactId);
                 Assert.AreEqual(await File.ReadAllTextAsync(overrideInput), submittedRequest.InputText);
-                var accepted = await api.GetSubmissionAsync(summary.SubmissionId!.Value);
+                var accepted = await api.GetSubmissionAsync(summary.Display.SubmissionId!.Value);
                 Assert.IsNotNull(accepted);
                 Assert.AreEqual(submittedRequest.ArtifactId, accepted.Summary.ArtifactId);
                 Assert.AreEqual(Path.GetFileName(expectedInput), source.Input);

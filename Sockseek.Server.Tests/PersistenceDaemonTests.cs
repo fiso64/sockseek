@@ -66,20 +66,20 @@ public sealed class PersistenceDaemonTests
             var fullChildren = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             fullClient.Updated += _ =>
             {
-                if (fullClient.Store.GetJobs().Count(job => job.ParentJobId != null) == 2) fullChildren.TrySetResult();
+                if (fullClient.Store.GetJobs().Count(job => job.Relationships.ParentJobId != null) == 2) fullChildren.TrySetResult();
             };
             await fullClient.StartDaemonAsync();
             var root = await supervisor.Submissions.SubmitJobListAsync(new SubmitJobListRequestDto("held metadata",
                 [new GenericSearchJobDraftDto("held one"), new GenericSearchJobDraftDto("held two")]), CancellationToken.None);
             var expectedStats = new JobSummaryStatsDto(MemberCount: 2, CompletedMemberCount: 2, FailedMemberCount: 0, SkippedMemberCount: 0);
-            workflowId = root.WorkflowId;
+            workflowId = root.Display.WorkflowId;
             await searchesStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await fullChildren.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(3, fullClient.Store.GetJobs().Count, "The full SDK stream still carries children.");
             await using var overviewClient = new SockseekLiveClient(http, detail: DaemonStateDetail.Overview);
             await overviewClient.StartDaemonAsync();
             Assert.AreEqual(root.JobId, overviewClient.Store.GetJobs().Single().JobId);
-            Guid observedChild = fullClient.Store.GetJobs().First(job => job.ParentJobId == root.JobId).JobId;
+            Guid observedChild = fullClient.Store.GetJobs().First(job => job.Relationships.ParentJobId == root.JobId).JobId;
             using var observationDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             await using var observed = overviewClient.ObserveJobsAsync(root.JobId, [observedChild], observationDeadline.Token)
                 .GetAsyncEnumerator();
@@ -123,7 +123,7 @@ public sealed class PersistenceDaemonTests
                 var queries = app.Services.GetRequiredService<JobReadService>();
                 var detail = await queries.GetJobAsync(root.JobId).WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.IsNotNull(detail);
-                Assert.AreEqual(ServerJobLifecycleState.Terminal, detail.Summary.LifecycleState);
+                Assert.AreEqual(ServerJobLifecycleState.Terminal, detail.Summary.Lifecycle.LifecycleState);
                 Assert.AreEqual(2, detail.ChildCount);
                 Assert.AreEqual(expectedStats, detail.Summary.Stats);
                 var children = await queries.GetJobsAsync(new JobQuery(null, null, null, workflowId,
@@ -133,19 +133,19 @@ public sealed class PersistenceDaemonTests
                     [root.JobId, children.Items[0].JobId, Guid.NewGuid(), root.JobId])).WaitAsync(TimeSpan.FromSeconds(5));
                 CollectionAssert.AreEqual(new[] { root.JobId, children.Items[0].JobId }, summaries.Select(job => job.JobId).ToArray());
                 Assert.AreEqual(expectedStats, summaries[0].Stats);
-                Assert.IsTrue(children.Items.All(job => job.LifecycleState == ServerJobLifecycleState.Terminal));
+                Assert.IsTrue(children.Items.All(job => job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal));
                 var global = await queries.GetJobsAsync(new JobQuery(null, null, null, null, IncludeAll: true), null, 100)
                     .WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.AreEqual(3, global.Items.Count);
                 Assert.IsNotNull(await queries.GetWorkflowAsync(workflowId).WaitAsync(TimeSpan.FromSeconds(5)));
                 Assert.AreEqual(1, (await queries.GetWorkflowsAsync(null, 100).WaitAsync(TimeSpan.FromSeconds(5))).Items.Count);
-                Assert.IsNotNull(await queries.GetJobByDisplayIdAsync(workflowId, root.DisplayId).WaitAsync(TimeSpan.FromSeconds(5)));
-                var submission = await queries.GetSubmissionAsync(root.SubmissionId!.Value).WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.IsNotNull(await queries.GetJobByDisplayIdAsync(workflowId, root.Display.DisplayId).WaitAsync(TimeSpan.FromSeconds(5)));
+                var submission = await queries.GetSubmissionAsync(root.Display.SubmissionId!.Value).WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.IsNotNull(submission);
                 Assert.AreEqual(3, submission.Summary.TotalJobCount);
                 Assert.AreEqual(0, submission.Summary.ActiveJobCount);
                 Assert.AreEqual(3, (await queries.GetSubmissionsAsync(null, 100).WaitAsync(TimeSpan.FromSeconds(5)))
-                    .Items.Single(item => item.SubmissionId == root.SubmissionId).TotalJobCount);
+                    .Items.Single(item => item.SubmissionId == root.Display.SubmissionId).TotalJobCount);
                 Assert.IsFalse(removed.Task.IsCompleted,
                     $"Read ownership must last until acknowledgement; metadata={metadata.Status}, error={metadata.Exception?.GetBaseException().Message}.");
                 held.Rollback();
@@ -157,7 +157,7 @@ public sealed class PersistenceDaemonTests
             var retained = await app.Services.GetRequiredService<JobReadService>().GetJobAsync(root.JobId);
             Assert.IsNotNull(retained);
             Assert.AreEqual(2, retained.ChildCount);
-            Assert.AreEqual(ServerJobLifecycleState.Terminal, retained.Summary.LifecycleState);
+            Assert.AreEqual(ServerJobLifecycleState.Terminal, retained.Summary.Lifecycle.LifecycleState);
             Assert.AreEqual(expectedStats, retained.Summary.Stats,
                 "Read ownership must not change the public completion counts.");
             var snapshot = await client.GetJobListSnapshotAsync(listScope);
@@ -168,7 +168,7 @@ public sealed class PersistenceDaemonTests
             Assert.IsTrue(await reconnected.MoveNextAsync());
             CollectionAssert.AreEqual(snapshot.WindowJobIds!.ToArray(), reconnected.Current.WindowJobIds!.ToArray());
             Assert.AreEqual(expectedStats, reconnected.Current.Jobs.Single().Added!.Stats);
-            await client.DeleteSubmissionAsync(root.SubmissionId!.Value);
+            await client.DeleteSubmissionAsync(root.Display.SubmissionId!.Value);
             Assert.IsTrue(await reconnected.MoveNextAsync());
             CollectionAssert.AreEqual(new[] { root.JobId }, reconnected.Current.RemovedJobIds.ToArray());
         }
@@ -210,9 +210,9 @@ public sealed class PersistenceDaemonTests
             var persistence = app.Services.GetRequiredService<PersistenceCoordinator>();
             var original = await supervisor.Submissions.SubmitSearchJobAsync(
                 new SubmitSearchJobRequestDto("independent accepted intent"), CancellationToken.None);
-            await Retirement(original.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
-            await persistence.WaitForWorkflowHandoffAsync(original.WorkflowId, CancellationToken.None);
-            string? originalIntent = await persistence.Submissions!.GetSpecificationJsonAsync(original.SubmissionId!.Value);
+            await Retirement(original.Display.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await persistence.WaitForWorkflowHandoffAsync(original.Display.WorkflowId, CancellationToken.None);
+            string? originalIntent = await persistence.Submissions!.GetSpecificationJsonAsync(original.Display.SubmissionId!.Value);
             Assert.IsNotNull(originalIntent);
             Guid lostSearchId;
 
@@ -235,36 +235,36 @@ public sealed class PersistenceDaemonTests
                 var other = await supervisor.Submissions.SubmitSearchJobAsync(
                     new SubmitSearchJobRequestDto("lost search history"), CancellationToken.None);
                 lostSearchId = other.JobId;
-                await Retirement(other.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await Retirement(other.Display.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
                 await Assert.ThrowsExactlyAsync<PersistenceHandoffException>(() =>
-                    persistence.WaitForWorkflowHandoffAsync(other.WorkflowId, CancellationToken.None)
+                    persistence.WaitForWorkflowHandoffAsync(other.Display.WorkflowId, CancellationToken.None)
                         .WaitAsync(TimeSpan.FromSeconds(5)));
-                await persistence.WaitForWorkflowHandoffAsync(other.WorkflowId, CancellationToken.None, includeSearchResults: false);
+                await persistence.WaitForWorkflowHandoffAsync(other.Display.WorkflowId, CancellationToken.None, includeSearchResults: false);
                 command.CommandText = "DROP TRIGGER lose_search_insert; DROP TRIGGER lose_search_update;";
                 await command.ExecuteNonQueryAsync();
             }
 
             var recoveredSearch = await supervisor.Submissions.RerunJobAsync(lostSearchId, CancellationToken.None);
             Assert.IsNotNull(recoveredSearch);
-            Assert.AreEqual("lost search history", recoveredSearch.QueryText);
+            Assert.AreEqual("lost search history", recoveredSearch.Display.QueryText);
             Assert.AreNotEqual(lostSearchId, recoveredSearch.JobId);
-            await Retirement(recoveredSearch.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Retirement(recoveredSearch.Display.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             Assert.IsNull(await supervisor.Submissions.RerunSubmissionAsync(Guid.NewGuid(), CancellationToken.None),
                 "An unrelated history failure must not turn a missing submission into a server error.");
-            var replay = await supervisor.Submissions.RerunSubmissionAsync(original.SubmissionId.Value, CancellationToken.None);
+            var replay = await supervisor.Submissions.RerunSubmissionAsync(original.Display.SubmissionId.Value, CancellationToken.None);
             Assert.IsNotNull(replay);
-            Assert.AreNotEqual(original.SubmissionId, replay.SubmissionId);
-            Assert.AreEqual("independent accepted intent", replay.QueryText);
-            await Retirement(replay.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var retained = await persistence.Submissions.GetSubmissionAsync(replay.SubmissionId!.Value);
+            Assert.AreNotEqual(original.Display.SubmissionId, replay.Display.SubmissionId);
+            Assert.AreEqual("independent accepted intent", replay.Display.QueryText);
+            await Retirement(replay.Display.WorkflowId).Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var retained = await persistence.Submissions.GetSubmissionAsync(replay.Display.SubmissionId!.Value);
             Assert.IsNotNull(retained);
-            Assert.AreEqual(original.SubmissionId, retained.RerunOfSubmissionId);
-            var deleted = await app.Services.GetRequiredService<JobReadService>().DeleteSubmissionAsync(original.SubmissionId.Value, CancellationToken.None);
+            Assert.AreEqual(original.Display.SubmissionId, retained.RerunOfSubmissionId);
+            var deleted = await app.Services.GetRequiredService<JobReadService>().DeleteSubmissionAsync(original.Display.SubmissionId.Value, CancellationToken.None);
             Assert.AreEqual(1, deleted.AffectedSubmissionCount);
             Assert.AreEqual(0, deleted.RejectedSubmissionCount);
-            Assert.IsNull(await persistence.Submissions.GetSpecificationJsonAsync(original.SubmissionId.Value));
-            Assert.IsNull(await app.Services.GetRequiredService<JobReadService>().GetSubmissionAsync(original.SubmissionId.Value));
+            Assert.IsNull(await persistence.Submissions.GetSpecificationJsonAsync(original.Display.SubmissionId.Value));
+            Assert.IsNull(await app.Services.GetRequiredService<JobReadService>().GetSubmissionAsync(original.Display.SubmissionId.Value));
         }
         finally
         {
@@ -621,8 +621,8 @@ public sealed class PersistenceDaemonTests
                 TaskCreationOptions.RunContinuationsAsynchronously);
             void OnManualJob(JobSummaryDto job)
             {
-                if (job.QueryText?.Contains("Manual Track", StringComparison.Ordinal) == true
-                    && job.LifecycleState == ServerJobLifecycleState.AwaitingSelection)
+                if (job.Display.QueryText?.Contains("Manual Track", StringComparison.Ordinal) == true
+                    && job.Lifecycle.LifecycleState == ServerJobLifecycleState.AwaitingSelection)
                     awaitingSelection.TrySetResult(job);
             }
             supervisor.StateStore.JobUpserted += OnManualJob;
@@ -635,7 +635,7 @@ public sealed class PersistenceDaemonTests
             await awaitingSelection.Task.WaitAsync(TimeSpan.FromSeconds(5));
             supervisor.StateStore.JobUpserted -= OnManualJob;
             var rejectedDeletion = await app.Services.GetRequiredService<JobReadService>().DeleteSubmissionAsync(
-                manual.SubmissionId!.Value,
+                manual.Display.SubmissionId!.Value,
                 CancellationToken.None);
             Assert.AreEqual(1, rejectedDeletion.RejectedSubmissionCount);
             Assert.AreEqual("nonterminal-jobs", rejectedDeletion.RejectionReasons.Single().Reason);
@@ -645,8 +645,8 @@ public sealed class PersistenceDaemonTests
                 TaskCreationOptions.RunContinuationsAsynchronously);
             void OnFirstJob(JobSummaryDto job)
             {
-                if (job.QueryText == "durable submission"
-                    && job.LifecycleState == ServerJobLifecycleState.Terminal)
+                if (job.Display.QueryText == "durable submission"
+                    && job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
                     firstTerminal.TrySetResult(job);
             }
             supervisor.StateStore.JobUpserted += OnFirstJob;
@@ -661,10 +661,10 @@ public sealed class PersistenceDaemonTests
             await firstTerminal.Task.WaitAsync(TimeSpan.FromSeconds(5));
             supervisor.StateStore.JobUpserted -= OnFirstJob;
 
-            Assert.IsNotNull(submitted.SubmissionId);
-            Assert.AreEqual(ServerJobRole.UserRoot, submitted.Role);
-            Assert.IsNotNull(submitted.CreatedAtUtc);
-            Guid originalSubmissionId = submitted.SubmissionId.Value;
+            Assert.IsNotNull(submitted.Display.SubmissionId);
+            Assert.AreEqual(ServerJobRole.UserRoot, submitted.Display.Role);
+            Assert.IsNotNull(submitted.Display.CreatedAtUtc);
+            Guid originalSubmissionId = submitted.Display.SubmissionId.Value;
 
             var page = await facade.GetSubmissionsAsync(null, 100);
             var retained = page.Items.Single(item => item.SubmissionId == originalSubmissionId);
@@ -681,9 +681,9 @@ public sealed class PersistenceDaemonTests
                 TaskCreationOptions.RunContinuationsAsynchronously);
             void OnRerunJob(JobSummaryDto job)
             {
-                if (job.QueryText != "durable submission"
-                    || job.SubmissionId == originalSubmissionId
-                    || job.LifecycleState != ServerJobLifecycleState.Terminal)
+                if (job.Display.QueryText != "durable submission"
+                    || job.Display.SubmissionId == originalSubmissionId
+                    || job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal)
                     return;
                 bool noBrowseFolder = supervisor
                     .GetRuntimeJob<Sockseek.Core.Jobs.SearchJob>(job.JobId)?
@@ -695,13 +695,13 @@ public sealed class PersistenceDaemonTests
                 originalSubmissionId,
                 CancellationToken.None);
             Assert.IsNotNull(rerun);
-            Assert.IsNotNull(rerun.SubmissionId);
-            Assert.AreNotEqual(originalSubmissionId, rerun.SubmissionId);
+            Assert.IsNotNull(rerun.Display.SubmissionId);
+            Assert.AreNotEqual(originalSubmissionId, rerun.Display.SubmissionId);
             Assert.IsTrue(await rerunTerminal.Task.WaitAsync(TimeSpan.FromSeconds(5)),
                 "Rerun must execute the retained request setting, not the current default.");
             supervisor.StateStore.JobUpserted -= OnRerunJob;
 
-            var rerunDetail = await facade.GetSubmissionAsync(rerun.SubmissionId.Value);
+            var rerunDetail = await facade.GetSubmissionAsync(rerun.Display.SubmissionId.Value);
             Assert.IsNotNull(rerunDetail);
             Assert.AreEqual(originalSubmissionId, rerunDetail.Summary.RerunOfSubmissionId);
 
@@ -711,14 +711,14 @@ public sealed class PersistenceDaemonTests
             Assert.IsNull(await facade.GetSubmissionAsync(originalSubmissionId));
             Assert.IsNull(await facade.GetJobAsync(submitted.JobId));
             Assert.IsNull(await supervisor.Submissions.RerunSubmissionAsync(originalSubmissionId, CancellationToken.None));
-            Assert.IsNull((await facade.GetSubmissionAsync(rerun.SubmissionId.Value))!.Summary.RerunOfSubmissionId);
+            Assert.IsNull((await facade.GetSubmissionAsync(rerun.Display.SubmissionId.Value))!.Summary.RerunOfSubmissionId);
 
             var hierarchyTerminal = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             void OnHierarchyJob(JobSummaryDto job)
             {
-                if (job.ItemName == "deletion hierarchy"
-                    && job.LifecycleState == ServerJobLifecycleState.Terminal)
+                if (job.Display.ItemName == "deletion hierarchy"
+                    && job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
                     hierarchyTerminal.TrySetResult(true);
             }
             supervisor.StateStore.JobUpserted += OnHierarchyJob;
@@ -737,7 +737,7 @@ public sealed class PersistenceDaemonTests
             await hierarchyTerminal.Task.WaitAsync(TimeSpan.FromSeconds(5));
             supervisor.StateStore.JobUpserted -= OnHierarchyJob;
 
-            Guid hierarchySubmissionId = hierarchy.SubmissionId!.Value;
+            Guid hierarchySubmissionId = hierarchy.Display.SubmissionId!.Value;
             CombinedJobPage hierarchyJobs = await facade.GetJobsAsync(
                 new JobQuery(
                     null,
@@ -755,7 +755,7 @@ public sealed class PersistenceDaemonTests
                     ServerJobRole.Orchestration,
                     ServerJobRole.ExecutionChild,
                 },
-                hierarchyJobs.Items.Select(job => job.Role).ToArray());
+                hierarchyJobs.Items.Select(job => job.Display.Role).ToArray());
             DeleteSubmissionResponseDto hierarchyDeletion = await app.Services.GetRequiredService<JobReadService>()
                 .DeleteSubmissionAsync(
                     hierarchySubmissionId,
@@ -846,8 +846,8 @@ public sealed class PersistenceDaemonTests
                     Assert.AreEqual(1, results.Items.Count);
 
                     sourceJobId = search.JobId;
-                    workflowId = search.WorkflowId;
-                    sourceDisplayId = search.DisplayId;
+                    workflowId = search.Display.WorkflowId;
+                    sourceDisplayId = search.Display.DisplayId;
                     fileViewId = fileView.ViewId;
                     fileViewRevision = fileView.Revision;
                     candidate = new FileCandidateRefDto(
@@ -871,7 +871,7 @@ public sealed class PersistenceDaemonTests
                     await WaitForTerminalSuccessAsync(persistence, albumSearch.JobId);
                     Assert.IsNull(supervisor.GetRuntimeJob<Sockseek.Core.Jobs.Job>(albumSearch.JobId));
                     albumSearchJobId = albumSearch.JobId;
-                    albumWorkflowId = albumSearch.WorkflowId;
+                    albumWorkflowId = albumSearch.Display.WorkflowId;
                     SearchViewSummaryDto directoryView = await CreateCompleteSearchViewAsync(
                         views,
                         albumSearch.JobId,
@@ -945,8 +945,8 @@ public sealed class PersistenceDaemonTests
                     var byDisplay = await facade.GetJobByDisplayIdAsync(workflowId, sourceDisplayId);
                     Assert.IsNotNull(byDisplay);
                     Assert.AreEqual(sourceJobId, byDisplay.Summary.JobId);
-                    CollectionAssert.AreEqual(new[] { new AppliedProfileDto("original-profile", "automatic") }, byDisplay.Summary.AppliedProfiles.ToArray());
-                    CollectionAssert.AreEqual(byDisplay.Summary.AppliedProfiles.ToArray(), historicalJobs.Items.Single(job => job.JobId == sourceJobId).AppliedProfiles.ToArray());
+                    CollectionAssert.AreEqual(new[] { new AppliedProfileDto("original-profile", "automatic") }, byDisplay.Summary.Display.AppliedProfiles.ToArray());
+                    CollectionAssert.AreEqual(byDisplay.Summary.Display.AppliedProfiles.ToArray(), historicalJobs.Items.Single(job => job.JobId == sourceJobId).Display.AppliedProfiles.ToArray());
                     Assert.IsFalse(supervisor.CancelJob(sourceJobId));
                     Assert.IsFalse(supervisor.TryNextCandidate(sourceJobId));
                     Assert.IsFalse(await supervisor.CompleteManualSelectionAsync(sourceJobId));
@@ -1108,9 +1108,9 @@ public sealed class PersistenceDaemonTests
                             Guid.NewGuid()),
                         CancellationToken.None);
                     Assert.IsNotNull(retrieved);
-                    Assert.AreEqual(albumSearchJobId, retrieved.SourceJobId);
-                    Assert.AreEqual(albumWorkflowId, retrieved.WorkflowId);
-                    Assert.IsTrue(retrieved.DisplayId > 2);
+                    Assert.AreEqual(albumSearchJobId, retrieved.Relationships.SourceJobId);
+                    Assert.AreEqual(albumWorkflowId, retrieved.Display.WorkflowId);
+                    Assert.IsTrue(retrieved.Display.DisplayId > 2);
                     await WaitForTerminalSuccessAsync(
                         second.Services.GetRequiredService<PersistenceCoordinator>(),
                         retrieved.JobId);
@@ -1122,9 +1122,9 @@ public sealed class PersistenceDaemonTests
                             expectedFolder.Ref.FolderPath)),
                         CancellationToken.None);
                     Assert.IsNotNull(albumDownload);
-                    Assert.AreEqual(albumSearchJobId, albumDownload.SourceJobId);
-                    Assert.AreEqual(albumWorkflowId, albumDownload.WorkflowId);
-                    Assert.IsTrue(albumDownload.DisplayId > 2);
+                    Assert.AreEqual(albumSearchJobId, albumDownload.Relationships.SourceJobId);
+                    Assert.AreEqual(albumWorkflowId, albumDownload.Display.WorkflowId);
+                    Assert.IsTrue(albumDownload.Display.DisplayId > 2);
                     await WaitForTerminalSuccessAsync(
                         second.Services.GetRequiredService<PersistenceCoordinator>(),
                         albumDownload.JobId);
@@ -1138,12 +1138,12 @@ public sealed class PersistenceDaemonTests
                     Assert.IsNotNull(downloads);
                     Assert.AreEqual(1, downloads.Count);
                     Assert.AreNotEqual(sourceJobId, downloads[0].JobId);
-                    Assert.AreEqual(sourceJobId, downloads[0].SourceJobId);
-                    Assert.AreEqual(workflowId, downloads[0].WorkflowId);
-                    Assert.IsTrue(downloads[0].DisplayId > 2);
-                    Assert.AreEqual(3, new[] { retrieved.DisplayId, albumDownload.DisplayId, downloads[0].DisplayId }.Distinct().Count());
+                    Assert.AreEqual(sourceJobId, downloads[0].Relationships.SourceJobId);
+                    Assert.AreEqual(workflowId, downloads[0].Display.WorkflowId);
+                    Assert.IsTrue(downloads[0].Display.DisplayId > 2);
+                    Assert.AreEqual(3, new[] { retrieved.Display.DisplayId, albumDownload.Display.DisplayId, downloads[0].Display.DisplayId }.Distinct().Count());
                     var acceptedDownload = await second.Services.GetRequiredService<PersistenceCoordinator>()
-                        .Submissions!.GetSubmissionAsync(downloads[0].SubmissionId!.Value, CancellationToken.None);
+                        .Submissions!.GetSubmissionAsync(downloads[0].Display.SubmissionId!.Value, CancellationToken.None);
                     var acceptedSong = (Sockseek.Core.Jobs.SongJob)Sockseek.Core.Planning.SubmissionSpecificationCodec
                         .Deserialize(acceptedDownload!.SpecificationJson).MaterializeJob();
                     Assert.IsFalse(acceptedSong.CanBeSkipped);
@@ -1163,7 +1163,7 @@ public sealed class PersistenceDaemonTests
                     Assert.IsNull(supervisor.GetRuntimeJob<Sockseek.Core.Jobs.Job>(downloads[0].JobId));
                     var retainedDetail = await facade.GetJobAsync(downloads[0].JobId);
                     Assert.IsNotNull(retainedDetail);
-                    Assert.AreEqual(persistedDownload.SourceJobId, retainedDetail.Summary.SourceJobId);
+                    Assert.AreEqual(persistedDownload.SourceJobId, retainedDetail.Summary.Relationships.SourceJobId);
                     var combinedWorkflow = await facade.GetWorkflowAsync(workflowId);
                     Assert.IsNotNull(combinedWorkflow);
                     var combinedJobs = await facade.GetJobsAsync(

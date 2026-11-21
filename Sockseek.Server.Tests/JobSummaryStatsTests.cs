@@ -6,7 +6,7 @@ using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Snapshots;
-using Sockseek.Persistence.Read;
+using Sockseek.Server.Tests;
 using Sockseek.Server;
 using Sockseek.Server.Persistence;
 
@@ -58,25 +58,18 @@ public sealed class JobSummaryStatsTests
         search.Definition = SearchDefinition.Create(search, new SearchSettings());
 
         JobSummaryDto live = ServerSnapshotMapper.ToJobSummary(CoreSnapshotFactory.CreateJob(search, 0));
-        Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, live.SearchDefaultProjection);
-        Assert.AreEqual(true, live.SearchGroupResults);
+        Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, live.Display.SearchDefaultProjection);
+        Assert.AreEqual(true, live.Display.SearchGroupResults);
 
-        JobSummaryDto liveRoundTrip = JobStateDto.FromSummary(live, 1).ToSummary();
-        Assert.AreEqual(live.SearchDefaultProjection, liveRoundTrip.SearchDefaultProjection);
-        Assert.AreEqual(live.SearchGroupResults, liveRoundTrip.SearchGroupResults);
-
-        var now = DateTimeOffset.UtcNow;
-        var retained = new PersistedJob(search.Id, 1, search.WorkflowId, null, null, null,
-            "Search", "Terminal", "None", null, "Succeeded", "None", "None", "None",
-            null, null, null, search.QueryText, now, now, now, 1, 1,
-            RetainedJobPayloadCodec.Capture(CoreSnapshotFactory.CreateJob(search, 1).Payload).Value);
+        var retained = RetainedJobFixture.Create("Search", CoreSnapshotFactory.CreateJob(search, 1).Payload)
+            with { Id = search.Id, WorkflowId = search.WorkflowId, QueryText = search.QueryText };
         JobSummaryDto historical = HistoricalJobDtoMapper.ToSummary(retained);
-        Assert.AreEqual(live.SearchDefaultProjection, historical.SearchDefaultProjection);
-        Assert.AreEqual(live.SearchGroupResults, historical.SearchGroupResults);
+        Assert.AreEqual(live.Display.SearchDefaultProjection, historical.Display.SearchDefaultProjection);
+        Assert.AreEqual(live.Display.SearchGroupResults, historical.Display.SearchGroupResults);
 
         JobSummaryDto malformed = HistoricalJobDtoMapper.ToSummary(retained with { PayloadJson = "{bad" });
-        Assert.IsNull(malformed.SearchDefaultProjection);
-        Assert.IsNull(malformed.SearchGroupResults);
+        Assert.IsNull(malformed.Display.SearchDefaultProjection);
+        Assert.IsNull(malformed.Display.SearchGroupResults);
     }
 
     [TestMethod]
@@ -102,10 +95,7 @@ public sealed class JobSummaryStatsTests
         ];
         foreach (var (kind, payload, expected) in cases)
         {
-            var now = DateTimeOffset.UtcNow;
-            var job = new PersistedJob(Guid.NewGuid(), 1, Guid.NewGuid(), null, null, null,
-                kind, "Terminal", "None", null, "Succeeded", "None", "None", "None",
-                null, null, null, kind, now, now, now, 1, RetainedJobPayloadCodec.SchemaVersion, RetainedJobPayloadCodec.Capture(payload).Value);
+            var job = RetainedJobFixture.Create(kind, payload);
             Assert.AreEqual(expected, HistoricalJobDtoMapper.ToSummary(job).Stats, kind);
         }
     }

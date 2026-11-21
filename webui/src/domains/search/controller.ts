@@ -1,5 +1,5 @@
 import { randomUUID } from '../../app/uuid';
-import { DaemonApiClient, daemonApi, searchFilePageSize, searchDirectoryPageSize, type GroupOptionQuery, type SubmittedSearch } from '../../api/client';
+import { DaemonApiClient, daemonApi, searchFilePageSize, searchDirectoryPageSize, nestedPageSize, type GroupOptionQuery, type SubmittedSearch } from '../../api/client';
 import type {
   CommitSearchViewSelectionResponseDto,
   Schema,
@@ -362,9 +362,9 @@ export class SearchViewController {
       // only its old view-bound spinner is cleared.
       // Keep the displayed view until a replacement is usable. Historical
       // searches need the complete projection; live searches can show a prefix.
-      while (!view.isComplete && (sameWireInteger(view.revision, 0) || this.state.job?.lifecycleState === 'Terminal')) {
+      while (!view.isComplete && (sameWireInteger(view.revision, 0) || this.state.job?.lifecycle.lifecycleState === 'Terminal')) {
         view = (await this.api.getSearchViewUpdate(view.viewId, view.revision, controller.signal,
-          this.state.job?.lifecycleState === 'Terminal' ? true : undefined)).summary;
+          this.state.job?.lifecycle.lifecycleState === 'Terminal' ? true : undefined)).summary;
         if (this.stopped || version !== this.refinementGeneration || controller.signal.aborted) return false;
       }
       // Publish rows/counts/selection together, avoiding a destructive empty frame.
@@ -446,8 +446,8 @@ export class SearchViewController {
         if (this.stopped || generation !== this.generation || updateRequest.signal.aborted) return;
         if (this.hasVisibleDirectory(ref))
           this.state = { ...this.state, retrievals: new Map(this.state.retrievals).set(ref, { loading: true, error: null }) };
-        if (job.lifecycleState !== 'Terminal') continue;
-        const error = job.terminalOutcome === 'Succeeded' ? null : new Error(job.failureMessage ?? 'Folder retrieval failed.');
+        if (job.lifecycle.lifecycleState !== 'Terminal') continue;
+        const error = job.lifecycle.terminalOutcome === 'Succeeded' ? null : new Error(job.lifecycle.failureMessage ?? 'Folder retrieval failed.');
         if (error) {
           this.retrievalJobs.delete(ref);
           if (this.hasVisibleDirectory(ref)) {
@@ -474,7 +474,7 @@ export class SearchViewController {
       // job leaves the bounded live snapshot, retain its authoritative status
       // for this open detail instead of relabeling cancellations as Complete.
       if (update.summary.isComplete && this.state.job?.jobId
-        && this.state.job.lifecycleState !== 'Terminal') {
+        && this.state.job.lifecycle.lifecycleState !== 'Terminal') {
         try {
           const job = (await this.api.getJob(this.state.job.jobId, updateRequest.signal)).summary;
           if (this.stopped || generation !== this.generation || updateRequest.signal.aborted) return;
@@ -783,8 +783,8 @@ export class SearchViewController {
     const previous = this.state.directoryFiles.get(ref);
     if (!summary || this.stopped || previous?.loading || (previous && !previous.error && !previous.nextCursor)) return;
     const requestedCount = previous?.error
-      ? this.directoryFileCounts.get(ref) ?? previous.items.length + searchFilePageSize
-      : Math.max(this.directoryFileCounts.get(ref) ?? 0, previous?.items.length ?? 0) + searchFilePageSize;
+      ? this.directoryFileCounts.get(ref) ?? previous.items.length + nestedPageSize
+      : Math.max(this.directoryFileCounts.get(ref) ?? 0, previous?.items.length ?? 0) + nestedPageSize;
     this.directoryFileCounts.set(ref, requestedCount);
     const pending = { ...previous, items: previous?.items ?? [],
       nextCursor: previous?.nextCursor ?? null, loading: true, error: null };
@@ -946,7 +946,7 @@ export class SearchViewController {
     // Opening a finished search rebuilds its projection from stored inputs.
     // Observe that catch-up without fetching or displaying intermediate pages.
     if (!options?.replaceProjection && this.pages.length === 0
-      && this.state.job?.lifecycleState === 'Terminal' && !summary.isComplete) {
+      && this.state.job?.lifecycle.lifecycleState === 'Terminal' && !summary.isComplete) {
       this.state = { ...this.state, summary, phase: 'loading', error: null };
       this.emit();
       return true;
@@ -1204,7 +1204,7 @@ export class SearchViewController {
   }
 
   private waitingForInitialResults(): boolean {
-    return this.state.job?.lifecycleState === 'Terminal' && !this.state.summary?.isComplete
+    return this.state.job?.lifecycle.lifecycleState === 'Terminal' && !this.state.summary?.isComplete
       && this.pages.length === 0 && !this.state.error;
   }
 
@@ -1212,7 +1212,7 @@ export class SearchViewController {
     if (this.timer) clearTimeout(this.timer);
     if (this.observation && this.retrievalJobs.size === 0) return;
     if (this.stopped || !this.visible || searchViewUnavailable(this.state) || (this.state.summary?.isComplete && this.retrievalJobs.size === 0
-      && this.state.job?.lifecycleState === 'Terminal')) return;
+      && this.state.job?.lifecycle.lifecycleState === 'Terminal')) return;
     this.timer = setTimeout(async () => {
       this.timer = null;
       await this.refresh();

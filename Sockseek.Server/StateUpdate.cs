@@ -68,13 +68,11 @@ internal readonly record struct JobReadChange(
 /// <summary>One immutable job revision, shared by snapshots and pending updates.</summary>
 public sealed class JobReadState
 {
-    // Flat scalar presentation facts cannot retain a plan, manifest or job graph.
-    // Actions and cohesive wire components belong to actual readers/publication.
+    // Project actions and updated counters only when a reader needs the whole row.
     private readonly JobSummaryDto facts;
     private readonly JobSummaryStatsDto? stats;
     private readonly bool canCancel;
     private JobSummaryDto? summary;
-    private JobStateDto? wire;
     public long Revision { get; }
 
     public JobReadState(JobSummaryDto facts, long revision, bool canCancel)
@@ -90,29 +88,30 @@ public sealed class JobReadState
     internal JobRetention Retention { get; init; } = JobRetention.History;
     public Guid JobId => facts.JobId;
     public Guid Id => JobId;
-    public Guid WorkflowId => facts.WorkflowId;
-    public int DisplayId => facts.DisplayId;
-    public Guid? ParentJobId => facts.ParentJobId;
-    public Guid? ResultJobId => facts.ResultJobId;
-    public Guid? SourceJobId => facts.SourceJobId;
-    public Guid? SubmissionId => facts.SubmissionId;
-    public string? ItemName => facts.ItemName;
-    public string? QueryText => facts.QueryText;
-    public ServerJobKind Kind => facts.Kind;
-    public ServerJobLifecycleState LifecycleState => facts.LifecycleState;
-    public ServerJobTerminalOutcome TerminalOutcome => facts.TerminalOutcome;
-    public ServerJobSkipReason SkipReason => facts.SkipReason;
-    public ServerJobRole Role => facts.Role;
+    public Guid WorkflowId => facts.Display.WorkflowId;
+    public int DisplayId => facts.Display.DisplayId;
+    public Guid? ParentJobId => facts.Relationships.ParentJobId;
+    public Guid? ResultJobId => facts.Relationships.ResultJobId;
+    public Guid? SourceJobId => facts.Relationships.SourceJobId;
+    public Guid? SubmissionId => facts.Display.SubmissionId;
+    public string? ItemName => facts.Display.ItemName;
+    public string? QueryText => facts.Display.QueryText;
+    public ServerJobKind Kind => facts.Display.Kind;
+    public ServerJobLifecycleState LifecycleState => facts.Lifecycle.LifecycleState;
+    public ServerJobTerminalOutcome TerminalOutcome => facts.Lifecycle.TerminalOutcome;
+    public ServerJobSkipReason SkipReason => facts.Lifecycle.SkipReason;
+    public ServerJobRole Role => facts.Display.Role;
 
     public JobSummaryDto Summary
     {
         get
         {
             if (Volatile.Read(ref summary) is { } current) return current;
-            var projected = canCancel || stats != facts.Stats ? facts with
+            var projected = canCancel || stats != facts.Stats || facts.Revision != Revision ? facts with
             {
                 Stats = stats,
-                AvailableActions = canCancel ? ServerSnapshotMapper.BuildJobActions(JobId, true) : facts.AvailableActions,
+                Revision = Revision,
+                Lifecycle = canCancel ? facts.Lifecycle with { AvailableActions = ServerSnapshotMapper.BuildJobActions(JobId, true) } : facts.Lifecycle,
             } : facts;
             return Interlocked.CompareExchange(ref summary, projected, null) ?? projected;
         }
@@ -125,47 +124,32 @@ public sealed class JobReadState
     internal JobReadState WithStats(JobSummaryStatsDto next)
         => stats == next ? this : new(facts, next, Revision, canCancel) { Retention = Retention };
 
-    internal JobReadState WithRevision(long nextRevision) => new(facts, stats, nextRevision, canCancel)
-    {
-        summary = Volatile.Read(ref summary),
-        Retention = Retention,
-    };
-
-    public JobStateDto ToDto()
-    {
-        if (Volatile.Read(ref wire) is { } current) return current;
-        var projected = JobStateDto.FromSummary(Summary, Revision);
-        return Interlocked.CompareExchange(ref wire, projected, null) ?? projected;
-    }
+    internal JobReadState WithRevision(long nextRevision)
+        => nextRevision == Revision ? this : new(facts, stats, nextRevision, canCancel) { Retention = Retention };
 
     internal JobFields Difference(JobReadState next)
     {
         JobSummaryDto previous = facts;
         JobSummaryDto current = next.facts;
         var fields = JobFields.None;
-        if (previous.DisplayId != current.DisplayId || previous.WorkflowId != current.WorkflowId
-            || previous.Kind != current.Kind || previous.ItemName != current.ItemName || previous.QueryText != current.QueryText
-            || previous.SourceDetail != current.SourceDetail
-            || previous.PrintOption != current.PrintOption || previous.SubmissionId != current.SubmissionId
-            || previous.Role != current.Role || previous.CreatedAtUtc != current.CreatedAtUtc
-            || previous.SearchDefaultProjection != current.SearchDefaultProjection
-            || previous.SearchGroupResults != current.SearchGroupResults
-            || !previous.AppliedProfiles.SequenceEqual(current.AppliedProfiles)) fields |= JobFields.Display;
-        if (previous.LifecycleState != current.LifecycleState || previous.ActivityPhase != current.ActivityPhase
-            || previous.ActivityUntilUtc != current.ActivityUntilUtc || previous.TerminalOutcome != current.TerminalOutcome
-            || previous.SkipReason != current.SkipReason || previous.FailureReason != current.FailureReason
-            || previous.FailureMessage != current.FailureMessage || previous.FailureDetail != current.FailureDetail
-            || previous.CancellationSource != current.CancellationSource || canCancel != next.canCancel)
+        if (!SameDisplay(previous.Display, current.Display)) fields |= JobFields.Display;
+        if (canCancel != next.canCancel || !SameLifecycle(previous.Lifecycle, current.Lifecycle))
             fields |= JobFields.Lifecycle;
-        if (previous.DiscoveryRawResultCount != current.DiscoveryRawResultCount
-            || previous.DiscoveryLockedFileCount != current.DiscoveryLockedFileCount
-            || previous.DiscoveryPublicFileCount != current.DiscoveryPublicFileCount
-            || previous.DiscoveryObservedPeerCount != current.DiscoveryObservedPeerCount) fields |= JobFields.Discovery;
-        if (previous.ParentJobId != current.ParentJobId || previous.ResultJobId != current.ResultJobId
-            || previous.SourceJobId != current.SourceJobId) fields |= JobFields.Relationships;
+        if (previous.Discovery != current.Discovery) fields |= JobFields.Discovery;
+        if (previous.Relationships != current.Relationships) fields |= JobFields.Relationships;
         if (stats != next.stats) fields |= JobFields.Stats;
         return fields;
     }
+
+    // Records compare list references. A fresh history read can return the same
+    // profiles or actions in a different list. Compare those by value as well.
+    private static bool SameDisplay(JobDisplayFieldsDto left, JobDisplayFieldsDto right)
+        => ReferenceEquals(left.AppliedProfiles, right.AppliedProfiles) ? left == right
+            : left.AppliedProfiles.SequenceEqual(right.AppliedProfiles) && left with { AppliedProfiles = right.AppliedProfiles } == right;
+
+    private static bool SameLifecycle(JobLifecycleFieldsDto left, JobLifecycleFieldsDto right)
+        => ReferenceEquals(left.AvailableActions, right.AvailableActions) ? left == right
+            : left.AvailableActions.SequenceEqual(right.AvailableActions) && left with { AvailableActions = right.AvailableActions } == right;
 }
 
 /// <summary>
@@ -188,7 +172,7 @@ public sealed class JobChange(JobReadState Current, bool Added = true, JobFields
     {
         // Daemon and workflow scopes can share the same immutable change.
         if (Volatile.Read(ref wire) is { } previous) return previous;
-        JobStateDto current = Current.ToDto();
+        JobSummaryDto current = Current.Summary;
         var projected = Added ? new JobDeltaDto(JobId, Revision, Added: current) : new(JobId, Revision,
             Display: (Fields & JobFields.Display) != 0 ? current.Display : null,
             Lifecycle: (Fields & JobFields.Lifecycle) != 0 ? current.Lifecycle : null,

@@ -1,7 +1,7 @@
 import { searchModeFamily, type SearchDraft } from '../search/model';
 import type { Schema } from '../../api/types';
 
-export type NewJobChoice = 'song' | 'album' | 'spotify' | 'youtube' | 'bandcamp' | 'soundcloud' | 'musicbrainz' | 'soulseek-link' | 'csv' | 'list';
+export type NewJobChoice = 'song' | 'album' | 'spotify' | 'youtube' | 'bandcamp' | 'soundcloud' | 'musicbrainz' | 'soulseek-link' | 'csv' | 'list' | 'string';
 
 export interface NewJobDraft {
   choice: NewJobChoice;
@@ -26,6 +26,31 @@ export function newJobDraftFromSearch(search: SearchDraft): NewJobDraft {
     artist: search.mode === 'split' ? search.artist.trim() : '',
     title: album ? '' : subject, album: album ? subject : search.albumContext ?? '',
     expectedLength: search.expectedLength };
+}
+
+export function profileInputDefaults(names: string[], catalog: Schema<'ProfileSummaryDto'>[]) {
+  const profiles = [...names].reverse().map(name => catalog.find(item => item.name === name));
+  const input = profiles.find(profile => profile?.input != null);
+  const type = profiles.find(profile => profile?.inputType != null);
+  const resolvedType = type?.inputType && type.inputType !== 'None' ? type.inputType : input?.detectedInputType;
+  return { input, type, resolvedType };
+}
+
+export function applyProfileInput(draft: NewJobDraft, input: string | undefined, type: string | null | undefined): NewJobDraft | null {
+  const requested = type?.toLowerCase();
+  let choice: NewJobChoice;
+  switch (requested) {
+    case 'list': case 'csv': case 'string': case 'spotify': case 'bandcamp': case 'musicbrainz':
+    case 'soulseek-link': case 'soundcloud': case 'youtube':
+      choice = requested;
+      break;
+    default: return input ? null : draft;
+  }
+  const source = input ?? (draft.choice === 'song' ? draft.title : draft.choice === 'album' ? draft.album : draft.source);
+  return { ...draft, choice, source,
+    fileInput: input !== undefined || source ? 'path' : draft.fileInput,
+    artifactId: input === undefined && choice === draft.choice ? draft.artifactId : null,
+    spotifyInput: source === 'spotify-likes' ? 'likes' : source === 'spotify-albums' ? 'albums' : 'url' };
 }
 
 // Both direct Start and Review consume this exact draft. Planning, extraction,

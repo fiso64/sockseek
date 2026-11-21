@@ -3,7 +3,7 @@
   import { tick, untrack } from 'svelte';
   import { keyboardList } from '../../lib/keyboard';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
-  import type { JobStateDto, Schema, SearchViewRequest } from '../../api/types';
+  import type { JobSummaryDto, Schema, SearchViewRequest } from '../../api/types';
   import { searchViewUnavailable } from './controller';
   import { allSearchResultsSelected, selectionUsesEarlierRevision as usesEarlierRevision, type GroupOption } from './selection';
   import { DaemonApiError } from '../../api/http';
@@ -41,7 +41,7 @@
     configurationRevision?: number;
     daemonOffline?: boolean;
     viewState: SearchViewState;
-    liveJob?: JobStateDto | null;
+    liveJob?: JobSummaryDto | null;
     liveJobError?: Error | null;
     removeAction?: 'cancel' | 'delete' | null;
     removePending?: boolean;
@@ -123,9 +123,9 @@
     onsearchagain,
   }: Props = $props();
 
-  let status = $derived(liveJob?.lifecycle ?? null);
-  let searching = $derived((status ?? viewState.job)?.lifecycleState !== 'Terminal'
-    && (status ?? viewState.job)?.activityPhase === 'Searching');
+  let status = $derived(liveJob?.lifecycle ?? viewState.job?.lifecycle);
+  let searching = $derived(status?.lifecycleState !== 'Terminal'
+    && status?.activityPhase === 'Searching');
   let filterText = $state('');
   let highlight = $derived(filterPattern(viewState.summary?.filterText));
   let optionFilter = $state('');
@@ -592,7 +592,7 @@
   }
   let isActive = $derived(viewState.refining || viewState.summary?.isComplete === false || (status
     ? status.lifecycleState !== 'Terminal'
-    : Boolean(viewState.job && viewState.job.lifecycleState !== 'Terminal' && !viewState.summary?.isComplete)));
+    : Boolean(viewState.job && viewState.job.lifecycle.lifecycleState !== 'Terminal' && !viewState.summary?.isComplete)));
 
   const folderFileCache = new WeakMap<Schema<'SearchViewFileDto'>, FolderItemFile>();
   function folderFile(file: Schema<'SearchViewFileDto'>, relativePath?: string): FolderItemFile {
@@ -645,7 +645,7 @@
   }
 
   function queryTitle(): string {
-    const title = viewState.job?.itemName ?? viewState.job?.queryText;
+    const title = viewState.job?.display.itemName ?? viewState.job?.display.queryText;
     if (title != null) return title;
     const draft = viewState.draft;
     if (!draft) return '';
@@ -659,8 +659,8 @@
   function jobStatus(): string {
     if (!status) {
       const job = viewState.job;
-      if (job?.lifecycleState === 'Terminal') return job.terminalOutcome
-        ? searchOutcome(job.terminalOutcome) : 'Complete';
+      if (job?.lifecycle.lifecycleState === 'Terminal') return job.lifecycle.terminalOutcome
+        ? searchOutcome(job.lifecycle.terminalOutcome) : 'Complete';
       return viewState.summary?.isComplete || Number(viewState.summary?.consumedSequence ?? 0) > 0
         ? searchOutcome(null) : 'Starting';
     }
@@ -1107,7 +1107,8 @@
                       {files}
                       totalFileCount={totals.fileCount}
                       filesComplete={Boolean(children && !children.nextCursor && (!children.loading || children.refreshing) && !children.error)}
-                      fileLayout={genericMode ? 'tree' : 'flat'}
+                      fileLayout={genericMode ? 'tree' : 'sections'}
+                      showFileIcons={!genericMode}
                       dataStateLabel={retrieval?.error?.message ?? children?.error?.message ?? (children?.loading && !children.refreshing ? 'Loading matching files…' : undefined)}
                       locked={row.value.visibility === 'Locked'}
                       selected={folderSelection.selected && !filteredOnly}

@@ -263,7 +263,7 @@ public class EngineStateStoreTests
         Assert.AreEqual(0, updates.Current.RetrievalChildCount);
         CollectionAssert.AreEquivalent(new[] { root.Id, child.Id }, updates.Current.State.Jobs.Select(row => row.JobId).ToArray());
         var first = updates.Current.State.Jobs.Single(row => row.JobId == child.Id).Added!;
-        Assert.AreEqual(store.GetJobSummary(child.Id)!.AvailableActions.Single(), first.Lifecycle.AvailableActions.Single());
+        Assert.AreEqual(store.GetJobSummary(child.Id)!.Lifecycle.AvailableActions.Single(), first.Lifecycle.AvailableActions.Single());
         var folder = new RetrieveFolderJob(new("Peer", "Exact\\Folder")) { WorkflowId = root.WorkflowId };
         root.Add(folder);
         Register(store, folder, root);
@@ -479,9 +479,9 @@ public class EngineStateStoreTests
         Assert.AreEqual(ServerJobRole.UserRoot, changed.Display.Role);
         Assert.AreEqual(createdAt, changed.Display.CreatedAtUtc);
         var state = store.GetWorkflowSnapshot(job.WorkflowId).Jobs.Single(row => row.JobId == job.Id);
-        Assert.AreEqual(submissionId, state.ToSummary().SubmissionId);
-        Assert.AreEqual(ServerJobRole.UserRoot, state.ToSummary().Role);
-        Assert.AreEqual(createdAt, state.ToSummary().CreatedAtUtc);
+        Assert.AreEqual(submissionId, state.Display.SubmissionId);
+        Assert.AreEqual(ServerJobRole.UserRoot, state.Display.Role);
+        Assert.AreEqual(createdAt, state.Display.CreatedAtUtc);
 
         CollectionAssert.AreEqual(new[] { new AppliedProfileDto("lossless", "selected") }, changed.Display.AppliedProfiles.ToArray());
         // Settings captures can create equal records with different references.
@@ -1066,6 +1066,16 @@ public class EngineStateStoreTests
         CollectionAssert.AreEqual(new[] { "Completed", "Started" }, attempts.Select(attempt => attempt.State).ToArray());
         Assert.AreEqual(retryId, store.GetLiveTransferDetail(transfer.Id)?.LatestAttempt?.AttemptId);
         Assert.AreEqual(retryId, store.GetLiveTransferAttempts(transfer.Id, 1, 1)!.Single().AttemptId);
+        InvokePrivate(store, "OnTransferAttemptFailed", new TransferAttemptFailedChange(
+            5, completedAt, Reference(song), transfer, retryId, 2, 2,
+            new ExceptionSnapshot(nameof(TimeoutException), "Timed out"), Sockseek.Core.Events.TransferFailureReason.TimedOut));
+        Assert.AreEqual(Sockseek.Api.TransferFailureReason.TransferTimedOut, store.GetLiveTransferDetail(transfer.Id)?.LatestAttempt?.FailureReason);
+        var cancelledId = Guid.NewGuid();
+        InvokePrivate(store, "OnTransferAttemptCancelled", new TransferAttemptCancelledChange(
+            6, completedAt, Reference(song), transfer, cancelledId, 3, 1, TransferCancellationReason.ManualSkip));
+        var cancelled = store.GetLiveTransferDetail(transfer.Id)!.LatestAttempt!;
+        Assert.AreEqual(TransferCancellationSource.User, cancelled.CancellationSource);
+        Assert.AreEqual(Sockseek.Api.TransferFailureReason.None, cancelled.FailureReason);
         store.RemoveTerminalTransfer(transfer.Id);
         Assert.IsNull(store.GetLiveTransferAttempts(transfer.Id, 0, 10));
 
@@ -1108,6 +1118,7 @@ public class EngineStateStoreTests
         upload = store.GetLiveTransferDetail(uploadId)!;
         Assert.AreEqual("The shared file was removed.", upload.Transfer.Status.FailureMessage);
         Assert.AreEqual(upload.Transfer.Status.FailureMessage, upload.LatestAttempt?.FailureMessage);
+        Assert.AreEqual(upload.Transfer.Status.FailureReason, upload.LatestAttempt?.FailureReason);
 
         foreach (var (reason, wireReason) in new[] {
             (UploadFailureReason.ConnectionFailed, Sockseek.Api.TransferFailureReason.ConnectionFailed),
@@ -1528,7 +1539,7 @@ public class EngineStateStoreTests
         Assert.AreEqual(2, tail.Items.Count);
         Assert.AreEqual(artwork[^1].Id, tail.Items[^1].ChildJobId);
         Assert.AreEqual(50, tail.Items[^1].File?.ProgressPercent);
-        Assert.AreEqual(ServerJobLifecycleState.Running, tail.Items[^1].Child?.LifecycleState);
+        Assert.AreEqual(ServerJobLifecycleState.Running, tail.Items[^1].Child?.Lifecycle.LifecycleState);
         Assert.IsNull(tail.NextOrdinal);
         var appended = album.EnsureSupplementalTrackJobs([File(@"Other\New.jpg")]).Single();
         UpdateStructure(store, album);
@@ -1592,7 +1603,7 @@ public class EngineStateStoreTests
         Assert.IsNotNull(page);
         Assert.IsTrue(page.ChildrenMaterialized);
         Assert.AreEqual(child.Id, page.Items.Single().ChildJobId);
-        Assert.AreEqual(ServerJobLifecycleState.Running, page.Items.Single().Child?.LifecycleState);
+        Assert.AreEqual(ServerJobLifecycleState.Running, page.Items.Single().Child?.Lifecycle.LifecycleState);
         Assert.AreEqual(50, page.Items.Single().File?.ProgressPercent);
         Assert.AreEqual("/output/final/File.bin", page.Items.Single().File?.DownloadPath);
         var childPayload = store.GetJobDetail(child.Id)!.Payload;
@@ -1832,10 +1843,10 @@ public class EngineStateStoreTests
 
         var summary = store.GetJobSummary(song.Id);
         Assert.IsNotNull(summary);
-        Assert.AreEqual(ServerJobLifecycleState.Running, summary.LifecycleState);
-        Assert.AreEqual(ServerJobActivityPhase.SearchRateLimited, summary.ActivityPhase);
-        Assert.AreEqual(until, summary.ActivityUntilUtc);
-        Assert.AreEqual(ServerJobTerminalOutcome.None, summary.TerminalOutcome);
+        Assert.AreEqual(ServerJobLifecycleState.Running, summary.Lifecycle.LifecycleState);
+        Assert.AreEqual(ServerJobActivityPhase.SearchRateLimited, summary.Lifecycle.ActivityPhase);
+        Assert.AreEqual(until, summary.Lifecycle.ActivityUntilUtc);
+        Assert.AreEqual(ServerJobTerminalOutcome.None, summary.Lifecycle.TerminalOutcome);
     }
 
     [TestMethod]
@@ -1853,11 +1864,11 @@ public class EngineStateStoreTests
 
         var summary = store.GetJobSummary(album.Id);
         Assert.IsNotNull(summary);
-        Assert.AreEqual(123, summary.DiscoveryRawResultCount);
-        Assert.AreEqual(4, summary.DiscoveryLockedFileCount);
+        Assert.AreEqual(123, summary.Discovery.RawResultCount);
+        Assert.AreEqual(4, summary.Discovery.LockedFileCount);
         Assert.IsNotNull(published);
-        Assert.AreEqual(123, published.DiscoveryRawResultCount);
-        Assert.AreEqual(4, published.DiscoveryLockedFileCount);
+        Assert.AreEqual(123, published.Discovery.RawResultCount);
+        Assert.AreEqual(4, published.Discovery.LockedFileCount);
     }
 
     [TestMethod]
@@ -2088,9 +2099,9 @@ public class EngineStateStoreTests
 
         var summary = store.GetJobSummary(list.Id);
         Assert.IsNotNull(summary);
-        Assert.AreEqual(ServerJobLifecycleState.Running, summary.LifecycleState);
-        Assert.AreEqual(ServerJobActivityPhase.RunningChildren, summary.ActivityPhase);
-        Assert.AreEqual(ServerJobTerminalOutcome.None, summary.TerminalOutcome);
+        Assert.AreEqual(ServerJobLifecycleState.Running, summary.Lifecycle.LifecycleState);
+        Assert.AreEqual(ServerJobActivityPhase.RunningChildren, summary.Lifecycle.ActivityPhase);
+        Assert.AreEqual(ServerJobTerminalOutcome.None, summary.Lifecycle.TerminalOutcome);
     }
 
     [TestMethod]
@@ -2305,7 +2316,7 @@ public class EngineStateStoreTests
 
         var resultSummary = store.GetJobSummary(result.Id);
         Assert.IsNotNull(resultSummary);
-        Assert.AreNotEqual(0, resultSummary.DisplayId);
+        Assert.AreNotEqual(0, resultSummary.Display.DisplayId);
     }
 
     private static void Register(EngineStateStore store, Job job, Job? parent = null, bool flush = true)
@@ -2418,12 +2429,12 @@ public class EngineStateStoreTests
 
     private static WorkflowSummaryDto BuildBruteForceWorkflowSummary(Guid workflowId, IReadOnlyList<JobSummaryDto> jobs)
     {
-        var ordered = jobs.OrderBy(job => job.DisplayId).ToList();
-        string title = ordered.FirstOrDefault(job => !string.IsNullOrWhiteSpace(job.ItemName))?.ItemName
-            ?? ordered.First().QueryText
-            ?? ordered.First().Kind.ToWireString();
+        var ordered = jobs.OrderBy(job => job.Display.DisplayId).ToList();
+        string title = ordered.FirstOrDefault(job => !string.IsNullOrWhiteSpace(job.Display.ItemName))?.Display.ItemName
+            ?? ordered.First().Display.QueryText
+            ?? ordered.First().Display.Kind.ToWireString();
 
-        int active = ordered.Count(job => job.LifecycleState != ServerJobLifecycleState.Terminal);
+        int active = ordered.Count(job => job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal);
         int failed = ordered.Count(IsFailed);
         int completed = ordered.Count - active;
         var state = active > 0 ? ServerWorkflowState.Active
@@ -2434,18 +2445,18 @@ public class EngineStateStoreTests
             workflowId,
             title,
             state,
-            ordered.Count(job => job.ParentJobId == null),
+            ordered.Count(job => job.Relationships.ParentJobId == null),
             active,
             failed,
             completed);
     }
 
     private static bool IsFailed(JobSummaryDto job)
-        => job.TerminalOutcome is ServerJobTerminalOutcome.Failed
+        => job.Lifecycle.TerminalOutcome is ServerJobTerminalOutcome.Failed
             or ServerJobTerminalOutcome.Cancelled
             or ServerJobTerminalOutcome.PartialSuccess
-            || (job.TerminalOutcome == ServerJobTerminalOutcome.Skipped
-                && job.SkipReason != ServerJobSkipReason.AlreadyExists);
+            || (job.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Skipped
+                && job.Lifecycle.SkipReason != ServerJobSkipReason.AlreadyExists);
 
     private static void AssertClientMatchesProjection(
         EngineStateStore server,
@@ -2458,7 +2469,7 @@ public class EngineStateStoreTests
             expected.Workflows.Select(row => row.Summary).ToArray(),
             client.GetWorkflows().Where(row => row.WorkflowId == workflowId).ToArray());
         CollectionAssert.AreEqual(
-            expected.Jobs.Select(row => row.ToSummary()).OrderBy(row => row.JobId).ToArray(),
+            expected.Jobs.Select(row => row).OrderBy(row => row.JobId).ToArray(),
             client.GetWorkflowJobs(workflowId).OrderBy(row => row.JobId).ToArray());
         CollectionAssert.AreEqual(
             expected.Transfers.OrderBy(row => row.TransferId).ToArray(),

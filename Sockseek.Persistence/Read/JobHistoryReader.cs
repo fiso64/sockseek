@@ -43,7 +43,7 @@ public sealed record PersistedJob(
     string CancellationSource,
     string FailureReason,
     string? FailureMessage,
-    string? FailureDetail,
+    bool HasFailureDetail,
     string? ItemName,
     string? QueryText,
     DateTimeOffset CreatedAtUtc,
@@ -97,6 +97,7 @@ public interface IJobHistoryReader
     Task<PersistedJobPage> GetJobsAsync(JobHistoryQuery query, CancellationToken cancellationToken = default);
     Task<PersistedJob?> GetJobAsync(Guid jobId, CancellationToken cancellationToken = default);
     /// <summary>Whether the job still exists.</summary>
+    Task<string?> GetFailureDetailAsync(Guid jobId, CancellationToken cancellationToken);
     Task<bool> ContainsJobAsync(Guid jobId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PersistedJob>> GetJobsByIdsAsync(IReadOnlyCollection<Guid> jobIds, CancellationToken cancellationToken = default);
     Task<PersistedDirectoryManifestPage?> GetDirectoryManifestAsync(
@@ -373,6 +374,13 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
         return rows.SingleOrDefault();
     }
 
+    public async Task<string?> GetFailureDetailAsync(Guid jobId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await context.Jobs.Where(job => job.Id == jobId)
+            .Select(job => job.FailureDetail).SingleOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<bool> ContainsJobAsync(Guid jobId, CancellationToken cancellationToken = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -447,7 +455,7 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
         // in the same statement: no per-query LINQ compilation or second snapshot.
         var shape = HistoryRowMapping<JobEntity>.For(context);
         return SqliteReadQuery.ReadAsync(context, $"""
-            SELECT {shape.SelectColumns("job")},search.result_count,search.locked_file_count,search.observed_peer_count
+            SELECT {shape.SelectColumns("job", omitProperty: nameof(JobEntity.FailureDetail))},search.result_count,search.locked_file_count,search.observed_peer_count,job.failure_detail IS NOT NULL
             {from} LEFT JOIN search_jobs search ON job.kind='Search' AND search.job_id=job.id
             {suffix}
             """, parameters, row =>
@@ -455,7 +463,7 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
                 int start = shape.Properties.Length;
                 return Map(shape.Read(row), row.IsDBNull(start) ? null : row.GetInt64(start),
                     row.IsDBNull(start + 1) ? null : row.GetInt64(start + 1),
-                    row.IsDBNull(start + 2) ? null : row.GetInt64(start + 2));
+                    row.IsDBNull(start + 2) ? null : row.GetInt64(start + 2), row.GetBoolean(start + 3));
             }, cancellationToken);
     }
 
@@ -492,12 +500,12 @@ public sealed class JobHistoryReader(IDbContextFactory<SockseekDbContext> contex
                 row.GetInt32(3) > 0 ? "Active" : row.GetInt32(4) > 0 ? "Failed" : "Completed",
                 row.GetInt32(2), row.GetInt32(3), row.GetInt32(4), row.GetInt32(5)), cancellationToken);
 
-    private static PersistedJob Map(JobEntity job, long? publicCount, long? lockedCount, long? peerCount)
+    private static PersistedJob Map(JobEntity job, long? publicCount, long? lockedCount, long? peerCount, bool hasFailureDetail)
         => new(
             job.Id, job.DisplayId, job.WorkflowId, job.ParentJobId, job.SourceJobId, job.ResultJobId,
             job.Kind, job.LifecycleState, job.ActivityPhase, FromUnixMilliseconds(job.ActivityUntilUtc),
             job.TerminalOutcome, job.SkipReason, job.CancellationSource, job.FailureReason,
-            job.FailureMessage, job.FailureDetail, job.ItemName, job.QueryText,
+            job.FailureMessage, hasFailureDetail, job.ItemName, job.QueryText,
             DateTimeOffset.FromUnixTimeMilliseconds(job.CreatedAtUtc),
             DateTimeOffset.FromUnixTimeMilliseconds(job.UpdatedAtUtc), FromUnixMilliseconds(job.CompletedAtUtc),
             job.Revision, job.PayloadSchemaVersion, job.PayloadJson, job.SubmissionId, job.SemanticRole,

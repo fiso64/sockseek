@@ -189,7 +189,7 @@ public sealed record DownloadStateChangedChange(
     public string State => Transfer.State ?? "";
 }
 
-public sealed record ExceptionSnapshot(string Type, string Message, string Detail);
+public sealed record ExceptionSnapshot(string Type, string Message);
 
 public sealed record DownloadAttemptFailedChange(
     long Sequence,
@@ -220,6 +220,10 @@ public enum TransferFailureReason
     Stale,
     Finalization,
     LocalStorageError,
+    Denied,
+    TimedOut,
+    FileChanged,
+    ConnectionFailed,
 }
 
 public enum TransferCancellationReason

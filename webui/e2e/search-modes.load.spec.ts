@@ -1,3 +1,4 @@
+import { nestedPageSize } from '../api-defaults';
 import { performance } from 'node:perf_hooks';
 import { rm, stat } from 'node:fs/promises';
 import { sep } from 'node:path';
@@ -185,11 +186,11 @@ for (const mode of modes) {
         .toBeLessThan(100);
     }
     // Exercise server query binding independently of the UI's explicit limit.
-    // File rows default to 500, nested/group rows to 100.
+    // File and track group pages use the file default. Directory pages use the nested default.
     const defaultPage = await page.request.get(`/api/search-views/${final.viewId}/${mode.page}?revision=${final.revision}`);
     expect(defaultPage.ok(), await defaultPage.text()).toBe(true);
     const defaults = await defaultPage.json() as { items: unknown[]; nextCursor?: string | null };
-    expect(defaults.items).toHaveLength(Math.min(topLevel, mode.kind === 'Files' ? 500 : 100));
+    expect(defaults.items).toHaveLength(Math.min(topLevel, mode.kind === 'Files' || mode.kind === 'TrackGroups' ? 500 : nestedPageSize));
     expect(Boolean(defaults.nextCursor)).toBe(topLevel > defaults.items.length);
     if (mode.kind === 'Files') {
       for (const limit of ['0', '-1', 'not-an-integer']) {
@@ -302,7 +303,7 @@ for (const mode of modes) {
         slowestDetailApiMs = Math.max(slowestDetailApiMs, completedDetailApiMs);
         expect(response.ok, response.body).toBe(true);
         detail = JSON.parse(response.body) as Schema<'JobDetailDto'>;
-        return detail.summary.terminalOutcome;
+        return detail.summary.lifecycle.terminalOutcome;
       }, { timeout: 10_000, intervals: [100, 250] }).toBe('Succeeded');
       console.log('PERF_PLAN_JOB_READ ' + JSON.stringify({ mode: mode.label, directoryId,
         completedDetailApiMs, slowestDetailApiMs, reads }));
@@ -330,7 +331,7 @@ for (const mode of modes) {
       expect(manifest.items.map(item => `${item.target!.username}:${item.target!.filename}`).sort())
         .toEqual(expectedFiles.map(file => `${file.username}:${file.filename}`).sort());
       for (const item of manifest.items) {
-        expect(item.child?.terminalOutcome).toBe('Succeeded');
+        expect(item.child?.lifecycle.terminalOutcome).toBe('Succeeded');
         expect(item.file?.downloadPath?.startsWith(outputDirectory + sep)).toBe(true);
         expect((await stat(item.file!.downloadPath!)).size).toBe(Number(item.target!.size));
       }
@@ -448,7 +449,7 @@ for (const mode of modes) {
           await daemon.command('wait-download-started');
           const jobsResponse = await page.request.get(`/api/jobs?submissionId=${receipt.submissionId}&includeAll=true&limit=100`);
           expect(jobsResponse.ok(), await jobsResponse.text()).toBe(true);
-          const albums = (await jobsResponse.json() as Schema<'JobSummaryDto'>[]).filter(job => job.kind === 'album');
+          const albums = (await jobsResponse.json() as Schema<'JobSummaryDto'>[]).filter(job => job.display.kind === 'album');
           expect(albums).toHaveLength(1);
           albumId = albums[0]!.jobId!;
         } finally {
@@ -481,11 +482,11 @@ for (const mode of modes) {
           rerunApiMs = response.elapsedMs;
           expect(response.status, response.body).toBe(202);
           const root = JSON.parse(response.body) as Schema<'JobSummaryDto'>;
-          expect(root.submissionId).not.toBe(submissionId);
+          expect(root.display.submissionId).not.toBe(submissionId);
           await daemon.command('wait-download-started');
-          const jobsResponse = await page.request.get(`/api/jobs?submissionId=${root.submissionId}&includeAll=true&limit=100`);
+          const jobsResponse = await page.request.get(`/api/jobs?submissionId=${root.display.submissionId}&includeAll=true&limit=100`);
           expect(jobsResponse.ok(), await jobsResponse.text()).toBe(true);
-          const albums = (await jobsResponse.json() as Schema<'JobSummaryDto'>[]).filter(job => job.kind === 'album');
+          const albums = (await jobsResponse.json() as Schema<'JobSummaryDto'>[]).filter(job => job.display.kind === 'album');
           expect(albums).toHaveLength(1);
           replayAlbumId = albums[0]!.jobId!;
         } finally {
@@ -557,7 +558,7 @@ for (const mode of modes) {
         const response = await page.request.get(`/api/jobs?submissionId=${commit.receipt.submissionId}&includeAll=true&limit=100`);
         expect(response.ok(), await response.text()).toBe(true);
         const jobs = await response.json() as Schema<'JobSummaryDto'>[];
-        const directories = jobs.filter(job => job.kind === (mode.kind === 'AlbumDirectories' ? 'album' : 'remote-directory'));
+        const directories = jobs.filter(job => job.display.kind === (mode.kind === 'AlbumDirectories' ? 'album' : 'remote-directory'));
         expect(directories).toHaveLength(1);
         directoryId = directories[0]!.jobId!;
         await page.goto(`/jobs/${directoryId}`);
@@ -628,7 +629,7 @@ for (const mode of modes) {
         expect(response.ok, response.body).toBe(true);
         expect(heldDetailApiMs, 'Metadata must remain responsive while peer directory retrieval is held.').toBeLessThan(100);
         const detail = JSON.parse(response.body) as Schema<'JobDetailDto'>;
-        expect(['Pending', 'Running']).toContain(detail.summary.lifecycleState);
+        expect(['Pending', 'Running']).toContain(detail.summary.lifecycle.lifecycleState);
       };
       try {
         if (mode.kind === 'GenericDirectories') {
@@ -673,7 +674,7 @@ for (const mode of modes) {
         const response = await page.request.get(`/api/jobs?submissionId=${fullCommit.receipt.submissionId}&includeAll=true&limit=100`);
         expect(response.ok(), await response.text()).toBe(true);
         const directories = (await response.json() as Schema<'JobSummaryDto'>[])
-          .filter(job => job.kind === (mode.kind === 'AlbumDirectories' ? 'album' : 'remote-directory'));
+          .filter(job => job.display.kind === (mode.kind === 'AlbumDirectories' ? 'album' : 'remote-directory'));
         expect(directories).toHaveLength(1);
         fullDirectoryId = directories[0]!.jobId!;
         if (mode.kind === 'AlbumDirectories') {
@@ -786,7 +787,7 @@ for (const mode of modes) {
           writers: daemon.logs().filter(line => line.startsWith('E2E_METRIC writer-phases '))
             .map(line => JSON.parse(line.slice('E2E_METRIC writer-phases '.length))).slice(-20),
         }));
-        expect(root.kind).toBe(group ? 'album-groups' : 'album');
+        expect(root.display.kind).toBe(group ? 'album-groups' : 'album');
         await page.goto(`/jobs/${root.jobId}`);
         await expect(page.locator('.automatic-job-detail h1')).toBeVisible();
         const heldResponse = await measureApi(daemon.url, `/api/jobs/${root.jobId}`);
@@ -819,13 +820,13 @@ for (const mode of modes) {
       expect(rootResponse.ok, rootResponse.body).toBe(true);
       expect(rootApiMs, 'Automatic root metadata must stay a bounded read after child execution.').toBeLessThan(100);
       const completedRoot = JSON.parse(rootResponse.body) as Schema<'JobDetailDto'>;
-      expect(completedRoot.summary.terminalOutcome).toBe('Succeeded');
-      const jobsResponse = await measureApi(daemon.url, `/api/jobs?submissionId=${root.submissionId}&includeAll=true&limit=200`);
+      expect(completedRoot.summary.lifecycle.terminalOutcome).toBe('Succeeded');
+      const jobsResponse = await measureApi(daemon.url, `/api/jobs?submissionId=${root.display.submissionId}&includeAll=true&limit=200`);
       const jobsApiMs = jobsResponse.elapsedMs;
       expect(jobsResponse.ok, jobsResponse.body).toBe(true);
       const jobs = JSON.parse(jobsResponse.body) as Schema<'JobSummaryDto'>[];
       expect(jobsApiMs, 'The small automatic workflow must have a fast job-summary read.').toBeLessThan(100);
-      const albums = jobs.filter(job => job.kind === 'album');
+      const albums = jobs.filter(job => job.display.kind === 'album');
       expect(albums).toHaveLength(group ? 10 : 1);
       if (group) expect(completedRoot.payload).toMatchObject({ kind: 'album-groups', resultCount: 10,
         completedAlbumCount: 10, succeededAlbumCount: 10, failedAlbumCount: 0 });
@@ -834,9 +835,9 @@ for (const mode of modes) {
       const physicalPaths: string[] = [];
       const manifestApiMs: number[] = [];
       for (const album of albums) {
-        expect(album.submissionId).toBe(root.submissionId);
-        expect(album.workflowId).toBe(root.workflowId);
-        if (group) expect(album.parentJobId).toBe(root.jobId);
+        expect(album.display.submissionId).toBe(root.display.submissionId);
+        expect(album.display.workflowId).toBe(root.display.workflowId);
+        if (group) expect(album.relationships.parentJobId).toBe(root.jobId);
         const detailResponse = await page.request.get(`/api/jobs/${album.jobId}`);
         expect(detailResponse.ok(), await detailResponse.text()).toBe(true);
         const detail = await detailResponse.json() as Schema<'JobDetailDto'>;
@@ -1395,6 +1396,7 @@ for (const { mode, shape } of [
 
 test('projects 100k File Search hits from 20 peers with 25 folders of 200 files each @Load', async ({ page, daemon }, testInfo) => {
   test.setTimeout(120_000);
+  const visibleFilesPerFolder = Math.min(200, nestedPageSize);
   await daemon.command('large-distributed-search');
   await page.goto('/jobs');
   await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
@@ -1421,7 +1423,7 @@ test('projects 100k File Search hits from 20 peers with 25 folders of 200 files 
   await page.locator('#global-search-simple').press('Enter');
   expect((await (await initialPage).json() as Schema<'SearchViewDirectoryPageDto'>).revision.isComplete).toBe(false);
   await expect(page.locator('.folder-item-card')).toHaveCount(5);
-  await expect(page.locator('.folder-file-row')).toHaveCount(5 * 100);
+  await expect(page.locator('.folder-file-row')).toHaveCount(5 * visibleFilesPerFolder);
   await expect(page.locator('.search-results-summary')).toContainText('Searching');
 
   const finished = waitForCompleteView(page);
@@ -1431,7 +1433,7 @@ test('projects 100k File Search hits from 20 peers with 25 folders of 200 files 
   await expect(page.locator('.search-results-summary')).toBeVisible();
   await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
   await expect(page.locator('.folder-item-card')).toHaveCount(directoryPageSize);
-  await expect(page.locator('.folder-file-row')).toHaveCount(directoryPageSize * 100);
+  await expect(page.locator('.folder-file-row')).toHaveCount(directoryPageSize * visibleFilesPerFolder);
   const finalBatchToDomMs = Math.round(performance.now() - releasedAt);
   await Promise.all(captures);
   expect(captureErrors).toEqual([]);
@@ -1651,14 +1653,17 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   await expect(page.locator('.search-results-summary')).toContainText('Searching');
   const folder = page.locator('.folder-item-card');
   await expect(folder).toHaveCount(1);
-  await expect(folder.locator('.folder-file-row')).toHaveCount(100);
+  await expect(folder.locator('.folder-file-row')).toHaveCount(nestedPageSize);
+  await expect(folder.locator('.folder-file-count strong')).toHaveText('1000');
   expect(childRequests).toHaveLength(0);
   const more = page.getByRole('button', { name: 'Load more', exact: true });
   await expect(more).toBeEnabled();
   const continuedStarted = performance.now();
   const continuedFiles: Schema<'SearchViewFileDto'>[] = [];
   let continuedApiMs = 0;
-  while (continuedFiles.length < 500) {
+  const continuationPages = 2;
+  const continuedCount = continuationPages * nestedPageSize;
+  while (continuedFiles.length < continuedCount) {
     const [response] = await Promise.all([
       page.waitForResponse(result => result.request().method() === 'GET'
         && /\/api\/search-views\/[^/]+\/directories\/[^/]+\/files$/.test(new URL(result.url()).pathname)),
@@ -1666,20 +1671,20 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
     ]);
     expect(response.ok(), await response.text()).toBe(true);
     const files = await response.json() as Schema<'SearchViewDirectoryFilePageDto'>;
-    expect(new URL(response.url()).searchParams.get('limit')).toBe(String(filePageSize));
+    expect(new URL(response.url()).searchParams.get('limit')).toBe(String(nestedPageSize));
     expect(String(files.revision.revision)).toBe(String(initialSummary.revision));
-    expect(files.items).toHaveLength(filePageSize);
+    expect(files.items).toHaveLength(nestedPageSize);
     expect(files.nextCursor).toBeTruthy();
     continuedFiles.push(...files.items.map(item => item.file));
-    await expect(folder.locator('.folder-file-row')).toHaveCount(100 + continuedFiles.length);
+    await expect(folder.locator('.folder-file-row')).toHaveCount(nestedPageSize + continuedFiles.length);
     const pageMs = response.request().timing().responseEnd;
     expect(pageMs, 'A child page must remain a bounded read.').toBeLessThan(100);
     continuedApiMs += pageMs;
   }
   const continuedUiMs = Math.round(performance.now() - continuedStarted);
-  expect(childRequests).toHaveLength(500 / filePageSize);
-  expect(continuedFiles.map(file => file.remoteFilename)).toEqual(Array.from({ length: 500 }, (_, index) =>
-    'Fixture\\Album-000\\track-000-' + String(index + 100).padStart(6, '0') + '.txt'));
+  expect(childRequests).toHaveLength(continuationPages);
+  expect(continuedFiles.map(file => file.remoteFilename)).toEqual(Array.from({ length: continuedCount }, (_, index) =>
+    'Fixture\\Album-000\\track-000-' + String(index + nestedPageSize).padStart(6, '0') + '.txt'));
   const chosen = continuedFiles.at(-1)!;
   const counted = page.waitForResponse(result => result.request().method() === 'POST'
     && new URL(result.url()).pathname.endsWith('/selection-counts'));
@@ -1691,11 +1696,11 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   expect(Number(counts.lockedFileCount)).toBe(0);
   const countApiMs = Math.round(countResponse.request().timing().responseEnd);
   expect(countApiMs, 'Counting one selected file must seek its exact membership.').toBeLessThan(100);
-  // Arrivals must not collapse the 500 continued rows back to the preview.
+  // Arrivals must not collapse the continued rows back to the preview.
   const advanced = directoryPageAt(2000);
   await daemon.command('next-search-batch');
   await advanced;
-  await expect(folder.locator('.folder-file-row')).toHaveCount(600);
+  await expect(folder.locator('.folder-file-row')).toHaveCount(nestedPageSize + continuedCount);
   await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
   await expect(folder.getByRole('checkbox')).toHaveCount(0);
   await expect(page.locator('.search-results-summary')).toContainText('Searching');
@@ -1738,7 +1743,7 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   expect(Number(summary.counters.topLevelItemCount)).toBe(1);
   await expect(page.locator('.search-results-summary')).toBeVisible();
   await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
-  await expect(folder.locator('.folder-file-row')).toHaveCount(600);
+  await expect(folder.locator('.folder-file-row')).toHaveCount(nestedPageSize + continuedCount);
   await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
   await expect(folder.getByRole('checkbox')).toHaveCount(0);
   page.off('requestfinished', observeFinished);

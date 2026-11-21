@@ -308,7 +308,7 @@
     mutation = { phase: 'pending', label: 'Queueing download…' };
     try {
       const job = await request();
-      mutation = { phase: 'succeeded', label: `Retry queued as job #${job.displayId}` };
+      mutation = { phase: 'succeeded', label: `Retry queued as job #${job.display.displayId}` };
       await onchanged();
     } catch (cause) {
       mutation = { phase: 'rejected', label: 'Retry failed', detail: errorMessage(cause) };

@@ -15,7 +15,6 @@ export type StateSnapshotDto = Schema<'StateSnapshotDto'>;
 export type StateUpdateBatchDto = Schema<'StateUpdateBatchDto'>;
 export type DaemonStateDto = Schema<'DaemonStateDto'>;
 export type WorkflowStateDto = Schema<'WorkflowStateDto'>;
-export type JobStateDto = Schema<'JobStateDto'>;
 export type SearchStateDto = Schema<'SearchStateDto'>;
 export type TransferStateDto = Schema<'TransferStateDto'>;
 export type TransferTimelinePageDto = Schema<'TransferTimelinePageDto'>;

@@ -44,15 +44,21 @@ describe('folder tree projection', () => {
     ]);
   });
 
-  it('leaves flat rows in source order without creating synthetic folders', () => {
+  it('shows root files before section headers and keeps each folder’s files together', () => {
     const rows = buildFolderTreeRows([
-      { id: 'b', relativePath: 'B/one.txt', sizeBytes: 0, sizeUnknown: true },
-      { id: 'a', relativePath: 'A/two.txt', sizeBytes: 0 },
-    ], new Set(), 'flat');
-    expect(rows.map((row) => row.key)).toEqual(['file:b', 'file:a']);
+      { id: 'b', relativePath: 'CD2/track.flac', sizeBytes: 1 },
+      { id: 'loose', relativePath: 'cover.jpg', sizeBytes: 1 },
+      { id: 'a', relativePath: 'CD1\\track.flac', sizeBytes: 1 },
+      { id: 'nested', relativePath: 'CD1/Artwork/front.jpg', sizeBytes: 1 },
+      { id: 'c', relativePath: 'CD2/encore.flac', sizeBytes: 1 },
+    ], new Set(), 'sections');
+    expect(rows.map(row => [row.depth, row.kind === 'folder' ? row.name : row.displayName])).toEqual([
+      [0, 'cover.jpg'], [0, 'CD1'], [1, 'track.flac'], [1, 'Artwork'], [2, 'front.jpg'],
+      [0, 'CD2'], [1, 'track.flac'], [1, 'encore.flac'],
+    ]);
   });
 
-  it.each(['flat', 'tree'] as const)('uses replacement file data and current selection in %s layout', layout => {
+  it.each(['sections', 'tree'] as const)('uses replacement file data and current selection in %s layout', layout => {
     const original: FolderItemFile = {
       id: 'file', relativePath: 'Folder/Old.txt', sizeBytes: 128,
       transfer: { state: 'Downloading', tone: 'active' },
@@ -67,12 +73,10 @@ describe('folder tree projection', () => {
     expect(file.file.relativePath).toBe('Folder/New.txt');
     expect(file.file.sizeBytes).toBe(256);
     expect(file.file.transfer?.state).toBe('Complete');
-    expect(file.displayName).toBe(layout === 'flat' ? 'Folder/New.txt' : 'New.txt');
-    if (layout === 'tree') {
-      const folder = after.find(row => row.kind === 'folder')!;
-      expect(folder.node.selectedCount).toBe(1);
-      expect(folder.node.sizeBytes).toBe(256);
-    }
+    expect(file.displayName).toBe('New.txt');
+    const folder = after.find(row => row.kind === 'folder')!;
+    expect(folder.node.selectedCount).toBe(1);
+    expect(folder.node.sizeBytes).toBe(256);
     expect(before.find(row => row.kind === 'file')!.file.transfer?.state).toBe('Downloading');
   });
 });

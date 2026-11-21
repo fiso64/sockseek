@@ -173,6 +173,7 @@ internal sealed class TransferAttemptEntity : IRevisionedHistoryRow
     public string? OutputPath { get; set; }
     public long StartedAtUtc { get; set; }
     public long? CompletedAtUtc { get; set; }
+    public string CancellationSource { get; set; } = "None";
     public string FailureReason { get; set; } = "";
     public string? FailureMessage { get; set; }
     public long Revision { get; set; }

@@ -10,9 +10,9 @@ internal readonly record struct DownloadRunSummary(int Succeeded, int Failed, in
         var superseded = new HashSet<Guid>();
         foreach (var job in jobs)
         {
-            if (job.Kind is ServerJobKind.Album or ServerJobKind.RemoteDirectory)
+            if (job.Display.Kind is ServerJobKind.Album or ServerJobKind.RemoteDirectory)
                 directories.Add(job.JobId);
-            if (job.SourceJobId is Guid source)
+            if (job.Relationships.SourceJobId is Guid source)
                 superseded.Add(source);
         }
 
@@ -23,19 +23,19 @@ internal readonly record struct DownloadRunSummary(int Succeeded, int Failed, in
             // The directory outcome already accounts for its files. A follow-up
             // similarly owns the outcome of the search that produced it.
             if (superseded.Contains(job.JobId)
-                || job.ParentJobId is Guid parent && directories.Contains(parent))
+                || job.Relationships.ParentJobId is Guid parent && directories.Contains(parent))
                 continue;
 
-            bool count = job.PrintOption == ServerPrintOption.None && job.Kind is not
+            bool count = job.Display.PrintOption == ServerPrintOption.None && job.Display.Kind is not
                 (ServerJobKind.Extract or ServerJobKind.JobList or ServerJobKind.RetrieveFolder
                 or ServerJobKind.SongGroups or ServerJobKind.AlbumGroups);
-            switch (job.TerminalOutcome)
+            switch (job.Lifecycle.TerminalOutcome)
             {
                 case ServerJobTerminalOutcome.Succeeded:
-                case ServerJobTerminalOutcome.Skipped when job.SkipReason == ServerJobSkipReason.AlreadyExists:
+                case ServerJobTerminalOutcome.Skipped when job.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists:
                     if (count) succeeded++;
                     break;
-                case ServerJobTerminalOutcome.Skipped when job.SkipReason == ServerJobSkipReason.Manual:
+                case ServerJobTerminalOutcome.Skipped when job.Lifecycle.SkipReason == ServerJobSkipReason.Manual:
                     if (count) skipped++;
                     break;
                 case ServerJobTerminalOutcome.Cancelled:

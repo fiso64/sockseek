@@ -1,5 +1,3 @@
-import type { AppIconName } from '../../app/icons';
-
 const audioFileExtensions = new Set([
   'FLAC', 'MP3', 'WAV', 'OGG', 'OPUS', 'M4A', 'M4B', 'AAC', 'ALAC', 'APE', 'AIFF', 'AIF', 'WMA',
 ]);
@@ -22,8 +20,8 @@ export function fileTypeIcon(options: {
   extension?: string | null;
   filename?: string | null;
   hasAudioMetadata?: boolean;
-}): AppIconName {
+}): 'track' | 'file' {
+  if (options.hasAudioMetadata) return 'track';
   const resolvedExtension = resolveFileExtension(options.extension, options.filename);
-  if (options.hasAudioMetadata || audioFileExtensions.has(resolvedExtension)) return 'track';
-  return 'file';
+  return audioFileExtensions.has(resolvedExtension) ? 'track' : 'file';
 }

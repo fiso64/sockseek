@@ -22,8 +22,8 @@ internal sealed class HistoryRowMapping<T> where T : class, IRevisionedHistoryRo
     public static HistoryRowMapping<T> For(SockseekDbContext context)
         => Mappings.GetValue(context.Model, model => new(model.FindEntityType(typeof(T))!));
 
-    public string SelectColumns(string alias)
-        => string.Join(", ", ColumnNames.Select(column => alias + "." + column));
+    public string SelectColumns(string alias, string? omitProperty = null)
+        => string.Join(", ", ColumnNames.Select((column, i) => Properties[i].Name == omitProperty ? "NULL" : alias + "." + column));
 
     public Task<List<T>> ReadAsync(SockseekDbContext context, string sql,
         IEnumerable<object> parameters, CancellationToken cancellationToken)

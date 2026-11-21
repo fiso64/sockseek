@@ -1,23 +1,21 @@
+import { jobSummary } from './job-fixture';
 import { describe, expect, it } from 'vitest';
 import type { JobSummaryDto } from '../src/api/types';
 import { canReplaySearch, canReplaySearchRoot } from '../src/domains/search/replay';
 
 describe('single-search replay eligibility', () => {
-  const root = {
-    jobId: 'search-job', submissionId: 'submission', parentJobId: null,
-    role: 'user-root', kind: 'search',
-  } as JobSummaryDto;
+  const root = jobSummary({ jobId: 'search-job', display: { submissionId: 'submission', role: 'user-root', kind: 'search' }, relationships: { parentJobId: null } });
 
   it('allows only a directly submitted search root', () => {
     expect(canReplaySearchRoot(root)).toBe(true);
-    expect(canReplaySearchRoot({ ...root, parentJobId: 'import', role: 'execution-child' })).toBe(false);
-    expect(canReplaySearchRoot({ ...root, submissionId: null })).toBe(false);
-    expect(canReplaySearchRoot({ ...root, kind: 'extract' })).toBe(false);
+    expect(canReplaySearchRoot(jobSummary({ relationships: { parentJobId: 'import' }, display: { role: 'execution-child' } }, root))).toBe(false);
+    expect(canReplaySearchRoot(jobSummary({ display: { submissionId: null } }, root))).toBe(false);
+    expect(canReplaySearchRoot(jobSummary({ display: { kind: 'extract' } }, root))).toBe(false);
   });
 
   it('also allows a retained search child without allowing unrelated jobs', () => {
-    expect(canReplaySearch({ ...root, parentJobId: 'import', role: 'execution-child' })).toBe(true);
-    expect(canReplaySearch({ ...root, submissionId: null })).toBe(false);
-    expect(canReplaySearch({ ...root, kind: 'extract' })).toBe(false);
+    expect(canReplaySearch(jobSummary({ relationships: { parentJobId: 'import' }, display: { role: 'execution-child' } }, root))).toBe(true);
+    expect(canReplaySearch(jobSummary({ display: { submissionId: null } }, root))).toBe(false);
+    expect(canReplaySearch(jobSummary({ display: { kind: 'extract' } }, root))).toBe(false);
   });
 });

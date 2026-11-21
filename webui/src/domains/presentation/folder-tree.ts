@@ -27,25 +27,23 @@ type FileDisplayRow = Extract<FolderDisplayRow, { kind: 'file' }>;
 // Files are immutable presentation snapshots. Keep their row identity too, so
 // progress in one file does not invalidate every binding in a keyed folder list.
 // Weak keys keep this reuse tied to the snapshot's ordinary reader lifetime.
-const flatRows = new WeakMap<FolderItemFile, FileDisplayRow>();
-const treeRows = new WeakMap<FolderItemFile, FileDisplayRow>();
-function fileRow(file: FolderItemFile, depth: number, displayName: string, tree: boolean): FileDisplayRow {
-  const cache = tree ? treeRows : flatRows;
-  const previous = cache.get(file);
+const fileRows = new WeakMap<FolderItemFile, FileDisplayRow>();
+function fileRow(file: FolderItemFile, depth: number, displayName: string): FileDisplayRow {
+  const previous = fileRows.get(file);
   const key = `file:${file.id}`;
   if (previous?.key === key && previous.depth === depth && previous.displayName === displayName) return previous;
   const row: FileDisplayRow = { kind: 'file', key, depth, displayName, file };
-  cache.set(file, row);
+  fileRows.set(file, row);
   return row;
 }
 
 export function buildFolderTreeRows(
   source: FolderItemFile[],
   selectedFileIds: ReadonlySet<string>,
-  layout: 'flat' | 'tree',
+  layout: 'sections' | 'tree',
 ): FolderDisplayRow[] {
-  if (layout === 'flat') {
-    return source.map(file => fileRow(file, 0, file.relativePath, false));
+  if (layout === 'sections' && source.every(file => !/[\\/]/.test(file.relativePath))) {
+    return source.map(file => fileRow(file, 0, file.relativePath));
   }
 
   const createNode = (name: string, relativePath: string): FolderTreeNode => ({
@@ -97,7 +95,12 @@ export function buildFolderTreeRows(
   const rows: FolderDisplayRow[] = [];
   const append = (node: FolderTreeNode, depth: number): void => {
     const folders = Array.from(node.folders.values()).sort((a, b) => naturalName.compare(a.name, b.name));
-    const files = [...node.files].sort((a, b) => naturalName.compare(a.name, b.name));
+    // Section headers introduce the files below them. Keep direct files above
+    // the first header in their original order. The selectable directory tree
+    // follows the browser convention of sorted folders before sorted files.
+    if (layout === 'sections') {
+      for (const entry of node.files) rows.push(fileRow(entry.file, depth, entry.name));
+    }
     for (const folder of folders) {
       rows.push({
         kind: 'folder', key: `folder:${folder.relativePath}`, name: folder.name,
@@ -105,8 +108,10 @@ export function buildFolderTreeRows(
       });
       append(folder, depth + 1);
     }
-    for (const entry of files) {
-      rows.push(fileRow(entry.file, depth, entry.name, true));
+    if (layout === 'tree') {
+      for (const entry of node.files.sort((a, b) => naturalName.compare(a.name, b.name))) {
+        rows.push(fileRow(entry.file, depth, entry.name));
+      }
     }
   };
   append(root, 0);

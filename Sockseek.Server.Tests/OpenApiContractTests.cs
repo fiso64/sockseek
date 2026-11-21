@@ -691,27 +691,8 @@ public class OpenApiContractTests
         var workflowId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
         var epoch = Guid.NewGuid();
-        var summary = new JobSummaryDto(
-            jobId,
-            4,
-            workflowId,
-            ServerJobKind.Search,
-            ServerJobLifecycleState.Running,
-            ServerJobActivityPhase.Searching,
-            null,
-            ServerJobTerminalOutcome.None,
-            ServerJobSkipReason.None,
-            "item",
-            "query",
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            [],
-            []);
+        var summary = TestJobSummary.Create(ServerJobKind.Search, jobId, workflowId, displayId: 4,
+            state: ServerJobLifecycleState.Running, phase: ServerJobActivityPhase.Searching, name: "item", query: "query");
         var batch = new StateUpdateBatchDto(
             StateStreamScopeDto.Workflow(workflowId),
             epoch,
@@ -725,7 +706,7 @@ public class OpenApiContractTests
                     new JobDeltaDto(
                         jobId,
                         1,
-                        Added: JobStateDto.FromSummary(summary, 1)),
+                        Added: summary with { Revision = 1 }),
                 ],
             },
             [
@@ -752,7 +733,7 @@ public class OpenApiContractTests
             new DiagnosticActivityDto(4, "job", "failed", "IOException", "test detail", null),
             new ExtractionStartedActivityDto(4, "input", null, "extractor"),
             new DownloadAttemptFailedActivityDto(4, "Peer", @"Root\File.flac", "/output/file.flac",
-                1, 3, "IOException", "retry", "test detail"),
+                1, 3, "IOException", "retry"),
             new TrackBatchResolvedActivityDto(4, true, ServerPrintOption.Full, 1, 2, 3),
         ];
         batch = batch with { Activity = [.. batch.Activity, .. otherActivities.Select((payload, index) =>

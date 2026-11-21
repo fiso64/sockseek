@@ -43,8 +43,8 @@ public class DaemonClientStoreTests
                 [])));
 
         Assert.AreEqual(DaemonClientApplyStatus.Applied, update.Status);
-        Assert.AreEqual(ServerJobLifecycleState.Terminal, store.GetJob(jobId)?.LifecycleState);
-        Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, store.GetJob(jobId)?.TerminalOutcome);
+        Assert.AreEqual(ServerJobLifecycleState.Terminal, store.GetJob(jobId)?.Lifecycle.LifecycleState);
+        Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, store.GetJob(jobId)?.Lifecycle.TerminalOutcome);
         Assert.IsNull(store.GetJob(jobId)?.Stats?.CandidateCount);
         Assert.AreEqual(transferId, store.GetJobTransfers(jobId).Single().TransferId);
         Assert.AreEqual(0, update.Activity.Count);
@@ -82,7 +82,7 @@ public class DaemonClientStoreTests
 
         Assert.AreEqual(DaemonClientApplyStatus.Applied, overlap.Status);
         Assert.AreEqual(DaemonClientApplyStatus.IgnoredStale, stale.Status);
-        Assert.AreEqual(ServerJobLifecycleState.Running, store.GetJob(jobId)?.LifecycleState);
+        Assert.AreEqual(ServerJobLifecycleState.Running, store.GetJob(jobId)?.Lifecycle.LifecycleState);
     }
 
     [TestMethod]
@@ -110,7 +110,7 @@ public class DaemonClientStoreTests
         Assert.AreEqual(DaemonClientApplyStatus.RecoveryRequired, update.Status);
         Assert.AreEqual(DaemonClientRecoveryReason.SequenceGap, update.RecoveryReason);
         Assert.IsTrue(store.IsStale(scope));
-        Assert.AreEqual(ServerJobLifecycleState.Pending, store.GetJob(jobId)?.LifecycleState);
+        Assert.AreEqual(ServerJobLifecycleState.Pending, store.GetJob(jobId)?.Lifecycle.LifecycleState);
         Assert.AreEqual(3, store.GetPosition(scope)?.Sequence);
     }
 
@@ -228,7 +228,7 @@ public class DaemonClientStoreTests
                 TerminalOutcome = ServerJobTerminalOutcome.Failed,
                 FailureReason = ServerJobFailureReason.Other,
                 FailureMessage = "old failure",
-                FailureDetail = "old detail",
+                HasFailureDetail = true,
             },
         };
         store.ApplySnapshot(Snapshot(epoch, 1, workflowId, [failed]));
@@ -239,7 +239,7 @@ public class DaemonClientStoreTests
             TerminalOutcome = ServerJobTerminalOutcome.None,
             FailureReason = null,
             FailureMessage = null,
-            FailureDetail = null,
+            HasFailureDetail = false,
         };
         store.Apply(Batch(
             epoch,
@@ -262,10 +262,10 @@ public class DaemonClientStoreTests
 
         var current = store.GetJob(jobId);
         Assert.IsNotNull(current);
-        Assert.AreEqual(ServerJobLifecycleState.Running, current.LifecycleState);
-        Assert.IsNull(current.FailureReason);
-        Assert.IsNull(current.FailureMessage);
-        Assert.IsNull(current.FailureDetail);
+        Assert.AreEqual(ServerJobLifecycleState.Running, current.Lifecycle.LifecycleState);
+        Assert.IsNull(current.Lifecycle.FailureReason);
+        Assert.IsNull(current.Lifecycle.FailureMessage);
+        Assert.IsFalse(current.Lifecycle.HasFailureDetail);
     }
 
     [TestMethod]
@@ -320,7 +320,7 @@ public class DaemonClientStoreTests
         Guid epoch,
         long sequence,
         Guid workflowId,
-        IReadOnlyList<JobStateDto> jobs)
+        IReadOnlyList<JobSummaryDto> jobs)
         => new(
             StateStreamScopeDto.Workflow(workflowId),
             new StateStreamPositionDto(epoch, sequence),
@@ -346,34 +346,13 @@ public class DaemonClientStoreTests
             state,
             []);
 
-    private static JobStateDto Job(
+    private static JobSummaryDto Job(
         Guid jobId,
         Guid workflowId,
         long revision,
         ServerJobLifecycleState lifecycle)
-        => JobStateDto.FromSummary(
-            new JobSummaryDto(
-                jobId,
-                1,
-                workflowId,
-                ServerJobKind.Song,
-                lifecycle,
-                ServerJobActivityPhase.None,
-                null,
-                ServerJobTerminalOutcome.None,
-                ServerJobSkipReason.None,
-                "job",
-                "query",
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                [],
-                []),
-            revision);
+        => TestJobSummary.Create(ServerJobKind.Song, jobId, workflowId, displayId: 1, revision: revision,
+            state: lifecycle, name: "job", query: "query");
 
     private static WorkflowSummaryDto Workflow(Guid workflowId, Guid rootJobId)
         => new(workflowId, "workflow", ServerWorkflowState.Active, 1, 1, 0, 0);

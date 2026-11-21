@@ -8,11 +8,10 @@
   import { audioAttributes, basename, type TransferPresentation } from '../presentation/items';
   import { daemonApi, defaultPageSize, nestedPageSize } from '../../api/client';
   import { DaemonApiError } from '../../api/http';
-  import type { JobStateDto, JobSummaryDto, Schema } from '../../api/types';
+  import type { JobSummaryDto, Schema } from '../../api/types';
   import type { DaemonLiveClient } from '../../api/live';
   import { TransferRows, updatedTransfer, updatedJob } from '../../api/state.svelte';
-  import { jobStateSummary } from '../../api/job-summary';
-  import { liveTransferPresentation } from '../transfers/model';
+    import { liveTransferPresentation } from '../transfers/model';
   import { selectedJobFile, jobFileTransfer } from './selected-file';
   import { directoryManifestFileRow, directoryKnownSize } from './directory-files';
   import { canReuseJobDetail, jobDetailVersion, startJobDetailRefresh, loadJobAncestors, readJobSummaries, jobSummaryRetryIds, type JobSummaryRead } from './detail-reads';
@@ -36,7 +35,7 @@
     connected: boolean;
     observeJobs: DaemonLiveClient['observeJobs'];
     onback: () => void;
-    onopenjob: (job: JobSummaryDto, detail?: Schema<'JobDetailDto'>) => void;
+    onopenjob: (job: JobSummaryDto | string, detail?: Schema<'JobDetailDto'>) => void;
     ondelete: (job: JobSummaryDto) => void;
     deletingSubmissions?: ReadonlySet<string>;
     deleteError?: Error | null;
@@ -46,12 +45,12 @@
   let sourceRead = $state.raw<JobSummaryRead | null>(null);
   let sourceRetry = $state(0);
   let job = $derived(detail?.summary);
-  let sourceJobAvailable = $derived(observedSource?.jobId === jobId && observedSource.sourceId === job?.sourceJobId
+  let sourceJobAvailable = $derived(observedSource?.jobId === jobId && observedSource.sourceId === job?.relationships.sourceJobId
     ? observedSource.available : detail?.sourceJobAvailable === true);
   // Extracted results already navigate through their source during route resolution.
   // Only independently submitted follow-ups expose provenance as a related job.
   let sourceJobId = $derived(job?.jobId === jobId && sourceJobAvailable
-    && job.role === 'user-root' && !job.parentJobId ? job.sourceJobId : null);
+    && job.display.role === 'user-root' && !job.relationships.parentJobId ? job.relationships.sourceJobId : null);
   let payload = $derived(detail?.payload);
   let ancestors = $state<JobSummaryDto[]>([]);
   let parent = $derived(ancestors.at(-1) ?? null);
@@ -64,8 +63,8 @@
   let retrievalRefreshPending = false;
   let retrievalLoaded = $state(false);
   let retrievalError = $state<Error | null>(null);
-  const observedJobs = new SvelteMap<string, JobStateDto>();
-  const noObservedJobs: ReadonlyMap<string, JobStateDto> = new Map();
+  const observedJobs = new SvelteMap<string, JobSummaryDto>();
+  const noObservedJobs: ReadonlyMap<string, JobSummaryDto> = new Map();
   let liveJobsById = $derived(connected ? observedJobs : noObservedJobs);
   let observedChildCount = $state<number | null>(null);
   let observedRetrievalCount = $state<number | null>(null);
@@ -74,16 +73,16 @@
   // registered. Observe their arrival, not progress or every undisplayed child.
   let liveChildExtent = $derived(Math.min(observedChildCount ?? 0, nestedPageSize));
   let liveRetrievalExtent = $derived(Math.min(observedRetrievalCount ?? 0, nestedPageSize));
-  let liveDetailVersion = $derived(`${liveChildExtent}:${jobDetailVersion(liveRoot ? jobStateSummary(liveRoot) : undefined)}`);
+  let liveDetailVersion = $derived(`${liveChildExtent}:${jobDetailVersion(liveRoot ?? undefined)}`);
   let observedDetailVersion = '';
   let invalidateDetail: () => void = () => {};
   let visibleChildren = $derived(children.map((child) => {
     const live = liveJobsById.get(child.jobId!);
-    return live ? { ...child, ...jobStateSummary(live) } : child;
+    return live ?? child;
   }));
   let visibleRetrievalChildren = $derived(retrievalChildren.map((child) => {
     const live = liveJobsById.get(child.jobId!);
-    return live ? { ...child, ...jobStateSummary(live) } : child;
+    return live ?? child;
   }));
   let linkedChildren = $state(new Map<string, JobSummaryRead>());
   let childRecords = $derived.by(() => {
@@ -91,9 +90,9 @@
     for (const [id, read] of linkedChildren) if (read.summary) known.set(id, read.summary);
     for (const child of visibleChildren) if (child.jobId) known.set(child.jobId, child);
     for (const child of visibleRetrievalChildren) if (child.jobId) known.set(child.jobId, child);
-    for (const [id, job] of known) {
+    for (const id of known.keys()) {
       const live = liveJobsById.get(id);
-      if (live) known.set(id, { ...job, ...jobStateSummary(live) });
+      if (live) known.set(id, live);
     }
     return known;
   });
@@ -164,7 +163,7 @@
   let loadedChildCount = $state<number | string | null>(null);
   let lifetime: AbortController;
   let sourceJob = $derived(sourceJobId && liveJobsById.has(sourceJobId)
-    ? jobStateSummary(liveJobsById.get(sourceJobId)!)
+    ? liveJobsById.get(sourceJobId)!
     : sourceRead?.summary?.jobId === sourceJobId ? sourceRead?.summary ?? null : null);
   $effect(() => {
     const id = sourceJobId;
@@ -176,7 +175,7 @@
       .then(reads => { if (!request.signal.aborted) sourceRead = reads.get(id) ?? null; });
     return () => request.abort();
   });
-  let parentJobId = $derived(job?.parentJobId);
+  let parentJobId = $derived(job?.relationships.parentJobId);
   $effect(() => {
     const id = parentJobId;
     ancestors = [];
@@ -190,11 +189,11 @@
     });
     return () => request.abort();
   });
-  let parentTitle = $derived(parent?.itemName ?? parent?.queryText ?? 'parent job');
+  let parentTitle = $derived(parent?.display.itemName ?? parent?.display.queryText ?? 'parent job');
   // A song's album is context when no album job already supplies that breadcrumb.
   let albumContext = $derived(payload?.kind === 'song' && payload.query.album
-    && !ancestors.some(ancestor => ancestor.kind === 'album'
-      || (ancestor.itemName ?? ancestor.queryText) === payload.query.album)
+    && !ancestors.some(ancestor => ancestor.display.kind === 'album'
+      || (ancestor.display.itemName ?? ancestor.display.queryText) === payload.query.album)
     ? payload.query.album : null);
   let relatedTotal = $derived.by(() => {
     if (payload?.kind === 'album')
@@ -217,7 +216,7 @@
   let displayedRelatedRows = $derived(showRelatedChildren ? relatedRows : []);
   let displayedRelatedTotal = $derived((showRelatedChildren ? relatedTotal ?? relatedRows.length : 0)
     + (sourceJobId ? 1 : 0));
-  let planStateLabel = $derived(!manifest && manifestMissing && job?.lifecycleState === 'Terminal'
+  let planStateLabel = $derived(!manifest && manifestMissing && job?.lifecycle.lifecycleState === 'Terminal'
     ? 'The accepted file plan is not available for this job.' : undefined);
   let activeFileTransfer = $derived(liveTransfers.find((transfer) => transfer.identity.jobId === jobId && !transfer.status.isTerminal));
   let selectedFile = $derived(selectedJobFile(payload, activeFileTransfer));
@@ -251,9 +250,9 @@
   let folderFileCount = $derived(manifest ? Number(manifest.entryCount) + Number(manifest.supplementalEntryCount) : null);
   let folderFiles = $derived(manifestEntries.map(entry => directoryManifestFileRow(entry, {
     child: entry.childJobId && liveJobsById.has(entry.childJobId)
-      ? jobStateSummary(liveJobsById.get(entry.childJobId)!) : entry.child,
+      ? liveJobsById.get(entry.childJobId)! : entry.child,
     live: entry.childJobId ? liveTransfersByJob.get(entry.childJobId) : undefined,
-    ownerTerminal: job?.lifecycleState === 'Terminal',
+    ownerTerminal: job?.lifecycle.lifecycleState === 'Terminal',
   })));
   let folderTransfer = $derived.by((): TransferPresentation | undefined => {
     if (payload?.kind !== 'album' && payload?.kind !== 'remote-directory') return undefined;
@@ -262,7 +261,7 @@
     return {
       job: job ?? undefined, directory: payload.directory,
       state: job ? jobStatusLabel(job) : humanizeStateValue(payload.directory.phase),
-      tone: job?.lifecycleState !== 'Terminal' ? 'active' : jobTransferTone(job),
+      tone: job?.lifecycle.lifecycleState !== 'Terminal' ? 'active' : jobTransferTone(job),
       direction: 'download',
       progressPercent: payload.directory.progressPercent == null ? undefined : Number(payload.directory.progressPercent),
       progressText: total > 0
@@ -279,9 +278,9 @@
     }
     return progress;
   });
-  let skippedOutput = $derived(job?.terminalOutcome !== 'Skipped' ? null
+  let skippedOutput = $derived(job?.lifecycle.terminalOutcome !== 'Skipped' ? null
     : payload?.kind === 'song' ? payload.file : payload?.kind === 'album' ? payload.directory : null);
-  let title = $derived(job?.itemName ?? job?.queryText ?? jobKindLabel(job?.kind));
+  let title = $derived(job?.display.itemName ?? job?.display.queryText ?? jobKindLabel(job?.display.kind));
   let hasContent = $derived(Boolean(selectedFile) || payload?.kind === 'remote-directory'
     || payload?.kind === 'album' && !skippedOutput && Boolean(payload.resolvedFolderPath || manifest));
   let info = $derived(job ? jobDetailInfo(job, payload, hasContent) : null);
@@ -345,7 +344,7 @@
           if (!request.signal.aborted) onopenjob(result.summary, result);
           return;
         }
-        const lifecycleChanged = detail?.summary.lifecycleState !== next.summary.lifecycleState;
+        const lifecycleChanged = detail?.summary.lifecycle.lifecycleState !== next.summary.lifecycle.lifecycleState;
         const childrenChanged = detail?.childCount !== next.childCount || lifecycleChanged;
         const outcomesChanged = childOutcomes(detail?.payload) !== childOutcomes(next.payload);
         // The live workflow retains child summaries until retirement. Their
@@ -358,7 +357,7 @@
           && children.some(child => !liveJobsById.has(child.jobId!)));
         const refreshRetrieval = next.payload?.kind === 'album' && (!retrievalLoaded || lifecycleChanged
           || (liveRoot ? retrievalChildren.length < liveRetrievalExtent : childrenChanged || outcomesChanged
-            || visibleRetrievalChildren.some(child => child.lifecycleState !== 'Terminal')));
+            || visibleRetrievalChildren.some(child => child.lifecycle.lifecycleState !== 'Terminal')));
         detail = next;
         error = null;
         await Promise.all([
@@ -369,7 +368,7 @@
         const directory = next.payload?.kind === 'album' || next.payload?.kind === 'remote-directory'
           ? next.payload.directory : null;
         const attempt = directory?.attemptNumber == null ? null : Number(directory.attemptNumber);
-        if (directory && attempt === null) manifestMissing = next.summary.lifecycleState === 'Terminal';
+        if (directory && attempt === null) manifestMissing = next.summary.lifecycle.lifecycleState === 'Terminal';
         if (attempt === null && manifest) {
           manifest = null;
           manifestEntries = [];
@@ -381,7 +380,7 @@
           !== Number(manifest.entryCount) + Number(manifest.supplementalEntryCount);
         if (attempt !== null && (manifest && (Number(manifest.attemptNumber) !== attempt || membershipChanged || lifecycleChanged
           || outcomesChanged && !liveRoot
-          || fileStatesPending && next.summary.lifecycleState !== 'Terminal' && Date.now() - manifestCheckedAt >= 2_000)
+          || fileStatesPending && next.summary.lifecycle.lifecycleState !== 'Terminal' && Date.now() - manifestCheckedAt >= 2_000)
           || (!manifest || !manifest.childrenMaterialized) && Date.now() - manifestCheckedAt >= 2_000)) {
           if (manifest && Number(manifest.attemptNumber) !== attempt) {
             manifest = null;
@@ -396,7 +395,7 @@
       }
     }
     const invalidate = startJobDetailRefresh(refresh, request.signal,
-      () => Boolean(error) || detail?.summary.lifecycleState !== 'Terminal',
+      () => Boolean(error) || detail?.summary.lifecycle.lifecycleState !== 'Terminal',
       () => observedDetailVersion !== liveDetailVersion || Boolean(error));
     invalidateDetail = invalidate;
     return () => {
@@ -407,7 +406,7 @@
 
   function detailMatchesObservation(): boolean {
     return Boolean(detail && liveRoot && !error
-      && canReuseJobDetail(detail.summary, jobStateSummary(liveRoot))
+      && canReuseJobDetail(detail.summary, liveRoot)
       && Number(detail.childCount) >= liveChildExtent);
   }
 
@@ -416,7 +415,7 @@
     untrack(() => {
       // Initial/replayed observations need no read when HTTP already covers them.
       if (detailMatchesObservation()
-        || !liveRoot && detail?.summary.lifecycleState === 'Terminal' && !error) {
+        || !liveRoot && detail?.summary.lifecycle.lifecycleState === 'Terminal' && !error) {
         observedDetailVersion = version;
         return;
       }
@@ -523,7 +522,7 @@
       const missing = [...new Set(childRows.flatMap(entry => {
         if (entry.missingResultId && !linkedChildren.has(entry.missingResultId)) return [entry.missingResultId];
         const cached = linkedChildren.get(entry.job.jobId!)?.summary;
-        return cached && cached.lifecycleState !== 'Terminal' && !liveJobsById.has(cached.jobId!)
+        return cached && cached.lifecycle.lifecycleState !== 'Terminal' && !liveJobsById.has(cached.jobId!)
           && !refreshed.has(cached.jobId!) ? [cached.jobId!] : [];
       }))];
       if (!missing.length) return;
@@ -619,7 +618,7 @@
 
 <section class="page page-search redesigned-search-page automatic-job-detail">
   <header class="job-detail-heading">
-    <button type="button" class="button quiet icon-button back-button" aria-label={job?.parentJobId ? `Back to ${parentTitle}` : 'Back to jobs'} onclick={() => job?.parentJobId ? onopenjob(parent ?? { jobId: job.parentJobId }) : onback()}>
+    <button type="button" class="button quiet icon-button back-button" aria-label={job?.relationships.parentJobId ? `Back to ${parentTitle}` : 'Back to jobs'} onclick={() => job?.relationships.parentJobId ? onopenjob(parent ?? job.relationships.parentJobId) : onback()}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5M7.5 10H16" /></svg>
     </button>
     <div class="job-detail-title">
@@ -628,26 +627,26 @@
     {#if job}
       <div class="job-detail-meta">
         {#each ancestors as ancestor (ancestor.jobId)}
-          {@const name = ancestor.itemName ?? ancestor.queryText ?? 'Parent job'}
+          {@const name = ancestor.display.itemName ?? ancestor.display.queryText ?? 'Parent job'}
           <button type="button" title={name} onclick={() => onopenjob(ancestor)}>{name}</button><span aria-hidden="true">/</span>
         {/each}
         {#if albumContext}<span>{albumContext}</span><span aria-hidden="true">/</span>{/if}
-        <span>{jobKindLabel(job.kind)}</span>
+        <span>{jobKindLabel(job.display.kind)}</span>
       </div>
     {/if}
 
     {#if job}
       {@const statusLabel = jobStatusLabel(job)}
       <div class="job-detail-heading-summary">
-        {#if job.createdAtUtc}<span class="job-detail-header-fact job-detail-age"><RelativeTime timestamp={job.createdAtUtc} /></span>{/if}
+        {#if job.display.createdAtUtc}<span class="job-detail-header-fact job-detail-age"><RelativeTime timestamp={job.display.createdAtUtc} /></span>{/if}
         {#if !info && !hasContent}<TransferStateLabel transfer={detailTransfer} class={`search-status-badge ${jobStatusClass(job)}`}>{statusLabel}</TransferStateLabel>{/if}
         {#if repeatOptions?.canRunAgain}
           <button type="button" class="button quiet" data-testid="run-again" disabled={retryBusy} onclick={() => repeat(() => daemonApi.runAgain(jobId))}><Icon name="refresh" />Run again</button>
         {/if}
-        {#if job.availableActions?.some((action) => action.kind === 'cancel')}
+        {#if job.lifecycle.availableActions?.some((action) => action.kind === 'cancel')}
           <button type="button" class="button danger delete-search-button quiet-cancel" aria-label="Cancel" title="Cancel job" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
         {:else if canDeleteSubmission(job)}
-          <button type="button" class="button danger delete-search-button" data-testid="delete-submission" aria-label="Delete submission" title="Delete submission from history" disabled={deletingSubmissions.has(job.submissionId!)} onclick={() => ondelete(job)}><Icon name="trash" /><span>Delete submission</span></button>
+          <button type="button" class="button danger delete-search-button" data-testid="delete-submission" aria-label="Delete submission" title="Delete submission from history" disabled={deletingSubmissions.has(job.display.submissionId!)} onclick={() => ondelete(job)}><Icon name="trash" /><span>Delete submission</span></button>
         {/if}
       </div>
     {/if}
@@ -662,7 +661,7 @@
   {#if actionError}<div class="resource-state-notice unavailable" role="alert">{actionError.message}</div>{/if}
   {#if deleteError}<div class="resource-state-notice unavailable" role="alert"><strong>Job action failed</strong><span>{deleteError.message}</span></div>{/if}
   {#if info && job}
-    <section class="panel job-info-card" class:warning={job.terminalOutcome === 'PartialSuccess'} class:failed={job.terminalOutcome === 'Failed'} data-testid="job-info-card" aria-label="Job information">
+    <section class="panel job-info-card" class:warning={job.lifecycle.terminalOutcome === 'PartialSuccess'} class:failed={job.lifecycle.terminalOutcome === 'Failed'} data-testid="job-info-card" aria-label="Job information">
       {#if info.message || info.counts.length || !hasContent}
         <div class="job-info-heading">
           {#if info.message || info.counts.length}
@@ -686,7 +685,8 @@
     </section>
   {/if}
   {#if payload?.kind === 'extract' && payload.resultJobId && !showRelatedChildren}
-    <button type="button" class="button job-child-load-more" onclick={() => onopenjob({ jobId: payload?.kind === 'extract' ? payload.resultJobId ?? undefined : undefined })}>Open extracted job</button>
+    {@const resultId = payload.resultJobId}
+    <button type="button" class="button job-child-load-more" onclick={() => onopenjob(resultId)}>Open extracted job</button>
   {/if}
   {#if selectedFile}
     {@const target = selectedFile.target}

@@ -1,29 +1,30 @@
+import { jobSummary } from './job-fixture';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { JobSummaryDto, Schema } from '../src/api/types';
 import { canReuseJobDetail, jobDetailVersion, startJobDetailRefresh } from '../src/domains/jobs/detail-reads';
 import { presentJob, presentedJobs, presentedChildren, resolvePresentedJob, sortPresentedJobsNewestFirst } from '../src/domains/jobs/presentation';
 import { searchJobMode } from '../src/domains/jobs/kind';
 
-const imported = { jobId: 'import', kind: 'extract', lifecycleState: 'Terminal', terminalOutcome: 'Succeeded', resultJobId: 'result' } satisfies JobSummaryDto;
-const result = { jobId: 'result', kind: 'job-list', lifecycleState: 'Running' } satisfies JobSummaryDto;
+const imported = jobSummary({ jobId: 'import', display: { kind: 'extract' }, lifecycle: { lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' }, relationships: { resultJobId: 'result' } }) satisfies JobSummaryDto;
+const result = jobSummary({ jobId: 'result', display: { kind: 'job-list' }, lifecycle: { lifecycleState: 'Running' } }) satisfies JobSummaryDto;
 const detail = (summary: JobSummaryDto): Schema<'JobDetailDto'> => ({ summary, payload: null, childCount: 0, sourceJobAvailable: false });
 
 afterEach(() => vi.useRealTimers());
 
 it('ignores progress noise but observes root lifecycle and extracted-result changes', () => {
-  const job = { jobId: 'root', lifecycleState: 'Running', resultJobId: null } satisfies JobSummaryDto;
-  expect(jobDetailVersion({ ...job, discoveryRawResultCount: 100 }))
+  const job = jobSummary({ jobId: 'root', lifecycle: { lifecycleState: 'Running' }, relationships: { resultJobId: null } }) satisfies JobSummaryDto;
+  expect(jobDetailVersion(jobSummary({ discovery: { rawResultCount: 100 } }, job)))
     .toBe(jobDetailVersion(job));
-  expect(jobDetailVersion({ ...job, lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' }))
+  expect(jobDetailVersion(jobSummary({ lifecycle: { lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' } }, job)))
     .not.toBe(jobDetailVersion(job));
-  expect(jobDetailVersion({ ...job, resultJobId: 'result' }))
+  expect(jobDetailVersion(jobSummary({ relationships: { resultJobId: 'result' } }, job)))
     .not.toBe(jobDetailVersion(job));
   expect(jobDetailVersion(undefined)).not.toBe(jobDetailVersion(job));
   expect(canReuseJobDetail(job, job)).toBe(true);
-  expect(canReuseJobDetail({ ...job, activityPhase: 'None' }, { ...job, activityPhase: 'RunningChildren' })).toBe(false);
-  expect(canReuseJobDetail({ ...job, lifecycleState: 'Pending' }, job)).toBe(false);
+  expect(canReuseJobDetail(jobSummary({ lifecycle: { activityPhase: 'None' } }, job), jobSummary({ lifecycle: { activityPhase: 'RunningChildren' } }, job))).toBe(false);
+  expect(canReuseJobDetail(jobSummary({ lifecycle: { lifecycleState: 'Pending' } }, job), job)).toBe(false);
   expect(canReuseJobDetail(job, undefined)).toBe(false);
-  expect(canReuseJobDetail({ ...job, lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' }, undefined)).toBe(true);
+  expect(canReuseJobDetail(jobSummary({ lifecycle: { lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' } }, job), undefined)).toBe(true);
 });
 
 it('coalesces in-flight invalidations and replaces the superseded fallback timer', async () => {
@@ -104,27 +105,27 @@ it('does not start queued reads after navigation aborts an in-flight owner', asy
 });
 
 it('uses accepted search projection and group presentation for compact mode badges', () => {
-  const search = { jobId: 'search', kind: 'search', searchGroupResults: false } satisfies JobSummaryDto;
-  expect(searchJobMode({ ...search, searchDefaultProjection: 'GenericFile' })).toBe('generic');
-  expect(searchJobMode({ ...search, searchDefaultProjection: 'Track' })).toBe('track');
-  expect(searchJobMode({ ...search, searchDefaultProjection: 'Album' })).toBe('album');
-  expect(searchJobMode({ ...search, searchDefaultProjection: 'Track', searchGroupResults: true })).toBe('song-groups');
-  expect(searchJobMode({ ...search, searchDefaultProjection: 'Album', searchGroupResults: true })).toBe('album-groups');
-  expect(searchJobMode({ ...search, searchDefaultProjection: 'Track', searchGroupResults: null })).toBeNull();
-  expect(searchJobMode({ ...search, searchDefaultProjection: null })).toBeNull();
-  expect(searchJobMode({ ...search, kind: 'song', searchDefaultProjection: 'Track' })).toBeNull();
+  const search = jobSummary({ jobId: 'search', display: { kind: 'search', searchGroupResults: false } }) satisfies JobSummaryDto;
+  expect(searchJobMode(jobSummary({ display: { searchDefaultProjection: 'GenericFile' } }, search))).toBe('generic');
+  expect(searchJobMode(jobSummary({ display: { searchDefaultProjection: 'Track' } }, search))).toBe('track');
+  expect(searchJobMode(jobSummary({ display: { searchDefaultProjection: 'Album' } }, search))).toBe('album');
+  expect(searchJobMode(jobSummary({ display: { searchDefaultProjection: 'Track', searchGroupResults: true } }, search))).toBe('song-groups');
+  expect(searchJobMode(jobSummary({ display: { searchDefaultProjection: 'Album', searchGroupResults: true } }, search))).toBe('album-groups');
+  expect(searchJobMode(jobSummary({ display: { searchDefaultProjection: 'Track', searchGroupResults: null } }, search))).toBeNull();
+  expect(searchJobMode(jobSummary({ display: { searchDefaultProjection: null } }, search))).toBeNull();
+  expect(searchJobMode(jobSummary({ display: { kind: 'song', searchDefaultProjection: 'Track' } }, search))).toBeNull();
 });
 
 it('folds successful extraction into the executable result without duplicate rows or changing its owner', () => {
-  const followup = { jobId: 'followup', kind: 'remote-file', sourceJobId: 'result' } satisfies JobSummaryDto;
+  const followup = jobSummary({ jobId: 'followup', display: { kind: 'remote-file' }, relationships: { sourceJobId: 'result' } }) satisfies JobSummaryDto;
   const jobs = [imported, result, followup];
   const rows = presentedJobs(jobs, new Map(jobs.map((job) => [job.jobId!, job])));
   expect(rows.map((row) => row.job.jobId)).toEqual(['result', 'followup']);
   expect(rows[0]?.root).toBe(imported);
-  expect(rows[0]?.job.lifecycleState).toBe('Running');
-  const olderImport = { ...imported, workflowId: 'older' };
-  const olderResult = { ...result, workflowId: 'older', sourceJobId: imported.jobId };
-  const independent = { ...followup, workflowId: 'newer', sourceJobId: imported.jobId };
+  expect(rows[0]?.job.lifecycle.lifecycleState).toBe('Running');
+  const olderImport = jobSummary({ display: { workflowId: 'older' } }, imported);
+  const olderResult = jobSummary({ display: { workflowId: 'older' }, relationships: { sourceJobId: imported.jobId } }, result);
+  const independent = jobSummary({ display: { workflowId: 'newer' }, relationships: { sourceJobId: imported.jobId } }, followup);
   const scoped = [olderImport, olderResult, independent];
   expect(presentedJobs(scoped, new Map(scoped.map(job => [job.jobId!, job])))
     .map(row => row.job.jobId)).toEqual(['result', 'followup']);
@@ -132,41 +133,41 @@ it('folds successful extraction into the executable result without duplicate row
 
 it('orders wire timestamps by instant when whole seconds omit their fractional part', () => {
   const entries = [
-    { jobId: 'fifth', createdAtUtc: '2026-09-30T21:33:51+00:00', displayId: 5 },
-    { jobId: 'ninth', createdAtUtc: '2026-09-30T21:33:51.176+00:00', displayId: 9 },
-    { jobId: 'earlier', createdAtUtc: '2026-09-30T21:33:50.989+00:00', displayId: 4 },
+    jobSummary({ jobId: 'fifth', display: { createdAtUtc: '2026-09-30T21:33:51+00:00', displayId: 5 } }),
+    jobSummary({ jobId: 'ninth', display: { createdAtUtc: '2026-09-30T21:33:51.176+00:00', displayId: 9 } }),
+    jobSummary({ jobId: 'earlier', display: { createdAtUtc: '2026-09-30T21:33:50.989+00:00', displayId: 4 } }),
   ].map((root) => ({ root, job: root, missingResultId: null, error: null }));
   expect(sortPresentedJobsNewestFirst(entries).map((entry) => entry.job.jobId)).toEqual(['ninth', 'fifth', 'earlier']);
 });
 
 it('does not turn active or failed extraction into its result, and reports missing or cyclic results', () => {
   const jobs = new Map<string, JobSummaryDto>([[result.jobId, result]]);
-  expect(presentJob({ ...imported, lifecycleState: 'Running' }, jobs).job.kind).toBe('extract');
-  expect(presentJob({ ...imported, terminalOutcome: 'Failed' }, jobs).job.kind).toBe('extract');
+  expect(presentJob(jobSummary({ lifecycle: { lifecycleState: 'Running' } }, imported), jobs).job.display.kind).toBe('extract');
+  expect(presentJob(jobSummary({ lifecycle: { terminalOutcome: 'Failed' } }, imported), jobs).job.display.kind).toBe('extract');
   expect(presentJob(imported, new Map()).missingResultId).toBe('result');
-  const cyclic = new Map<string, JobSummaryDto>([[imported.jobId, imported], ['result', { ...imported, jobId: 'result', resultJobId: 'import' }]]);
+  const cyclic = new Map<string, JobSummaryDto>([[imported.jobId, imported], ['result', jobSummary({ jobId: 'result', relationships: { resultJobId: 'import' } }, imported)]]);
   expect(presentJob(imported, cyclic).error?.message).toContain('cycle');
 });
 
 it('folds nested execution siblings once, but does not hide a still-active extract step', () => {
   const rows = [imported, result];
   expect(presentedChildren(rows, new Map(rows.map((job) => [job.jobId!, job]))).map((entry) => entry.job.jobId)).toEqual(['result']);
-  const active = { ...imported, lifecycleState: 'Running' } satisfies JobSummaryDto;
+  const active = jobSummary({ lifecycle: { lifecycleState: 'Running' } }, imported) satisfies JobSummaryDto;
   const activeRows = [active, result];
   expect(presentedChildren(activeRows, new Map(activeRows.map((job) => [job.jobId!, job]))).map((entry) => entry.job.jobId)).toEqual(['import', 'result']);
 });
 
 it('does not follow malformed result identities or cross-submission ownership', async () => {
-  const mismatched = new Map<string, JobSummaryDto>([['result', { ...result, submissionId: 'different' }]]);
-  expect(presentJob({ ...imported, submissionId: 'original' }, mismatched).error?.message).toContain('different submission');
-  const fetch = vi.fn().mockResolvedValue(detail({ ...result, jobId: 'wrong' }));
+  const mismatched = new Map<string, JobSummaryDto>([['result', jobSummary({ display: { submissionId: 'different' } }, result)]]);
+  expect(presentJob(jobSummary({ display: { submissionId: 'original' } }, imported), mismatched).error?.message).toContain('different submission');
+  const fetch = vi.fn().mockResolvedValue(detail(jobSummary({ jobId: 'wrong' }, result)));
   await expect(resolvePresentedJob(detail(imported), fetch, new AbortController().signal)).rejects.toThrow('different job identity');
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
 it('resolves a nested result chain with only the linked details and stops on cancellation', async () => {
-  const nested = { ...imported, jobId: 'result', resultJobId: 'leaf' };
-  const leaf = { ...result, jobId: 'leaf' };
+  const nested = jobSummary({ jobId: 'result', relationships: { resultJobId: 'leaf' } }, imported);
+  const leaf = jobSummary({ jobId: 'leaf' }, result);
   const fetch = vi.fn().mockResolvedValueOnce(detail(nested)).mockResolvedValueOnce(detail(leaf));
   expect((await resolvePresentedJob(detail(imported), fetch, new AbortController().signal)).summary).toEqual(leaf);
   expect(fetch.mock.calls).toEqual([['result'], ['leaf']]);

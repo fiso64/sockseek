@@ -44,24 +44,14 @@ internal sealed class OutputFinalizer
         this.logger = logger ?? NullLogger<OutputFinalizer>.Instance;
     }
 
-    public ValueTask<InitialDownloadTarget> GetInitialDownloadTargetAsync(
-        DownloadSettings config, SongJob song, FileManager organizer, FileCandidate candidate)
-        => GetInitialDownloadTargetAsync(config, song, organizer, candidate.Filename);
-
-    public ValueTask<InitialDownloadTarget> GetInitialDownloadTargetAsync(
-        DownloadSettings config, SongJob song, FileManager organizer, PeerFileTarget target)
-        => GetInitialDownloadTargetAsync(config, song, organizer, target.Filename);
-
-    private ValueTask<InitialDownloadTarget> GetInitialDownloadTargetAsync(
+    public static InitialDownloadTarget GetInitialDownloadTarget(
         DownloadSettings config, SongJob song, FileManager organizer, string filename)
-        => files.WithCacheAsync(_ =>
-        {
-            if (string.IsNullOrWhiteSpace(config.Output.NameFormat))
-                return new InitialDownloadTarget(organizer.GetSavePath(filename), PublishToDuplicateCache: true);
-            string sourceName = Utils.FitPathComponent(Utils.GetFileNameSlsk(filename).CleanPath(config.Output.InvalidReplaceStr));
-            return new InitialDownloadTarget(Path.Join(OutputStaging.Root(config.Output), song.Id.ToString("N"), sourceName),
-                PublishToDuplicateCache: false);
-        });
+    {
+        if (string.IsNullOrWhiteSpace(config.Output.NameFormat))
+            return new(organizer.GetSavePath(filename), PublishToDuplicateCache: true);
+        string sourceName = Utils.FitPathComponent(Utils.GetFileNameSlsk(filename).CleanPath(config.Output.InvalidReplaceStr));
+        return new(Path.Join(OutputStaging.Root(config.Output), song.Id.ToString("N"), sourceName), PublishToDuplicateCache: false);
+    }
 
     public ValueTask<OutputFinalizationResult> FinalizeSongPlacementAsync(
         SongJob song,

@@ -1,6 +1,7 @@
 using Sockseek.Api;
 using Sockseek.Core;
 using Sockseek.Core.Events;
+using Sockseek.Core.Jobs;
 using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Server;
@@ -65,8 +66,7 @@ public sealed class EngineActivityDtoAdapter
                     change.Attempt,
                     change.MaxAttempts,
                     change.Exception.Type,
-                    change.Exception.Message,
-                    change.Exception.Detail),
+                    change.Exception.Message),
                 job.WorkflowId,
                 job.Id,
                 change.TransferId,
@@ -112,6 +112,7 @@ public sealed class EngineActivityDtoAdapter
         }
 
         if (change.Job.TerminalOutcome != JobTerminalOutcome.Failed
+            || change.Job.FailureReason == JobFailureReason.AllDownloadsFailed
             || string.IsNullOrWhiteSpace(change.Job.FailureDetail))
         {
             return;

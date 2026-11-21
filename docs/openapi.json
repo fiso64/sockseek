@@ -1674,7 +1674,7 @@
                 "string"
               ],
               "format": "int32",
-              "default": 100
+              "default": 80
             }
           }
         ],
@@ -6725,6 +6725,54 @@
         ]
       }
     },
+    "/api/jobs/{jobId}/failure-detail": {
+      "get": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Gets the technical details recorded for a job failure.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
     "/api/profiles": {
       "get": {
         "tags": [
@@ -10856,8 +10904,7 @@
                   "attempt",
                   "maxAttempts",
                   "exceptionType",
-                  "exceptionMessage",
-                  "exception"
+                  "exceptionMessage"
                 ],
                 "properties": {
                   "kind": {
@@ -10909,9 +10956,6 @@
                     "type": "string"
                   },
                   "exceptionMessage": {
-                    "type": "string"
-                  },
-                  "exception": {
                     "type": "string"
                   }
                 }
@@ -11167,8 +11211,7 @@
               "attempt",
               "maxAttempts",
               "exceptionType",
-              "exceptionMessage",
-              "exception"
+              "exceptionMessage"
             ],
             "properties": {
               "kind": {
@@ -11220,9 +11263,6 @@
                 "type": "string"
               },
               "exceptionMessage": {
-                "type": "string"
-              },
-              "exception": {
                 "type": "string"
               }
             }
@@ -11342,8 +11382,7 @@
           "attempt",
           "maxAttempts",
           "exceptionType",
-          "exceptionMessage",
-          "exception"
+          "exceptionMessage"
         ],
         "type": "object",
         "properties": {
@@ -11390,9 +11429,6 @@
             "type": "string"
           },
           "exceptionMessage": {
-            "type": "string"
-          },
-          "exception": {
             "type": "string"
           }
         }
@@ -15022,8 +15058,7 @@
           "attempt",
           "maxAttempts",
           "exceptionType",
-          "exceptionMessage",
-          "exception"
+          "exceptionMessage"
         ],
         "type": "object",
         "properties": {
@@ -15070,9 +15105,6 @@
             "type": "string"
           },
           "exceptionMessage": {
-            "type": "string"
-          },
-          "exception": {
             "type": "string"
           }
         }
@@ -15960,7 +15992,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/JobStateDto"
+                "$ref": "#/components/schemas/JobSummaryDto"
               }
             ]
           },
@@ -16863,6 +16895,7 @@
           "activityPhase",
           "terminalOutcome",
           "skipReason",
+          "hasFailureDetail",
           "cancellationSource",
           "availableActions"
         ],
@@ -16903,11 +16936,8 @@
               "string"
             ]
           },
-          "failureDetail": {
-            "type": [
-              "null",
-              "string"
-            ]
+          "hasFailureDetail": {
+            "type": "boolean"
           },
           "cancellationSource": {
             "$ref": "#/components/schemas/ServerJobCancellationSource"
@@ -16936,7 +16966,7 @@
               "string"
             ],
             "format": "int32",
-            "default": 100
+            "default": 80
           }
         }
       },
@@ -17950,6 +17980,7 @@
                             "activityPhase",
                             "terminalOutcome",
                             "skipReason",
+                            "hasFailureDetail",
                             "cancellationSource",
                             "availableActions"
                           ],
@@ -18030,11 +18061,8 @@
                                 "string"
                               ]
                             },
-                            "failureDetail": {
-                              "type": [
-                                "null",
-                                "string"
-                              ]
+                            "hasFailureDetail": {
+                              "type": "boolean"
                             },
                             "cancellationSource": {
                               "enum": [
@@ -18376,6 +18404,7 @@
                         "activityPhase",
                         "terminalOutcome",
                         "skipReason",
+                        "hasFailureDetail",
                         "cancellationSource",
                         "availableActions"
                       ],
@@ -18456,11 +18485,8 @@
                             "string"
                           ]
                         },
-                        "failureDetail": {
-                          "type": [
-                            "null",
-                            "string"
-                          ]
+                        "hasFailureDetail": {
+                          "type": "boolean"
                         },
                         "cancellationSource": {
                           "enum": [
@@ -21292,7 +21318,27 @@
           }
         }
       },
-      "JobStateDto": {
+      "JobStatusActivityDto": {
+        "required": [
+          "displayId",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "displayId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "JobSummaryDto": {
         "required": [
           "jobId",
           "revision",
@@ -21335,227 +21381,6 @@
               {
                 "$ref": "#/components/schemas/JobSummaryStatsDto"
               }
-            ]
-          }
-        }
-      },
-      "JobStatusActivityDto": {
-        "required": [
-          "displayId",
-          "status"
-        ],
-        "type": "object",
-        "properties": {
-          "displayId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "status": {
-            "type": "string"
-          }
-        }
-      },
-      "JobSummaryDto": {
-        "type": "object",
-        "properties": {
-          "jobId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "displayId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "workflowId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/ServerJobKind"
-          },
-          "lifecycleState": {
-            "$ref": "#/components/schemas/ServerJobLifecycleState"
-          },
-          "activityPhase": {
-            "$ref": "#/components/schemas/ServerJobActivityPhase"
-          },
-          "activityUntilUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "terminalOutcome": {
-            "$ref": "#/components/schemas/ServerJobTerminalOutcome"
-          },
-          "skipReason": {
-            "$ref": "#/components/schemas/ServerJobSkipReason"
-          },
-          "itemName": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "queryText": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "failureReason": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ServerJobFailureReason"
-              }
-            ]
-          },
-          "failureMessage": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "parentJobId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
-          },
-          "resultJobId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
-          },
-          "sourceJobId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
-          },
-          "discoveryRawResultCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "discoveryLockedFileCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "appliedProfiles": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AppliedProfileDto"
-            }
-          },
-          "availableActions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ResourceActionDto"
-            }
-          },
-          "failureDetail": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "cancellationSource": {
-            "$ref": "#/components/schemas/ServerJobCancellationSource"
-          },
-          "printOption": {
-            "$ref": "#/components/schemas/ServerPrintOption"
-          },
-          "submissionId": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "uuid"
-          },
-          "role": {
-            "$ref": "#/components/schemas/ServerJobRole"
-          },
-          "createdAtUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "discoveryPublicFileCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "discoveryObservedPeerCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "stats": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JobSummaryStatsDto"
-              }
-            ]
-          },
-          "searchDefaultProjection": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ServerSearchDefaultProjectionKind"
-              }
-            ]
-          },
-          "searchGroupResults": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "sourceDetail": {
-            "type": [
-              "null",
-              "string"
             ]
           }
         }
@@ -21795,7 +21620,7 @@
       },
       "LiveProtocolContractVersion": {
         "enum": [
-          20
+          22
         ],
         "type": "integer"
       },
@@ -22776,6 +22601,24 @@
           "hasInputSettings": {
             "type": "boolean",
             "default": false
+          },
+          "input": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "inputType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "detectedInputType": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -26530,6 +26373,7 @@
                         "activityPhase",
                         "terminalOutcome",
                         "skipReason",
+                        "hasFailureDetail",
                         "cancellationSource",
                         "availableActions"
                       ],
@@ -26610,11 +26454,8 @@
                             "string"
                           ]
                         },
-                        "failureDetail": {
-                          "type": [
-                            "null",
-                            "string"
-                          ]
+                        "hasFailureDetail": {
+                          "type": "boolean"
                         },
                         "cancellationSource": {
                           "enum": [
@@ -26956,6 +26797,7 @@
                     "activityPhase",
                     "terminalOutcome",
                     "skipReason",
+                    "hasFailureDetail",
                     "cancellationSource",
                     "availableActions"
                   ],
@@ -27036,11 +26878,8 @@
                         "string"
                       ]
                     },
-                    "failureDetail": {
-                      "type": [
-                        "null",
-                        "string"
-                      ]
+                    "hasFailureDetail": {
+                      "type": "boolean"
                     },
                     "cancellationSource": {
                       "enum": [
@@ -28584,7 +28423,7 @@
           "jobs": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/JobStateDto"
+              "$ref": "#/components/schemas/JobSummaryDto"
             }
           },
           "searches": {
@@ -29698,6 +29537,7 @@
                             "activityPhase",
                             "terminalOutcome",
                             "skipReason",
+                            "hasFailureDetail",
                             "cancellationSource",
                             "availableActions"
                           ],
@@ -29778,11 +29618,8 @@
                                 "string"
                               ]
                             },
-                            "failureDetail": {
-                              "type": [
-                                "null",
-                                "string"
-                              ]
+                            "hasFailureDetail": {
+                              "type": "boolean"
                             },
                             "cancellationSource": {
                               "enum": [
@@ -30124,6 +29961,7 @@
                         "activityPhase",
                         "terminalOutcome",
                         "skipReason",
+                        "hasFailureDetail",
                         "cancellationSource",
                         "availableActions"
                       ],
@@ -30204,11 +30042,8 @@
                             "string"
                           ]
                         },
-                        "failureDetail": {
-                          "type": [
-                            "null",
-                            "string"
-                          ]
+                        "hasFailureDetail": {
+                          "type": "boolean"
                         },
                         "cancellationSource": {
                           "enum": [
@@ -31937,8 +31772,7 @@
                         "attempt",
                         "maxAttempts",
                         "exceptionType",
-                        "exceptionMessage",
-                        "exception"
+                        "exceptionMessage"
                       ],
                       "properties": {
                         "kind": {
@@ -31990,9 +31824,6 @@
                           "type": "string"
                         },
                         "exceptionMessage": {
-                          "type": "string"
-                        },
-                        "exception": {
                           "type": "string"
                         }
                       }
@@ -32592,7 +32423,8 @@
           "state",
           "startedAtUtc",
           "failureReason",
-          "revision"
+          "revision",
+          "cancellationSource"
         ],
         "type": "object",
         "properties": {
@@ -32648,7 +32480,7 @@
             "format": "date-time"
           },
           "failureReason": {
-            "type": "string"
+            "$ref": "#/components/schemas/TransferFailureReason"
           },
           "failureMessage": {
             "type": [
@@ -32663,6 +32495,9 @@
               "string"
             ],
             "format": "int64"
+          },
+          "cancellationSource": {
+            "$ref": "#/components/schemas/TransferCancellationSource"
           }
         }
       },

@@ -13,12 +13,9 @@ public sealed class JobInfoPrinterTests
         using var writer = new StringWriter();
         using (Printing.RedirectOutput(writer))
         {
+            var song = TestJobSummary.Create(ServerJobKind.Song);
             JobInfoPrinter.Print(new JobDetailDto(
-                new JobSummaryDto
-                {
-                    Kind = ServerJobKind.Song,
-                    SourceDetail = "List item 2",
-                },
+                song with { Display = song.Display with { SourceDetail = "List item 2" } },
                 new SongJobPayloadDto(
                     new SongQueryDto(),
                     null,

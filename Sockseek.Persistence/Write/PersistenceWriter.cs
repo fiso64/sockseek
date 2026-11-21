@@ -808,7 +808,7 @@ public sealed class PersistenceWriter(
         entity.CancellationSource = mutation.CancellationSource;
         entity.FailureReason = mutation.FailureReason;
         entity.FailureMessage = Limit(mutation.FailureMessage, maximumFailureTextLength);
-        entity.FailureDetail = Limit(mutation.FailureDetail, maximumFailureTextLength);
+        entity.FailureDetail = string.IsNullOrEmpty(mutation.FailureDetail) ? null : mutation.FailureDetail;
         entity.ItemName = mutation.ItemName;
         entity.QueryText = mutation.QueryText;
         entity.SourceDetail = Limit(mutation.SourceDetail, 128);
@@ -940,6 +940,7 @@ public sealed class PersistenceWriter(
         entity.LastRuntimeId = mutation.RuntimeId;
         entity.LastSequence = mutation.Sequence;
         entity.AttemptNumber = mutation.AttemptNumber;
+        entity.CancellationSource = mutation.CancellationSource;
         entity.Source = mutation.Source;
         entity.State = mutation.State;
         entity.SourceUsername = mutation.SourceUsername;

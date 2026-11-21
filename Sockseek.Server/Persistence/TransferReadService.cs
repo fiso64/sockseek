@@ -451,6 +451,8 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
         => new(
             attempt.Id, attempt.TransferId, attempt.AttemptNumber, attempt.Source, attempt.State,
             attempt.SourceUsername, attempt.SourcePath, attempt.OutputPath,
-            attempt.StartedAtUtc, attempt.CompletedAtUtc, attempt.FailureReason, attempt.FailureMessage, attempt.Revision);
+            attempt.StartedAtUtc, attempt.CompletedAtUtc,
+            Enum.TryParse<TransferFailureReason>(attempt.FailureReason, out var reason) ? reason : TransferFailureReason.Unknown,
+            attempt.FailureMessage, attempt.Revision, Enum.Parse<TransferCancellationSource>(attempt.CancellationSource));
 
 }

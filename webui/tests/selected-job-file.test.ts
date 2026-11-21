@@ -1,3 +1,4 @@
+import { jobSummary } from './job-fixture';
 import { expect, it } from 'vitest';
 import type { Schema, TransferStateDto } from '../src/api/types';
 import { jobFileTransfer, selectedJobFile, selectedJobFileTransfer } from '../src/domains/jobs/selected-file';
@@ -99,7 +100,7 @@ it('keeps processing phases authoritative over an open transport and hides stale
   };
   for (const phase of ['Organizing', 'RunningOnComplete', 'RunningFallback',
     'SearchingFallback', 'DownloadingFallback', 'ProcessingFallback'] as const) {
-    const presentation = jobFileTransfer({ lifecycleState: 'Running', activityPhase: phase }, file, null, live);
+    const presentation = jobFileTransfer(jobSummary({ lifecycle: { lifecycleState: 'Running', activityPhase: phase } }), file, null, live);
     expect(presentation.state).not.toBe('Downloading');
     expect(presentation.tone).toBe('active');
     expect(presentation.progressPercent).toBeUndefined();

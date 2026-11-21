@@ -345,7 +345,8 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         Events.TransferFailed += change =>
         {
             if (change.Transfer.Source == TransferSnapshotSource.SoulseekPeer
-                && (change.Reason is TransferFailureReason.PeerFailure or TransferFailureReason.Stale)
+                && change.Reason is (TransferFailureReason.PeerFailure or TransferFailureReason.Denied or TransferFailureReason.Stale
+                    or TransferFailureReason.TimedOut or TransferFailureReason.FileChanged or TransferFailureReason.ConnectionFailed)
                 && change.Transfer.Username is { } username)
                 _peerFailures.RecordFailure(change.Job.WorkflowId, username);
         };

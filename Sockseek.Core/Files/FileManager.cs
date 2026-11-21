@@ -9,7 +9,7 @@ namespace Sockseek.Core.Services;
 public sealed class FileOrganizationException : IOException
 {
     public FileOrganizationException(string message, string sourcePath, string targetPath, Exception innerException)
-        : base(message, innerException)
+        : base($"{message} {innerException.Message}", innerException)
     {
         SourcePath = sourcePath;
         TargetPath = targetPath;

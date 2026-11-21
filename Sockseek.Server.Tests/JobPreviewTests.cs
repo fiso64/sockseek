@@ -122,7 +122,7 @@ public sealed class JobPreviewTests
                     _ => new(TaskCreationOptions.RunContinuationsAsynchronously));
                 void OnJob(JobSummaryDto job)
                 {
-                    if (job.LifecycleState == ServerJobLifecycleState.Terminal)
+                    if (job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
                         Terminal(job.JobId).TrySetResult(job);
                 }
                 supervisor.StateStore.JobUpserted += OnJob;
@@ -150,22 +150,22 @@ public sealed class JobPreviewTests
                     {
                         await Terminal(root.JobId).Task.WaitAsync(TimeSpan.FromSeconds(5));
                         var children = (await facade.GetJobsAsync(new JobQuery(
-                            null, null, ServerJobKind.Search, null, IncludeAll: true, SubmissionId: root.SubmissionId), null, 100)).Items;
+                            null, null, ServerJobKind.Search, null, IncludeAll: true, SubmissionId: root.Display.SubmissionId), null, 100)).Items;
                         Assert.AreEqual(2, children.Count);
-                        var rootRetained = (await persistence.Submissions!.GetSubmissionAsync(root.SubmissionId!.Value))!;
+                        var rootRetained = (await persistence.Submissions!.GetSubmissionAsync(root.Display.SubmissionId!.Value))!;
                         var rootSpecification = SubmissionSpecificationCodec.Deserialize(rootRetained.SpecificationJson);
                         var child = children.Single(item => rootSpecification.ForJob(item.JobId)!
                             .MaterializeSettings().Search.NecessaryCond.Formats.SequenceEqual(["txt"]));
                         var replay = await supervisor.Submissions.RerunJobAsync(child.JobId, CancellationToken.None);
                         Assert.IsNotNull(replay);
                         Assert.AreNotEqual(child.JobId, replay.JobId);
-                        Assert.AreNotEqual(root.SubmissionId, replay.SubmissionId);
+                        Assert.AreNotEqual(root.Display.SubmissionId, replay.Display.SubmissionId);
                         await Terminal(replay.JobId).Task.WaitAsync(TimeSpan.FromSeconds(5));
                         var page = await facade.GetJobsAsync(new JobQuery(
-                            null, null, null, null, IncludeAll: true, SubmissionId: replay.SubmissionId), null, 100);
+                            null, null, null, null, IncludeAll: true, SubmissionId: replay.Display.SubmissionId), null, 100);
                         Assert.AreEqual(1, page.Items.Count, "Replaying one child must not restart its sibling or container.");
-                        var retained = (await persistence.Submissions!.GetSubmissionAsync(replay.SubmissionId!.Value))!;
-                        Assert.AreEqual(root.SubmissionId, retained.RerunOfSubmissionId);
+                        var retained = (await persistence.Submissions!.GetSubmissionAsync(replay.Display.SubmissionId!.Value))!;
+                        Assert.AreEqual(root.Display.SubmissionId, retained.RerunOfSubmissionId);
                         var specification = SubmissionSpecificationCodec.Deserialize(retained.SpecificationJson);
                         Assert.AreEqual(replay.JobId, specification.Command.AcceptedJobId);
                         Assert.AreEqual("identical query", specification.Command.QueryText);
@@ -383,13 +383,13 @@ public sealed class JobPreviewTests
                     CancellationToken.None);
                 var persistence = app.Services.GetRequiredService<Persistence.PersistenceCoordinator>();
                 var directRetained = await persistence.Submissions!.GetSubmissionAsync(
-                    direct.SubmissionId!.Value,
+                    direct.Display.SubmissionId!.Value,
                     CancellationToken.None);
                 SubmissionSpecification directSpecification = SubmissionSpecificationCodec.Deserialize(
                     directRetained!.SpecificationJson);
                 Assert.AreEqual("input-artifact", directSpecification.SourceRevision?.Kind);
                 Assert.AreEqual(artifact.Sha256, directSpecification.SourceRevision?.Digest);
-                Assert.AreEqual(0, await persistence.InputArtifacts!.ReleaseAsync(direct.SubmissionId.Value),
+                Assert.AreEqual(0, await persistence.InputArtifacts!.ReleaseAsync(direct.Display.SubmissionId.Value),
                     "Direct acceptance releases its input once the extracted specification is durable.");
 
                 var previews = app.Services.GetRequiredService<JobPreviewCoordinator>();
@@ -566,7 +566,7 @@ public sealed class JobPreviewTests
                 var reads = app.Services.GetRequiredService<Persistence.JobReadService>();
                 var root = await reads.GetJobAsync(receipt.RootJobId.Value);
                 Assert.IsNotNull(root);
-                Assert.AreEqual(receipt.SubmissionId, root.Summary.SubmissionId);
+                Assert.AreEqual(receipt.SubmissionId, root.Summary.Display.SubmissionId);
 
                 var persistence = app.Services.GetRequiredService<Persistence.PersistenceCoordinator>();
                 var retained = await persistence.Submissions!.GetSubmissionAsync(
@@ -657,8 +657,8 @@ public sealed class JobPreviewTests
                     "Artist - Title",
                     InputType.String.ToString()),
                 CancellationToken.None);
-            Assert.AreEqual(ServerJobKind.Extract, direct.Kind);
-            Assert.IsNotNull(direct.SubmissionId);
+            Assert.AreEqual(ServerJobKind.Extract, direct.Display.Kind);
+            Assert.IsNotNull(direct.Display.SubmissionId);
         }
         finally
         {

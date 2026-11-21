@@ -21,7 +21,8 @@ public static class ServerSnapshotMapper
         JobTerminalOutcome? terminalOutcome = null,
         JobSummaryStatsDto? stats = null,
         bool includeActions = true,
-        (int? Public, int? Locked, int? Peers)? discoveryCounts = null)
+        (int? Public, int? Locked, int? Peers)? discoveryCounts = null,
+        bool? hasFailureDetail = null)
     {
         var effectiveLifecycleState = lifecycleState ?? job.LifecycleState;
         var effectiveActivityPhase = activityPhase ?? job.ActivityPhase;
@@ -30,39 +31,18 @@ public static class ServerSnapshotMapper
 
         var counts = discoveryCounts ?? (job.Discovery?.RawResultCount, job.Discovery?.LockedFileCount,
             job.Discovery?.ObservedPeerCount);
-        return new JobSummaryDto(
-            job.Id,
-            job.DisplayId,
-            job.WorkflowId,
-            job.Kind.ToServer(),
-            effectiveLifecycleState.ToServer(),
-            effectiveActivityPhase.ToServer(),
-            effectiveActivityPhase == JobActivityPhase.None ? null : activityUntilUtc ?? job.ActivityUntilUtc,
-            effectiveTerminalOutcome.ToServer(),
-            job.SkipReason.ToServer(),
-            job.ItemName,
-            job.QueryText,
-            job.FailureReason.ToServer(),
-            job.FailureMessage,
-            parentJobId,
-            resultJobId,
-            sourceJobId,
-            counts.Public,
-            counts.Locked,
-            job.AppliedProfiles.Select(profile => new AppliedProfileDto(profile.Name, profile.Source)).ToArray(),
-            includeActions ? BuildJobActions(job.Id, job.CanCancel) : [],
-            job.FailureDetail,
-            job.CancellationSource.ToServer(),
-            job.PrintOption.ToServer(),
-            job.SubmissionId,
-            job.SemanticRole.ToServer(),
-            job.CreatedAtUtc,
-            DiscoveryPublicFileCount: counts.Public,
-            DiscoveryObservedPeerCount: counts.Peers,
-            Stats: stats,
-            SourceDetail: job.SourceDetail,
-            SearchDefaultProjection: searchDefinition?.DefaultProjection.ToServer(),
-            SearchGroupResults: searchDefinition?.GroupResults);
+        return new JobSummaryDto(job.Id, job.Revision,
+            new(job.DisplayId, job.WorkflowId, job.Kind.ToServer(), job.ItemName, job.QueryText,
+                job.AppliedProfiles.Select(profile => new AppliedProfileDto(profile.Name, profile.Source)).ToArray(),
+                job.PrintOption.ToServer(), job.SubmissionId, job.SemanticRole.ToServer(), job.CreatedAtUtc,
+                searchDefinition?.DefaultProjection.ToServer(), searchDefinition?.GroupResults, job.SourceDetail),
+            new(effectiveLifecycleState.ToServer(), effectiveActivityPhase.ToServer(),
+                effectiveActivityPhase == JobActivityPhase.None ? null : activityUntilUtc ?? job.ActivityUntilUtc,
+                effectiveTerminalOutcome.ToServer(), job.SkipReason.ToServer(), job.FailureReason.ToServer(),
+                job.FailureMessage, hasFailureDetail ?? !string.IsNullOrEmpty(job.FailureDetail),
+                job.CancellationSource.ToServer(), includeActions ? BuildJobActions(job.Id, job.CanCancel) : []),
+            new(counts.Public, counts.Locked, PublicFileCount: counts.Public, ObservedPeerCount: counts.Peers),
+            new(parentJobId, resultJobId, sourceJobId), stats);
     }
 
     public static JobSummaryDto ToSubmittedJobSummary(Job job, Guid? sourceJobId = null)

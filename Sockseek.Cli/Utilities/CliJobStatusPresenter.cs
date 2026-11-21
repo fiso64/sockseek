@@ -26,7 +26,7 @@ internal sealed record CliJobStatus(
 internal static class CliJobStatusPresenter
 {
     public static CliJobStatus ForSummary(JobSummaryDto summary, string? transferState = null)
-        => ForSplit(summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, transferState);
+        => ForSplit(summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason, summary.Lifecycle.FailureReason, transferState);
 
     public static CliJobStatus ForSplit(
         ServerJobLifecycleState lifecycle,

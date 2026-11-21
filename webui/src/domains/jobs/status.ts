@@ -5,9 +5,9 @@ const resumeTimeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', m
 
 /** File/folder cards use the same activity and outcome colours as transfer history. */
 export function jobTransferTone(job: JobSummaryDto | null | undefined): TransferPresentation['tone'] {
-  if (!job || job.lifecycleState === 'Pending') return undefined;
-  if (job.lifecycleState !== 'Terminal') return 'active';
-  switch (job.terminalOutcome) {
+  if (!job || job.lifecycle.lifecycleState === 'Pending') return undefined;
+  if (job.lifecycle.lifecycleState !== 'Terminal') return 'active';
+  switch (job.lifecycle.terminalOutcome) {
     case 'Succeeded': return 'complete';
     case 'Cancelled': return 'cancelled';
     case 'Failed': return 'failed';
@@ -17,8 +17,8 @@ export function jobTransferTone(job: JobSummaryDto | null | undefined): Transfer
 }
 
 export function jobStatusLabel(job: JobSummaryDto): string {
-  if (job.lifecycleState === 'Terminal') {
-    switch (job.terminalOutcome) {
+  if (job.lifecycle.lifecycleState === 'Terminal') {
+    switch (job.lifecycle.terminalOutcome) {
       case 'Succeeded': return 'Complete';
       case 'PartialSuccess': return 'Partial';
       case 'Failed': return 'Failed';
@@ -27,15 +27,15 @@ export function jobStatusLabel(job: JobSummaryDto): string {
       default: return 'Finished';
     }
   }
-  if (job.lifecycleState === 'AwaitingSelection') return 'Awaiting selection';
-  if (job.lifecycleState !== 'Running') return 'Pending';
-  switch (job.activityPhase) {
+  if (job.lifecycle.lifecycleState === 'AwaitingSelection') return 'Awaiting selection';
+  if (job.lifecycle.lifecycleState !== 'Running') return 'Pending';
+  switch (job.lifecycle.activityPhase) {
     case 'WaitingForSearchConcurrency': return 'Waiting for search capacity';
-    case 'SearchRateLimited': return job.activityUntilUtc
-      ? `Search resumes at ${resumeTimeFormat.format(new Date(job.activityUntilUtc))}`
+    case 'SearchRateLimited': return job.lifecycle.activityUntilUtc
+      ? `Search resumes at ${resumeTimeFormat.format(new Date(job.lifecycle.activityUntilUtc))}`
       : 'Search rate limited';
     case 'Searching': return 'Searching';
-    case 'ProcessingSearchResults': return job.kind === 'search' ? 'Preparing results' : 'Choosing results';
+    case 'ProcessingSearchResults': return job.display.kind === 'search' ? 'Preparing results' : 'Choosing results';
     case 'Extracting': return 'Importing';
     case 'Downloading': return 'Downloading';
     case 'RetrievingFolder': return 'Reading folder';
@@ -52,18 +52,18 @@ export function jobStatusLabel(job: JobSummaryDto): string {
 
 /** Reasons supplement the status badge; stale discovery counts do not describe an outcome. */
 export function jobOutcomeDetail(job: JobSummaryDto): string {
-  if (job.lifecycleState !== 'Terminal') return '';
-  if (job.terminalOutcome === 'Skipped') {
+  if (job.lifecycle.lifecycleState !== 'Terminal') return '';
+  if (job.lifecycle.terminalOutcome === 'Skipped') {
     const reason = jobSkipExplanation(job);
     return reason === 'Skipped' ? '' : reason;
   }
-  if (job.terminalOutcome === 'Succeeded') {
-    if (job.kind === 'song' || job.kind === 'remote-file') return 'Downloaded';
-    if (job.kind === 'extract' && !job.resultJobId) return 'No job produced';
+  if (job.lifecycle.terminalOutcome === 'Succeeded') {
+    if (job.display.kind === 'song' || job.display.kind === 'remote-file') return 'Downloaded';
+    if (job.display.kind === 'extract' && !job.relationships.resultJobId) return 'No job produced';
     return '';
   }
-  if (job.terminalOutcome === 'Cancelled') {
-    switch (job.cancellationSource) {
+  if (job.lifecycle.terminalOutcome === 'Cancelled') {
+    switch (job.lifecycle.cancellationSource) {
       case 'ParentJob': return 'Parent job cancelled';
       case 'UserRequestedJob': return 'Cancelled by you';
       case 'UserRequestedWorkflow': return 'Workflow cancelled';
@@ -72,10 +72,10 @@ export function jobOutcomeDetail(job: JobSummaryDto): string {
       default: return '';
     }
   }
-  if (job.terminalOutcome !== 'Failed' && job.terminalOutcome !== 'PartialSuccess') return '';
+  if (job.lifecycle.terminalOutcome !== 'Failed' && job.lifecycle.terminalOutcome !== 'PartialSuccess') return '';
   // Use concise reasons for known failures; preserve the owner's explanation
   // for transfer/extractor failures that cannot be explained by an enum alone.
-  switch (job.failureReason) {
+  switch (job.lifecycle.failureReason) {
     case 'NoSearchResults': return 'No search results';
     case 'NoMatchingResults': return 'No matching results';
     case 'InvalidSearchString': return 'Invalid search query';
@@ -84,16 +84,16 @@ export function jobOutcomeDetail(job: JobSummaryDto): string {
       if (Number(job.stats?.failedMemberCount) > 0) return '';
       break;
   }
-  return job.failureMessage?.trim() || (job.failureReason === 'AllDownloadsFailed' ? 'All downloads failed'
-    : job.failureReason === 'ExtractionFailed' ? 'Import failed' : '');
+  return job.lifecycle.failureMessage?.trim() || (job.lifecycle.failureReason === 'AllDownloadsFailed' ? 'All downloads failed'
+    : job.lifecycle.failureReason === 'ExtractionFailed' ? 'Import failed' : '');
 }
 
 export function jobStatusClass(job: JobSummaryDto): string {
-  if (job.lifecycleState !== 'Terminal') {
-    if (job.lifecycleState === 'Pending') return 'pending';
-    return job.kind === 'search' ? 'searching' : 'receiving';
+  if (job.lifecycle.lifecycleState !== 'Terminal') {
+    if (job.lifecycle.lifecycleState === 'Pending') return 'pending';
+    return job.display.kind === 'search' ? 'searching' : 'receiving';
   }
-  switch (job.terminalOutcome) {
+  switch (job.lifecycle.terminalOutcome) {
     case 'Succeeded': return 'complete';
     case 'Cancelled': return 'cancelled';
     case 'Skipped': return 'skipped';
@@ -105,13 +105,13 @@ export function jobStatusClass(job: JobSummaryDto): string {
 /** Describe the execution decision, without claiming an occupied path has equivalent content. */
 export function jobSkipExplanation(job: JobSummaryDto | null | undefined,
   source?: Schema<'ServerExistingFileSource'> | null): string {
-  if (job?.terminalOutcome !== 'Skipped') return '';
+  if (job?.lifecycle.terminalOutcome !== 'Skipped') return '';
   switch (source) {
     case 'CompletionHistory': return 'Recorded as completed in the download index';
     case 'Library': return 'Matching music found in a local directory';
     case 'Destination': return 'Destination already exists';
   }
-  switch (job.skipReason) {
+  switch (job.lifecycle.skipReason) {
     case 'NotFoundLastTime': return 'Not found during a previous search';
     case 'Manual': return 'Skipped manually';
     case 'Filtered': return 'Excluded by conditions';

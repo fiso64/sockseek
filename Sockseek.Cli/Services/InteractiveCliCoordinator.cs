@@ -82,29 +82,29 @@ internal sealed class InteractiveCliCoordinator
         bool startedFollowUp = false;
         var summaries = await GetWorkflowJobsAsync(workflowId, ct);
 
-        foreach (var summary in summaries.OrderBy(job => job.DisplayId))
+        foreach (var summary in summaries.OrderBy(job => job.Display.DisplayId))
         {
             ct.ThrowIfCancellationRequested();
-            if (summary.Kind == ServerJobKind.Search
-                && IsCompleted(summary.TerminalOutcome, summary.SkipReason)
+            if (summary.Display.Kind == ServerJobKind.Search
+                && IsCompleted(summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason)
                 && handledAlbumSearches.Add(summary.JobId))
             {
                 await HandleCompletedSearchAsync(summary.JobId, ct);
                 startedFollowUp = true;
             }
 
-            if (summary.LifecycleState == ServerJobLifecycleState.AwaitingSelection
+            if (summary.Lifecycle.LifecycleState == ServerJobLifecycleState.AwaitingSelection
                 && handledManualSelections.Add(summary.JobId))
             {
-                if (summary.Kind is ServerJobKind.Album or ServerJobKind.AlbumGroups)
+                if (summary.Display.Kind is ServerJobKind.Album or ServerJobKind.AlbumGroups)
                 {
                     await HandleManualSelectionAsync(summary, ct);
                     startedFollowUp = true;
                 }
             }
 
-            if (summary.Kind == ServerJobKind.Album
-                && !IsActive(summary.LifecycleState)
+            if (summary.Display.Kind == ServerJobKind.Album
+                && !IsActive(summary.Lifecycle.LifecycleState)
                 && interactiveAlbumSessions.TryGetValue(summary.JobId, out var session))
             {
                 interactiveAlbumSessions.Remove(summary.JobId);
@@ -138,7 +138,7 @@ internal sealed class InteractiveCliCoordinator
         if (folders.Count == 0)
         {
             if (ConsoleInputManager.Reporter != null)
-                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumJob", search.QueryText, "No matching results");
+                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.Display.DisplayId, "AlbumJob", search.QueryText, "No matching results");
             return;
         }
 
@@ -148,7 +148,7 @@ internal sealed class InteractiveCliCoordinator
             promptJob,
             search.AlbumQuery,
             folders,
-            OptionsForWorkflow(detail.Summary.WorkflowId),
+            OptionsForWorkflow(detail.Summary.Display.WorkflowId),
             InteractiveAlbumResultKind.Folder);
         var outcome = await PromptForAlbumSelectionAsync(session, InteractiveAlbumPromptPurpose.NewAlbumPrompt, ct);
         if (outcome.Selection == null)
@@ -164,7 +164,7 @@ internal sealed class InteractiveCliCoordinator
         void OnUpdate(DaemonClientUpdate update)
         {
             if (!update.ChangedJobs.Any(row => row.JobId == summary.JobId
-                    && row.TerminalOutcome == ServerJobTerminalOutcome.Cancelled)) return;
+                    && row.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Cancelled)) return;
             lock (prompt)
             {
                 if (listening) prompt.Cancel();
@@ -174,7 +174,7 @@ internal sealed class InteractiveCliCoordinator
         backend.StateUpdated += OnUpdate;
         try
         {
-            if (summary.Kind == ServerJobKind.Album)
+            if (summary.Display.Kind == ServerJobKind.Album)
                 await HandleManualAlbumJobAsync(summary.JobId, prompt.Token);
             else
                 await HandleManualAlbumGroupsJobAsync(summary.JobId, prompt.Token);
@@ -193,7 +193,7 @@ internal sealed class InteractiveCliCoordinator
     private async Task HandleManualAlbumJobAsync(Guid albumJobId, CancellationToken ct)
     {
         var detail = await backend.GetJobDetailAsync(albumJobId, ct);
-        if (detail?.Summary.TerminalOutcome == ServerJobTerminalOutcome.Cancelled || detail?.Payload is not AlbumJobPayloadDto album)
+        if (detail?.Summary.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Cancelled || detail?.Payload is not AlbumJobPayloadDto album)
             return;
 
         var projection = await backend.GetFolderResultsAsync(
@@ -218,7 +218,7 @@ internal sealed class InteractiveCliCoordinator
         if (folders.Count == 0)
         {
             if (ConsoleInputManager.Reporter != null)
-                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumJob", detail.Summary.QueryText ?? "", "No matching results");
+                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.Display.DisplayId, "AlbumJob", detail.Summary.Display.QueryText ?? "", "No matching results");
             await backend.CompleteManualSelectionAsync(albumJobId, ct);
             return;
         }
@@ -227,10 +227,10 @@ internal sealed class InteractiveCliCoordinator
         {
             session = new InteractiveAlbumSession(
                 albumJobId,
-                new AlbumJob(ToAlbumQuery(album.Query)) { ItemName = detail.Summary.ItemName, Results = folders },
+                new AlbumJob(ToAlbumQuery(album.Query)) { ItemName = detail.Summary.Display.ItemName, Results = folders },
                 album.Query,
                 folders,
-                OptionsForWorkflow(detail.Summary.WorkflowId),
+                OptionsForWorkflow(detail.Summary.Display.WorkflowId),
                 InteractiveAlbumResultKind.Folder);
         }
         else
@@ -262,7 +262,7 @@ internal sealed class InteractiveCliCoordinator
     private async Task HandleManualAlbumGroupsJobAsync(Guid albumGroupsJobId, CancellationToken ct)
     {
         var detail = await backend.GetJobDetailAsync(albumGroupsJobId, ct);
-        if (detail?.Summary.TerminalOutcome == ServerJobTerminalOutcome.Cancelled || detail?.Payload is not AlbumGroupsJobPayloadDto albumGroups)
+        if (detail?.Summary.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Cancelled || detail?.Payload is not AlbumGroupsJobPayloadDto albumGroups)
             return;
 
         var projection = await backend.GetAlbumGroupResultsAsync(
@@ -277,7 +277,7 @@ internal sealed class InteractiveCliCoordinator
         if (buckets.Count == 0)
         {
             if (ConsoleInputManager.Reporter != null)
-                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.DisplayId, "AlbumGroupsJob", detail.Summary.QueryText ?? "", "No matching results");
+                ConsoleInputManager.Reporter.ReportSyntheticJobFailure(detail.Summary.Display.DisplayId, "AlbumGroupsJob", detail.Summary.Display.QueryText ?? "", "No matching results");
             await backend.CompleteManualSelectionAsync(albumGroupsJobId, ct);
             return;
         }
@@ -293,7 +293,7 @@ internal sealed class InteractiveCliCoordinator
                 new AlbumJob(ToAlbumQuery(bucket.Query)) { ItemName = bucket.ItemName, Results = folders },
                 bucket.Query,
                 folders,
-                OptionsForWorkflow(detail.Summary.WorkflowId),
+                OptionsForWorkflow(detail.Summary.Display.WorkflowId),
                 InteractiveAlbumResultKind.AlbumGroup);
 
             var outcome = interactiveEnabled
@@ -327,10 +327,10 @@ internal sealed class InteractiveCliCoordinator
         if (appToken.IsCancellationRequested)
             return;
 
-        if (IsCompleted(summary.TerminalOutcome, summary.SkipReason))
+        if (IsCompleted(summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason))
             return;
 
-        if (summary.FailureReason == ServerJobFailureReason.Cancelled)
+        if (summary.Lifecycle.FailureReason == ServerJobFailureReason.Cancelled)
             return;
 
         if (session.LastSelectedFolderKey != null)

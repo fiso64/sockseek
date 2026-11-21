@@ -238,7 +238,7 @@ public static class ServerProtocol
     public const int DefaultPageSize = 500;
 
     /// <summary>Default collection size for items with nested presentation data.</summary>
-    public const int DefaultNestedPageSize = 100;
+    public const int DefaultNestedPageSize = 80;
 
     /// <summary>
     /// Runtime job kind wire values used by JSON serialization and polymorphic discriminators.

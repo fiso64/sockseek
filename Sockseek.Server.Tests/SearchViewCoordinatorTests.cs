@@ -571,7 +571,7 @@ public sealed class SearchViewCoordinatorTests
             var source = await supervisor.Submissions.SubmitSearchJobAsync(new("Artist"), CancellationToken.None);
             Action<SearchResponse> receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
             receive(Response("Péér A", [File(@"Artist\Album\01 - Artist - Track.flac")]));
-            engine.GetPeerFailureCounts(source.WorkflowId)["Péér B"] = 2;
+            engine.GetPeerFailureCounts(source.Display.WorkflowId)["Péér B"] = 2;
             var request = new CreateSearchViewRequestDto(kind,
                 SongQuery: new SongQueryDto("Artist", "", "", "", null, false),
                 AlbumQuery: new AlbumQueryDto("Artist", "Album", "", "", false),
@@ -704,7 +704,7 @@ public sealed class SearchViewCoordinatorTests
             receive(Response("Exact Péér", [File(@"Artist\Album\01 - Track.flac")],
                 [File(@"Artist\Album\02 - Locked.flac")]));
             await commitHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            engine.GetPeerFailureCounts(source.WorkflowId)["Exact Péér"] = 2;
+            engine.GetPeerFailureCounts(source.Display.WorkflowId)["Exact Péér"] = 2;
             finishSearch.TrySetResult();
             engine.CompleteEnqueue();
             await run.WaitAsync(TimeSpan.FromSeconds(5));
@@ -714,7 +714,7 @@ public sealed class SearchViewCoordinatorTests
             Assert.IsNotNull(persistence.GetRetiringSearchSource(source.JobId));
             Assert.AreEqual(2, persistence.GetRetiringSearchSource(source.JobId)!.PeerFailureCounts["Exact Péér"],
                 "The read handoff preserves this workflow's last counters after engine disposal.");
-            Assert.AreEqual(0, engine.GetPeerFailureCounts(source.WorkflowId).Count);
+            Assert.AreEqual(0, engine.GetPeerFailureCounts(source.Display.WorkflowId).Count);
 
             var history = new JobReadService(supervisor.StateStore, supervisor, persistence);
             CombinedSearchRawPage firstRaw = (await history.GetRawSearchResultsAsync(source.JobId, 0, 1)
@@ -1044,10 +1044,10 @@ public sealed class SearchViewCoordinatorTests
             Assert.AreEqual(accepted.JobId, (await queries.GetJobAsync(accepted.JobId))!.Summary.JobId);
             Assert.AreEqual(accepted.JobId,
                 (await queries.LookupJobsAsync(new JobLookupRequestDto([accepted.JobId]))).Single().JobId);
-            Assert.IsNotNull(supervisor.StateStore.GetWorkflowSummary(accepted.WorkflowId));
+            Assert.IsNotNull(supervisor.StateStore.GetWorkflowSummary(accepted.Display.WorkflowId));
             supervisor.StateStore.MarkActiveJobsInfrastructureFailed("previous engine stopped");
             Assert.AreEqual(ServerJobLifecycleState.Pending,
-                supervisor.StateStore.GetJobSummary(accepted.JobId)!.LifecycleState,
+                supervisor.StateStore.GetJobSummary(accepted.JobId)!.Lifecycle.LifecycleState,
                 "A failed engine must not fail accepted work still owned by the submission queue.");
             SearchViewSummaryDto? view = await views.CreateAsync(
                 accepted.JobId, new CreateSearchViewRequestDto(), CancellationToken.None);
@@ -1057,17 +1057,17 @@ public sealed class SearchViewCoordinatorTests
             Assert.IsFalse(view.IsComplete);
             var pending = await persistence.JobHistory!.GetJobAsync(accepted.JobId);
             Assert.AreEqual("Pending", pending?.LifecycleState);
-            Assert.AreEqual(accepted.SubmissionId, pending?.SubmissionId);
+            Assert.AreEqual(accepted.Display.SubmissionId, pending?.SubmissionId);
             JobSummaryDto? replay = await supervisor.Submissions.RerunJobAsync(accepted.JobId, CancellationToken.None);
             Assert.IsNotNull(replay, "Accepted live/pending searches must not depend on a historical job row.");
             Assert.AreNotEqual(accepted.JobId, replay.JobId);
-            Assert.AreNotEqual(accepted.SubmissionId, replay.SubmissionId);
+            Assert.AreNotEqual(accepted.Display.SubmissionId, replay.Display.SubmissionId);
             SearchViewSummaryDto? replayView = await views.CreateAsync(
                 replay.JobId, new CreateSearchViewRequestDto(), CancellationToken.None);
             Assert.IsNotNull(replayView);
             Assert.AreEqual(ServerSearchViewProjectionKind.TrackGroups, replayView.Kind);
             DeleteSubmissionResponseDto archive = await queries.DeleteSubmissionAsync(
-                accepted.SubmissionId!.Value, CancellationToken.None);
+                accepted.Display.SubmissionId!.Value, CancellationToken.None);
             Assert.AreEqual(1, archive.RejectedSubmissionCount);
             Assert.AreEqual("nonterminal-jobs", archive.RejectionReasons.Single().Reason);
         }
@@ -1709,7 +1709,7 @@ public sealed class SearchViewCoordinatorTests
                 var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 void OnJobUpserted(JobSummaryDto summary)
                 {
-                    if (summary.JobId == trackId && summary.LifecycleState == ServerJobLifecycleState.Terminal)
+                    if (summary.JobId == trackId && summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
                         terminal.TrySetResult();
                 }
                 supervisor.StateStore.JobUpserted += OnJobUpserted;
@@ -1783,8 +1783,8 @@ public sealed class SearchViewCoordinatorTests
             var view = await views.CreateAsync(direct.JobId,
                 new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.Files), CancellationToken.None);
             Assert.IsNotNull(view, "Live observations and temporary display state need no daemon database.");
-            Assert.AreEqual(ServerJobKind.Search, direct.Kind);
-            Assert.IsNotNull(direct.SubmissionId);
+            Assert.AreEqual(ServerJobKind.Search, direct.Display.Kind);
+            Assert.IsNotNull(direct.Display.SubmissionId);
         }
         finally
         {
@@ -2031,7 +2031,7 @@ public sealed class SearchViewCoordinatorTests
                 retrievalPublished.Dispose();
             }
             Assert.IsNotNull(retrieval);
-            Assert.AreEqual(retrievalRequest.IdempotencyKey, retrieval.SubmissionId);
+            Assert.AreEqual(retrievalRequest.IdempotencyKey, retrieval.Display.SubmissionId);
             JobSummaryDto? replayedRetrieval = await views.StartDirectoryRetrievalAsync(
                 directoryView.ViewId,
                 retrievalRequest,

@@ -530,6 +530,9 @@ public sealed class SockseekApiClient
         return await ReadRequiredAsync<JobListUpdateDto>(response, ct);
     }
 
+    public Task<string?> GetJobFailureDetailAsync(Guid jobId, CancellationToken ct = default)
+        => GetOptionalAsync<string>($"api/jobs/{jobId}/failure-detail", ct);
+
     public Task<JobDetailDto?> GetJobDetailAsync(Guid jobId, CancellationToken ct = default)
         => GetOptionalAsync<JobDetailDto>($"api/jobs/{jobId}", ct);
 
@@ -813,7 +816,7 @@ public sealed class SockseekApiClient
         {
             ct.ThrowIfCancellationRequested();
             var detail = await GetJobDetailAsync(summary.JobId, ct);
-            if (detail == null || IsActiveLifecycle(detail.Summary.LifecycleState))
+            if (detail == null || IsActiveLifecycle(detail.Summary.Lifecycle.LifecycleState))
             {
                 await Task.Delay(100, ct);
                 continue;
@@ -847,7 +850,7 @@ public sealed class SockseekApiClient
         }
 
         var jobs = await GetJobsAsync(new JobQuery(null, null, null, null, IncludeAll: true), ct);
-        var match = jobs.FirstOrDefault(job => job.DisplayId == displayId);
+        var match = jobs.FirstOrDefault(job => job.Display.DisplayId == displayId);
         return match != null && await CancelJobAsync(match.JobId, ct);
     }
 
@@ -1176,7 +1179,7 @@ public sealed class SockseekApiClient
         }
 
         var jobs = await GetJobsAsync(new JobQuery(null, null, null, null, IncludeAll: true), ct);
-        var match = jobs.FirstOrDefault(job => job.DisplayId == displayId);
+        var match = jobs.FirstOrDefault(job => job.Display.DisplayId == displayId);
         return match != null && await TryNextCandidateAsync(match.JobId, ct);
     }
 

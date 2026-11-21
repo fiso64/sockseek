@@ -122,7 +122,7 @@ internal sealed class TransferState
     {
         var attempt = new TransferAttemptHistoryDto(change.AttemptId, change.Transfer.Id,
             change.AttemptNumber, change.Source.ToString(), "Started", change.Transfer.Username,
-            change.Transfer.RemotePath, change.OutputPath, change.OccurredAtUtc, null, "None", null, change.AttemptRevision);
+            change.Transfer.RemotePath, change.OutputPath, change.OccurredAtUtc, null, Api.TransferFailureReason.None, null, change.AttemptRevision, TransferCancellationSource.None);
         if (!RecordAttempt(attempt)) return;
         if (pendingAttempts.Remove(change.Transfer.Id, out var pending))
             Persistence?.WriteAttempt(pending.Transfer, pending.Attempt, pending.Accounting);
@@ -173,9 +173,10 @@ internal sealed class TransferState
             terminal
                 ? attempt.FinishedAtUtc ?? transfer.FinishedAtUtc
                 : null,
-            transfer.FailureReason.ToString(),
+            transfer.FailureReason.ToServer(),
             transfer.FailureMessage,
-            transfer.Revision);
+            transfer.Revision,
+            transfer.CancellationSource.ToServer());
     }
 
     public void CompleteAttempt(
@@ -185,8 +186,9 @@ internal sealed class TransferState
         long attemptRevision,
         DateTimeOffset occurredAtUtc,
         string state,
-        string failureReason,
-        string? failureMessage)
+        Api.TransferFailureReason failureReason,
+        string? failureMessage,
+        TransferCancellationSource cancellationSource)
     {
         var previous = attempts.GetValueOrDefault(transfer.Id)?.GetValueOrDefault(attemptNumber);
         var attempt = new TransferAttemptHistoryDto(
@@ -204,7 +206,8 @@ internal sealed class TransferState
             occurredAtUtc,
             failureReason,
             failureMessage,
-            attemptRevision);
+            attemptRevision,
+            cancellationSource);
         if (!RecordAttempt(attempt)) return;
         var accounting = Accounting(transfer, occurredAtUtc);
         if (activeAttempts.GetValueOrDefault(transfer.Id)?.Id == attemptId)

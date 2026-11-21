@@ -159,11 +159,11 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                 await live.RefreshWorkflowAsync(workflowId, ct);
         }
         var summary = await submit(scopedOptions);
-        if ((summary.PrintOption & (ServerPrintOption.Jobs | ServerPrintOption.Results | ServerPrintOption.Link | ServerPrintOption.Json)) != 0
-            && summary.SubmissionId is Guid submissionId)
+        if ((summary.Display.PrintOption & (ServerPrintOption.Jobs | ServerPrintOption.Results | ServerPrintOption.Link | ServerPrintOption.Json)) != 0
+            && summary.Display.SubmissionId is Guid submissionId)
             transientSubmissions.TryAdd(submissionId, 0);
-        if (live.Mode != LiveSubscriptionMode.Daemon && summary.WorkflowId != workflowId)
-            await SubscribeWorkflowAsync(summary.WorkflowId, ct);
+        if (live.Mode != LiveSubscriptionMode.Daemon && summary.Display.WorkflowId != workflowId)
+            await SubscribeWorkflowAsync(summary.Display.WorkflowId, ct);
         return summary;
     }
 
@@ -516,7 +516,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
             ct.ThrowIfCancellationRequested();
             JobDetailDto? detail = await api.GetJobDetailAsync(summary.JobId, ct)
                 .ConfigureAwait(false);
-            if (detail != null && detail.Summary.LifecycleState is not (
+            if (detail != null && detail.Summary.Lifecycle.LifecycleState is not (
                 ServerJobLifecycleState.Pending or ServerJobLifecycleState.Running))
             {
                 return detail.Payload as RetrieveFolderJobPayloadDto;
@@ -553,7 +553,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
 
         var source = await api.GetJobDetailAsync(sourceJobId, ct);
         if (source != null)
-            await live.RefreshWorkflowAsync(source.Summary.WorkflowId, ct);
+            await live.RefreshWorkflowAsync(source.Summary.Display.WorkflowId, ct);
     }
 
     public Task<bool> CompleteManualSelectionAsync(Guid jobId, CancellationToken ct = default)

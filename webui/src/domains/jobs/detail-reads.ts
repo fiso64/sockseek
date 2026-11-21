@@ -7,14 +7,12 @@ export interface JobSummaryRead {
 
 /** Progress/discovery revisions do not invalidate a root's stable detail. */
 export function jobDetailVersion(job: JobSummaryDto | undefined): string {
-  return job ? JSON.stringify([job.jobId, job.lifecycleState, job.activityPhase, job.activityUntilUtc,
-    job.terminalOutcome, job.skipReason, job.failureReason, job.failureMessage, job.failureDetail,
-    job.cancellationSource, job.availableActions ?? [], job.parentJobId, job.resultJobId, job.sourceJobId]) : '';
+  return job ? JSON.stringify([job.jobId, job.lifecycle, job.relationships]) : '';
 }
 
 /** Active cached detail needs current live corroboration; terminal facts survive retirement. */
 export function canReuseJobDetail(cached: JobSummaryDto, live: JobSummaryDto | undefined): boolean {
-  return live ? jobDetailVersion(cached) === jobDetailVersion(live) : cached.lifecycleState === 'Terminal';
+  return live ? jobDetailVersion(cached) === jobDetailVersion(live) : cached.lifecycle.lifecycleState === 'Terminal';
 }
 
 /** The owner handles read errors; keep one read and one trailing invalidation. */
@@ -89,7 +87,7 @@ export async function loadJobAncestors(
     const detail = await fetchJob(id);
     signal.throwIfAborted();
     ancestors.push(detail.summary);
-    id = detail.summary.parentJobId;
+    id = detail.summary.relationships.parentJobId;
   }
   return ancestors.reverse();
 }

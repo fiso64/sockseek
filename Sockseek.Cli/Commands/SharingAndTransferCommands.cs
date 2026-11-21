@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Sockseek.Api;
+using Sockseek.Core.Models;
 
 namespace Sockseek.Cli;
 
@@ -21,7 +22,7 @@ internal static class SharingAndTransferCommands
             var job = Equals(action, "rerun") ? await api.RunJobAgainAsync(id, cancellationToken)
                 : await api.RetryDirectoryAsync(id, cancellationToken);
             if (JsonRequested(args)) Write(job, json: true);
-            else Console.WriteLine($"Queued job {job.DisplayId} ({job.JobId}).");
+            else Console.WriteLine($"Queued job {job.Display.DisplayId} ({job.JobId}).");
             return Program.CliExitCode.Success;
         }
         if (Equals(args[0], "share"))
@@ -141,6 +142,14 @@ internal static class SharingAndTransferCommands
                 $"{transfer.TransferId:D}  {transfer.Identity.Direction,-8} "
                 + $"{transfer.Status.State,-12} {transfer.Identity.Username ?? "-"}  "
                 + $"{transfer.Identity.RemotePath ?? "-"}");
+            if (transfer.Status.TerminalOutcome == TransferTerminalOutcome.Failed)
+            {
+                var reason = transfer.Status.FailureMessage;
+                if (string.IsNullOrWhiteSpace(reason) && transfer.Status.FailureReason is not (TransferFailureReason.None or TransferFailureReason.Unknown))
+                    reason = transfer.Status.FailureReason.ToString();
+                if (!string.IsNullOrWhiteSpace(reason))
+                    Console.WriteLine($"    {PeerIdentityValidator.ToDisplayText(reason)}");
+            }
         }
         if (page.Items.Count == 0)
             Console.WriteLine("No transfers matched.");
@@ -175,7 +184,7 @@ internal static class SharingAndTransferCommands
         {
             var job = await api.RetryTransferAsync(transferId, cancellationToken);
             if (JsonRequested(args)) Write(job, json: true);
-            else Console.WriteLine($"Retry queued as job {job.DisplayId} ({job.JobId}).");
+            else Console.WriteLine($"Retry queued as job {job.Display.DisplayId} ({job.JobId}).");
         }
         else
         {

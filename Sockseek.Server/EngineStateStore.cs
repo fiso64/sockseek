@@ -134,7 +134,7 @@ public sealed class EngineStateStore
         lock (gate)
             jobs = submissionIds.SelectMany(id => jobState.GetJobs(
                 new JobQuery(null, null, null, null, IncludeAll: true, SubmissionId: id))).ToArray();
-        foreach (var workflow in jobs.GroupBy(job => job.WorkflowId))
+        foreach (var workflow in jobs.GroupBy(job => job.Display.WorkflowId))
             RetireJobProjections(workflow.Key, workflow.Select(job => job.JobId).ToArray());
         lock (gate) jobState.NotifyHistoryChanged();
     }
@@ -386,6 +386,11 @@ public sealed class EngineStateStore
         lock (gate) return jobState.IsJobAvailable(jobId);
     }
 
+    internal bool TryGetJobFailureDetail(Guid id, out string? detail)
+    {
+        using (LockJobReads()) return jobState.TryGetJobFailureDetail(id, out detail);
+    }
+
     public JobSummaryDto? GetJobSummary(Guid jobId)
     {
         using (LockJobReads()) return jobState.GetJobSummary(jobId);
@@ -466,7 +471,7 @@ public sealed class EngineStateStore
                     .Where(job => workflowIds.Contains(job.WorkflowId)
                         && (detail == DaemonStateDetail.Full || job.ParentJobId is null))
                     .OrderBy(job => job.DisplayId)
-                    .Select(job => job.ToDto()).ToList(),
+                    .Select(job => job.Summary).ToList(),
                 jobState.Searches
                     .Where(search => workflowIds.Contains(search.WorkflowId))
                     .OrderBy(search => search.JobId)
@@ -514,7 +519,7 @@ public sealed class EngineStateStore
                 jobState.Published
                     .Where(job => job.WorkflowId == workflowId)
                     .OrderBy(job => job.DisplayId)
-                    .Select(job => job.ToDto()).ToList(),
+                    .Select(job => job.Summary).ToList(),
                 jobState.Searches
                     .Where(search => search.WorkflowId == workflowId)
                     .OrderBy(search => search.JobId)
@@ -978,9 +983,7 @@ public sealed class EngineStateStore
             change.AttemptNumber,
             change.AttemptRevision,
             change.OccurredAtUtc,
-            "Completed",
-            "None",
-            null);
+            "Completed");
 
     private void OnTransferAttemptFailed(TransferAttemptFailedChange change)
         => CompleteTransferAttempt(
@@ -990,7 +993,7 @@ public sealed class EngineStateStore
             change.AttemptRevision,
             change.OccurredAtUtc,
             "Failed",
-            change.Reason.ToString(),
+            ApiEnumMapper.ToServer(change.Reason),
             change.Exception.Message);
 
     private void OnTransferAttemptCancelled(TransferAttemptCancelledChange change)
@@ -1001,14 +1004,14 @@ public sealed class EngineStateStore
             change.AttemptRevision,
             change.OccurredAtUtc,
             "Cancelled",
-            change.Reason.ToString(),
-            null);
+            cancellationSource: ApiEnumMapper.ToServer(change.Reason));
 
     private void CompleteTransferAttempt(TransferSnapshot transfer, Guid attemptId, int attemptNumber,
-        long revision, DateTimeOffset occurredAt, string state, string failureReason, string? failureMessage)
+        long revision, DateTimeOffset occurredAt, string state, Api.TransferFailureReason failureReason = Api.TransferFailureReason.None,
+        string? failureMessage = null, TransferCancellationSource cancellationSource = TransferCancellationSource.None)
     {
         lock (gate) transferState.CompleteAttempt(transfer, attemptId, attemptNumber,
-            revision, occurredAt, state, failureReason, failureMessage);
+            revision, occurredAt, state, failureReason, failureMessage, cancellationSource);
     }
 
     private void OnTransferOutputChanged(TransferOutputChangedChange change)

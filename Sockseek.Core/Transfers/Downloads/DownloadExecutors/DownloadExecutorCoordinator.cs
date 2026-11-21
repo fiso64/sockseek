@@ -122,7 +122,7 @@ internal sealed class DownloadExecutorCoordinator
             job is FileDownloadJob or DirectoryDownloadJob
                 ? JobFailureReason.AllDownloadsFailed
                 : JobFailureReason.Other,
-            ExceptionText.Summary(exception),
+            DownloadOutcomes.FailureMessage(exception),
             ExceptionText.Detail(exception));
     }
 

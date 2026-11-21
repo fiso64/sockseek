@@ -1,7 +1,6 @@
 import type { DaemonApiClient } from '../../api/client';
 import type { DaemonLiveClient } from '../../api/live';
 import type { Schema } from '../../api/types';
-import { jobStateSummary } from '../../api/job-summary';
 import { jobDetailVersion } from './detail-reads';
 import { resolvePresentedJob } from './presentation';
 
@@ -14,8 +13,8 @@ export class JobRouteReader {
     const stop = this.live.onState((_state, changes) => {
       const change = changes.jobs.get(jobId);
       if (changes.snapshot
-        || jobDetailVersion(change?.previous ? jobStateSummary(change.previous) : undefined)
-          !== jobDetailVersion(change?.current ? jobStateSummary(change.current) : undefined)) revision++;
+        || jobDetailVersion(change?.previous)
+          !== jobDetailVersion(change?.current)) revision++;
     });
     try {
       for (;;) {
@@ -24,7 +23,7 @@ export class JobRouteReader {
         signal.throwIfAborted();
         const current = this.live.reducer.state.jobs.get(jobId);
         if (before === revision || jobDetailVersion(detail.summary)
-          === jobDetailVersion(current ? jobStateSummary(current) : undefined)) return detail;
+          === jobDetailVersion(current)) return detail;
       }
     } finally { stop(); }
   }

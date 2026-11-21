@@ -4,13 +4,23 @@ namespace Sockseek.Core;
 
 internal static class DownloadOutcomes
 {
+    internal static string FailureMessage(Exception exception)
+    {
+        // Soulseek may wrap an output-stream failure. Keep the operation and path
+        // captured where it failed, even when the transport supplies another message.
+        for (Exception? cause = exception; cause != null; cause = cause.InnerException)
+            if (cause is Services.DownloadDestinationException or Soulseek.TransferRejectedException or Services.FileOrganizationException)
+                return cause.Message;
+        return Diagnostics.ExceptionText.Summary(exception);
+    }
+
     public static JobOutcome ExtractionFailed(Exception exception)
         => ExceptionFailure(JobFailureReason.ExtractionFailed, exception);
 
     public static JobOutcome ExceptionFailure(JobFailureReason reason, Exception exception)
         => JobOutcome.Failed(
             reason,
-            Diagnostics.ExceptionText.Summary(exception),
+            FailureMessage(exception),
             Diagnostics.ExceptionText.Detail(exception));
 
     public static JobOutcome NoMatchingDiscovery(Job job, string candidatePlural)

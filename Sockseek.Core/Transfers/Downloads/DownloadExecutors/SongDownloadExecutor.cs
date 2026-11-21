@@ -181,7 +181,10 @@ internal sealed class SongDownloadExecutor
             allowOverwrite: !song.Config.Skip.SkipExisting);
         if (finalization.OrganizationException != null)
         {
-            FailPendingTerminalTransfer(song, finalization.OrganizationException, TransferFailureReason.Finalization);
+            var error = finalization.OrganizationException;
+            var reason = error.InnerException is { } cause && DownloadDestinationException.IsFileError(cause)
+                ? TransferFailureReason.LocalStorageError : TransferFailureReason.Finalization;
+            FailPendingTerminalTransfer(song, error, reason);
             return finalization.Outcome;
         }
 
@@ -227,10 +230,7 @@ internal sealed class SongDownloadExecutor
                 ex,
                 "song-download",
                 song.Id);
-            return JobOutcome.Failed(
-                JobFailureReason.AllDownloadsFailed,
-                DownloadFailureMessage(ex),
-                ExceptionText.Detail(ex));
+            return DownloadOutcomes.ExceptionFailure(JobFailureReason.AllDownloadsFailed, ex);
         }
     }
 
@@ -248,6 +248,28 @@ internal sealed class SongDownloadExecutor
         CancellationTokenSource cts)
     {
         bool searched = false;
+        HashSet<string>? blockedFiles = null, blockedDirectories = null;
+        Exception? lastDownloadException = null;
+
+        void RememberBlockedDestination(DownloadPreparationException ex)
+        {
+            if (ex.IsDirectory)
+                (blockedDirectories ??= new(DownloadFileOperations.PathComparer)).Add(ex.BlockedPath);
+            else
+                (blockedFiles ??= new(DownloadFileOperations.PathComparer)).Add(ex.BlockedPath);
+            lastDownloadException = ex;
+        }
+
+        bool DestinationIsBlocked(string destination)
+        {
+            if (blockedFiles == null && blockedDirectories == null) return false;
+            string path = Path.GetFullPath(destination);
+            if (blockedFiles?.Contains(ExactPeerFileTransferRunner.IncompletePath(path, config.Transfer.NoIncompleteExt)) == true) return true;
+            if (blockedDirectories != null)
+                for (var directory = Path.GetDirectoryName(path); directory != null; directory = Path.GetDirectoryName(directory))
+                    if (blockedDirectories.Contains(directory)) return true;
+            return false;
+        }
 
         if (song.ExactTarget is { } exactTarget && song.Candidates == null)
             return await DownloadExactSongTarget(song, job, config, organizer, cts, exactTarget);
@@ -290,7 +312,7 @@ internal sealed class SongDownloadExecutor
                         {
                             try
                             {
-                                var target = await context.OutputFinalizer.GetInitialDownloadTargetAsync(config, song, organizer, fc);
+                                var target = OutputFinalizer.GetInitialDownloadTarget(config, song, organizer, fc.Filename);
 
                                 // Use the main job CTS for the download so cancelling the search doesn't kill the download.
                                 return await context.Runtime.ExactFileTransfers
@@ -307,6 +329,11 @@ internal sealed class SongDownloadExecutor
                                         deferTerminalCompletion: true,
                                         allowOverwrite: !config.Skip.SkipExisting,
                                         allowReuse: config.Skip.SkipExisting);
+                            }
+                            catch (DownloadPreparationException ex)
+                            {
+                                RememberBlockedDestination(ex);
+                                return null;
                             }
                             catch { return null; }
                         }
@@ -408,17 +435,15 @@ internal sealed class SongDownloadExecutor
                 candidate => candidate.Username, config.Search);
 
         // Try candidates in order until one succeeds.
-        int tried = 0;
-        Exception? lastDownloadException = null;
-        string? lastDownloadFailureMessage = null;
+        int failedSources = 0;
+        string? lastPeer = null;
         foreach (var candidate in attempts)
         {
-            tried++;
-            var target = await context.OutputFinalizer.GetInitialDownloadTargetAsync(config, song, organizer, candidate);
-
             ExactFileTransferOutcome download;
             try
             {
+                var target = OutputFinalizer.GetInitialDownloadTarget(config, song, organizer, candidate.Filename);
+                if (DestinationIsBlocked(target.Path)) continue;
                 song.ActiveCandidate = candidate;
                 song.UpdateActivity(JobActivityPhase.Downloading);
                 // Transfer start is reported by the exact peer-file runner.
@@ -436,24 +461,27 @@ internal sealed class SongDownloadExecutor
                     allowOverwrite: !config.Skip.SkipExisting,
                     allowReuse: config.Skip.SkipExisting);
             }
+            catch (DownloadPreparationException ex)
+            {
+                RememberBlockedDestination(ex);
+                lastPeer = null;
+                continue;
+            }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 if (!context.ClientManager.IsConnectedAndLoggedIn)
                     throw;
 
                 lastDownloadException = ex;
-                lastDownloadFailureMessage = DownloadFailureMessage(ex);
+                lastPeer = candidate.Username;
+                failedSources++;
                 DownloadLogMessages.JobDecision(
                     logger,
                     song.Id,
                     "candidate download failed",
-                    tried);
-                if (tried >= candidates.Count || tried >= config.Transfer.MaxDownloadRetries)
-                {
-                    return JobOutcome.Failed(
-                        JobFailureReason.AllDownloadsFailed,
-                        lastDownloadFailureMessage);
-                }
+                    failedSources);
+                if (failedSources >= config.Transfer.MaxDownloadRetries)
+                    break;
 
                 continue;
             }
@@ -468,8 +496,7 @@ internal sealed class SongDownloadExecutor
                     logger,
                     song.Id,
                     "candidate manually skipped",
-                    tried);
-                tried--;
+                    failedSources + 1);
                 continue;
             }
 
@@ -491,14 +518,17 @@ internal sealed class SongDownloadExecutor
                 logger,
                 song.Id,
                 "candidate download succeeded",
-                tried);
+                failedSources + 1);
             return JobOutcome.Done(result.OutputPath, candidate, reused: result.Reused);
         }
 
         if (lastDownloadException != null)
-            return JobOutcome.Failed(
-                JobFailureReason.AllDownloadsFailed,
-                lastDownloadFailureMessage ?? DownloadFailureMessage(lastDownloadException));
+        {
+            var summary = DownloadOutcomes.FailureMessage(lastDownloadException);
+            if (failedSources > 1 && lastPeer != null)
+                summary += $" Tried {failedSources} file sources. The last was from '{lastPeer}'.";
+            return JobOutcome.Failed(JobFailureReason.AllDownloadsFailed, summary, ExceptionText.Detail(lastDownloadException));
+        }
 
         return DownloadOutcomes.NoMatchingCandidates();
     }
@@ -511,7 +541,7 @@ internal sealed class SongDownloadExecutor
         CancellationTokenSource cts,
         PeerFileTarget target)
     {
-        var destination = await context.OutputFinalizer.GetInitialDownloadTargetAsync(config, song, organizer, target);
+        var destination = OutputFinalizer.GetInitialDownloadTarget(config, song, organizer, target.Filename);
         song.UpdateActivity(JobActivityPhase.Downloading);
 
         var download = await context.Runtime.ExactFileTransfers.DownloadFile(
@@ -643,9 +673,6 @@ internal sealed class SongDownloadExecutor
 
         return JobCancellationSource.InternalEngine;
     }
-
-    private static string? DownloadFailureMessage(Exception ex)
-        => ExceptionText.Summary(ex);
 
     private static Job? DownloadParentFor(SongJob song, Job job)
         => ReferenceEquals(song, job) ? null : job;
