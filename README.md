@@ -2,7 +2,7 @@
 
 Sockseek is a self-hosted Soulseek client. Run the daemon to search, download, share files and chat from the WebUI. Give it an artist and album, a playlist, or a CSV file and it can also rank the available files against your preferences and download the best matches automatically.
 
-The [getting started guide](docs/pages/index.md) covers both the local CLI and the daemon. The [release archive](docs/pages/installation/release-archive.md) includes both. You can also run the daemon with [Docker Compose](docs/pages/installation/docker.md). The manual for your installed version is also available at `/docs/` on your daemon, with built-in search.
+The [getting started guide](docs/pages/index.md) covers both the local CLI and the daemon. The [release archive](docs/pages/installation/release-archive.md) includes both. You can also run the daemon on [NixOS](docs/pages/installation/nixos.md) or with [Docker Compose](docs/pages/installation/docker.md). The manual for your installed version is also available at `/docs/` on your daemon, with built-in search.
 
 For a one-shot download, configure your Soulseek credentials and run:
 

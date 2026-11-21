@@ -1,0 +1,29 @@
+name: NixOS
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: &package_inputs
+      - 'flake.*'
+      - 'nix/**'
+      - 'global.json'
+      - '**.csproj'
+      - '**/packages.lock.json'
+      - '**/package-lock.json'
+      - '.github/workflows/nix.yml'
+  push:
+    branches: [master, v4]
+    paths: *package_inputs
+
+permissions:
+  contents: read
+
+jobs:
+  service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v32
+        with:
+          extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
+      - run: nix flake check -L

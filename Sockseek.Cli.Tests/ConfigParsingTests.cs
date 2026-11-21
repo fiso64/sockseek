@@ -658,6 +658,9 @@ namespace Tests.ConfigParsingTests
                 on-complete =
                     - -- echo first,second
                     - -- echo done
+
+                [all-peers]
+                allowed-users =
                 """);
 
             var defaults = ConfigManager.Bind(file, []).Download;
@@ -665,12 +668,12 @@ namespace Tests.ConfigParsingTests
             CollectionAssert.AreEqual(new[] { "Lee,Jr", "+ Friends" }, defaults.Search.NecessaryCond.AllowedUsers);
             CollectionAssert.AreEqual(new[] { "Lee,Jr", "+ Friends", "DJ,,Jr", "#guest=1", "Last" },
                 weekend.Search.NecessaryCond.AllowedUsers);
+            Assert.IsEmpty(ConfigManager.Bind(file, [], "all-peers").Download.Search.NecessaryCond.AllowedUsers!);
             CollectionAssert.AreEqual(new[] { "flac", "mp3" }, weekend.Search.NecessaryCond.Formats);
             CollectionAssert.AreEqual(new[] { "-- echo first,second", "-- echo done" }, weekend.Output.OnComplete);
         }
 
         [TestMethod]
-        [DataRow("allowed-users =\nfast-search = true", 1)]
         [DataRow("allowed-users = +", 1)]
         [DataRow("username =\n  - Alice", 1)]
         [DataRow("allowed-users =\n  - Alice\n- Bob", 3)]

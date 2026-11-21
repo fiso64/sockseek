@@ -268,6 +268,8 @@ public static partial class ConfigManager
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    public static IEnumerable<SettingOption> ConfigurationOptions => OptionCatalog.ByName.Values.Distinct();
+
     // Kept in a nested type so config discovery/help does not initialize option metadata.
     private static class OptionCatalog
     {
@@ -438,18 +440,18 @@ public static partial class ConfigManager
             string line = header.Text;
             int lineNum = header.Number;
             Exception SyntaxError(string message) => new FormatException($"Input error: Error parsing config '{path}' at line {lineNum}: {message}");
-            IEnumerable<string> ListItems()
+            IEnumerable<string> ListItems(bool append)
             {
                 bool HasItem() => more && lines.Current.Indent > header.Indent && lines.Current.IsItem;
-                if (!HasItem()) throw SyntaxError("expected an indented list item.");
-                do
+                if (append && !HasItem()) throw SyntaxError("expected an indented list item.");
+                while (HasItem())
                 {
                     var item = lines.Current;
                     lineNum = item.Number;
                     if (item.Text.Length == 1) throw SyntaxError("expected a value after '-'.");
                     yield return item.Text[1..].TrimStart();
                     more = lines.MoveNext();
-                } while (HasItem());
+                }
                 lineNum = header.Number;
             }
 
@@ -495,7 +497,10 @@ public static partial class ConfigManager
 
                 var changes = profile.For(option.RootType);
                 if (value.Length == 0 || (option.IsList && value == "+"))
-                    option.BindList(changes, ListItems(), flag, append: value == "+");
+                {
+                    bool append = value == "+";
+                    option.BindList(changes, ListItems(append), flag, append);
+                }
                 else option.Bind(changes, Unquote(value), flag, configDirectory);
             }
             catch (Exception exception)

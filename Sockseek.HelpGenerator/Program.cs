@@ -46,7 +46,8 @@ if (args.Contains("--check", StringComparer.Ordinal))
     return 0;
 }
 
-WriteHelpCs(helpCsPath, generatedContent);
+if (!File.Exists(helpCsPath) || NormalizeNewlines(File.ReadAllText(helpCsPath)) != generatedContent)
+    File.WriteAllText(helpCsPath, generatedContent);
 
 Console.WriteLine("Help.cs generated successfully.");
 return 0;
@@ -276,15 +277,6 @@ __COMMAND_TOPICS__
                 ? $"        [\"daemon\"] = daemonHelp + \"\\n\" + @\"{command.Value}\","
                 : $"        [\"{command.Key}\"] = @\"{command.Value}\",")));
     return content;
-}
-
-static void WriteHelpCs(string filePath, string content)
-{
-    var directory = Path.GetDirectoryName(filePath);
-    if (!string.IsNullOrEmpty(directory))
-        Directory.CreateDirectory(directory);
-
-    File.WriteAllText(filePath, content);
 }
 
 static string NormalizeNewlines(string text)

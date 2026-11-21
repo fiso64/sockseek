@@ -22,6 +22,7 @@ on:
       - '.editorconfig'
       - '**/global.json'
       - '**/nuget.config'
+      - 'nix/settings.json'
       - 'docs/**'
       - 'webui/**'
       - '.github/workflows/**.yml'
@@ -38,6 +39,7 @@ on:
       - '.editorconfig'
       - '**/global.json'
       - '**/nuget.config'
+      - 'nix/settings.json'
       - 'docs/**'
       - 'webui/**'
       - '.github/workflows/**.yml'
@@ -69,6 +71,10 @@ jobs:
       run: |
         dotnet restore --locked-mode
         dotnet build --no-restore --configuration Release --nologo -m:1 -p:OpenApiGenerateDocuments=false
+    - name: Check generated files are current
+      run: |
+        git add -- Sockseek.Cli/Help.Content.cs nix/settings.json
+        git diff --cached --exit-code
     - name: Publish daemon with its production WebUI
       run: |
         dotnet publish Sockseek.Cli/Sockseek.Cli.csproj --no-build --no-restore --configuration Release --output artifacts/ci-publish -m:1 -p:OpenApiGenerateDocuments=false

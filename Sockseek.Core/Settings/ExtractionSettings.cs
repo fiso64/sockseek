@@ -28,7 +28,7 @@ public class ExtractionSettings
     [SettingOption("-r", "--reverse")]
     public bool Reverse { get; set; }
 
-    [SettingOption("--rfp", "--rfs", "--remove-from-source", "--remove-from-playlist")]
+    [SettingOption("--rfp", "--rfs", "--remove-from-playlist", "--remove-from-source")]
     public bool RemoveTracksFromSource { get; set; }
 
     // Null means the input source decides. Ambiguous string/list inputs default to album mode,

@@ -23,6 +23,7 @@ export default defineConfig({
       ] },
       { text: 'Installation', items: [
         { text: 'Release archive', link: '/installation/release-archive' },
+        { text: 'NixOS', link: '/installation/nixos' },
         { text: 'Docker Compose', link: '/installation/docker' },
       ] },
       { text: 'Search and download', items: [

@@ -69,7 +69,7 @@ public class EngineSettings
 
     /// Verbosity level for the engine's own log output.
     /// The CLI reads this to configure the console logger.
-    [SettingOption("-v", "--verbose", "--debug", FixedValue = "Debug")]
+    [SettingOption("-v", "--debug", "--verbose", FixedValue = "Debug")]
     [SettingOption("-vv", "--trace", FixedValue = "Trace")]
     public Microsoft.Extensions.Logging.LogLevel LogLevel { get; set; } = LogLevel.Information;
 

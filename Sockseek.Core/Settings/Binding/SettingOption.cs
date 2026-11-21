@@ -16,7 +16,7 @@ public enum OptionListSyntax { None, SingleItem, CommaSeparated, PlainCommaSepar
 
 public enum OptionValueKind { Auto, None, Boolean, Required }
 
-/// CLI names live beside the setting/default, or on a method for a compound option.
+/// CLI aliases precede the canonical configuration name. Declare them on the setting or compound option method.
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field | AttributeTargets.Method, AllowMultiple = true)]
 public sealed class SettingOptionAttribute(params string[] names) : Attribute
 {
@@ -66,6 +66,9 @@ public sealed class SettingOption
             : (Nullable.GetUnderlyingType(valueType) ?? valueType) == typeof(bool) ? OptionValueKind.Boolean : OptionValueKind.Required;
     }
 
+    public bool IsPresenceOnly => declaration.Clear || declaration.FixedValue != null;
+    public Type ConfigValueType => parser != null || declaration.CredentialFile ? typeof(string)
+        : Nullable.GetUnderlyingType(valueType) ?? valueType;
     public bool IsList => declaration.ListSyntax != OptionListSyntax.None;
     public bool DefaultProfileOnly => declaration.DefaultProfileOnly;
     public Type RootType { get; }

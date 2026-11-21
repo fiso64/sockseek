@@ -735,8 +735,9 @@ Configuration
       - Alice
       - Bob
 
-    Use = + to append to the current list, including values inherited from another profile. Commas
-    and leading plus signs inside an item are literal.
+    Leave the list empty (for example, banned-users = on its own line) to clear inherited items. Use
+    = + to append to the current list, including values inherited from another profile. Commas and
+    leading plus signs inside an item are literal.
 
     [weekend]
     allowed-users = +

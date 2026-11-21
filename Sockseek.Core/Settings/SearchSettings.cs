@@ -12,7 +12,7 @@ public class SearchSettings
     // ── Conditions ────────────────────────────────────────────────────────────
 
     [SettingOption("--af", "--format", Member = "Formats", ListSyntax = OptionListSyntax.PlainCommaSeparated, Parser = nameof(ParseFormat))]
-    [SettingOption("--lt", "--tolerance", "--length-tol", "--length-tolerance", Member = "LengthTolerance")]
+    [SettingOption("--lt", "--tolerance", "--length-tolerance", "--length-tol", Member = "LengthTolerance")]
     [SettingOption("--mbr", "--min-bitrate", Member = "MinBitrate")]
     [SettingOption("--Mbr", "--max-bitrate", Member = "MaxBitrate")]
     [SettingOption("--msr", "--min-samplerate", Member = "MinSampleRate")]
@@ -32,7 +32,7 @@ public class SearchSettings
     };
 
     [SettingOption("--paf", "--pf", "--pref-format", Member = "Formats", ListSyntax = OptionListSyntax.PlainCommaSeparated, Parser = nameof(ParseFormat))]
-    [SettingOption("--plt", "--pref-tolerance", "--pref-length-tol", "--pref-length-tolerance", Member = "LengthTolerance")]
+    [SettingOption("--plt", "--pref-tolerance", "--pref-length-tolerance", "--pref-length-tol", Member = "LengthTolerance")]
     [SettingOption("--pmbr", "--pref-min-bitrate", Member = "MinBitrate")]
     [SettingOption("--pMbr", "--pref-max-bitrate", Member = "MaxBitrate")]
     [SettingOption("--pmsr", "--pref-min-samplerate", Member = "MinSampleRate")]
@@ -104,13 +104,13 @@ public class SearchSettings
         changes.Set("PreferredCond.AcceptMissingProps", !value);
     }
 
-    [SettingOption("--cond", "--conditions")]
+    [SettingOption("--conditions", "--cond")]
     private static void ConfigureConditions(SettingWriter changes, string value)
     {
         ConfigureConditions(changes, value, preferred: false);
     }
 
-    [SettingOption("--pc", "--pref", "--preferred-conditions")]
+    [SettingOption("--pc", "--preferred-conditions", "--pref")]
     private static void ConfigurePreferredConditions(SettingWriter changes, string value)
     {
         ConfigureConditions(changes, value, preferred: true);
@@ -219,18 +219,18 @@ public class SearchSettings
 
     /// When true, search all matching sources and download from each.
     /// Applies to both songs and albums.
-    [SettingOption("-g", "--group", "--aggregate")]
+    [SettingOption("-g", "--aggregate", "--group")]
     public bool GroupResults { get; set; }
 
     /// Minimum distinct sharers for group results. Null uses the backend default.
-    [SettingOption("--msa", "--min-group-shares", "--min-shares-aggregate")]
+    [SettingOption("--msa", "--min-shares-aggregate", "--min-group-shares")]
     public int? MinGroupShares { get; set; }
 
     private int defaultMinGroupShares = DefaultMinShares;
     public int EffectiveMinGroupShares => MinGroupShares ?? defaultMinGroupShares;
 
     /// Length tolerance (seconds) when grouping candidate songs into group buckets.
-    [SettingOption("--alt", "--group-length-tol", "--aggregate-length-tol")]
+    [SettingOption("--alt", "--aggregate-length-tol", "--group-length-tol")]
     public int GroupLengthTol { get; set; } = 3;
 
     internal bool AudioConditionsIgnored { get; private set; }

@@ -9,7 +9,7 @@ public class OutputSettings
 {
     /// null resolves to Directory.GetCurrentDirectory() at bind time.
     [SettingOption("-o", Parser = nameof(ParseLegacyOutputDirectory))]
-    [SettingOption("--output-dir", "-p", "--path", "--parent")]
+    [SettingOption("-p", "--path", "--parent", "--output-dir")]
     public string? ParentDir { get; set; }
 
     private static string ParseLegacyOutputDirectory(string value, string flag)

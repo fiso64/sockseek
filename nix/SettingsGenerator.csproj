@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sockseek.Cli/Sockseek.Cli.csproj" AdditionalProperties="SkipNixSettingsGeneration=true;OpenApiGenerateDocuments=false" />
+  </ItemGroup>
+</Project>
