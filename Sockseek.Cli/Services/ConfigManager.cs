@@ -407,22 +407,46 @@ public static partial class ConfigManager
     private static ConfigFile ParseConfigFile(string path)
         => ParseConfigText(path, File.ReadAllText(path));
 
-    private readonly record struct ConfigLine(int Number, int Indent, string Text)
+    private static bool IsListItem(string line)
+        => line.StartsWith('-') && (line.Length == 1 || char.IsWhiteSpace(line[1]));
+
+    private static int Indentation(string line)
     {
-        public bool IsItem => Text[0] == '-' && (Text.Length == 1 || char.IsWhiteSpace(Text[1]));
+        int i = 0;
+        while (i < line.Length && line[i] is ' ' or '\t') i++;
+        return i;
     }
 
-    private static IEnumerable<ConfigLine> ConfigLines(string text)
+    private static string ReadTextBlock(string[] lines, ref int next, int headerIndent, string marker)
     {
-        using var reader = new StringReader(text);
-        int number = 0;
-        while (reader.ReadLine() is { } raw)
+        int start = next;
+        int end = start;
+        int commonIndent = int.MaxValue;
+        while (next < lines.Length)
         {
-            number++;
-            string line = raw.TrimStart();
-            if (line.Length == 0 || line[0] == '#') continue;
-            yield return new(number, raw.Length - line.Length, line.TrimEnd());
+            string raw = lines[next];
+            int indent = Indentation(raw);
+            bool blank = indent == raw.Length;
+            if (!blank && indent <= headerIndent) break;
+            next++;
+            if (indent > headerIndent) end = next;
+            if (!blank) commonIndent = Math.Min(commonIndent, indent);
         }
+
+        if (start == end) return marker; // A standalone pipe remains an ordinary string.
+        // A fixed indent lets generated configs preserve leading spaces on every line.
+        int strip = marker.Contains('2') || commonIndent == int.MaxValue ? headerIndent + 2 : commonIndent;
+        var value = new System.Text.StringBuilder();
+        for (int i = start; i < end; i++)
+        {
+            string raw = lines[i];
+            int indent = Indentation(raw);
+            if (indent < strip && indent < raw.Length)
+                throw new FormatException($"Expected at least {strip} indentation characters in the text block.");
+            value.Append(raw.AsSpan(Math.Min(indent, strip))).Append('\n');
+        }
+        if (marker.EndsWith('-')) value.Length--;
+        return value.ToString();
     }
 
     internal static ConfigFile ParseConfigText(string path, string text)
@@ -431,33 +455,41 @@ public static partial class ConfigManager
         Func<string?> configDirectory = () => ConfigFile.DirectoryOf(path);
         var curProfile = "default";
         bool hasAutoProfiles = false;
-        using var lines = ConfigLines(text).GetEnumerator();
-        bool more = lines.MoveNext();
-        while (more)
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        int next = 0;
+        while (next < lines.Length)
         {
-            var header = lines.Current;
-            more = lines.MoveNext();
-            string line = header.Text;
-            int lineNum = header.Number;
+            int header = next++;
+            string line = lines[header].Trim();
+            if (line.Length == 0 || line.StartsWith('#')) continue;
+            int indent = Indentation(lines[header]);
+            int lineNum = header + 1;
             Exception SyntaxError(string message) => new FormatException($"Input error: Error parsing config '{path}' at line {lineNum}: {message}");
             IEnumerable<string> ListItems(bool append)
             {
-                bool HasItem() => more && lines.Current.Indent > header.Indent && lines.Current.IsItem;
-                if (append && !HasItem()) throw SyntaxError("expected an indented list item.");
-                while (HasItem())
+                bool found = false;
+                while (next < lines.Length)
                 {
-                    var item = lines.Current;
-                    lineNum = item.Number;
-                    if (item.Text.Length == 1) throw SyntaxError("expected a value after '-'.");
-                    yield return item.Text[1..].TrimStart();
-                    more = lines.MoveNext();
+                    string raw = lines[next];
+                    string item = raw.Trim();
+                    if (item.Length == 0 || item.StartsWith('#'))
+                    {
+                        next++;
+                        continue;
+                    }
+                    if (Indentation(raw) <= indent || !IsListItem(item)) break;
+                    lineNum = ++next;
+                    if (item.Length == 1) throw SyntaxError("expected a value after '-'.");
+                    found = true;
+                    yield return item[1..].TrimStart();
                 }
-                lineNum = header.Number;
+                lineNum = header + 1;
+                if (append && !found) throw SyntaxError("expected an indented list item.");
             }
 
             try
             {
-                if (header.IsItem) throw SyntaxError("list items must be indented under a list setting.");
+                if (IsListItem(line)) throw SyntaxError("list items must be indented under a list setting.");
                 if (line.StartsWith('[') && line.EndsWith(']'))
                 {
                     curProfile = line[1..^1];
@@ -501,6 +533,9 @@ public static partial class ConfigManager
                     bool append = value == "+";
                     option.BindList(changes, ListItems(append), flag, append);
                 }
+                else if (!option.IsList && !option.IsPresenceOnly && option.ConfigValueType == typeof(string)
+                    && value is "|" or "|-" or "|2" or "|2-")
+                    option.Bind(changes, ReadTextBlock(lines, ref next, indent, value), flag, configDirectory);
                 else option.Bind(changes, Unquote(value), flag, configDirectory);
             }
             catch (Exception exception)

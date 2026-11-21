@@ -103,6 +103,18 @@ allowed-users = +
     - + Friends
 ```
 
+### Multiline text
+
+For a string setting, put `|` after the equals sign and indent the text below it.
+
+```ini
+user-description = |
+  Blah
+  Blah blah blah
+
+  music!
+```
+
 ## WebUI search defaults
 
 Use `input-type == "manual-search"` in an auto-profile to set defaults for the WebUI search bar. Add a `download-mode` condition to tailor the defaults for one search mode.

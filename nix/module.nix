@@ -12,7 +12,7 @@ let
   listItem = types.addCheck line (s: builtins.match "[^[:space:]](.*[^[:space:]])?" s != null);
   itemList = types.listOf listItem;
   valueTypes = {
-    string = line;
+    string = types.str;
     inherit (types) int bool number;
     flag = types.bool;
     list = types.either itemList (
@@ -58,6 +58,16 @@ let
       lib.optionals (!append || items != [ ]) (
         [ ("${key} =" + lib.optionalString append " +") ] ++ map (s: "  - ${s}") items
       )
+    else if kind == "string" && (lib.hasInfix "\n" value || lib.hasInfix "\r" value) then
+      let
+        text = builtins.replaceStrings [ "\r\n" "\r" ] [ "\n" "\n" ] value;
+        finalNewline = lib.hasSuffix "\n" text;
+        body = lib.splitString "\n" (lib.removeSuffix "\n" text);
+        # If every content line starts with whitespace, automatic dedenting would erase it.
+        fixedIndent = lib.all (s: s == "" || lib.hasPrefix " " s || lib.hasPrefix "\t" s) body;
+        marker = "|" + lib.optionalString fixedIndent "2" + lib.optionalString (!finalNewline) "-";
+      in
+      [ "${key} = ${marker}" ] ++ map (s: "  ${s}") body
     else
       [ ''${key} = "${scalar}"'' ];
   renderSettings = settings: lib.concatLists (lib.mapAttrsToList render settings);

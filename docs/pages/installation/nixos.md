@@ -42,6 +42,10 @@ Use the configuration names from the [download](../reference/download-options.md
 ```nix
 services.sockseek = {
   settings.pref-format = [ "flac" ];
+  settings.user-description = ''
+    Welcome to my library.
+    Blah.
+  '';
   profiles = [
     {
       name = "lossless";

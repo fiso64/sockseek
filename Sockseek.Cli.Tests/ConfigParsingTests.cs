@@ -639,6 +639,33 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void TextBlockPreservesContentAndEndsAtTheNextSettingOrProfile()
+        {
+            var file = ConfigManager.ParseConfigText("text.conf",
+                "user-description = |\r\n    Hi!\r\n\r\n      # not a comment  \r\n" +
+                "    - [literal] = C:\\music\r\n\r\n# outside the block\r\nusername = first\r\n" +
+                "[other]\r\nuser-description = |-\r\n  Second profile\r\nusername = second");
+            var settings = ConfigManager.Bind(file, []).Engine;
+            Assert.AreEqual("Hi!\n\n  # not a comment  \n- [literal] = C:\\music\n", settings.UserDescription);
+            Assert.AreEqual("first", settings.Username);
+            var other = ConfigManager.Bind(file, [], "other").Engine;
+            Assert.AreEqual("Second profile", other.UserDescription);
+            Assert.AreEqual("second", other.Username);
+        }
+
+        [TestMethod]
+        [DataRow("|2\n    one\n     two\n  \n", "  one\n   two\n\n")]
+        [DataRow("|2-\n  \n   \n  [literal]", "\n \n[literal]")]
+        [DataRow("|\n\tfirst\n\tsecond", "first\nsecond\n")]
+        [DataRow("|", "|")]
+        [DataRow("\"|\"", "|")]
+        public void TextBlockPreservesScalarWhitespace(string source, string expected)
+        {
+            var file = ConfigManager.ParseConfigText("text.conf", "user-description = " + source);
+            Assert.AreEqual(expected, ConfigManager.Bind(file, []).Engine.UserDescription);
+        }
+
+        [TestMethod]
         public void ConfigListBlocks_ReplaceAndAppendLiteralItemsAcrossProfiles()
         {
             var file = ConfigManager.ParseConfigText("lists.conf", """

@@ -9,6 +9,11 @@ testers.runNixOSTest {
       inherit package;
       settings = {
         username = "fixture";
+        user-description = ''
+          First line
+
+          # My music
+        '';
         password-file = "/run/sockseek-test/password";
         web-password-file = "/run/sockseek-test/web-password";
         allow-http-auth = true;
