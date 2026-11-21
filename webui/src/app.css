@@ -1551,32 +1551,43 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   flex: none;
   align-items: center;
   gap: 4px;
+  margin-inline-end: auto;
 }
 .transfer-files {
   display: grid;
   column-gap: 10px;
   --transfer-column-gap: clamp(22px, 10px + 2vw, 38px);
-  grid-template-columns: 34px minmax(0, 1fr) fit-content(160px) max-content max-content fit-content(310px) max-content;
+  --transfer-status-width: 9rem;
+  grid-template-columns: 34px minmax(0, 1fr) fit-content(160px) max-content max-content var(--transfer-status-width) var(--transfer-actions-width, max-content);
 }
 .transfer-files > :is(.folder-file-row, .folder-subfolder-row) {
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
 }
 @media (min-width: 701px) {
-  .folder-file-row.has-transfer :is(.folder-file-length, .folder-file-size, .folder-file-transfer-strip) {
+  .folder-file-row.has-transfer :is(.folder-file-length, .folder-file-size) {
     margin-inline-start: calc(var(--transfer-column-gap) - 10px);
   }
+  .folder-file-transfer-strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 2px 6px;
+  }
+  .folder-file-progress-group { grid-area: 1 / 1; }
+  .folder-file-transfer-strip > .folder-file-state { grid-area: 1 / 2; }
+  .folder-file-transfer-detail { grid-area: 2 / 1 / auto / -1; }
+  .folder-file-transfer-label { grid-area: 1 / 1 / auto / -1; justify-self: end; }
 }
 .folder-file-row .folder-file-transfer-strip { grid-column: 6; }
 .folder-file-row .folder-file-action { grid-column: 7; }
 .folder-file-transfer-strip {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--transfer-column-gap);
 }
 .folder-file-transfer-percent {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
   flex: 0 0 auto;
   color: var(--text);
   font-size: 0.68rem;
@@ -1675,6 +1686,9 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 }
 .bulk-cancel-check { color: var(--accent); }
 
+.page-content:has(> .downloads-page, > .uploads-page) { scrollbar-gutter: stable; }
+/* A failed download can offer both retry and remove. */
+.downloads-page { --transfer-actions-width: 62px; }
 .transfer-peer-list { display: grid; gap: 12px; }
 .transfer-peer-list .result-peer-items { gap: 10px; padding-top: 3px; }
 .transfer-peer-list .peer-result-count { color: var(--faint); font-size: .66rem; font-weight: 450; }
@@ -1696,7 +1710,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .transfer-peer-list .folder-file-row { min-height: 46px; }
 /* Compact offscreen rows use the same minimum height as visible rows. A
    remembered size can include the previous transfer state or last-row border. */
-.redesigned-search-page :where(.folder-files-table:not(.transfer-files)) > .folder-file-row:where(:not(.has-transfer-detail):not(.locked)) {
+.redesigned-search-page :where(.folder-files-table:not(.transfer-files)) > .folder-file-row:where(:not(.has-transfer):not(.locked)) {
   content-visibility: auto;
   contain-intrinsic-block-size: 0px;
 }
@@ -1713,7 +1727,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
     contain-intrinsic-block-size: none;
   }
   .transfer-files {
-    grid-template-columns: 34px minmax(0, 1fr) max-content max-content fit-content(285px) max-content;
+    grid-template-columns: 34px minmax(0, 1fr) max-content max-content var(--transfer-status-width) var(--transfer-actions-width, max-content);
   }
   .folder-file-row.has-transfer .folder-file-path { grid-column: 2; grid-row: 1; }
   .folder-file-row.has-transfer .folder-file-audio { grid-column: 2; grid-row: 2; text-align: left; }
@@ -1740,32 +1754,24 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   .transfer-bulk-actions { align-self: flex-start; flex-wrap: wrap; }
   .transfer-progress-meta { flex-direction: column; gap: 3px; }
   .transfer-progress-meta span:last-child { text-align: left; }
+  .downloads-page { --transfer-actions-width: 28px; }
   .transfer-files {
-    --transfer-column-gap: 12px;
-    grid-template-columns: 32px minmax(0, 1fr) max-content 20px max-content;
+    grid-template-columns: 32px minmax(0, 1fr) max-content 28px var(--transfer-actions-width, max-content);
     column-gap: 7px;
   }
   .folder-file-row.has-transfer .folder-file-path { grid-column: 2; grid-row: 1; }
   .folder-file-row.has-transfer .folder-file-audio { grid-column: 2; grid-row: 2; }
   .folder-file-row.has-transfer .folder-file-length { display: none; }
   .folder-file-row.has-transfer .folder-file-size { grid-column: 3; grid-row: 1; }
-  .folder-file-row.has-transfer .folder-file-transfer-strip { grid-column: 4; grid-row: 1; }
+  .folder-file-transfer-strip { display: contents; }
+  .folder-file-state { grid-column: 4; grid-row: 1; justify-self: end; }
   .folder-file-row.has-transfer .folder-file-action { grid-column: 5; grid-row: 1; }
-  .folder-file-row.has-transfer.has-transfer-detail .folder-file-transfer-strip {
+  .folder-file-row.has-transfer .folder-file-action:has(> :nth-child(2)) { grid-column: 4 / 6; }
+  .folder-file-progress-group, .folder-file-transfer-detail, .folder-file-transfer-label {
     grid-column: 2 / -1;
-    grid-row: 2;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    row-gap: 3px;
+    justify-self: start;
   }
-  .folder-file-row.has-transfer.has-transfer-detail .folder-file-transfer-detail {
-    order: 1;
-    flex: 0 0 100%;
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
-  }
-  .folder-file-row.has-transfer.has-audio.has-transfer-detail .folder-file-transfer-strip { grid-row: 3; }
+  .folder-file-transfer-detail { white-space: normal; }
   .folder-file-progress { min-width: 56px; max-width: 82px; }
   .transfer-peer-list .file-result-row:not(.transfer-summary) {
     grid-template-columns: minmax(0, 1fr) 68px 28px;

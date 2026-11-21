@@ -317,12 +317,25 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await page.setViewportSize({ width: 1280, height: 720 });
   await expectFolderLayoutUnchanged(page);
 
+  const widths = [390, 900, 1280];
+  const columns = () => folder.locator('.folder-file-row').filter({ hasText: 'Nested.txt' })
+    .locator('.folder-file-path, .folder-file-audio, .folder-file-length, .folder-file-size, .folder-file-state, .folder-file-action')
+    .evaluateAll(cells => cells.map(cell => {
+      const { x, width } = cell.getBoundingClientRect();
+      return [x, width];
+    }));
+  const activeColumns = new Map<number, number[][]>();
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 720 });
+    activeColumns.set(width, await columns());
+  }
   await daemon.command('release-download');
   await expect(folder.locator('.folder-file-state.complete')).toHaveCount(2);
   await expect(folder.locator('.folder-transfer-footer')).toHaveCount(0);
   await expect(folder.locator('.folder-file-audio')).toHaveCount(1);
-  for (const width of [390, 900, 1280]) {
+  for (const width of widths) {
     await page.setViewportSize({ width, height: 720 });
+    expect(await columns()).toEqual(activeColumns.get(width));
     await expectFolderLayoutUnchanged(page);
   }
   await page.reload();

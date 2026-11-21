@@ -76,6 +76,13 @@ test('cancels queued uploads within a mixed folder without cancelling active fil
   const activeDetail = active.locator('.folder-file-transfer-detail');
   await expect(activeDetail).toContainText('remaining');
   expect(await activeDetail.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  expect(await activeDetail.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  const progressLeft = () => active.locator('.folder-file-progress').evaluate(bar => bar.getBoundingClientRect().left);
+  const withSpeed = await progressLeft();
+  const hideSpeed = await page.addStyleTag({ content: '.folder-file-transfer-detail { display: none; }' });
+  expect(await progressLeft()).toBe(withSpeed);
+  await hideSpeed.evaluate(style => style.parentNode?.removeChild(style));
   await page.setViewportSize({ width: 320, height: 900 });
   expect(await activeDetail.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   await page.setViewportSize({ width: 390, height: 900 });

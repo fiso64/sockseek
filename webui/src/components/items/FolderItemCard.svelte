@@ -101,11 +101,6 @@
     return [value.tone === 'failed' ? undefined : value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
   }
 
-  function needsTransferDetail(value?: TransferPresentation): boolean {
-    return Boolean(value && (showsInlineTransferProgress(value)
-      || fileTransferSecondary(value) || !usesCircularTransferState(value)));
-  }
-
   function subfolderSizeTitle(node: FolderTreeNode): string | undefined {
     if (!filesComplete) return node.unknownSizeCount > 0
       ? 'Known size of loaded files; some sizes are unreported and more files may exist.'
@@ -277,7 +272,6 @@
           this={selectable && !file.locked ? 'label' : 'div'}
           class:locked={file.locked}
           class:has-transfer={Boolean(file.transfer)}
-          class:has-transfer-detail={needsTransferDetail(file.transfer)}
           class:has-audio={Boolean(file.audio)}
           data-keyboard-item={keyboardChildren ? file.id : undefined}
           data-range-toggle={selectable && !file.locked || undefined}
