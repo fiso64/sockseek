@@ -133,7 +133,12 @@ in
       description = "Sockseek daemon and WebUI";
       after = [ "network.target" ];
       wantedBy = [ "multi-user.target" ];
-      restartTriggers = [ conf ];
+      reloadTriggers = [ conf ];
+      restartTriggers = [
+        (pkgs.writeText "sockseek-startup-settings" (lib.concatStringsSep "\n" (
+          renderSettings (lib.filterAttrs (key: _: catalog.${key}.restartRequired or false) cfg.settings)
+        )))
+      ];
       environment.XDG_DATA_HOME = "/var/lib";
       serviceConfig = {
         User = "sockseek";
@@ -142,6 +147,7 @@ in
         StateDirectoryMode = "0750";
         WorkingDirectory = "/var/lib/sockseek/downloads";
         ExecStart = "${lib.getExe cfg.package} daemon --config /etc/sockseek/sockseek.conf";
+        ExecReload = "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
         Restart = "on-failure";
         RestartSec = "5s";
         NoNewPrivileges = true;

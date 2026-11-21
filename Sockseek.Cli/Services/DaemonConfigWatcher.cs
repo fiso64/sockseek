@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -30,7 +31,9 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
     private string? rejectedText;
     private string? picturePath;
     private FileSystemWatcher? pictureWatcher;
+    private PosixSignalRegistration? hangup;
     private int pictureChanged;
+    private int explicitReload;
     private bool watching;
     private bool restartRequired;
 
@@ -45,19 +48,42 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
         (startupEngine, _, _, startupDaemon, _) = ConfigManager.BindAll(initial, invocation);
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public override Task StartAsync(CancellationToken cancellationToken)
     {
         supervisor.StateStore.UpdateConfigurationStatus(new(false, false, false));
-        if (disabled || path.Length == 0) return;
+        if (!OperatingSystem.IsWindows())
+            hangup = PosixSignalRegistration.Create(PosixSignal.SIGHUP, context =>
+            {
+                context.Cancel = true;
+                if (path.Length != 0) RequestReload();
+            });
+        return base.StartAsync(cancellationToken);
+    }
+
+    internal void RequestReload()
+    {
+        Interlocked.Exchange(ref explicitReload, 1);
+        QueueChange();
+    }
+
+    private void QueueChange() => changes.Writer.TryWrite(true);
+
+    public override void Dispose()
+    {
+        hangup?.Dispose();
+        base.Dispose();
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        if (path.Length == 0 || (disabled && hangup == null)) return;
         try
         {
-            // Watch the directory, not the inode: editors commonly save by rename.
-            using var watcher = WatchFile(path, () => changes.Writer.TryWrite(true),
-                (_, error) => changes.Writer.TryComplete(error.GetException()));
-            watching = true;
-            supervisor.StateStore.UpdateConfigurationStatus(new(true, false, false));
+            using var watcher = disabled ? null : WatchConfigFile();
+            watching = watcher != null;
+            supervisor.StateStore.UpdateConfigurationStatus(new(watching, false, false));
             // Close the startup-read/watch-registration gap too.
-            changes.Writer.TryWrite(true);
+            if (watching) QueueChange();
             while (await changes.Reader.WaitToReadAsync(stoppingToken).ConfigureAwait(false))
             {
                 // Coalesce truncate/write and rename bursts. Only one reload runs
@@ -67,7 +93,8 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
                     while (changes.Reader.TryRead(out _)) { }
                     await Task.Delay(TimeSpan.FromMilliseconds(250), stoppingToken).ConfigureAwait(false);
                 } while (changes.Reader.TryPeek(out _));
-                await ReloadAsync(stoppingToken).ConfigureAwait(false);
+                bool force = Interlocked.Exchange(ref explicitReload, 0) != 0;
+                await ReloadAsync(stoppingToken, force).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
@@ -78,6 +105,24 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
             WatchFailed(logger, exception.GetType().Name);
         }
         finally { pictureWatcher?.Dispose(); }
+    }
+
+    private FileSystemWatcher? WatchConfigFile()
+    {
+        try
+        {
+            // Watch the directory, not the inode: editors commonly save by rename.
+            return WatchFile(path, QueueChange, (_, error) =>
+            {
+                WatchFailed(logger, error.GetException().GetType().Name);
+                QueueChange(); // Reconcile changes missed by the filesystem watcher.
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            WatchFailed(logger, ex.GetType().Name);
+            return null; // Explicit reloads still work.
+        }
     }
 
     private static FileSystemWatcher WatchFile(string file, Action changed, ErrorEventHandler error)
@@ -123,7 +168,7 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
         }
     }
 
-    internal async Task<bool> ReloadAsync(CancellationToken cancellationToken = default)
+    internal async Task<bool> ReloadAsync(CancellationToken cancellationToken = default, bool force = false)
     {
         bool applying = false;
         try
@@ -132,13 +177,13 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
             // files are valid, intentional removal of all configured overrides.
             string text = File.ReadAllText(path);
             bool refreshPicture = Interlocked.Exchange(ref pictureChanged, 0) != 0;
-            if (text == appliedText && !refreshPicture)
+            if (!force && text == appliedText && !refreshPicture)
             {
                 rejectedText = null;
                 supervisor.StateStore.UpdateConfigurationStatus(new(watching, restartRequired, false, Revision: revision));
                 return true;
             }
-            if (text == rejectedText) return false;
+            if (!force && text == rejectedText) return false;
             rejectedText = text;
             ConfigFile candidate = ConfigManager.ParseConfigText(path, text);
             var (engine, _, _, daemon, _) = ConfigManager.BindAll(candidate, invocation);
@@ -199,6 +244,6 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
     private static partial void ReloadRejected(ILogger logger, string errorType, string location);
     [LoggerMessage(5012, LogLevel.Information, "Configuration changes require daemon restart: {Settings}")]
     private static partial void RestartNeeded(ILogger logger, string settings);
-    [LoggerMessage(5013, LogLevel.Warning, "Configuration watching stopped ({ErrorType}); restart the daemon after correcting the configuration path")]
+    [LoggerMessage(5013, LogLevel.Warning, "Configuration watcher error ({ErrorType}); check the configuration path")]
     private static partial void WatchFailed(ILogger logger, string errorType);
 }

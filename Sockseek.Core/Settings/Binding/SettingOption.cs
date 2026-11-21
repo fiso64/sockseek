@@ -71,6 +71,7 @@ public sealed class SettingOption
         : Nullable.GetUnderlyingType(valueType) ?? valueType;
     public bool IsList => declaration.ListSyntax != OptionListSyntax.None;
     public bool DefaultProfileOnly => declaration.DefaultProfileOnly;
+    public bool Reloadable => member?.Reloadable == true;
     public Type RootType { get; }
     public IReadOnlyList<string> Names => declaration.Names;
     public OptionValueKind ValueKind { get; }

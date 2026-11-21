@@ -1,4 +1,4 @@
-{ testers, package }:
+{ testers, package, lib }:
 testers.runNixOSTest {
   name = "sockseek";
   nodes.machine = {
@@ -8,6 +8,7 @@ testers.runNixOSTest {
       enable = true;
       inherit package;
       settings = {
+        no-config-watch = true; # Exercise explicit reloads even when filesystem events are disabled.
         username = "fixture";
         user-description = ''
           First line
@@ -33,6 +34,12 @@ testers.runNixOSTest {
         }
       ];
     };
+    specialisation.live.configuration.services.sockseek = {
+      settings.user-description = lib.mkForce "Updated without disconnecting";
+      profiles = [ { name = "after-reload"; } ];
+    };
+    specialisation.new-port.configuration.services.sockseek.settings.server-port = 5031;
+
     systemd.services.sockseek = {
       serviceConfig.RuntimeDirectory = "sockseek-test";
       preStart = ''
@@ -76,8 +83,18 @@ testers.runNixOSTest {
     machine.wait_until_succeeds("find /var/lib/sockseek/selected -name '*.mp3' -exec cmp '/run/sockseek-test/files/Fixture Artist - Fixture Song.mp3' {} \\; -print | grep -q mp3", timeout=45)
     machine.wait_until_succeeds(f"curl -fsS -b /tmp/cookies '{url}/api/jobs?terminalOutcome=Succeeded' | grep -qi '{result['jobId']}'", timeout=30)
     transfer = json.loads(request("/api/transfers?direction=download"))["items"][0]["transferId"]
-    machine.succeed("systemctl restart sockseek.service")
-    machine.wait_for_open_port(5030)
+    pid_command = "systemctl show -p MainPID --value sockseek.service"
+    pid = machine.succeed(pid_command).strip()
+    switch = "/run/booted-system/specialisation"
+    machine.succeed(f"{switch}/live/bin/switch-to-configuration test")
+    machine.wait_until_succeeds(f"curl -fsS -b /tmp/cookies {url}/api/profiles | grep -q after-reload")
+    assert machine.succeed(pid_command).strip() == pid
+    assert not json.loads(request("/api/server/status"))["configuration"]["restartRequired"]
+
+    machine.succeed(f"{switch}/new-port/bin/switch-to-configuration test")
+    machine.wait_for_open_port(5031)
+    assert machine.succeed(pid_command).strip() != pid
+    url = "http://127.0.0.1:5031"
     login()
     assert json.loads(request(job))["summary"]["jobId"] == result["jobId"]
     assert json.loads(request("/api/transfers?direction=download"))["items"][0]["transferId"] == transfer

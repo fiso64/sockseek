@@ -208,10 +208,16 @@ public sealed class DaemonConfigWatcherTests
         {
             await using var fixture = new Fixture((args.Length == 0 ? "no-config-watch = true\n" : "") + "pref-format = mp3", args);
             await fixture.Watcher.StartAsync(CancellationToken.None);
-            await fixture.Watcher.ExecuteTask!;
             fixture.Write("pref-format = flac");
             Assert.IsFalse(fixture.Supervisor.GetStatus().Configuration!.Watching);
             CollectionAssert.AreEqual(new[] { "mp3" }, fixture.Settings().Search!.PreferredCond!.Formats!.Replace!.ToArray());
+            if (!OperatingSystem.IsWindows())
+            {
+                var reloaded = fixture.Log.NextReload();
+                fixture.Watcher.RequestReload();
+                await reloaded.WaitAsync(TimeSpan.FromSeconds(5));
+                CollectionAssert.AreEqual(new[] { "flac" }, fixture.Settings().Search!.PreferredCond!.Formats!.Replace!.ToArray());
+            }
         }
     }
 

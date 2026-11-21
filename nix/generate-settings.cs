@@ -31,6 +31,10 @@ foreach (var option in ConfigManager.ConfigurationOptions)
     string description = option.Names.Reverse().Select(alias => help.GetValueOrDefault(alias)).FirstOrDefault(doc => doc != null)
         ?? $"Sockseek's {name} setting.";
     var entry = new Dictionary<string, object> { ["type"] = NixType(option), ["description"] = description };
+    // Download profiles are replaced on reload. Only engine and daemon startup
+    // settings need a new process, including compound setters such as --login.
+    if ((option.RootType == typeof(EngineSettings) || option.RootType == typeof(DaemonSettings)) && !option.Reloadable)
+        entry["restartRequired"] = true;
     if (option.DefaultProfileOnly) entry["defaultOnly"] = true;
     entries.Add(name.TrimStart('-'), JsonSerializer.Serialize(entry, jsonOptions));
 }
