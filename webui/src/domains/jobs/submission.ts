@@ -72,7 +72,7 @@ function buildJobDraft(draft: NewJobDraft, requireInput: boolean): Schema<'JobDr
     job = { kind: 'album', albumQuery: { artist: draft.artist || null, album: draft.album || null, searchHint: null, uri: null, artistMaybeWrong: false } };
   } else if (draft.choice === 'csv' || draft.choice === 'list') {
     if (draft.fileInput === 'path') {
-      if (requireInput && !draft.source.trim()) throw new Error('Enter a daemon file path before starting or reviewing this job.');
+      if (requireInput && !draft.source.trim()) throw new Error('Enter a file path on the daemon’s machine before starting or reviewing this job.');
       job = { kind: 'extract', input: draft.source, inputType: draft.choice };
     } else {
       if (requireInput && !draft.artifactId) throw new Error('Upload a source file before starting or reviewing this job.');

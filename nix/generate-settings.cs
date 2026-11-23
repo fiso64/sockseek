@@ -6,7 +6,7 @@ using Sockseek.Core.Settings;
 
 // Keep option descriptions beside the CLI documentation. Match its two-column tables.
 var help = new Dictionary<string, string>();
-foreach (var page in new[] { "download-options", "daemon-options" })
+foreach (var page in new[] { "options", "daemon-options" })
 {
     var lines = File.ReadAllLines($"docs/pages/reference/{page}.md");
     for (int i = 0; i < lines.Length; i++)

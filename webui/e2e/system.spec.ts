@@ -20,7 +20,7 @@ test('announces configuration problems once until resolved, using live state', a
   await expect(notices).toHaveCount(1);
   await page.reload();
   await expect(notices).toHaveCount(1);
-  await expect(page.locator('.status-card').first().locator('dd').first()).not.toHaveText('—');
+  await expect(page.getByRole('region', { name: 'Daemon', exact: true }).locator('dd').first()).not.toHaveText('—');
   let initialRequests = statusRequests.length;
   await expect(dialog).toHaveCount(0);
 

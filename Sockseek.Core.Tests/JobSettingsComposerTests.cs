@@ -24,6 +24,18 @@ public sealed class JobSettingsComposerTests
     }
 
     [TestMethod]
+    public void ProcessWideProfileSettingsApplyAtStartupButNotPerRequest()
+    {
+        var profile = new SettingsProfile { Name = "identity", Engine = new SettingsPatch([new("UserDescription", "Alt")]) };
+        var catalog = new ProfileCatalog { NamedProfiles = [profile] };
+        var song = new SongJob(new SongQuery());
+        new JobSettingsComposer(null, catalog, launchNamedProfiles: [profile]).Compose(new DownloadSettings(), song);
+        var exception = Assert.ThrowsExactly<ArgumentException>(() => new JobSettingsComposer(null, catalog)
+            .Compose(new DownloadSettings(), song, request: new(ProfileNames: ["identity"])));
+        StringAssert.Contains(exception.Message, "--profile");
+    }
+
+    [TestMethod]
     public void ExplicitFalseOverridesMusicSkippingFromConfigurationAndProfiles()
     {
         var settings = new DownloadSettings { Skip = { SkipExisting = true, SkipMusicDir = "/library" },

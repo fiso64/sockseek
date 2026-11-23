@@ -43,7 +43,6 @@ sockseek daemon                 Start the HTTP/SignalR daemon
 --data-dir <path>               Directory for daemon data, including sockseek.db
 --no-config-watch               Disable automatic daemon config-file reload
 --no-docs                       Disable the bundled manual at /docs/ (requires restart)
---user-picture <path>           Daemon profile picture
 ```
 
 ### WebUI and Access

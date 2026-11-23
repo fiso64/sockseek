@@ -38,7 +38,7 @@ Apply the configuration with `sudo nixos-rebuild switch`. On the NixOS host, ope
 
 ## Settings and profiles
 
-Use the configuration names from the [download](../reference/download-options.md) and [daemon](../reference/daemon-options.md) references. A list replaces the inherited items, `[]` clears them, and `{ append = [ ... ]; }` adds items. Each list element is literal, so a username can contain a comma.
+Use the configuration names from the [options](../reference/options.md) and [daemon](../reference/daemon-options.md) references. A list replaces the inherited items, `[]` clears them, and `{ append = [ ... ]; }` adds items. Each list element is literal, so a username can contain a comma.
 
 ```nix
 services.sockseek = {

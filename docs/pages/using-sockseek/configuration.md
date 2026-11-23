@@ -43,6 +43,8 @@ To activate the above profile, use `--profile lossless`. This will apply all of 
 
 To list all configured profiles, run `--profile help`.
 
+Some settings apply to the whole Sockseek process rather than to one download, for example `user-description`, `user-picture`, `concurrent-jobs` and `log-file`. They take effect only when the profile is chosen at startup with `--profile`. A profile containing them cannot be an auto-profile or be selected for a single download in the WebUI or remote CLI.
+
 ## Auto-profiles
 
 Profiles can be activated automatically based on a few simple conditions. For example:

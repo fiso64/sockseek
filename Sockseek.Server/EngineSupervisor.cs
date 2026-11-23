@@ -402,6 +402,7 @@ public sealed class EngineSupervisor : IDisposable
         var client = Runtime.SoulseekSession?.Client;
         var stats = StateStore.GetStatistics();
         var persistenceStatus = GetPersistenceStatus();
+        var profile = Runtime.SoulseekRuntime?.LocalProfile;
         return new ServerStatusDto(
             DaemonRuntime.ToSoulseekClientStatusDto(clientState),
             stats.TotalJobCount,
@@ -412,7 +413,9 @@ public sealed class EngineSupervisor : IDisposable
             persistenceStatus,
             stats.Configuration,
             new SoulseekConnectionDto(Runtime.SoulseekSession?.LoggedInUsername, client?.Address, client?.Port,
-                client?.IPEndPoint?.ToString(), client?.Options.EnableListener == true ? client.Options.ListenPort : null));
+                client?.IPEndPoint?.ToString(), client?.Options.EnableListener == true ? client.Options.ListenPort : null),
+            profile is null ? null : new LocalUserProfileDto(profile.Description, profile.Picture is { } picture
+                ? $"/api/server/profile/picture?v={Uri.EscapeDataString(picture.ETag.Trim('"'))}" : null));
     }
 
     private PersistenceStatusDto GetPersistenceStatus()

@@ -63,6 +63,18 @@ public sealed partial class JobReadService
             lock (gate)
                 if (reload || pending.Count > 0) changed.Writer.TryWrite(true);
         }
+        // Results already sent to this subscriber; a reload re-sends nothing it has.
+        HashSet<Guid> linked = [];
+        async Task<IReadOnlyList<JobSummaryDto>?> NewLinkedResults(IEnumerable<Guid> windowResultIds)
+        {
+            if (!scope.Query.ExcludeExtractResults) return null;
+            Guid[] ids;
+            lock (gate) ids = windowResultIds.Where(id => !linked.Contains(id)).Distinct().ToArray();
+            if (ids.Length == 0) return null;
+            var results = await LookupJobsAsync(new(ids), cancellationToken).ConfigureAwait(false);
+            lock (gate) linked.UnionWith(results.Select(result => result.JobId));
+            return results;
+        }
         IEnumerable<JobReadState> Ordered(IEnumerable<JobReadState> rows)
             => scope.Query.NewestFirst ? rows.OrderByDescending(row => row.DisplayId).ThenByDescending(row => row.Id)
                 : rows.OrderBy(row => row.DisplayId).ThenBy(row => row.Id);
@@ -89,8 +101,10 @@ public sealed partial class JobReadService
                     pending.Remove(id);
                 SetBoundary();
             }
+            var initialResults = await NewLinkedResults(page.Items
+                .Select(row => row.Relationships.ResultJobId).OfType<Guid>()).ConfigureAwait(false);
             yield return new(observed.Values.Select(row => new JobDeltaDto(row.Id, row.Revision, Added: row.Summary)).ToArray(),
-                [], page.NextCursor, page.Items.Select(row => row.JobId).ToArray());
+                [], page.NextCursor, page.Items.Select(row => row.JobId).ToArray(), initialResults);
 
             while (await changed.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
             {
@@ -168,8 +182,12 @@ public sealed partial class JobReadService
                     if (replacement is not null) SetBoundary();
                     cursor = Cursor();
                 }
-                if (deltas.Count > 0 || removed.Count > 0 || replacement is not null || cursor != previousCursor)
-                    yield return new(deltas, removed, cursor);
+                Guid[] windowResults;
+                lock (gate) windowResults = observed.Values.Select(row => row.ResultJobId).OfType<Guid>().ToArray();
+                var linkedResults = await NewLinkedResults(windowResults).ConfigureAwait(false);
+                if (deltas.Count > 0 || removed.Count > 0 || replacement is not null || cursor != previousCursor
+                    || linkedResults is not null)
+                    yield return new(deltas, removed, cursor, LinkedResults: linkedResults);
             }
         }
         finally

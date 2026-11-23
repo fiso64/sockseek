@@ -546,10 +546,10 @@ test.describe('live album conditions', () => {
     // filtering. A mixed-format folder retains both files until strict coverage
     // requires every track to match.
     await expect(page.locator('.folder-file-row')).toHaveCount(2);
-    await panel.getByRole('checkbox', { name: 'Every album track must satisfy quality' }).check();
+    await panel.getByRole('checkbox', { name: 'Every track must meet quality conditions' }).check();
     await page.clock.fastForward(350);
     await expect(page.locator('.folder-item-card')).toHaveCount(0);
-    await panel.getByRole('checkbox', { name: 'Every album track must satisfy quality' }).uncheck();
+    await panel.getByRole('checkbox', { name: 'Every track must meet quality conditions' }).uncheck();
     await page.clock.fastForward(350);
     await expect(page.locator('.folder-file-row')).toHaveCount(2);
     await panel.getByRole('button', { name: 'Ranking', exact: true }).click();
@@ -1576,7 +1576,7 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   await expect(download).toBeEnabled();
   await daemon.command('expire-search-views');
   await page.clock.fastForward(Number(remainingMilliseconds) + 1);
-  const expired = page.getByRole('alert').filter({ hasText: 'Results view unavailable' });
+  const expired = page.getByRole('alert').filter({ hasText: 'Results expired' });
   await expect(expired).toContainText('selection will be cleared');
   await expect(download).toBeDisabled();
   await expect(file.locator('input[type=checkbox]:enabled')).toHaveCount(0);
@@ -1597,6 +1597,15 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   await expect(page).toHaveURL(new RegExp(`/jobs/${sourceId}(?:[?]|$)`));
   await expect(page.locator('.search-results-summary')).toBeVisible();
   await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
+  // With no selection at stake, an expired view rebuilds itself without asking.
+  await daemon.command('expire-search-views');
+  const rebuilt = page.waitForResponse(response => response.ok() && response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/jobs/${sourceId}/search-views`);
+  await page.getByLabel('Sort', { exact: true }).selectOption('relevance');
+  await page.clock.fastForward(350);
+  cached = await (await rebuilt).json() as Schema<'SearchViewSummaryDto'>;
+  await expect(file).toBeVisible();
+  await expect(expired).toHaveCount(0);
   const cachedSummary = await (await page.request.get(`/api/search-views/${cached.viewId}`)).json() as Schema<'SearchViewSummaryDto'>;
   await daemon.command(`prune-search-results:${sourceId}`);
   // An active read snapshot stays usable when only its raw source is pruned.
@@ -1612,7 +1621,7 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
     && new URL(response.url()).pathname === `/api/jobs/${sourceId}/search-views`);
   await page.reload();
   await prunedCreation;
-  await expect(page.locator('.search-results-empty')).toContainText('Search results were pruned');
+  await expect(page.locator('.search-results-empty')).toContainText('Search results removed');
   await expect(page.locator('.search-results-empty')).toContainText('Search again');
   await expect(page.locator('.search-results-empty')).not.toContainText('without a match');
   await expect(page.locator('.search-results-summary')).not.toContainText('0 files');

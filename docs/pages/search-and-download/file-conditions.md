@@ -34,7 +34,7 @@ File Search in the UI starts with no file conditions. To set defaults for a part
 
 For album downloads, conditions like format, bitrate and sample rate operate based on coverage: A folder with 9 FLAC files and 1 MP3 is preferred over a mostly-MP3 folder, and the selected folder is still downloaded as a whole. Use `--strict-album-quality` to require every audio file in the folder to satisfy the conditions.
 
-See [the options reference](../reference/download-options.md#filtering-ranking-options) for all filtering and ranking options.
+See [the options reference](../reference/options.md#filtering-ranking-options) for all filtering and ranking options.
 
 Conditions can also be supplied as a semicolon-delimited string with `--cond` and `--pref`, e.g.:
 

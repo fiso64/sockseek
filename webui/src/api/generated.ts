@@ -146,6 +146,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/server/profile/picture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gets the profile picture this daemon shows to Soulseek peers. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "image/jpeg": string;
+                        "image/png": string;
+                        "image/gif": string;
+                        "image/webp": string;
+                    };
+                };
+                /** @description Not Modified */
+                304: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users/{username}/picture": {
         parameters: {
             query?: never;
@@ -11761,6 +11830,7 @@ export interface components {
             removedJobIds: string[];
             nextCursor?: null | string;
             windowJobIds?: null | string[];
+            linkedResults?: null | components["schemas"]["JobSummaryDto"][];
         };
         JobLookupRequestDto: {
             jobIds: string[];
@@ -12859,7 +12929,7 @@ export interface components {
         /** @enum {unknown} */
         LiveClientInvocation: "SubscribeAll" | "UnsubscribeAll" | "SubscribeWorkflow" | "UnsubscribeWorkflow" | "SubscribeChat" | "UnsubscribeChat" | "SubscribeUserBrowse" | "UnsubscribeUserBrowse" | "ObserveUserPresence" | "ObserveSearchView" | "ObserveTransferTimeline" | "ObserveJobs" | "ObserveJobList";
         /** @enum {integer} */
-        LiveProtocolContractVersion: 22;
+        LiveProtocolContractVersion: 23;
         /** @enum {unknown} */
         LiveServerMessage: "stateUpdateBatch";
         LiveTransferPageDto: {
@@ -12868,6 +12938,10 @@ export interface components {
             /** Format: int64 */
             observedQueueRevision: number | string;
             queueChanged: boolean;
+        };
+        LocalUserProfileDto: {
+            description: string;
+            pictureUrl?: null | string;
         };
         LoginRequestDto: {
             username: string;
@@ -13598,6 +13672,7 @@ export interface components {
             persistence?: null | components["schemas"]["PersistenceStatusDto"];
             configuration?: null | components["schemas"]["ConfigurationStatusDto"];
             connection?: null | components["schemas"]["SoulseekConnectionDto"];
+            profile?: null | components["schemas"]["LocalUserProfileDto"];
         };
         /** @enum {unknown} */
         ServerUserNotificationKind: "PrivateMessage" | "RoomMention";

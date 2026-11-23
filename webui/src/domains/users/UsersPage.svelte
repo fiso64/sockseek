@@ -12,6 +12,7 @@
   import Icon from '../../components/Icon.svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import LinkifiedText from '../../components/LinkifiedText.svelte';
+  import ProfilePicture from '../../components/ProfilePicture.svelte';
 
   import type { UserBrowserSession, UserBrowseView } from './session';
 
@@ -38,7 +39,6 @@
   // Cached profiles return at once; offer cancellation only for a request
   // that is evidently waiting on the peer.
   let profileWaiting = $state(false);
-  let profilePictureOpen = $state(false);
   let browse = $state<UserBrowseDto | null>(saved?.browse ?? null);
   let displayedBrowse = $state<UserBrowseDto | null>(saved?.browse?.state === 'complete' ? saved.browse : null);
   let browseStarting = $state(false);
@@ -234,9 +234,6 @@
   function asError(cause: unknown): Error { return cause instanceof Error ? cause : new Error(String(cause)); }
 </script>
 
-<svelte:window onkeydown={(event) => {
-  if (event.key === 'Escape') profilePictureOpen = false;
-}} />
 
 {#snippet refreshShares()}
   <button type="button" class="button user-message-button" data-testid="refresh-user-shares"
@@ -271,7 +268,7 @@
         <span class="resource-state-dot"></span>
         <span class="resource-state-copy">
           <strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Profile unavailable'}</strong>
-          <small>{liveStatus === 'offline' ? 'Profile data cannot be loaded while the daemon is offline.' : profileError.message}</small>
+          <small>{liveStatus === 'offline' ? 'Profiles can’t be loaded while the daemon is offline.' : profileError.message}</small>
         </span>
         {#if liveStatus !== 'offline'}
           <button class="button" type="button" disabled={profileLoading}
@@ -285,13 +282,7 @@
     {#if profile}
       <article class="panel user-profile-card">
         <div class="user-profile-primary">
-          {#if pictureUrl}
-            <button type="button" class="user-profile-picture-button"
-              aria-label={`View ${profile.username}'s profile picture`}
-              onclick={() => (profilePictureOpen = true)}>
-              <img class="user-profile-picture" src={pictureUrl} alt="" />
-            </button>
-          {/if}
+          {#if pictureUrl}<ProfilePicture src={pictureUrl} username={profile.username} />{/if}
           <div class="user-profile-copy">
             <div class="user-profile-name-line">
               <h2>{profile.username}</h2>
@@ -342,7 +333,7 @@
         <span class="resource-state-dot"></span>
         <span class="resource-state-copy">
           <strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Shares unavailable'}</strong>
-          <small>{liveStatus === 'offline' ? 'Shared files cannot be loaded while the daemon is offline.' : browseError.message}</small>
+          <small>{liveStatus === 'offline' ? 'Shared files can’t be loaded while the daemon is offline.' : browseError.message}</small>
         </span>
         {#if !displayedBrowse}{@render refreshShares()}{/if}
       </div>
@@ -365,16 +356,3 @@
     {/if}
   {/if}
 </section>
-
-{#if profilePictureOpen && pictureUrl}
-  <div class="profile-picture-lightbox">
-    <button type="button" class="profile-picture-lightbox-backdrop"
-      aria-label="Close profile picture" onclick={() => (profilePictureOpen = false)}></button>
-    <div class="profile-picture-lightbox-dialog" role="dialog" aria-modal="true"
-      aria-label={`${profile?.username} profile picture`}>
-      <img src={pictureUrl} alt={`${profile?.username} profile picture`}/>
-      <button type="button" class="profile-picture-lightbox-close"
-        aria-label="Close profile picture" onclick={() => (profilePictureOpen = false)}>×</button>
-    </div>
-  </div>
-{/if}

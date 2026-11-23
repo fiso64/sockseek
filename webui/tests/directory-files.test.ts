@@ -2,7 +2,7 @@ import { jobSummary } from './job-fixture';
 import { expect, it } from 'vitest';
 import type { Schema } from '../src/api/types';
 import { directoryFileRow, directoryKnownSize, directoryManifestFileRow } from '../src/domains/jobs/directory-files';
-import { readJobSummaries, jobSummaryRetryIds } from '../src/domains/jobs/detail-reads';
+import { readJobSummaries } from '../src/domains/jobs/detail-reads';
 
 it('keeps missing outcomes and unknown sizes distinct from success and empty files', () => {
   const supplemental = { ordinal: 1, target: null, relativeDirectoryComponents: [], childJobId: 'pruned' } satisfies Schema<'DirectoryManifestEntryDto'>;
@@ -76,7 +76,6 @@ it('reads linked summaries once and keeps missing siblings independent', async (
   expect([...reads.keys()]).toEqual(['one', 'missing', 'two']);
   expect(reads.get('one')?.summary?.jobId).toBe('one');
   expect(reads.get('missing')).toEqual({ summary: null, error: null });
-  expect(jobSummaryRetryIds(reads, 'missing')).toEqual(['missing']);
   expect(reads.get('two')?.summary?.jobId).toBe('two');
 });
 
@@ -86,7 +85,6 @@ it('keeps transport failure distinct from missing summaries and ignores cancelle
     throw new Error('Transport unavailable');
   }, controller.signal);
   expect([...failed.values()].map(row => row.error?.message)).toEqual(['Transport unavailable', 'Transport unavailable']);
-  expect(jobSummaryRetryIds(failed, 'one')).toEqual(['one', 'two']);
   const cancelled = await readJobSummaries(['one', 'two'], async () => {
     controller.abort();
     return [jobSummary({ jobId: 'one' })];

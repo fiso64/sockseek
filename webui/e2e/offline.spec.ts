@@ -93,16 +93,16 @@ test('shows offline states and recovers history after daemon startup returns', a
   const offline = page.locator('.resource-state-notice.offline.blocking');
   await expect(daemonStatus).toHaveText('Daemon disconnected');
   await expect(offline).toContainText('Daemon unavailable');
-  await expect(offline).toContainText('Current download state cannot be loaded while the daemon is offline.');
+  await expect(offline).toContainText('Downloads can’t be loaded while the daemon is offline.');
   await expect(offline.getByRole('button', { name: 'Retry' })).toHaveCount(0);
   await expect(page.getByText('No downloads', { exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Jobs', exact: true }).click();
-  await expect(offline).toContainText('This resource cannot be loaded while the daemon is offline.');
+  await expect(offline).toContainText('This can’t be loaded while the daemon is offline.');
   await expect(page.getByText('No searches yet', { exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Uploads', exact: true }).click();
-  await expect(offline).toContainText('Current upload state cannot be loaded while the daemon is offline.');
+  await expect(offline).toContainText('Uploads can’t be loaded while the daemon is offline.');
   unavailable = false;
   await page.clock.fastForward(2_000);
 
@@ -182,7 +182,7 @@ test('reopens a search deep link after a fresh offline read fails', async ({ pag
   await page.reload();
   const offline = page.locator('.resource-state-notice.offline.blocking');
   await expect(offline).toContainText('Daemon unavailable');
-  await expect(offline).toContainText('This resource cannot be loaded while the daemon is offline.');
+  await expect(offline).toContainText('This can’t be loaded while the daemon is offline.');
   await expect(page.locator('.search-results-empty')).toHaveCount(0);
   unavailable = false;
   await page.clock.fastForward(2_000);

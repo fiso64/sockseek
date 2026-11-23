@@ -16,7 +16,7 @@
     <GeneratorInput Include="$(_GeneratorBuildInputs);../docs/pages/**/*.md;../Sockseek.HelpGenerator/*.cs;$(_HelpProject);../Sockseek.HelpGenerator/packages.lock.json" Generator="Help" />
     <!-- Release package sources can omit the repository's Nix tooling. -->
     <GeneratorInput Condition="Exists('$(_NixProject)')"
-                    Include="$(_GeneratorBuildInputs);$(_NixProject);../nix/generate-settings.cs;../docs/pages/reference/download-options.md;../docs/pages/reference/daemon-options.md;Settings/*.cs;Services/ConfigManager.cs;../Sockseek.Core/Settings/**/*.cs;../Sockseek.Core/Matching/Conditions/*.cs"
+                    Include="$(_GeneratorBuildInputs);$(_NixProject);../nix/generate-settings.cs;../docs/pages/reference/options.md;../docs/pages/reference/daemon-options.md;Settings/*.cs;Services/ConfigManager.cs;../Sockseek.Core/Settings/**/*.cs;../Sockseek.Core/Matching/Conditions/*.cs"
                     Generator="Nix" />
     <UpToDateCheckInput Include="@(GeneratorInput)" />
     <UpToDateCheckBuilt Include="Help.Content.cs" />

@@ -14,7 +14,8 @@
   async function load() {
     loading = true;
     error = '';
-    try { catalog = (await daemonApi.getProfiles(lifetime.signal)).filter(profile => profile.hasDownloadSettings); }
+    // Profiles with process-wide settings only apply at startup and are refused per request.
+    try { catalog = (await daemonApi.getProfiles(lifetime.signal)).filter(profile => profile.hasDownloadSettings && !profile.hasEngineSettings); }
     catch (cause) { if (!lifetime.signal.aborted) error = cause instanceof Error ? cause.message : String(cause); }
     finally { if (!lifetime.signal.aborted) loading = false; }
   }
@@ -50,7 +51,7 @@
       aria-label="Profiles" ontoggle={(event) => open = event.newState === 'open'}>
       {#each names as name (name)}
         {@const automatic = inherited.find(profile => profile.name === name)}
-        <label class="menu-item profile-option" title={automatic ? `Applied by ${automatic.source === 'automatic' ? 'auto-profile' : 'daemon startup'}` : undefined}>
+        <label class="menu-item profile-option" title={automatic ? `Applied by ${automatic.source === 'automatic' ? 'auto-profile' : 'the daemon’s startup profile'}` : undefined}>
           <input type="checkbox" aria-label={name} checked={value.includes(name) || Boolean(automatic)}
             disabled={disabled || Boolean(automatic)}
             onchange={(event) => onchange(event.currentTarget.checked ? [...value, name] : value.filter(item => item !== name), catalog)} />

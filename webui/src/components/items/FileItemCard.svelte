@@ -45,7 +45,8 @@
   let transferDirectionClass = $derived(transfer?.direction ? `transfer-${transfer.direction}` : '');
 
   function transferFooterDetail(value: TransferPresentation): string {
-    return [value.tone === 'failed' ? undefined : value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
+    // Explanations belong to the state label's details dialog, not beside it.
+    return [value.speed, value.eta].filter(Boolean).join(' · ');
   }
 </script>
 

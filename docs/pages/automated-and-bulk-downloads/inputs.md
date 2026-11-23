@@ -12,7 +12,7 @@ A path to a local CSV file listing songs or albums.
 
 In the CSV file, rows with a track title are song downloads, and rows without a title are treated as album downloads. Only a title or album column is required in the CSV file (extra info may improve search results). If the columns have common names (like 'Artist', 'Title', 'Album', 'Length', etc) then it's not required to manually specify them, otherwise you must provide at least `--title-col` or `--album-col`.
 
-See [CSV options](../reference/download-options.md#csv-file-options) for all options.
+See [CSV options](../reference/options.md#csv-file-options) for all options.
 
 ## YouTube
 
@@ -20,7 +20,7 @@ A YouTube playlist URL.
 
 The default method to retrieve playlists might not reliably return all videos. If you're having issues, you can use the official API by providing a key with `--youtube-key`. A key can be obtained at https://console.cloud.google.com (create a new project, click 'Enable API' and search for 'YouTube Data', then follow the prompts).
 
-See [YouTube options](../reference/download-options.md#youtube-options) for all options.
+See [YouTube options](../reference/options.md#youtube-options) for all options.
 
 ## Spotify
 
@@ -36,7 +36,7 @@ including public playlists. Spotify also requires the owner of that application 
 active Spotify Premium subscription. If you do not have Premium, you can export the Spotify playlist
 with a Spotify-to-CSV converter and pass the CSV file to Sockseek instead.
 
-See [Spotify options](../reference/download-options.md#spotify-options) for all options.
+See [Spotify options](../reference/options.md#spotify-options) for all options.
 
 ### Using Credentials
 
@@ -80,7 +80,7 @@ Bandcamp inputs support:
 
 Extraction might fail due to Cloudflare; download the HTML to a local file and point Sockseek to it using `--from-html` in case of issues.
 
-<!-- Uncomment if it gains more than one option: See [Bandcamp options](../reference/download-options.md#bandcamp-options) for all options. -->
+<!-- Uncomment if it gains more than one option: See [Bandcamp options](../reference/options.md#bandcamp-options) for all options. -->
 
 ## MusicBrainz
 
@@ -101,7 +101,7 @@ Requires a SoundCloud OAuth token, passed with `--soundcloud-token`, also for pu
 
 When a track has no publisher artist, the artist is taken from titles like "Artist - Title", falling back to the uploader's name.
 
-<!-- Uncomment if it gains more than one option: See [SoundCloud options](../reference/download-options.md#soundcloud-options) for all options. -->
+<!-- Uncomment if it gains more than one option: See [SoundCloud options](../reference/options.md#soundcloud-options) for all options. -->
 
 ### Getting the OAuth token
 

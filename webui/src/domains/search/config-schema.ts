@@ -127,7 +127,7 @@ export const SEARCH_CONFIG_FIELDS = {
   strictAlbumQuality: {
     id: 'strictAlbumQuality', modes: ['album', 'album-groups'], relationship: 'conditions-only',
     conditions: {
-      label: 'Every album track must satisfy quality', section: 'quality',
+      label: 'Every track must meet quality conditions', section: 'quality',
       help: [
         'By default, mixed-quality folders are ranked by coverage. For example, if you prefer FLAC, a folder with 9 FLAC files and 1 MP3 is still accepted (ranking above a mostly-MP3 folder).',
         'Enable this to require every audio file in the folder to meet your audio quality conditions.',

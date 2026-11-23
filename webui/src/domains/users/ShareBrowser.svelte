@@ -724,7 +724,7 @@
             {/each}
           </div>
         {:else if pageStates.get('root')?.loaded && !pageStates.get('root')?.error}
-          <EmptyState class="search-results-empty" icon="folder" title="No shared files" detail="This browse contains no visible entries." />
+          <EmptyState class="search-results-empty" icon="folder" title="No shared files" />
         {/if}
 
       </div>

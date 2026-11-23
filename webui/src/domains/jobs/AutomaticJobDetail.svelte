@@ -10,12 +10,13 @@
   import { daemonApi, defaultPageSize, nestedPageSize } from '../../api/client';
   import { DaemonApiError } from '../../api/http';
   import type { JobSummaryDto, Schema } from '../../api/types';
-  import type { DaemonLiveClient } from '../../api/live';
+  import type { DaemonLiveClient, LiveConnectionStatus } from '../../api/live';
+  import { JobListController, childJobsQuery } from './job-list.svelte';
   import { TransferRows, updatedTransfer, updatedJob } from '../../api/state.svelte';
     import { liveTransferPresentation } from '../transfers/model';
   import { selectedJobFile, jobFileTransfer } from './selected-file';
   import { directoryManifestFileRow, directoryKnownSize } from './directory-files';
-  import { canReuseJobDetail, jobDetailVersion, startJobDetailRefresh, loadJobAncestors, readJobSummaries, jobSummaryRetryIds, type JobSummaryRead } from './detail-reads';
+  import { canReuseJobDetail, jobDetailVersion, startJobDetailRefresh, loadJobAncestors, readJobSummaries, type JobSummaryRead } from './detail-reads';
   import { completedExtract, presentedChildren, resolvePresentedJob } from './presentation';
   import { jobDetailInfo } from './detail-info';
   import { jobStatusLabel, jobStatusClass, jobTransferTone } from './status';
@@ -29,12 +30,15 @@
   import UsernameLink from '../../components/UsernameLink.svelte';
   import type { UserLinkActions } from '../../app/navigation';
 
-  let { jobId, initialDetail = null, userActions, connected, observeJobs, onback, onopenjob, ondelete, deletingSubmissions = new Set<string>(), deleteError = null }: {
+  let { jobId, initialDetail = null, userActions, connected, liveStatus, visible, observeJobs, observeJobList, onback, onopenjob, ondelete, deletingSubmissions = new Set<string>(), deleteError = null }: {
     jobId: string;
     initialDetail?: Schema<'JobDetailDto'> | null;
     userActions: UserLinkActions;
     connected: boolean;
+    liveStatus: LiveConnectionStatus;
+    visible: boolean;
     observeJobs: DaemonLiveClient['observeJobs'];
+    observeJobList: DaemonLiveClient['observeJobList'];
     onback: () => void;
     onopenjob: (job: JobSummaryDto | string, detail?: Schema<'JobDetailDto'>) => void;
     ondelete: (job: JobSummaryDto) => void;
@@ -56,24 +60,35 @@
   let ancestors = $state<JobSummaryDto[]>([]);
   let parent = $derived(ancestors.at(-1) ?? null);
   let parentError = $state<Error | null>(null);
-  let children = $state.raw<JobSummaryDto[]>([]);
-  let retrievalChildren = $state.raw<JobSummaryDto[]>([]);
-  let retrievalCursor = $state<string | null>(null);
-  let retrievalLoading = $state(false);
-  let retrievalMoreRequested = $state(false);
-  let retrievalRefreshPending = false;
-  let retrievalLoaded = $state(false);
-  let retrievalError = $state<Error | null>(null);
+  // Related jobs use the same live list scope as the Jobs page: an album lists
+  // its folder retrievals, grouped downloads their generated members, and other
+  // collections their direct children. Folder files come from the manifest.
+  // undefined: not known yet; null: no related list; 'all': every direct child.
+  let relatedKind = $derived<JobSummaryDto['display']['kind'] | 'all' | null | undefined>(
+    detail?.summary.jobId !== jobId ? undefined
+    : payload?.kind === 'remote-directory' ? null
+    : payload?.kind === 'album' ? 'retrieve-folder'
+    : payload?.kind === 'song-groups' ? 'song' : payload?.kind === 'album-groups' ? 'album' : 'all');
+  let relatedList = $state<JobListController | null>(null);
+  $effect(() => {
+    const id = jobId;
+    const kind = relatedKind;
+    if (kind === undefined) return;
+    const list = kind === null ? null
+      : new JobListController(daemonApi, observeJobList, () => childJobsQuery(id, kind === 'all' ? null : kind));
+    relatedList = list;
+    return () => list?.stop();
+  });
+  $effect(() => { relatedList?.setActive(visible, liveStatus); });
+  let children = $derived(relatedList?.items ?? []);
   const observedJobs = new SvelteMap<string, JobSummaryDto>();
   const noObservedJobs: ReadonlyMap<string, JobSummaryDto> = new Map();
   let liveJobsById = $derived(connected ? observedJobs : noObservedJobs);
   let observedChildCount = $state<number | null>(null);
-  let observedRetrievalCount = $state<number | null>(null);
   let liveRoot = $derived(liveJobsById.get(jobId));
   // A parent can enter RunningChildren before its first displayed children are
   // registered. Observe their arrival, not progress or every undisplayed child.
   let liveChildExtent = $derived(Math.min(observedChildCount ?? 0, nestedPageSize));
-  let liveRetrievalExtent = $derived(Math.min(observedRetrievalCount ?? 0, nestedPageSize));
   let liveDetailVersion = $derived(`${liveChildExtent}:${jobDetailVersion(liveRoot ?? undefined)}`);
   let observedDetailVersion = '';
   let invalidateDetail: () => void = () => {};
@@ -81,28 +96,17 @@
     const live = liveJobsById.get(child.jobId!);
     return live ?? child;
   }));
-  let visibleRetrievalChildren = $derived(retrievalChildren.map((child) => {
-    const live = liveJobsById.get(child.jobId!);
-    return live ?? child;
-  }));
-  let linkedChildren = $state(new Map<string, JobSummaryRead>());
   let childRecords = $derived.by(() => {
-    const known = new Map<string, JobSummaryDto>();
-    for (const [id, read] of linkedChildren) if (read.summary) known.set(id, read.summary);
+    const known = new Map<string, JobSummaryDto>(relatedList?.linkedResults ?? []);
     for (const child of visibleChildren) if (child.jobId) known.set(child.jobId, child);
-    for (const child of visibleRetrievalChildren) if (child.jobId) known.set(child.jobId, child);
     for (const id of known.keys()) {
       const live = liveJobsById.get(id);
       if (live) known.set(id, live);
     }
     return known;
   });
-  let childRows = $derived(presentedChildren(visibleChildren, childRecords));
-  let relatedRows = $derived(payload?.kind === 'album'
-    ? presentedChildren(visibleRetrievalChildren, childRecords) : childRows);
-  let cursor = $state<string | null>(null);
+  let relatedRows = $derived(presentedChildren(visibleChildren, childRecords));
   let error = $state<Error | null>(null);
-  let childError = $state<Error | null>(null);
   let actionError = $state<Error | null>(null);
   let manifest = $state.raw<Schema<'DirectoryManifestPageDto'> | null>(null);
   let manifestEntries = $state.raw<Schema<'DirectoryManifestEntryDto'>[]>([]);
@@ -112,7 +116,6 @@
   let manifestLoading = $state(false);
   let manifestCheckedAt = 0;
   let pendingManifestRefresh: { attempt?: number } | null = null;
-  let loading = $state(false);
   const scopedTransfers = new TransferRows();
   let transferError = $state<Error | null>(null);
   let transferRetry = $state(0);
@@ -120,9 +123,7 @@
   let observedJobIds = $derived([...new Set([jobId,
     ...(sourceJobId ? [sourceJobId] : []),
     ...children.map(child => child.jobId).filter((id): id is string => Boolean(id)),
-    ...retrievalChildren.map(child => child.jobId).filter((id): id is string => Boolean(id)),
-    ...linkedChildren.keys(),
-    ...childRows.map(row => row.job.jobId).filter((id): id is string => Boolean(id)),
+    ...relatedRows.map(row => row.job.jobId).filter((id): id is string => Boolean(id)),
     ...manifestEntries.map(entry => entry.childJobId).filter((id): id is string => Boolean(id)),
   ])].sort().join(','));
   $effect(() => {
@@ -143,7 +144,6 @@
       if (update.sourceJobAvailable != null)
         observedSource = { jobId: rootId, sourceId: update.sourceJobId ?? null, available: update.sourceJobAvailable };
       if (update.childCount != null) observedChildCount = Number(update.childCount);
-      if (update.retrievalChildCount != null) observedRetrievalCount = Number(update.retrievalChildCount);
       // The server owns final rows through durability handoff. Keep the keyed
       // records while the visible extent changes; no live/history reconstruction.
       for (const id of untrack(() => [...observedJobs.keys()])) if (!requestedIds.has(id)) observedJobs.delete(id);
@@ -159,9 +159,6 @@
     }, error => { if (!disposed) transferError = error; });
     return () => { disposed = true; stop(); scopedTransfers.clear(); };
   });
-  let moreChildrenRequested = $state(false);
-  let childRefreshPending = false;
-  let loadedChildCount = $state<number | string | null>(null);
   let lifetime: AbortController;
   let sourceJob = $derived(sourceJobId && liveJobsById.has(sourceJobId)
     ? liveJobsById.get(sourceJobId)!
@@ -197,14 +194,14 @@
       || (ancestor.display.itemName ?? ancestor.display.queryText) === payload.query.album)
     ? payload.query.album : null);
   let relatedTotal = $derived.by(() => {
-    if (payload?.kind === 'album')
-      return retrievalLoaded && !retrievalCursor && !retrievalError ? relatedRows.length : null;
+    const complete = relatedList && !relatedList.loading && !relatedList.cursor && !relatedList.error;
+    if (payload?.kind === 'album') return complete ? relatedRows.length : null;
     const declared = payload?.kind === 'job-list' ? payload.count
       : payload?.kind === 'song-groups' ? payload.songCount
       : payload?.kind === 'album-groups' ? payload.resultCount
       : null;
     if (declared != null && (Number(declared) > 0 || !Number(detail?.childCount))) return Number(declared);
-    return loadedChildCount != null && !cursor && !childError ? childRows.length : null;
+    return complete ? relatedRows.length : null;
   });
   let showRelatedChildren = $derived(Boolean(detail) && (
     payload?.kind === 'job-list' || payload?.kind === 'song-groups' || payload?.kind === 'album-groups'
@@ -213,7 +210,7 @@
     || payload?.kind === 'album' && relatedRows.length > 0
     || payload?.kind === 'extract' && (Number(detail?.childCount) > 0 || children.length > 0)
   ));
-  let showRelatedJobs = $derived(showRelatedChildren && (relatedTotal !== 0 || loading || Boolean(childError)) || Boolean(sourceJobId));
+  let showRelatedJobs = $derived(showRelatedChildren && (relatedTotal !== 0 || Boolean(relatedList?.loading) || Boolean(relatedList?.error)) || Boolean(sourceJobId));
   let displayedRelatedRows = $derived(showRelatedChildren ? relatedRows : []);
   let displayedRelatedTotal = $derived((showRelatedChildren ? relatedTotal ?? relatedRows.length : 0)
     + (sourceJobId ? 1 : 0));
@@ -300,29 +297,13 @@
     const id = jobId;
     untrack(() => observedJobs.clear());
     observedChildCount = null;
-    observedRetrievalCount = null;
     let firstDetail = initialDetail?.summary.jobId === id ? initialDetail : null;
     // Display the route's captured detail immediately. The scoped initial state
     // reconciles it once; missing global child rows are not evidence it is stale.
     const request = new AbortController();
     lifetime = request;
     detail = null;
-    children = [];
-    retrievalChildren = [];
-    retrievalCursor = null;
-    retrievalLoading = false;
-    retrievalMoreRequested = false;
-    retrievalRefreshPending = false;
-    retrievalLoaded = false;
-    retrievalError = null;
-    linkedChildren = new Map();
-    cursor = null;
-    loading = false;
-    moreChildrenRequested = false;
-    childRefreshPending = false;
-    loadedChildCount = null;
     error = null;
-    childError = null;
     actionError = null;
     manifest = null;
     manifestEntries = [];
@@ -348,24 +329,11 @@
         const lifecycleChanged = detail?.summary.lifecycle.lifecycleState !== next.summary.lifecycle.lifecycleState;
         const childrenChanged = detail?.childCount !== next.childCount || lifecycleChanged;
         const outcomesChanged = childOutcomes(detail?.payload) !== childOutcomes(next.payload);
-        // The live workflow retains child summaries until retirement. Their
-        // outcome updates already feed visibleChildren; only missing live
-        // coverage, membership changes or lifecycle handoff need another page.
-        // Folder members come from the manifest, not a second child collection.
-        // Album retrieval operations are a distinct, actually displayed list.
-        const hasChildList = next.payload?.kind !== 'album' && next.payload?.kind !== 'remote-directory';
-        const refreshChildren = hasChildList && (loadedChildCount !== next.childCount || childrenChanged || outcomesChanged
-          && children.some(child => !liveJobsById.has(child.jobId!)));
-        const refreshRetrieval = next.payload?.kind === 'album' && (!retrievalLoaded || lifecycleChanged
-          || (liveRoot ? retrievalChildren.length < liveRetrievalExtent : childrenChanged || outcomesChanged
-            || visibleRetrievalChildren.some(child => child.lifecycle.lifecycleState !== 'Terminal')));
         detail = next;
         error = null;
-        await Promise.all([
-          refreshChildren ? loadChildren(true, request, id)
-            : hasChildList ? hydrateVisibleChildren(request, id) : Promise.resolve(),
-          refreshRetrieval ? loadRetrievalChildren(true, request, id) : Promise.resolve(),
-        ]);
+        // The live related list follows membership and outcomes itself. Without
+        // a connection it holds one snapshot; refresh it when the job changed.
+        if (!connected && detail && (childrenChanged || outcomesChanged)) untrack(() => relatedList?.refresh());
         const directory = next.payload?.kind === 'album' || next.payload?.kind === 'remote-directory'
           ? next.payload.directory : null;
         const attempt = directory?.attemptNumber == null ? null : Number(directory.attemptNumber);
@@ -423,131 +391,6 @@
       if (version !== observedDetailVersion) invalidateDetail();
     });
   });
-
-  async function loadChildren(reset = false, request = lifetime, id = jobId) {
-    if (!reset) moreChildrenRequested = true;
-    if (loading) { if (reset) childRefreshPending = true; return; }
-    if (detail?.summary.jobId === id && Number(detail.childCount) === 0) {
-      children = [];
-      cursor = null;
-      loadedChildCount = 0;
-      childError = null;
-      moreChildrenRequested = false;
-      return;
-    }
-    loading = true;
-    try {
-      const visibleCount = reset ? children.length : 0;
-      const merged = new Map((reset ? [] : children).map((child) => [child.jobId, child]));
-      let nextCursor = reset ? null : cursor;
-      // Grouped execution also registers an internal JobList. Its generated
-      // members are already direct children; page only the displayed kind so
-      // wrappers neither duplicate rows nor consume the user's page size.
-      const kind = payload?.kind === 'song-groups' ? 'song'
-        : payload?.kind === 'album-groups' ? 'album' : undefined;
-      do {
-        const page = await daemonApi.getJobChildren(id, nextCursor, request.signal, kind);
-        if (request.signal.aborted) return;
-        for (const child of page.items) merged.set(child.jobId, child);
-        nextCursor = page.nextCursor ?? null;
-      } while (nextCursor && merged.size < visibleCount);
-      children = [...merged.values()];
-      cursor = nextCursor;
-      loadedChildCount = detail?.childCount ?? null;
-      await hydrateVisibleChildren(request, id);
-      childError = null;
-    } catch (cause) {
-      if (!request.signal.aborted) childError = cause instanceof Error ? cause : new Error(String(cause));
-    } finally {
-      if (!request.signal.aborted) {
-        loading = false;
-        if (!reset) moreChildrenRequested = false;
-        // Keep a user's continuation when background reconciliation is in
-        // flight. Run it first; a pending refresh then preserves that extent.
-        if (moreChildrenRequested && cursor) void loadChildren(false, request, id);
-        else {
-          moreChildrenRequested = false;
-          if (childRefreshPending) { childRefreshPending = false; void loadChildren(true, request, id); }
-        }
-      }
-    }
-  }
-
-  async function loadRetrievalChildren(reset = false, request = lifetime, id = jobId) {
-    if (!reset) retrievalMoreRequested = true;
-    if (retrievalLoading) { if (reset) retrievalRefreshPending = true; return; }
-    if (detail?.summary.jobId === id && Number(detail.childCount) === 0) {
-      retrievalChildren = [];
-      retrievalCursor = null;
-      retrievalLoaded = true;
-      retrievalError = null;
-      retrievalMoreRequested = false;
-      return;
-    }
-    retrievalLoading = true;
-    try {
-      const loadedCount = reset ? retrievalChildren.length : 0;
-      const merged = new Map((reset ? [] : retrievalChildren).map((child) => [child.jobId, child]));
-      let nextCursor = reset ? null : retrievalCursor;
-      do {
-        const page = await daemonApi.getJobChildren(id, nextCursor, request.signal, 'retrieve-folder');
-        if (request.signal.aborted) return;
-        for (const child of page.items) merged.set(child.jobId, child);
-        nextCursor = page.nextCursor ?? null;
-      } while (nextCursor && merged.size < loadedCount);
-      retrievalChildren = [...merged.values()];
-      retrievalCursor = nextCursor;
-      retrievalLoaded = true;
-      retrievalError = null;
-    } catch (cause) {
-      if (!request.signal.aborted) retrievalError = cause instanceof Error ? cause : new Error(String(cause));
-    } finally {
-      if (!request.signal.aborted) {
-        retrievalLoading = false;
-        if (!reset) retrievalMoreRequested = false;
-        if (retrievalMoreRequested && retrievalCursor) void loadRetrievalChildren(false, request, id);
-        else {
-          retrievalMoreRequested = false;
-          if (retrievalRefreshPending) {
-            retrievalRefreshPending = false;
-            void loadRetrievalChildren(true, request, id);
-          }
-        }
-      }
-    }
-  }
-
-  async function hydrateVisibleChildren(request = lifetime, id = jobId) {
-    const refreshed = new Set<string>();
-    while (!request.signal.aborted) {
-      const missing = [...new Set(childRows.flatMap(entry => {
-        if (entry.missingResultId && !linkedChildren.has(entry.missingResultId)) return [entry.missingResultId];
-        const cached = linkedChildren.get(entry.job.jobId!)?.summary;
-        return cached && cached.lifecycle.lifecycleState !== 'Terminal' && !liveJobsById.has(cached.jobId!)
-          && !refreshed.has(cached.jobId!) ? [cached.jobId!] : [];
-      }))];
-      if (!missing.length) return;
-      for (const id of missing) refreshed.add(id);
-      const batch = await readJobSummaries(missing,
-        (ids, signal) => daemonApi.getJobSummaries(ids, signal), request.signal);
-      if (jobId === id && !request.signal.aborted) linkedChildren = new Map([...linkedChildren, ...batch]);
-    }
-  }
-
-  async function showMoreChildren() {
-    if (payload?.kind === 'album') {
-      if (retrievalCursor) await loadRetrievalChildren();
-      return;
-    }
-    if (cursor) await loadChildren();
-  }
-
-  async function retryChildResult(id: string) {
-    const reads = new Map(linkedChildren);
-    for (const failedId of jobSummaryRetryIds(linkedChildren, id)) reads.delete(failedId);
-    linkedChildren = reads;
-    await hydrateVisibleChildren();
-  }
 
   async function loadManifest(reset = false, request = lifetime, id = jobId, attempt?: number) {
     if (manifestLoading) {
@@ -656,8 +499,7 @@
   {#if error}<div class="resource-state-notice unavailable" role="alert">{error.message}</div>{/if}
   {#if connected && transferError}<div class="resource-state-notice unavailable" role="alert" data-testid="job-live-progress-notice"><span>Live file progress unavailable: {transferError.message}</span><button class="button" type="button" onclick={() => transferRetry++}>Retry</button></div>{/if}
   {#if parentError}<div class="resource-state-notice unavailable" role="alert">Parent job unavailable: {parentError.message}</div>{/if}
-  {#if childError}<div class="resource-state-notice unavailable" role="alert"><span>Child jobs unavailable: {childError.message}</span><button class="button" type="button" disabled={loading} onclick={() => void loadChildren(true)}>Retry</button></div>{/if}
-  {#if retrievalError && payload?.kind === 'album'}<div class="resource-state-notice unavailable" role="alert"><span>Related jobs unavailable: {retrievalError.message}</span><button class="button" type="button" disabled={retrievalLoading} onclick={() => void loadRetrievalChildren(true)}>Retry</button></div>{/if}
+  {#if relatedList?.error}<div class="resource-state-notice unavailable" role="alert"><span>{payload?.kind === 'album' ? 'Related jobs' : 'Child jobs'} unavailable: {relatedList.error.message}</span><button class="button" type="button" disabled={relatedList.loading} onclick={() => relatedList?.refresh()}>Retry</button></div>{/if}
   {#if manifestError}<div class="resource-state-notice unavailable" role="alert"><span>Directory files unavailable: {manifestError.message}</span><button class="button" type="button" disabled={manifestLoading} onclick={() => void loadManifest(true)}>Retry</button></div>{/if}
   {#if actionError}<div class="resource-state-notice unavailable" role="alert">{actionError.message}</div>{/if}
   {#if deleteError}<div class="resource-state-notice unavailable" role="alert"><strong>Job action failed</strong><span>{deleteError.message}</span></div>{/if}
@@ -734,7 +576,7 @@
           {#if sourceJob}
             <JobRow job={sourceJob} onopen={onopenjob} />
           {:else if sourceRead}
-            <div class="resource-state-notice unavailable" role="alert"><span>Source job unavailable: {sourceRead.error?.message ?? 'The source job is no longer retained.'}</span><button class="button" type="button" onclick={() => sourceRetry++}>Retry</button></div>
+            <div class="resource-state-notice unavailable" role="alert"><span>Source job unavailable: {sourceRead.error?.message ?? 'The source job was removed from history.'}</span><button class="button" type="button" onclick={() => sourceRetry++}>Retry</button></div>
           {:else}
             <LoadingIndicator label="Loading related job" />
           {/if}
@@ -742,23 +584,21 @@
         {#each displayedRelatedRows as entry (entry.job.jobId)}
           {@const child = entry.job}
           <JobRow job={child} root={entry.root}
-            resultState={entry.error || entry.missingResultId && linkedChildren.has(entry.missingResultId)
-              ? 'unavailable' : entry.missingResultId ? 'loading' : undefined}
+            resultState={entry.error || entry.missingResultId ? 'unavailable' : undefined}
             progressPercent={child.jobId ? childFileProgress.get(child.jobId) : undefined}
             onopen={onopenjob} oncancel={job => void cancel(job.jobId)} />
-          {#if entry.error || entry.missingResultId && linkedChildren.has(entry.missingResultId)}
-            <div class="resource-state-notice unavailable" role="alert"><span>Extracted result unavailable: {entry.error?.message ?? linkedChildren.get(entry.missingResultId!)?.error?.message ?? 'The linked job is not retained.'}</span>{#if entry.missingResultId}<button class="button" type="button" onclick={() => void retryChildResult(entry.missingResultId!)}>Retry</button>{/if}</div>
+          {#if entry.error || entry.missingResultId}
+            <div class="resource-state-notice unavailable" role="alert"><span>Extracted result unavailable: {entry.error?.message ?? 'The linked job was removed from history.'}</span></div>
           {/if}
         {:else}
-          {#if !sourceJobId && !loading && !cursor && !childError}
+          {#if !sourceJobId && relatedList && !relatedList.loading && !relatedList.cursor && !relatedList.error}
             <EmptyState class="inline-empty-state" icon="jobs" title="No child jobs" />
           {/if}
         {/each}
       </div>
-      {#if payload?.kind === 'album' ? retrievalCursor : cursor}
+      {#if relatedList?.cursor}
         <button type="button" class="button job-child-load-more"
-          disabled={payload?.kind === 'album' ? retrievalMoreRequested : moreChildrenRequested}
-          onclick={() => void showMoreChildren()}>Load more</button>
+          disabled={relatedList.loading} onclick={() => relatedList?.loadMore()}>Load more</button>
       {/if}
     </section>
   {/if}

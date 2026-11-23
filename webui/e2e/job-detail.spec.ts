@@ -194,12 +194,21 @@ test('retains a child-page failure through active and terminal detail and recove
   expect(response.status()).toBe(202);
   const root = await response.json() as Schema<'JobSummaryDto'>;
   let interrupted = true;
-  // Simulate a transport failure only; successful responses still come from
-  // the real daemon, including its independently refreshed job detail.
-  await page.route('**/api/jobs?**', (route) => {
-    const url = new URL(route.request().url());
-    return interrupted && url.searchParams.get('parentJobId') === root.jobId
-      ? route.abort('failed') : route.continue();
+  // Fail only the child-list observation; everything else, including the
+  // independently refreshed job detail, still comes from the real daemon.
+  await page.routeWebSocket('**/api/events?**', route => {
+    const server = route.connectToServer();
+    route.onMessage(payload => {
+      if (typeof payload !== 'string') { server.send(payload); return; }
+      const forwarded: string[] = [];
+      for (const frame of payload.split('\u001e').filter(Boolean)) {
+        const message = JSON.parse(frame) as { target?: string; invocationId?: string; arguments?: Schema<'JobListScopeDto'>[] };
+        if (interrupted && message.target === 'ObserveJobList' && message.arguments?.[0]?.query.parentJobId === root.jobId)
+          route.send(JSON.stringify({ type: 3, invocationId: message.invocationId, error: 'Child list unavailable' }) + '\u001e');
+        else forwarded.push(frame + '\u001e');
+      }
+      if (forwarded.length) server.send(forwarded.join(''));
+    });
   });
   await page.goto(`/jobs/${root.jobId}`);
   const alert = page.getByRole('alert').filter({ hasText: 'Child jobs unavailable' });

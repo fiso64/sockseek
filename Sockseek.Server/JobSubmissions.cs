@@ -99,7 +99,7 @@ public sealed partial class JobSubmissions
 
     internal SearchSettingsPatchDto? ResolveSearchViewProfiles(IReadOnlyList<string> names)
     {
-        var profiles = Volatile.Read(ref configuration).Profiles.ResolveNamedProfiles(names);
+        var profiles = Volatile.Read(ref configuration).Profiles.ResolveRequestProfiles(names);
         var operations = profiles.SelectMany(profile => profile.Download.Operations)
             .Where(change => change.Path == "Search" || change.Path.StartsWith("Search.", StringComparison.Ordinal));
         var search = DownloadSettingsPatchDtoMapper.FromCore(new SettingsPatch(operations.ToArray()))?.Search;

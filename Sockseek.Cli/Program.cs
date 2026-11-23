@@ -7,6 +7,7 @@ using Sockseek.Core.Settings;
 using Sockseek.Api;
 using Sockseek.Server;
 using Sockseek.Core.Snapshots;
+using Sockseek.Core.UserProfiles;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Sockseek.Core.Diagnostics;
@@ -257,6 +258,8 @@ internal static partial class Program
 
         var clientManager = new SoulseekClientManager(
             engineSettings,
+            localProfile: await LocalUserProfile.LoadAsync(engineSettings, cts.Token,
+                loggerFactory.CreateLogger<LocalUserProfile>()),
             logger: loggerFactory.CreateLogger<SoulseekClientManager>());
 
         if (string.IsNullOrEmpty(rootSettings.Extraction.Input))

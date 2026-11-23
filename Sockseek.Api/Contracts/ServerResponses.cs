@@ -23,7 +23,14 @@ public sealed record ServerStatusDto(
     int RestartCount,
     PersistenceStatusDto? Persistence = null,
     ConfigurationStatusDto? Configuration = null,
-    SoulseekConnectionDto? Connection = null);
+    SoulseekConnectionDto? Connection = null,
+    LocalUserProfileDto? Profile = null);
+
+/// <summary>
+/// The profile this daemon shows to Soulseek peers. PictureUrl changes with the
+/// picture, so clients can cache it; it is null when no picture is configured.
+/// </summary>
+public sealed record LocalUserProfileDto(string Description, string? PictureUrl);
 
 /// <summary>File reload state. Restart-required settings remain at their startup values.</summary>
 public sealed record ConfigurationStatusDto(bool Watching, bool RestartRequired, bool ReloadFailed,

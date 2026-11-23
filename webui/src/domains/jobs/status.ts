@@ -58,7 +58,6 @@ export function jobOutcomeDetail(job: JobSummaryDto): string {
     return reason === 'Skipped' ? '' : reason;
   }
   if (job.lifecycle.terminalOutcome === 'Succeeded') {
-    if (job.display.kind === 'song' || job.display.kind === 'remote-file') return 'Downloaded';
     if (job.display.kind === 'extract' && !job.relationships.resultJobId) return 'No job produced';
     return '';
   }
@@ -80,6 +79,7 @@ export function jobOutcomeDetail(job: JobSummaryDto): string {
     case 'NoMatchingResults': return 'No matching results';
     case 'InvalidSearchString': return 'Invalid search query';
     case 'OutOfDownloadRetries': return 'Download retries exhausted';
+    case 'Interrupted': return 'Interrupted';
     case 'ChildJobsFailed':
       if (Number(job.stats?.failedMemberCount) > 0) return '';
       break;

@@ -59,7 +59,7 @@ test('folds a running text extraction into one source-labelled root and opens it
   await expect(row.getByTestId('job-cancel')).toHaveCount(0);
   await expect(row.getByTestId('job-remove')).toBeVisible();
   expect(observations).toBe(1);
-  expect(summaryReads, 'Progress and retirement must not refetch the linked summary.').toBe(1);
+  expect(summaryReads, 'The linked result arrives with the list; nothing is looked up separately.').toBe(0);
   await row.getByTestId('job-open').click();
   await expect(page).toHaveURL(new RegExp(`/jobs/${imported.relationships.resultJobId}$`));
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Fixture song');

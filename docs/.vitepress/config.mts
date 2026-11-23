@@ -39,8 +39,8 @@ export default defineConfig({
         { text: 'Troubleshooting & Tips', link: '/automated-and-bulk-downloads/tips' },
       ] },
       { text: 'Reference', items: [
+        { text: 'Options', link: '/reference/options' },
         { text: 'Daemon and remote CLI', link: '/reference/daemon-options' },
-        { text: 'Download options', link: '/reference/download-options' },
         { text: 'Variables', link: '/reference/variables' },
         { text: 'CLI shortcuts', link: '/reference/shortcuts' },
         { text: 'API', link: '/reference/api' },

@@ -1820,8 +1820,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   padding: 22px;
 }
 .user-profile-picture {
-  width: 190px;
-  height: 190px;
+  width: var(--profile-picture-size, 190px);
+  height: var(--profile-picture-size, 190px);
   display: block;
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -1829,6 +1829,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   background: var(--surface-subtle);
   box-shadow: var(--field-shadow);
 }
+.user-profile-picture-empty { display: grid; place-items: center; color: var(--muted); font-size: 0.75rem; }
 .user-profile-copy { min-width: 0; align-self: center; }
 .user-profile-copy:only-child { grid-column: 1 / -1; }
 .user-profile-name-line { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
@@ -2012,8 +2013,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .share-tree-size { color: var(--muted); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 980px) {
-  .user-profile-primary { grid-template-columns: 140px minmax(0, 1fr); }
-  .user-profile-picture { width: 140px; height: 140px; border-radius: 15px; }
+  .user-profile-primary { --profile-picture-size: 140px; grid-template-columns: 140px minmax(0, 1fr); }
+  .user-profile-picture { border-radius: 15px; }
   .user-profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .user-profile-stats > div:nth-child(2) { border-right: 0; }
   .user-profile-stats > div:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
@@ -2022,8 +2023,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 @media (max-width: 700px) {
   .user-browser-heading { align-items: stretch; flex-direction: column; }
   .user-browser-heading-actions { align-self: flex-start; }
-  .user-profile-primary { grid-template-columns: 96px minmax(0, 1fr); gap: 15px; padding: 16px; }
-  .user-profile-picture { width: 96px; height: 96px; border-radius: 13px; }
+  .user-profile-primary { --profile-picture-size: 96px; grid-template-columns: 96px minmax(0, 1fr); gap: 15px; padding: 16px; }
+  .user-profile-picture { border-radius: 13px; }
   .user-profile-copy p { font-size: 0.76rem; }
   .user-profile-stats { grid-template-columns: 1fr; }
   .user-profile-stats > div { border-right: 0; border-bottom: 1px solid var(--border); }
@@ -2049,8 +2050,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 
 /* User profile picture lightbox */
 .user-profile-picture-button {
-  width: 190px;
-  height: 190px;
+  width: var(--profile-picture-size, 190px);
+  height: var(--profile-picture-size, 190px);
   padding: 0;
   border: 0;
   border-radius: 18px;

@@ -21,6 +21,16 @@ internal static class UserProfileEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
+        app.MapGet("/api/server/profile/picture", GetLocalPicture)
+            .WithTags("User Browsing")
+            .WithSummary("Gets the profile picture this daemon shows to Soulseek peers.")
+            .Produces<byte[]>(
+                StatusCodes.Status200OK,
+                contentType: "image/jpeg",
+                additionalContentTypes: ["image/png", "image/gif", "image/webp"])
+            .Produces(StatusCodes.Status304NotModified)
+            .Produces<ApiErrorDto>(StatusCodes.Status404NotFound);
+
         app.MapGet("/api/users/{username}/picture", GetPictureAsync)
             .WithTags("User Browsing")
             .WithSummary("Gets a validated remote Soulseek user profile picture.")
@@ -89,21 +99,7 @@ internal static class UserProfileEndpoints
             UserPicture? picture = await service.GetPictureAsync(
                 username,
                 cancellationToken).ConfigureAwait(false);
-            if (picture is null)
-            {
-                return Results.NotFound(new ApiErrorDto(
-                    "The user has no available profile picture.",
-                    "picture-unavailable"));
-            }
-
-            response.Headers.ETag = picture.ETag;
-            response.Headers.CacheControl = "private, max-age=30, must-revalidate";
-            response.Headers.XContentTypeOptions = "nosniff";
-            if (MatchesEtag(request.Headers.IfNoneMatch, picture.ETag))
-                return Results.StatusCode(StatusCodes.Status304NotModified);
-
-            response.ContentLength = picture.Bytes.Length;
-            return Results.Bytes(picture.Bytes, picture.MediaType);
+            return PictureResult(picture, request, response);
         }
         catch (Exception exception)
         {
@@ -134,6 +130,28 @@ internal static class UserProfileEndpoints
         {
             return Failure(exception);
         }
+    }
+
+    private static IResult GetLocalPicture(HttpRequest request, HttpResponse response, DaemonRuntime runtime)
+        => PictureResult(runtime.SoulseekRuntime?.LocalProfile.Picture, request, response);
+
+    private static IResult PictureResult(UserPicture? picture, HttpRequest request, HttpResponse response)
+    {
+        if (picture is null)
+        {
+            return Results.NotFound(new ApiErrorDto(
+                "The user has no available profile picture.",
+                "picture-unavailable"));
+        }
+
+        response.Headers.ETag = picture.ETag;
+        response.Headers.CacheControl = "private, max-age=30, must-revalidate";
+        response.Headers.XContentTypeOptions = "nosniff";
+        if (MatchesEtag(request.Headers.IfNoneMatch, picture.ETag))
+            return Results.StatusCode(StatusCodes.Status304NotModified);
+
+        response.ContentLength = picture.Bytes.Length;
+        return Results.Bytes(picture.Bytes, picture.MediaType);
     }
 
     private static bool MatchesEtag(

@@ -813,7 +813,7 @@
             <span class="resource-state-dot"></span>
             <span class="resource-state-copy">
               <strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Chat unavailable'}</strong>
-              <small>{liveStatus === 'offline' ? 'This resource cannot be loaded while the daemon is offline.' : (targetError ?? listsError)?.message}</small>
+              <small>{liveStatus === 'offline' ? 'This can’t be loaded while the daemon is offline.' : (targetError ?? listsError)?.message}</small>
             </span>
             {#if liveStatus !== 'offline'}
               <button class="button" type="button" disabled={listsLoading || messagesLoading}

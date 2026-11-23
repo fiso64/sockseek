@@ -4,7 +4,10 @@
   import { DaemonHttpClient } from '../../api/http';
   import { browserSession } from '../../api/session.svelte';
   import { formatBytes, formatCount, humanizeStateValue, soulseekStatusLabel } from '../../app/format';
+  import { appPath } from '../../app/paths';
   import Notice from '../../components/Notice.svelte';
+  import LinkifiedText from '../../components/LinkifiedText.svelte';
+  import ProfilePicture from '../../components/ProfilePicture.svelte';
 
   let { daemon, liveStatus, liveClient, onloadingchange }: {
     liveClient: DaemonLiveClient;
@@ -23,6 +26,23 @@
   const persistence = $derived(status?.persistence);
   const connection = $derived(status?.connection);
   const client = $derived(daemon?.soulseekClient ?? status?.soulseekClient);
+  const profile = $derived(status?.profile);
+  // Status is operational context: show the first lines of a long description
+  // and let the reader expand it, rather than pushing the other cards away.
+  let descriptionElement = $state<HTMLParagraphElement | null>(null);
+  let descriptionExpanded = $state(false);
+  let descriptionClamped = $state(false);
+  $effect(() => {
+    const element = descriptionElement;
+    void profile?.description;
+    const expanded = descriptionExpanded;
+    if (!element) return;
+    const measure = () => { descriptionClamped = expanded || element.scrollHeight > element.clientHeight + 1; };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  });
 
   $effect(() => onloadingchange(!status && !error));
 
@@ -48,21 +68,35 @@
 
 {#if error}<Notice variant="unavailable">{error}<button class="button auth-button" onclick={() => retry++}>Retry</button></Notice>{/if}
 <div class="status-grid">
-  <section class="panel status-card" aria-labelledby="daemon-heading">
-    <h2 id="daemon-heading">Daemon</h2>
-    <dl>
-      <div><dt>Version</dt><dd>{info?.version ?? '—'}</dd></div>
-      <div><dt>Started</dt><dd>{date(info?.startedAtUtc)}</dd></div>
-      <div><dt>Browser connection</dt><dd class:healthy={liveStatus === 'connected'}>{humanizeStateValue(liveStatus)}</dd></div>
-      <div><dt>Authentication</dt><dd>{browserSession.data?.authenticationEnabled ? 'Enabled' : 'Disabled'}</dd></div>
-      <div><dt>Configuration</dt><dd>{!daemon?.configuration ? '—' : daemon.configuration.reloadFailed ? 'Reload failed' : daemon?.configuration?.restartRequired ? 'Restart required' : daemon?.configuration?.watching ? 'Watching for changes' : 'Automatic reload disabled'}</dd></div>
-    </dl>
-  </section>
+  <!-- Keep the card's place while status loads, like the other cards' placeholders. -->
+  {#if !status || profile}
+    <section class="panel status-card profile-card" aria-labelledby="profile-heading">
+      <h2 id="profile-heading">Your profile</h2>
+      <div class="profile-body">
+        <ProfilePicture src={profile?.pictureUrl ? appPath(profile.pictureUrl) : null} username={connection?.username}
+          emptyLabel={profile ? 'No picture' : ''} emptyTitle={profile ? 'Set user-picture to show a picture to peers' : undefined} />
+        <div class="profile-copy">
+          <strong>{connection?.username ?? '—'}</strong>
+          {#if profile?.description}
+            <p class="user-profile-description" class:clamped={!descriptionExpanded} bind:this={descriptionElement}><LinkifiedText text={profile.description} /></p>
+            {#if descriptionClamped}
+              <button type="button" class="text-button profile-more" aria-expanded={descriptionExpanded}
+                onclick={() => (descriptionExpanded = !descriptionExpanded)}>{descriptionExpanded ? 'Show less' : 'Show more'}</button>
+            {/if}
+          {:else if profile}
+            <p class="profile-empty">
+              {#if profile.pictureUrl}No description. Peers see it when they view your profile; set it with <code>user-description</code>.
+              {:else}No description or picture. Peers see these when they view your profile; set them with <code>user-description</code> and <code>user-picture</code>.{/if}
+            </p>
+          {/if}
+        </div>
+      </div>
+    </section>
+  {/if}
   <section class="panel status-card" aria-labelledby="soulseek-heading">
     <h2 id="soulseek-heading">Soulseek</h2>
     <dl>
       <div><dt>Connection</dt><dd class:healthy={liveStatus === 'connected' && client?.isReady}>{soulseekStatusLabel(client, liveStatus)}</dd></div>
-      <div><dt>Username</dt><dd>{connection?.username ?? '—'}</dd></div>
       <div><dt>Server</dt><dd>{connection?.serverAddress ? `${connection.serverAddress}:${connection.serverPort}` : '—'}</dd></div>
       <div><dt>Server address</dt><dd>{connection?.serverEndpoint ?? '—'}</dd></div>
       <div><dt>Incoming port</dt><dd>{connection ? connection.listenPort ?? 'Disabled' : '—'}</dd></div>
@@ -92,7 +126,17 @@
       <div><dt>Blocked users / addresses</dt><dd>{sharing ? `${sharing.uploadBlockedUsernameCount} / ${sharing.uploadBlockedIpAddressCount}` : '—'}</dd></div>
     </dl>
   </section>
-  <section class="panel status-card storage-card" aria-labelledby="storage-heading">
+  <section class="panel status-card" aria-labelledby="daemon-heading">
+    <h2 id="daemon-heading">Daemon</h2>
+    <dl>
+      <div><dt>Version</dt><dd>{info?.version ?? '—'}</dd></div>
+      <div><dt>Started</dt><dd>{date(info?.startedAtUtc)}</dd></div>
+      <div><dt>Browser connection</dt><dd class:healthy={liveStatus === 'connected'}>{humanizeStateValue(liveStatus)}</dd></div>
+      <div><dt>Authentication</dt><dd>{browserSession.data?.authenticationEnabled ? 'Enabled' : 'Disabled'}</dd></div>
+      <div><dt>Configuration</dt><dd>{!daemon?.configuration ? '—' : daemon.configuration.reloadFailed ? 'Reload failed' : daemon?.configuration?.restartRequired ? 'Restart required' : daemon?.configuration?.watching ? 'Watching for changes' : 'Automatic reload disabled'}</dd></div>
+    </dl>
+  </section>
+  <section class="panel status-card" aria-labelledby="storage-heading">
     <h2 id="storage-heading">History &amp; storage</h2>
     <dl>
       <div><dt>Status</dt><dd>{persistence ? humanizeStateValue(persistence.state) : '—'}</dd></div>
@@ -114,8 +158,16 @@
   dt { color: var(--muted); }
   dd { margin: 0; overflow-wrap: anywhere; }
   .healthy { color: var(--success); }
-  .storage-card { grid-column: 1 / -1; }
-  .storage-card dl { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 30px; }
+  .profile-body { --profile-picture-size: 112px; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 16px; }
+  .profile-copy { min-width: 0; }
+  .profile-copy strong { font-size: 1.05rem; font-weight: 650; overflow-wrap: anywhere; }
+  .profile-copy p { margin: 8px 0 0; font-size: .8125rem; line-height: 1.6; }
+  .clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden; }
+  .profile-more { margin: 6px 0 0 -8px; font-size: .78rem; }
+  .profile-empty { color: var(--muted); }
   .storage-error { color: var(--danger); font-size: .8125rem; overflow-wrap: anywhere; }
-  @media (max-width: 800px) { .status-grid, .storage-card dl { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 800px) { .status-grid { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 520px) {
+    .profile-body { --profile-picture-size: 72px; grid-template-columns: 72px minmax(0, 1fr); gap: 14px; }
+  }
 </style>

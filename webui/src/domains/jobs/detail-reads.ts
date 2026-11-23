@@ -66,12 +66,6 @@ export async function readJobSummaries(
   }
 }
 
-/** One failed batch is one retry; a missing row remains an independent retry. */
-export function jobSummaryRetryIds(reads: ReadonlyMap<string, JobSummaryRead>, id: string): string[] {
-  const error = reads.get(id)?.error;
-  return error ? [...reads].filter(([, read]) => read.error === error).map(([key]) => key) : [id];
-}
-
 export async function loadJobAncestors(
   parentId: string,
   fetchJob: (id: string) => Promise<Schema<'JobDetailDto'>>,

@@ -10,7 +10,7 @@ For a one-shot download, configure your Soulseek credentials and run:
 sockseek "Artist - Album Title" -t
 ```
 
-See [one-shot downloads](docs/pages/using-sockseek/one-shot.md), [configuration](docs/pages/using-sockseek/configuration.md), or the [CLI options](docs/pages/reference/download-options.md). Run `sockseek --help` for terminal help.
+See [one-shot downloads](docs/pages/using-sockseek/one-shot.md), [configuration](docs/pages/using-sockseek/configuration.md), or the [CLI options](docs/pages/reference/options.md). Run `sockseek --help` for terminal help.
 
 This project was formerly named `sldl` (and `slsk-batchdl` before that). See [the release notes](https://github.com/fiso64/sockseek/releases/tag/v3.0.4) for why it was renamed to something dumb.
 

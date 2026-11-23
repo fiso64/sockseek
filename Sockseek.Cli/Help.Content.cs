@@ -19,17 +19,31 @@ public static partial class Help
 
     const string helpText = usageText + @"
 
-Required Arguments
+Soulseek Account and Session
+
+  --user <username>               Soulseek username (required)
+  --pass <password>               Soulseek password (required unless --password-file is set)
+  --password-file <path>          Read the Soulseek password from a file
+  --listen-port <port>            Port for incoming connections (default: 49998)
+  --no-listen                     Disable the incoming connection listener
+  --connect-timeout <ms>          Timeout used when logging in to Soulseek (default: 20000ms)
+  --user-description <desc>       Soulseek profile description
+  --user-picture <path>           Soulseek profile picture (local image file)
+
+Configuration and Profiles
+
+  -c, --config <path>             Set config file location. Set to 'none' to ignore config
+  --no-config                     Ignore any config file
+  --profile <names>               Configuration profile(s) to use. See `--help config`.
+  --concurrent-jobs <num>         Max concurrent leaf jobs (default: 20)
+  --concurrent-searches <num>     Max concurrent Soulseek searches (default: 2)
+  --concurrent-extractors <num>   Max concurrent input extractors (default: 4)
+
+Input and Output Options
 
   <input>                         A URL, search string, Soulseek link, or path to a local
                                   CSV/list file. Run `--help input` to view the accepted inputs.
                                   Can also be passed with -i, --input <input>
-  --user <username>               Soulseek username
-  --pass <password>               Soulseek password
-  --password-file <path>          Read the Soulseek password from a file
-
-General Options
-
   -o, --output-dir <path>         Download directory
   --input-type <type>             [csv|youtube|spotify|bandcamp|string|list|soulseek-link|
                                   musicbrainz] (default: auto)
@@ -40,12 +54,6 @@ General Options
   -n, --number <maxtracks>        Download the first n tracks of a playlist
   --offset <offset>               Skip a specified number of tracks
   -r, --reverse                   Download tracks in reverse order
-  -c, --config <path>             Set config file location. Set to 'none' to ignore config
-  --no-config                     Ignore any config file
-  --profile <names>               Configuration profile(s) to use. See `--help config`.
-  --concurrent-jobs <num>         Max concurrent leaf jobs (default: 20)
-  --concurrent-searches <num>     Max concurrent Soulseek searches (default: 2)
-  --concurrent-extractors <num>   Max concurrent input extractors (default: 4)
   --write-playlist                Create an m3u playlist file in the output directory
   --playlist-path <path>          Override default path for m3u playlist file
   --write-index                   Create/update the Sockseek index (default when using
@@ -66,11 +74,6 @@ General Options
                                   (default: name)
   --skip-not-found                Skip searching for tracks that weren't found on Soulseek
                                   during the last run.
-
-  --listen-port <port>            Port for incoming connections (default: 49998)
-  --no-listen                     Disable the incoming connection listener
-  --connect-timeout <ms>          Timeout used when logging in to Soulseek (default: 20000ms)
-  --user-description <desc>       Soulseek profile description
 
   --on-complete <command>         Run a command when a download completes. See `--help
                                   on-complete`
@@ -696,6 +699,10 @@ Configuration
     To activate the above profile, use --profile lossless. This will apply all of its options. Your
     manual CLI options still take precedence.
     To list all configured profiles, run --profile help.
+    Some settings apply to the whole Sockseek process rather than to one download, for example
+    user-description, user-picture, concurrent-jobs and log-file. They take effect only when the
+    profile is chosen at startup with --profile. A profile containing them cannot be an auto-profile
+    or be selected for a single download in the WebUI or remote CLI.
 
   Auto-profiles
     Profiles can be activated automatically based on a few simple conditions. For example:
@@ -1039,7 +1046,6 @@ Daemon Options
   --data-dir <path>               Directory for daemon data, including sockseek.db
   --no-config-watch               Disable automatic daemon config-file reload
   --no-docs                       Disable the bundled manual at /docs/ (requires restart)
-  --user-picture <path>           Daemon profile picture
 
   WebUI and Access
 

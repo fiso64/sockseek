@@ -583,8 +583,7 @@ public class SoulseekClientManager : IDisposable, IAsyncDisposable
             });
 
         Task<UserInfo> userInfoResolver(string username, System.Net.IPEndPoint ip) => Task.FromResult(new UserInfo(
-            description: localProfile?.Description
-                ?? UserProfileText.NormalizeDescription(settings.UserDescription),
+            description: localProfile?.Description ?? "",
             uploadSlots: 0,
             queueLength: 0,
             hasFreeUploadSlot: false,

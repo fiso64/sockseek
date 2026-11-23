@@ -188,6 +188,8 @@ test('cancels a live download and retains its cancelled state after reload', asy
   const card = page.locator('.folder-item-card').filter({ hasText: 'Fixture song.txt' });
   const file = card.locator('.folder-file-row');
   await expect(card.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
+  await expect(card.locator('.folder-transfer-age')).toHaveText(/^(just now|\d+ .+ ago)$/);
+  await expect(card.locator('.folder-transfer-age time')).toHaveAttribute('datetime', /T/);
   await page.getByRole('button', { name: 'Actions for fixture-peer', exact: true }).click();
   for (const name of ['Profile', 'Shares', 'Message']) {
     await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
@@ -442,7 +444,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await expect(partialFolder.locator('.folder-transfer-path')).toHaveText('Fixture');
   await expect(partialFolder.locator('.folder-transfer-path')).toHaveAttribute('title', 'Fixture');
   await expect(partialFolder.locator('.folder-transfer-file-count')).toContainText('1/2');
-  await expect(partialFolder).toContainText('Showing loaded files');
+  await expect(partialFolder).toContainText('Showing some of the files');
   await expect(partialFolder.locator('.folder-file-state.complete')).toHaveCount(1);
   await expect(partialFolder.locator('.folder-transfer-footer')).toHaveCount(0);
   const nextMembers = page.waitForResponse(response => response.ok()
@@ -487,7 +489,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await expect(page.locator('.folder-item-card').filter({ hasText: 'Unrelated.txt' }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'Folder totals unavailable' })).toBeVisible();
   await expect(partialFolder.locator('.folder-file-row')).toHaveCount(2);
-  await expect(partialFolder).toContainText('Size, progress and status cover loaded files only.');
+  await expect(partialFolder).toContainText('Totals cover loaded files only.');
   await expect(partialFolder.locator('.folder-transfer-file-count')).toContainText('2');
   await page.setViewportSize({ width: 390, height: 900 });
   await page.setViewportSize({ width: 1280, height: 720 });
@@ -543,7 +545,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
     } });
   });
   await page.reload();
-  await expect(page.getByRole('status').filter({ hasText: 'Retained history degraded' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'History degraded' })).toBeVisible();
   await expect(page.locator('.folder-item-card').filter({ hasText: 'Unrelated.txt' }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await expect(page.getByText('No downloads', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('alert').filter({ hasText: 'Transfers unavailable' })).toHaveCount(0);

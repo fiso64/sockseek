@@ -142,6 +142,72 @@
         ]
       }
     },
+    "/api/server/profile/picture": {
+      "get": {
+        "tags": [
+          "User Browsing"
+        ],
+        "summary": "Gets the profile picture this daemon shows to Soulseek peers.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "byte"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "byte"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "type": "string",
+                  "format": "byte"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "byte"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
     "/api/users/{username}/picture": {
       "get": {
         "tags": [
@@ -17005,6 +17071,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          "linkedResults": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/JobSummaryDto"
+            }
           }
         }
       },
@@ -21620,7 +21695,7 @@
       },
       "LiveProtocolContractVersion": {
         "enum": [
-          22
+          23
         ],
         "type": "integer"
       },
@@ -21659,6 +21734,23 @@
           },
           "queueChanged": {
             "type": "boolean"
+          }
+        }
+      },
+      "LocalUserProfileDto": {
+        "required": [
+          "description"
+        ],
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "pictureUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -24721,6 +24813,16 @@
               },
               {
                 "$ref": "#/components/schemas/SoulseekConnectionDto"
+              }
+            ]
+          },
+          "profile": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LocalUserProfileDto"
               }
             ]
           }

@@ -21,7 +21,7 @@ import { DaemonStateReducer, type ReplicatedDaemonState, type DaemonStateChanges
 export { DaemonStateReducer } from './state.svelte';
 export type { ReplicatedDaemonState } from './state.svelte';
 
-const expectedLiveProtocolVersion = 22 satisfies Schema<'LiveProtocolContractVersion'>;
+const expectedLiveProtocolVersion = 23 satisfies Schema<'LiveProtocolContractVersion'>;
 const stateUpdateBatchMessage = 'stateUpdateBatch' satisfies Schema<'LiveServerMessage'>;
 const subscribeAllMethod = 'SubscribeAll' satisfies Schema<'LiveClientInvocation'>;
 const subscribeChatMethod = 'SubscribeChat' satisfies Schema<'LiveClientInvocation'>;

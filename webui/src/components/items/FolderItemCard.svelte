@@ -107,7 +107,8 @@
   }
 
   function fileTransferSecondary(value: TransferPresentation): string {
-    return [value.tone === 'failed' ? undefined : value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
+    // Explanations belong to the state label's details dialog, not beside it.
+    return [value.speed, value.eta].filter(Boolean).join(' · ');
   }
 
   // Without path-level selection, a subfolder selects its loaded files at once.
@@ -143,10 +144,13 @@
         <bdi dir="ltr">{@render matchedPath(path, highlight, parentPath(path).length, Boolean(transfer))}</bdi>
       </strong>
     </div>
-    {#if totalFileCount !== 1}
+    <!-- A one-file folder's row already shows its size; keep only the age. -->
+    {#if totalFileCount !== 1 || transfer?.createdAt}
       <div class="folder-heading-meta">
-        <span class="folder-file-count" class:folder-transfer-file-count={Boolean(transfer)}><strong>{transfer && !filesComplete ? `${files.length}/${totalFileCount ?? '?'}` : totalFileCount ?? '—'}</strong> files</span>
-        <span class="folder-heading-size" title="Total known file size; unreported sizes are excluded.">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</span>
+        {#if totalFileCount !== 1}
+          <span class="folder-file-count" class:folder-transfer-file-count={Boolean(transfer)}><strong>{transfer && !filesComplete ? `${files.length}/${totalFileCount ?? '?'}` : totalFileCount ?? '—'}</strong> files</span>
+          <span class="folder-heading-size" title="Total known file size; unreported sizes are excluded.">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</span>
+        {/if}
         {#if transfer?.createdAt}<span class="folder-transfer-age"><RelativeTime timestamp={transfer.createdAt} lowercase /></span>{/if}
       </div>
     {/if}

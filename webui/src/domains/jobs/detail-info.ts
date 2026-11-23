@@ -26,7 +26,7 @@ export function jobDetailInfo(job: JobSummaryDto, payload: Schema<'JobPayloadDto
   const childFailuresCounted = job.lifecycle.failureReason === 'ChildJobsFailed' && Number(stats?.failedMemberCount) > 0;
   if (terminal && job.lifecycle.terminalOutcome !== 'Succeeded') {
     info.message = childFailuresCounted && collection ? ''
-      : job.lifecycle.failureMessage?.trim() || jobOutcomeDetail(job);
+      : jobOutcomeDetail(job);
   }
 
   if (collection) {
@@ -61,8 +61,8 @@ export function jobDetailInfo(job: JobSummaryDto, payload: Schema<'JobPayloadDto
   if (!terminal && !hasContent) {
     if (!collection) info.counts = automaticJobCountStats(job);
   } else if (terminal && !hasContent && !info.message && !collection && job.lifecycle.terminalOutcome !== 'Skipped') {
-    if (payload?.kind === 'song') info.message = 'No selected file is retained for this job.';
-    if (payload?.kind === 'album') info.message = 'No selected folder is retained for this job.';
+    if (payload?.kind === 'song') info.message = 'This job has no downloaded file to show.';
+    if (payload?.kind === 'album') info.message = 'This job has no downloaded folder to show.';
   }
   // An empty successful collection is useful information, not a missing result.
   if (collection && terminal && Number(stats?.memberCount) === 0 && stats?.memberCount != null && !info.message)

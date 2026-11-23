@@ -9,7 +9,7 @@
   import JobsList from './domains/jobs/JobsList.svelte';
   import { canDeleteSubmission, requireDeleted } from './domains/jobs/deletion';
   import { completedExtract, showsSearchResults } from './domains/jobs/presentation';
-  import { JobListController, type JobsTab } from './domains/jobs/job-list.svelte';
+  import { JobListController, jobsTabQuery, type JobsTab } from './domains/jobs/job-list.svelte';
   import { JobRouteReader } from './domains/jobs/route-reader';
   import { createChatDrafts } from './domains/chat/messages';
   import NewJobComposer from './domains/jobs/NewJobComposer.svelte';
@@ -39,8 +39,8 @@
   const liveClient = new DaemonLiveClient();
   const observeJobs = liveClient.observeJobs.bind(liveClient);
   const jobLists = {
-    searches: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), 'searches'),
-    downloads: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), 'downloads'),
+    searches: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), id => jobsTabQuery('searches', id)),
+    downloads: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), id => jobsTabQuery('downloads', id)),
   };
   let jobsTab = $state<JobsTab>('searches');
   let jobList = $derived(jobLists[jobsTab]);
@@ -596,7 +596,7 @@
 <AppShell {activePage} {liveStatus} {liveState} {search} {userBrowse} {searchBusy} onnavigate={navigate} onsearchchange={(value) => (search = value)} onsearchsubmit={(value) => void submit(value)} ondownloadrequest={composeSearchDownload} onuserbrowsechange={changeUserBrowse} onuserbrowsesubmit={submitUserBrowse}>
   {#if activePage === 'jobs' && pendingJobId && jobRouteError}
     <section class="page page-search redesigned-search-page">
-      <div class={`resource-state-notice ${liveStatus === 'offline' ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Job unavailable'}</strong><small>{liveStatus === 'offline' ? 'This resource cannot be loaded while the daemon is offline.' : jobRouteError.message}</small></span>{#if liveStatus !== 'offline'}<button class="button" type="button" onclick={() => void openJobFromPath(pendingJobId!, routeLocation())}>Retry</button>{/if}<button class="button" type="button" onclick={backToJobs}>Back to jobs</button></div>
+      <div class={`resource-state-notice ${liveStatus === 'offline' ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Job unavailable'}</strong><small>{liveStatus === 'offline' ? 'This can’t be loaded while the daemon is offline.' : jobRouteError.message}</small></span>{#if liveStatus !== 'offline'}<button class="button" type="button" onclick={() => void openJobFromPath(pendingJobId!, routeLocation())}>Retry</button>{/if}<button class="button" type="button" onclick={backToJobs}>Back to jobs</button></div>
     </section>
   {:else if activePage === 'jobs' && showingSearch && pendingJobId && searchState.job?.jobId !== pendingJobId}
     <section class="page page-search redesigned-search-page">
@@ -665,7 +665,8 @@
         {#snippet children(AutomaticJobDetail)}
           <AutomaticJobDetail jobId={automaticJobId!} initialDetail={automaticInitialDetail} {userActions}
             connected={liveStatus === 'connected' && documentVisible}
-            {observeJobs}
+            {liveStatus} visible={documentVisible}
+            {observeJobs} observeJobList={(scope, next, error) => liveClient.observeJobList(scope, next, error)}
             onback={backToJobs} onopenjob={(job, detail) => void openJob(job, detail)} ondelete={(job) => void deleteOpenedSubmission(job)}
             deletingSubmissions={deletingSubmissionIds} deleteError={mutationError} />
         {/snippet}
@@ -675,11 +676,11 @@
     <JobsList
       tab={jobsTab} ontabchange={changeJobsTab} position={jobList}
       submissionId={jobList.submissionId} onclearfilter={() => { jobList.filterSubmission(null); setPath(jobsListPath()); }}
-      refreshRevision={jobList.refreshRevision}
       connected={liveStatus === 'connected' && documentVisible}
       {observeJobs}
       onnew={openJobDraft}
       jobs={jobList.items}
+      linkedResults={jobList.linkedResults}
       loading={jobList.loading || liveStatus === 'connecting' || liveStatus === 'reconnecting'}
       daemonOffline={liveStatus === 'offline'}
       hasMore={Boolean(jobList.cursor)}

@@ -1,4 +1,6 @@
-# Download options
+# Options
+
+These options work for one-shot downloads, in the configuration file and in profiles. Daemon, WebUI and remote CLI settings are in [Daemon and remote CLI](daemon-options.md).
 
 Most common flags:
 
@@ -19,20 +21,36 @@ Most common flags:
 
 <!-- sockseek-help:start(main) -->
 
-## Required Arguments
+## Soulseek Account and Session
+
+```
+--user <username>               Soulseek username (required)
+--pass <password>               Soulseek password (required unless --password-file is set)
+--password-file <path>          Read the Soulseek password from a file
+--listen-port <port>            Port for incoming connections (default: 49998)
+--no-listen                     Disable the incoming connection listener
+--connect-timeout <ms>          Timeout used when logging in to Soulseek (default: 20000ms)
+--user-description <desc>       Soulseek profile description
+--user-picture <path>           Soulseek profile picture (local image file)
+```
+
+## Configuration and Profiles
+
+```
+-c, --config <path>             Set config file location. Set to 'none' to ignore config
+--no-config                     Ignore any config file
+--profile <names>               Configuration profile(s) to use. See `--help config`.
+--concurrent-jobs <num>         Max concurrent leaf jobs (default: 20)
+--concurrent-searches <num>     Max concurrent Soulseek searches (default: 2)
+--concurrent-extractors <num>   Max concurrent input extractors (default: 4)
+```
+
+## Input and Output Options
 
 ```
 <input>                         A URL, search string, Soulseek link, or path to a local
                                 CSV/list file. Run `--help input` to view the accepted inputs.
                                 Can also be passed with -i, --input <input>
---user <username>               Soulseek username
---pass <password>               Soulseek password
---password-file <path>          Read the Soulseek password from a file
-```
-
-## General Options
-
-```
 -o, --output-dir <path>         Download directory
 --input-type <type>             [csv|youtube|spotify|bandcamp|string|list|soulseek-link|
                                 musicbrainz] (default: auto)
@@ -43,12 +61,6 @@ Most common flags:
 -n, --number <maxtracks>        Download the first n tracks of a playlist
 --offset <offset>               Skip a specified number of tracks
 -r, --reverse                   Download tracks in reverse order
--c, --config <path>             Set config file location. Set to 'none' to ignore config
---no-config                     Ignore any config file
---profile <names>               Configuration profile(s) to use. See `--help config`.
---concurrent-jobs <num>         Max concurrent leaf jobs (default: 20)
---concurrent-searches <num>     Max concurrent Soulseek searches (default: 2)
---concurrent-extractors <num>   Max concurrent input extractors (default: 4)
 --write-playlist                Create an m3u playlist file in the output directory
 --playlist-path <path>          Override default path for m3u playlist file
 --write-index                   Create/update the Sockseek index (default when using
@@ -69,11 +81,6 @@ Most common flags:
                                 (default: name)
 --skip-not-found                Skip searching for tracks that weren't found on Soulseek
                                 during the last run.
-
---listen-port <port>            Port for incoming connections (default: 49998)
---no-listen                     Disable the incoming connection listener
---connect-timeout <ms>          Timeout used when logging in to Soulseek (default: 20000ms)
---user-description <desc>       Soulseek profile description
 
 --on-complete <command>         Run a command when a download completes. See `--help
                                 on-complete`

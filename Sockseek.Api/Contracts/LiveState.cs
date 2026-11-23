@@ -5,7 +5,7 @@ namespace Sockseek.Api;
 /// <summary>The live replication protocol implemented by this API.</summary>
 public static class LiveProtocol
 {
-    public const int Version = 22;
+    public const int Version = 23;
     public const string HubPath = "api/events";
     public const string StateUpdateBatchMethod = "stateUpdateBatch";
     public const string SubscribeAllMethod = nameof(LiveClientInvocation.SubscribeAll);
@@ -51,12 +51,16 @@ public sealed record JobListScopeDto(JobQuery Query, int Limit = ServerProtocol.
 /// Initial WindowJobIds replaces the scope, regardless of revisions in an old scope.
 /// Later frames patch rows or remove actual scope exits; runtime retirement is invisible.
 /// NextCursor follows the current window boundary. Membership changes can move that boundary.
+/// With ExcludeExtractResults, LinkedResults carries the summary of each displayed
+/// extraction's result job the first time that result is linked in this scope.
+/// Observe active results through their own job subscription for later changes.
 /// </summary>
 public sealed record JobListUpdateDto(
     IReadOnlyList<JobDeltaDto> Jobs,
     IReadOnlyList<Guid> RemovedJobIds,
     string? NextCursor,
-    IReadOnlyList<Guid>? WindowJobIds = null);
+    IReadOnlyList<Guid>? WindowJobIds = null,
+    IReadOnlyList<JobSummaryDto>? LinkedResults = null);
 
 /// <summary>The version tied to the generated live contract graph.</summary>
 public enum LiveProtocolContractVersion

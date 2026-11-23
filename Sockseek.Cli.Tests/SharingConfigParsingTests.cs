@@ -154,27 +154,6 @@ public sealed class SharingConfigParsingTests
         }
     }
 
-    [TestMethod]
-    [DataRow("[named]\nuser-picture = picture.png")]
-    [DataRow("[auto]\nprofile-cond = interactive\nuser-picture = picture.png")]
-    public void UserPicture_IsRejectedInDownloadProfiles(string contents)
-    {
-        string path = Path.Combine(
-            Path.GetTempPath(),
-            $"sockseek-picture-profile-{Guid.NewGuid():N}.conf");
-        File.WriteAllText(path, contents);
-
-        try
-        {
-            var ex = Assert.ThrowsExactly<ArgumentException>(() => ConfigManager.Load(path));
-            StringAssert.Contains(ex.Message, "not allowed in named or automatic profile");
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
     private static EngineSettings Bind(params string[] arguments)
     {
         var file = new ConfigFile("none", new Dictionary<string, ProfileEntry>());

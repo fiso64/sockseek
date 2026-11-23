@@ -95,7 +95,7 @@ public class EngineSettings
 
     [SettingOption("--mock-files-fail-downloads")]
     public int MockFilesFailDownloads { get; set; }
-    [SettingOption("--user-picture", DefaultProfileOnly = true)]
+    [SettingOption("--user-picture")]
     [SettingReloadable]
     public string? UserPicturePath { get; set; }
     public SharingSettings Sharing { get; set; } = new();

@@ -151,7 +151,7 @@ public sealed class JobSettingsComposer
         Dictionary<string, string>? provenance,
         out SearchSettingsBaselineKind baseline)
     {
-        var requestNamedProfiles = catalog.ResolveNamedProfiles(request?.ProfileNames);
+        var requestNamedProfiles = catalog.ResolveRequestProfiles(request?.ProfileNames);
         var allNamedProfiles = launchNamedProfiles.Concat(requestNamedProfiles).ToList();
         baseline = SearchSettingsBaselines.For(job);
         IReadOnlyList<SettingsProfile> matchingAutoProfiles = [];

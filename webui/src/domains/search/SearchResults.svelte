@@ -162,12 +162,12 @@
   let sortEdited = false;
   let genericMode = $derived(viewState.draft?.resultMode === 'generic');
   const retainedResultNotices: Partial<Record<Schema<'SearchViewRetentionState'>, { title: string; detail: string }>> = {
-    Pruned: { title: 'Search results were pruned',
-      detail: 'Saved results were removed by retention. Search again to get fresh results.' },
+    Pruned: { title: 'Search results removed',
+      detail: 'These results were removed from history. Search again for fresh results.' },
     Incomplete: { title: 'Search results are incomplete',
-      detail: 'Some results could not be retained. Only available results are shown. Search again to get fresh results.' },
+      detail: 'Some results couldn’t be saved, so only part of them is shown. Search again for fresh results.' },
     Interrupted: { title: 'Search was interrupted',
-      detail: 'Only results retained before the interruption are available. Search again to get fresh results.' },
+      detail: 'Only results found before the interruption are shown. Search again for fresh results.' },
   };
   let retentionNotice = $derived(viewState.summary ? retainedResultNotices[viewState.summary.retentionState] ?? null : null);
   let revisionError = $state<Error | null>(null);
@@ -204,6 +204,16 @@
   let viewUnavailable = $derived(!daemonOffline && (searchViewUnavailable(viewState)
     || (revisionError instanceof DaemonApiError && revisionError.status === 404)
     || (configurationError instanceof DaemonApiError && configurationError.status === 404)));
+  // The daemon drops a results view some time after nobody watches it (a
+  // sleeping laptop, an idle tab, a restart). Rebuild it from the stored
+  // results when nothing would be lost; ask first when a selection would be.
+  let autoReloaded = false;
+  $effect(() => {
+    if (!viewUnavailable) { autoReloaded = false; return; }
+    if (autoReloaded || !connected || selectedCount > 0 || viewState.canRetryPendingCommit || viewState.refining) return;
+    autoReloaded = true;
+    untrack(() => void requestRefinement(true));
+  });
   let hasBareFileGroups = $derived(genericMode && viewState.rows.some(row =>
     row.kind === 'directory' && row.value.ref.folderPath.length === 0));
   let selectionUsesEarlierRevision = $derived(usesEarlierRevision(viewState));
@@ -866,7 +876,7 @@
         type="button"
         class="button action-button collapse-narrow"
         disabled={!searchAgainAvailable || searchAgainPending}
-        title={searchAgainAvailable ? 'Run this search again with its retained settings' : 'Single-search replay is unavailable for this job'}
+        title={searchAgainAvailable ? 'Run this search again with the same settings' : 'Single-search replay is unavailable for this job'}
         onclick={onsearchagain}
       ><Icon name="search" /><span>{searchAgainPending ? 'Starting…' : 'Search again'}</span></button>
       {#if removeAction}
@@ -885,12 +895,12 @@
     </div>
   {/if}
 
-  {#if viewUnavailable}
+  {#if viewUnavailable && !viewState.refining}
     <div class="resource-state-notice unavailable" role="alert">
       <span class="resource-state-dot"></span>
-      <span class="resource-state-copy"><strong>Results view unavailable</strong><small>This results snapshot expired or the daemon restarted.
+      <span class="resource-state-copy"><strong>Results expired</strong><small>These results expired while the page was idle.
         {#if viewState.canRetryPendingCommit}Retry your download request to recover its outcome.
-        {:else}Reload results; your current selection will be cleared.{/if}
+        {:else}Reload them to continue; your selection will be cleared.{/if}
       </small></span>
       {#if !viewState.canRetryPendingCommit}<button class="button" type="button" disabled={viewState.refining} onclick={() => requestRefinement(true)}>Reload results</button>{/if}
     </div>
@@ -899,7 +909,7 @@
   {#if (viewState.error || revisionError || liveJobError) && !viewUnavailable}
     <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'}`} class:blocking={viewState.phase === 'failed'} role="alert">
       <span class="resource-state-dot"></span>
-      <span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : revisionError ? 'Selected results could not be checked' : viewState.error ? 'Search results could not be refreshed' : 'Job updates could not be refreshed'}</strong><small>{daemonOffline ? 'This resource cannot be loaded while the daemon is offline.' : (revisionError ?? viewState.error ?? liveJobError)?.message}</small></span>
+      <span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : revisionError ? 'Selected results could not be checked' : viewState.error ? 'Search results could not be refreshed' : 'Job updates could not be refreshed'}</strong><small>{daemonOffline ? 'This can’t be loaded while the daemon is offline.' : (revisionError ?? viewState.error ?? liveJobError)?.message}</small></span>
       {#if !daemonOffline}<button class="button" type="button" onclick={() => { if (revisionError) revisionRetry++; else onretry(); }}>Retry</button>{/if}
     </div>
   {/if}

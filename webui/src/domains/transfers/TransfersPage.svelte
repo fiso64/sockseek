@@ -411,7 +411,7 @@
 
   async function removeFolder(entry: TransferTimelineEntry, groupRef: string): Promise<void> {
     if (mutation.phase === 'pending') return;
-    mutation = { phase: 'pending', label: `Removing ${basename(entry.path)} history…` };
+    mutation = { phase: 'pending', label: `Removing ${basename(entry.path)}…` };
     try {
       const receipt = await daemonApi.removeTransfers(direction, { username: entry.username, groupRef });
       mutation = receiptStatus(receipt, 'removed');
@@ -460,17 +460,17 @@
 
   <div class="transfer-resource-state">
     {#if !loading && !error && coverage && coverage.state !== 'Available'}
-      <div class="resource-state-notice unavailable" role="status"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Retained history {coverage?.state?.toLowerCase() ?? 'unavailable'}</strong><small>{coverage?.reason ?? 'Live transfers remain available.'}</small></span></div>
+      <div class="resource-state-notice unavailable" role="status"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>History {coverage?.state?.toLowerCase() ?? 'unavailable'}</strong><small>{coverage?.reason ?? 'Current transfers are still shown.'}</small></span></div>
     {/if}
     {#if error && groups.length}<div class="resource-state-notice unavailable" role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Transfers unavailable</strong><small>{error.message}</small></span><button class="button" type="button" disabled={loading} onclick={() => void onchanged()}>Retry</button></div>{/if}
-    {#if summaryError}<div class="resource-state-notice unavailable" role="status"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Folder totals unavailable</strong><small>Transfer rows remain usable; folder totals are shown for loaded files only. {summaryError.message}</small></span><button class="button" type="button" disabled={retryingSummaries} onclick={() => void retrySummaries()}>Retry</button></div>{/if}
+    {#if summaryError}<div class="resource-state-notice unavailable" role="status"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Folder totals unavailable</strong><small>Totals cover loaded files only. {summaryError.message}</small></span><button class="button" type="button" disabled={retryingSummaries} onclick={() => void retrySummaries()}>Retry</button></div>{/if}
     <MutationStatus state={mutation} />
   </div>
 
   {#if (loading || !coverage && !error) && !groups.length}
     <LoadingIndicator label={`Loading ${direction}s`} blocking />
   {:else if error && !groups.length}
-    <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Transfers unavailable'}</strong><small>{daemonOffline ? direction === 'download' ? 'Current download state cannot be loaded while the daemon is offline.' : 'Current upload state cannot be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button class="button" type="button" onclick={() => void onchanged()}>Retry</button>{/if}</div>
+    <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Transfers unavailable'}</strong><small>{daemonOffline ? direction === 'download' ? 'Downloads can’t be loaded while the daemon is offline.' : 'Uploads can’t be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button class="button" type="button" onclick={() => void onchanged()}>Retry</button>{/if}</div>
   {:else if !groups.length && !error && coverage?.state === 'Available'}
     <EmptyState icon={direction} title={`No ${direction}s`} />
   {:else if groups.length}
@@ -488,7 +488,7 @@
               {#each group.items as layout (layout.id)}
                 {@const entry = presentTransferEntry(layout, projection, readTransfer)}
                 {@const memberPage = entry.groupRef ? activeMemberPages[groupPageKey(entry.username, entry.groupRef)] : undefined}
-                <FolderItemCard path={entry.path} sizeBytes={entry.sizeBytes} files={entry.files} totalFileCount={entry.totalsKnown ? entry.totalFileCount : null} filesComplete={entry.filesComplete} dataStateLabel={entry.totalsKnown ? entry.filesComplete ? undefined : 'Showing loaded files; folder totals and actions cover the entire group.' : 'Size, progress and status cover loaded files only. Folder actions apply to the entire group.'} transfer={entry.transfer} onloadmorefiles={entry.totalsKnown && (!entry.filesComplete || memberPage?.error) ? () => void loadGroupMembers(entry) : undefined} loadingMoreFiles={Boolean(memberPage?.loading || summaryCoverage === null)} fileLoadError={memberPage?.error ?? null}
+                <FolderItemCard path={entry.path} sizeBytes={entry.sizeBytes} files={entry.files} totalFileCount={entry.totalsKnown ? entry.totalFileCount : null} filesComplete={entry.filesComplete} dataStateLabel={entry.totalsKnown ? entry.filesComplete ? undefined : 'Showing some of the files. Totals and actions cover the whole folder.' : 'Totals cover loaded files only. Actions apply to the whole folder.'} transfer={entry.transfer} onloadmorefiles={entry.totalsKnown && (!entry.filesComplete || memberPage?.error) ? () => void loadGroupMembers(entry) : undefined} loadingMoreFiles={Boolean(memberPage?.loading || summaryCoverage === null)} fileLoadError={memberPage?.error ?? null}
                   actionsDisabled={mutation.phase === 'pending'} onretryfile={(file) => void retryDownload(() => daemonApi.retryTransfer(file.transfer!.record!.transferId!))}>
                   {#snippet actions()}
                     {#if direction === 'download' && layout.rows[0]?.groupKind === 'Directory' && isTerminalTransfer(entry.transfer) && entry.transfer.tone !== 'complete'}

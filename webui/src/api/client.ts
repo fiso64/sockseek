@@ -91,13 +91,6 @@ export class DaemonApiClient {
     return this.http.get(`/jobs/${encodeURIComponent(jobId)}/directory-files${queryString({ attemptNumber, afterOrdinal, limit })}`, signal);
   }
 
-  getJobChildren(jobId: string, cursor?: string | null, signal?: AbortSignal, kind?: JobSummaryDto['display']['kind']): Promise<CursorPage<JobSummaryDto>> {
-    return this.http.getCursorPage<JobSummaryDto[]>(
-      `/jobs${queryString({ parentJobId: jobId, kind, includeAll: false, excludeExtractResults: true, cursor, limit: nestedPageSize })}`,
-      signal,
-    );
-  }
-
   createJobPreview(request: Schema<'CreateJobPreviewRequestDto'>, signal?: AbortSignal): Promise<Schema<'CreateJobPreviewResponseDto'>> {
     return this.http.post('/job-previews', request, signal);
   }

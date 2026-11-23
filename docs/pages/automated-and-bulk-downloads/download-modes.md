@@ -24,7 +24,7 @@ Example:
 sockseek "Artist - Album Name" -t
 ```
 
-See [Album options](../reference/download-options.md#album-download-options) for album-specific options.
+See [Album options](../reference/options.md#album-download-options) for album-specific options.
 
 ## Album Groups
 
@@ -38,7 +38,7 @@ Example:
 sockseek "artist=Artist Name" -gt
 ```
 
-See [Grouping options](../reference/download-options.md#group-download-options) for group options.
+See [Grouping options](../reference/options.md#group-download-options) for group options.
 
 ## Song Groups
 
@@ -52,6 +52,6 @@ Example:
 sockseek "artist=Artist Name" -gs
 ```
 
-See [Grouping options](../reference/download-options.md#group-download-options) for group options.
+See [Grouping options](../reference/options.md#group-download-options) for group options.
 
 <!-- sockseek-help:end -->

@@ -1,7 +1,7 @@
 import { jobSummary } from './job-fixture';
 import { nestedPageSize } from '../api-defaults';
 import { expect, test, vi } from 'vitest';
-import { JobListController } from '../src/domains/jobs/job-list.svelte';
+import { JobListController, jobsTabQuery } from '../src/domains/jobs/job-list.svelte';
 import type { DaemonLiveClient } from '../src/api/live';
 import type { JobSummaryDto, Schema } from '../src/api/types';
 import { automaticJobListStats, automaticJobProgressPercent } from '../src/domains/jobs/list-stats';
@@ -110,7 +110,7 @@ function listFixture() {
     subscriptions.push({ next, error, stop });
     return stop;
   });
-  const controller = new JobListController({ getJobListSnapshot }, observe);
+  const controller = new JobListController({ getJobListSnapshot }, observe, id => jobsTabQuery('searches', id));
   return { controller, getJobListSnapshot, observe, subscriptions };
 }
 
@@ -183,10 +183,11 @@ test('Job deletion discards an in-flight snapshot and disconnected reads use the
 
 test('Download jobs scopes exclude searches and retrievals before paging and retain their own window', () => {
   const f = listFixture();
-  const downloads = new JobListController({ getJobListSnapshot: f.getJobListSnapshot }, f.observe, 'downloads');
+  const downloads = new JobListController({ getJobListSnapshot: f.getJobListSnapshot }, f.observe, id => jobsTabQuery('downloads', id));
   downloads.setActive(true, 'connected');
   expect(f.observe.mock.lastCall?.[0].query).toMatchObject({ kind: null, excludeKinds: ['search', 'retrieve-folder'] });
-  f.subscriptions[0]!.next(listSnapshot(listedJob('1')));
+  f.subscriptions[0]!.next({ ...listSnapshot(listedJob('1')), linkedResults: [listedJob('9')] });
+  expect(downloads.linkedResults.get('9')?.display.itemName).toBe('9');
   downloads.loadMore();
   downloads.setActive(false, 'connected');
   f.controller.setActive(true, 'connected');

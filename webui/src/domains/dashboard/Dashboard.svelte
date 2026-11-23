@@ -16,7 +16,7 @@
   const rangeLabels: Record<RangeId, string> = { '24h': '24h', '7d': '7d', '30d': '30d', '90d': '90d', '1y': '1y', all: 'All' };
   const rangeContext: Record<RangeId, string> = {
     '24h': 'Last 24 hours', '7d': 'Last 7 days', '30d': 'Last 30 days',
-    '90d': 'Last 90 days', '1y': 'Last 1 year', all: 'All retained history',
+    '90d': 'Last 90 days', '1y': 'Last 1 year', all: 'All history',
   };
 
   interface Props {
@@ -152,7 +152,7 @@
 
   function ratioContext(): string {
     if (!hasHistory) return '—';
-    if (range === 'all') return 'All retained history';
+    if (range === 'all') return 'All history';
     const delta = ratioDelta();
     return delta === '—' ? '—' : `${delta} vs previous range`;
   }
@@ -186,7 +186,7 @@
       <span class="resource-state-dot"></span>
       <span class="resource-state-copy">
         <strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Dashboard analytics unavailable'}</strong>
-        <small>{liveStatus === 'offline' ? 'This resource cannot be loaded while the daemon is offline.' : error.message}</small>
+        <small>{liveStatus === 'offline' ? 'This can’t be loaded while the daemon is offline.' : error.message}</small>
       </span>
       {#if liveStatus !== 'offline'}
         <button class="button" type="button" onclick={() => retryRevision++}>Retry</button>

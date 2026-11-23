@@ -54,6 +54,17 @@ public sealed class ProfileCatalog
 
         return resolved;
     }
+
+    /// Profiles selected for one job or request. Engine settings (Soulseek
+    /// identity, concurrency, logging) apply to a whole process and only take
+    /// effect when the profile is chosen at startup, so refuse them here.
+    public IReadOnlyList<SettingsProfile> ResolveRequestProfiles(IEnumerable<string>? names)
+    {
+        var resolved = ResolveNamedProfiles(names);
+        if (resolved.FirstOrDefault(profile => profile.HasEngineSettings) is { } engine)
+            throw new ArgumentException($"Input error: Profile '{engine.Name}' contains settings that apply to the whole process. Choose it at startup with --profile instead.");
+        return resolved;
+    }
 }
 
 public sealed class ProfileContext
