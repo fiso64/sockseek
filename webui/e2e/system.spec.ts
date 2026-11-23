@@ -139,7 +139,7 @@ test('browses the served catalog and confirms cleanup without deleting active wo
   await page.goto('/uploads');
   await daemon.command('fail-next-upload');
   await daemon.command('request-upload');
-  await expect(page.locator('.file-item-card').filter({ hasText: 'Uploaded.txt' }).getByRole('button', { name: 'Failed', exact: true })).toBeVisible();
+  await expect(page.locator('.folder-item-card').filter({ hasText: 'Uploaded.txt' }).getByRole('button', { name: 'Failed', exact: true })).toBeVisible();
   await page.goto('/system/management');
   await page.getByTestId('management-uploads').click();
   const removed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/transfers/remove');
