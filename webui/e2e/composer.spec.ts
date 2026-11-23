@@ -71,7 +71,7 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   expect(started.options?.downloadSettings?.output?.nameFormat).toBe('direct/{stitle}');
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Fixture song');
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Downloads', exact: true }).click();
-  await expect(page.locator('.file-item-card').getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
+  await expect(page.locator('.folder-item-card').getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   const transfersResponse = await page.request.get('/api/transfers?direction=download&limit=500');
   expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
   const transfers = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
@@ -247,9 +247,8 @@ test('edits source settings before upload and rebases them when the artifact arr
   await page.locator('#new-job-options-filtering').click();
   const filtering = page.locator('#new-job-options-panel');
   const strictTitle = filtering.getByTestId('strict-title-conditions');
-  await expect(filtering.getByLabel('Min tracks')).toBeVisible();
-  await expect(filtering.getByLabel('Max tracks')).toBeVisible();
-  await expect(filtering.getByRole('spinbutton', { name: /Expected length/i })).toHaveCount(0);
+  await expect(filtering.getByLabel('Track count', { exact: true })).toBeVisible();
+  await expect(filtering.getByLabel(/Expected length/i)).toHaveCount(0);
   await expect(filtering.getByLabel('Required track title', { exact: true })).toHaveCount(0);
   const provisionalResponse = await provisional;
   expect(provisionalResponse.ok()).toBeTruthy();

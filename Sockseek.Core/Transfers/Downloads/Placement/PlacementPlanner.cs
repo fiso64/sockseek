@@ -64,18 +64,22 @@ public sealed class PlacementPlanner(OutputScope outputScope)
         OutputSettings output)
         => PlanDirectory(plan, output, settings: null);
 
+    /// <param name="selection">Interactive selections settle filename collisions
+    /// after transfer, from the finished bytes, instead of numbering them up front.</param>
     public IReadOnlyList<FilePlacement> PlanDirectory(
         DirectoryTransferPlan plan,
-        DownloadSettings settings)
+        DownloadSettings settings,
+        bool selection = false)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        return PlanDirectory(plan, settings.Output, settings);
+        return PlanDirectory(plan, settings.Output, settings, selection);
     }
 
     private IReadOnlyList<FilePlacement> PlanDirectory(
         DirectoryTransferPlan plan,
         OutputSettings output,
-        DownloadSettings? settings)
+        DownloadSettings? settings,
+        bool selection = false)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(output);
@@ -93,7 +97,8 @@ public sealed class PlacementPlanner(OutputScope outputScope)
             {
                 string leaf = RemoteLeaf(entry.Target.Filename);
                 var tree = new List<string>(entry.RelativeDirectoryComponents.Count + 2);
-                if (plan.DisplayRoot.Length != 0)
+                // A selected folder keeps its name; individually selected files land flat.
+                if (plan.DisplayRoot.Length != 0 && plan.RepresentsDirectorySelection)
                     tree.Add(plan.DisplayRoot);
                 tree.AddRange(entry.RelativeDirectoryComponents);
                 tree.Add(leaf);
@@ -114,8 +119,7 @@ public sealed class PlacementPlanner(OutputScope outputScope)
             }
 
             string resolved = ResolveContainedPath(placementRoot, components, output.InvalidReplaceStr);
-            // Interactive downloads settle actual filename collisions with the finished bytes.
-            if (!output.PreserveSelectionConflicts)
+            if (!selection)
                 resolved = Utils.ResolvePathCollision(resolved, path => occupied.Add(CollisionKey(path)), nextSuffixByPath);
             placements.Add(new FilePlacement(entry.Target, ToRelativePath(parent, resolved), resolved));
         }
@@ -183,14 +187,6 @@ public sealed class PlacementPlanner(OutputScope outputScope)
         OutputSettings output,
         DownloadSettings? settings)
     {
-        // The structural layout keeps the whole leaf, including repeated extensions.
-        // A selected tree can contain thousands of files using this one format.
-        if (output.NameFormat == NameFormatRenderer.FolderAndFilename)
-        {
-            string[] folders = folderName.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
-                StringSplitOptions.RemoveEmptyEntries);
-            return new RelativeOutputPath([.. folders, RemoteLeaf(target.Filename)]);
-        }
         var context = new NameFormatContext(
             target,
             relativeDirectoryComponents,

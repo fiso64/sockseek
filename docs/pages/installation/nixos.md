@@ -31,7 +31,8 @@ services.sockseek = {
 Apply the configuration with `sudo nixos-rebuild switch`. On the NixOS host, open <http://127.0.0.1:5030> and sign in as `admin` with your WebUI password.
 
 - **Logs** — Run `journalctl -u sockseek` to read the service log.
-- **Storage** — Sockseek keeps its database and history in `/var/lib/sockseek`. Downloads go in `/var/lib/sockseek/downloads` by default.
+- **Storage** — Sockseek keeps its database and history in the private `/var/lib/sockseek/data`. Downloads go in `/var/lib/sockseek/downloads` by default and are readable by other local users, for example a media server.
+- **Shared write access** — To let a group such as `media` write downloads too, add `sockseek` to that group, set the download folder's group and setgid bit, and set `systemd.services.sockseek.serviceConfig.UMask = "0002";`.
 - **Other folders** — Set `output-dir` to download elsewhere or `share` to share an existing library. Give the `sockseek` user write access to the download folder and read access to shared folders.
 - **Incoming connections** — To accept connections from Soulseek peers, add your listener port (default `49998`) to `networking.firewall.allowedTCPPorts`.
 

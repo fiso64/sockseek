@@ -28,19 +28,16 @@ describe('resolved search configuration edits', () => {
   it('clears inherited numeric bounds explicitly instead of turning them into inheritance', () => {
     const before = readSearchConditions({ preferredCond: { maxSampleRate: 48000 } });
     const after = structuredClone(before);
-    after.ranking.common.maxSampleRate = '';
+    after.ranking.common.maxSampleRate = null;
     expect(searchConditionsPatch('track', before, after)).toEqual({ preferredCond: { clearMaxSampleRate: true } });
-    // Number inputs bind null when emptied in the browser.
-    (after.ranking.common as { maxSampleRate: string | null }).maxSampleRate = null;
-    expect(searchConditionsPatch('track', before, after)).toEqual({ preferredCond: { clearMaxSampleRate: true } });
-    after.ranking.common.maxSampleRate = '44100';
+    after.ranking.common.maxSampleRate = 44100;
     expect(searchConditionsPatch('track', before, after)).toEqual({ preferredCond: { maxSampleRate: 44100 } });
   });
 
   it('clears album track bounds and supersedes an older bound patch in the same draft', () => {
     const before = readSearchConditions({ necessaryFolderCond: { minTrackCount: 3 } });
     const after = structuredClone(before);
-    after.album.minTrackCount = '';
+    after.album.minTrackCount = null;
     const clear = searchConditionsPatch('album', before, after);
     expect(clear).toEqual({ necessaryFolderCond: { clearMinTrackCount: true } });
     expect(mergeSearchSettings({ necessaryFolderCond: { minTrackCount: 4 } }, clear))
@@ -52,25 +49,22 @@ describe('resolved search configuration edits', () => {
   it('uses the supported length-disable sentinel and keeps expected length out of condition patches', () => {
     const before = readSearchConditions({ necessaryCond: { lengthTolerance: 3 } }, 180);
     const after = structuredClone(before);
-    after.track.lengthTolerance = '';
-    after.track.expectedLength = '';
+    after.track.lengthTolerance = null;
+    after.track.expectedLength = null;
     expect(searchConditionsPatch('track', before, after)).toEqual({ necessaryCond: { lengthTolerance: -1 } });
     expect(searchExpectedLength(after.track.expectedLength)).toBeUndefined();
     expect(searchExpectedLength(0)).toBe(0);
-    expect(() => searchExpectedLength('1.5')).toThrow('integer');
+    expect(() => searchExpectedLength(1.5)).toThrow('integer');
   });
 
   it('clears a grouped sharer filter while inheriting an empty grouping tolerance', () => {
     const before = readSearchConditions({ minGroupShares: 2, groupLengthTol: 3 });
     const after = structuredClone(before);
-    after.group.minShares = '';
-    after.group.lengthTolerance = '';
+    after.group.minShares = null;
+    after.group.lengthTolerance = null;
     expect(searchConditionsPatch('song-groups', before, after))
       .toEqual({ minGroupShares: 1 });
-    (after.group as { lengthTolerance: string | null }).lengthTolerance = null;
-    expect(searchConditionsPatch('album-groups', before, after))
-      .toEqual({ minGroupShares: 1 });
-    after.group.lengthTolerance = '5';
+    after.group.lengthTolerance = 5;
     expect(searchConditionsPatch('song-groups', before, after))
       .toEqual({ minGroupShares: 1, groupLengthTol: 5 });
   });
@@ -84,7 +78,7 @@ describe('resolved search configuration edits', () => {
     const after = structuredClone(before);
     after.track.strictTitle = true;
     after.album.strictAlbum = true;
-    after.album.minTrackCount = '3';
+    after.album.minTrackCount = 3;
     after.ranking.common.formats = ['FLAC'];
     expect(searchConditionsPatchForFamily('mixed', before, after)).toEqual({
       necessaryCond: { strictTitle: true, strictAlbum: true },
@@ -116,10 +110,10 @@ it('hides only the complete built-in music format set, retaining other filters a
   expect(visibleFormatPills('track', ['FLAC'])).toEqual(['FLAC']);
   expect(visibleFormatPills('album', formats.slice(1))).toEqual(formats.slice(1));
   expect(visibleFormatPills('album', [...formats, 'M4B'])).toEqual([...formats, 'M4B']);
-  conditions.group.minShares = '2';
+  conditions.group.minShares = 2;
   expect(conditionPills('album-groups', conditions).length).toBeGreaterThan(0);
   expect(conditionPills('track', conditions).length).toBe(0);
-  conditions.common.minBitrate = '256';
+  conditions.common.minBitrate = 256;
   expect(conditionPills('track', conditions).length).toBeGreaterThan(0);
 });
 
@@ -153,7 +147,7 @@ it.each(['generic', 'track', 'album', 'song-groups', 'album-groups'] as const)(
     if (mode === 'generic') expect(conditions.common.strictArtist).toBe(true);
     if (mode === 'track' || mode === 'song-groups') {
       expect(conditions.album.requiredTrackTitles).toEqual(['One', 'Two']);
-      expect(conditions.track.lengthTolerance).toBe('');
-    } else expect(conditions.track.expectedLength).toBe('180');
+      expect(conditions.track.lengthTolerance).toBeNull();
+    } else expect(conditions.track.expectedLength).toBe(180);
   },
 );

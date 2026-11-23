@@ -327,14 +327,14 @@
       {:else if rankingTab === 'content'}
         <div class="dashboard-ranking-table content-table">
           <div class="dashboard-ranking-row heading">
-            <span>#</span><span>Folder</span><span>Uploads</span><span>Peers</span>
+            <span>#</span><span>Folder</span><span>Peers</span><span>Uploads</span>
           </div>
           {#each data?.content ?? [] as item, index}
             <div class="dashboard-ranking-row">
               <span>{index + 1}</span>
               <span title={item.displayPath}>{item.displayPath}</span>
-              <span>{formatCount(item.downloadCount)}</span>
               <span>{formatCount(item.distinctPeerCount)}</span>
+              <span>{formatCount(item.downloadCount)}</span>
             </div>
           {/each}
         </div>

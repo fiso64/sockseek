@@ -17,6 +17,8 @@
   import HelpPopover from './HelpPopover.svelte';
   import Notice from './Notice.svelte';
   import SearchFormatControl from './SearchFormatControl.svelte';
+  import IntegerInput from './IntegerInput.svelte';
+  import Icon from './Icon.svelte';
 
 
   type PanelTab = ConfigTab;
@@ -60,6 +62,17 @@
   let activeTab = $state<PanelTab>('conditions');
   $effect(() => { activeTab = section ?? initialTab; });
   let requiredTrackTitle = $state('');
+  // One "Track count" field sets both bounds; differing bounds always show split.
+  let trackCountSplit = $state(false);
+  let trackCountSplitShown = $derived(trackCountSplit || conditions.album.minTrackCount !== conditions.album.maxTrackCount);
+  function setTrackCount(value: number | null): void {
+    conditions.album.minTrackCount = value;
+    conditions.album.maxTrackCount = value;
+  }
+  function mergeTrackCount(): void {
+    trackCountSplit = false;
+    setTrackCount(conditions.album.minTrackCount ?? conditions.album.maxTrackCount);
+  }
 
   let resetting = $state(false);
   let resetError = $state<string | null>(null);
@@ -127,8 +140,8 @@
   <section class="panel subtle search-config-section">
     <h3>Grouping</h3>
     <div class="config-grid">
-      <label><span>{fields.minShares.conditions.label}</span><input class="field" type="number" min="1" step="1" bind:value={conditions.group.minShares} /></label>
-      <label><span>{fields.groupLengthTolerance.conditions.label} <small>sec</small></span><input class="field" type="number" min="0" step="1" bind:value={conditions.group.lengthTolerance} /></label>
+      <label><span>{fields.minShares.conditions.label}</span><IntegerInput bind:value={conditions.group.minShares} /></label>
+      <label><span>{fields.groupLengthTolerance.conditions.label} <small>sec</small></span><IntegerInput bind:value={conditions.group.lengthTolerance} /></label>
     </div>
   </section>
 {/snippet}
@@ -174,11 +187,11 @@
       <div class="config-grid">
         <label>
           <span>{fields.minBitrate.conditions.label} <small>kbps</small></span>
-          <input class="field" type="number" min="0" step="1" bind:value={conditions.common.minBitrate} placeholder="Any" />
+          <IntegerInput bind:value={conditions.common.minBitrate} placeholder="Any" />
         </label>
         <label>
           <span>{fields.maxBitrate.conditions.label} <small>kbps</small></span>
-          <input class="field" type="number" min="0" step="1" bind:value={conditions.common.maxBitrate} placeholder="Any" />
+          <IntegerInput bind:value={conditions.common.maxBitrate} placeholder="Any" />
         </label>
       </div>
 
@@ -186,14 +199,14 @@
         <label>
           <span>{fields.minSampleRate.conditions.label}</span>
           <select class="field" bind:value={conditions.common.minSampleRate}>
-            <option value="">Any</option>
+            <option value={null}>Any</option>
             {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
           </select>
         </label>
         <label>
           <span>{fields.maxSampleRate.conditions.label}</span>
           <select class="field" bind:value={conditions.common.maxSampleRate}>
-            <option value="">Any</option>
+            <option value={null}>Any</option>
             {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
           </select>
         </label>
@@ -203,14 +216,14 @@
         <label>
           <span>{fields.minBitDepth.conditions.label}</span>
           <select class="field" bind:value={conditions.common.minBitDepth}>
-            <option value="">Any</option>
+            <option value={null}>Any</option>
             {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
           </select>
         </label>
         <label>
           <span>{fields.maxBitDepth.conditions.label}</span>
           <select class="field" bind:value={conditions.common.maxBitDepth}>
-            <option value="">Any</option>
+            <option value={null}>Any</option>
             {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
           </select>
         </label>
@@ -249,12 +262,12 @@
                 {#if singleItem}
                   <label>
                     <span>{fields.expectedLength.conditions.label} <small>sec</small></span>
-                    <input class="field" type="number" min="0" bind:value={conditions.track.expectedLength} placeholder="Any" />
+                    <IntegerInput bind:value={conditions.track.expectedLength} placeholder="Any" />
                   </label>
                 {/if}
                 <label>
                   <span>{fields.lengthTolerance.conditions.label} <small>sec</small></span>
-                  <input class="field" type="number" min="0" bind:value={conditions.track.lengthTolerance} />
+                  <IntegerInput bind:value={conditions.track.lengthTolerance} />
                 </label>
               </div>
               <div class="config-check-with-help">
@@ -275,9 +288,20 @@
         {#if family === 'album' || family === 'mixed'}
           <section class="panel subtle search-config-section">
             <h3>Album structure</h3>
-            <div class="config-grid">
-              <label><span>{fields.minTrackCount.conditions.label}</span><input class="field" type="number" min="0" bind:value={conditions.album.minTrackCount} placeholder="Any" /></label>
-              <label><span>{fields.maxTrackCount.conditions.label}</span><input class="field" type="number" min="0" bind:value={conditions.album.maxTrackCount} placeholder="Any" /></label>
+            <div class="config-grid track-count-grid" class:split={trackCountSplitShown}>
+              {#if trackCountSplitShown}
+                <label><span>{fields.minTrackCount.conditions.label}</span><IntegerInput bind:value={conditions.album.minTrackCount} placeholder="Any" /></label>
+                <label><span>{fields.maxTrackCount.conditions.label}</span><IntegerInput bind:value={conditions.album.maxTrackCount} placeholder="Any" /></label>
+                <button type="button" class="button quiet track-count-mode" data-action="merge-track-count"
+                  aria-label="Use one track count" title="Use one track count"
+                  onclick={mergeTrackCount}><Icon name="search-merge" /></button>
+              {:else}
+                <label><span>{fields.trackCount.conditions.label}</span><IntegerInput placeholder="Any"
+                  bind:value={() => conditions.album.minTrackCount, setTrackCount} /></label>
+                <button type="button" class="button quiet track-count-mode" data-action="split-track-count"
+                  aria-label="Set min and max track counts" title="Set min and max track counts"
+                  onclick={() => (trackCountSplit = true)}><Icon name="search-split" /></button>
+              {/if}
             </div>
 
             {#if singleItem}
@@ -343,22 +367,22 @@
       />
 
       <div class="config-grid">
-        <label><span>{fields.minBitrate.ranking.label} <small>kbps</small></span><input class="field" type="number" min="0" bind:value={conditions.ranking.common.minBitrate} placeholder="Any" /></label>
-        <label><span>{fields.maxBitrate.ranking.label} <small>kbps</small></span><input class="field" type="number" min="0" bind:value={conditions.ranking.common.maxBitrate} placeholder="Any" /></label>
+        <label><span>{fields.minBitrate.ranking.label} <small>kbps</small></span><IntegerInput bind:value={conditions.ranking.common.minBitrate} placeholder="Any" /></label>
+        <label><span>{fields.maxBitrate.ranking.label} <small>kbps</small></span><IntegerInput bind:value={conditions.ranking.common.maxBitrate} placeholder="Any" /></label>
       </div>
 
       <div class="config-grid">
         <label>
           <span>{fields.minSampleRate.ranking.label}</span>
           <select class="field" bind:value={conditions.ranking.common.minSampleRate}>
-            <option value="">Any</option>
+            <option value={null}>Any</option>
             {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
           </select>
         </label>
         <label>
           <span>{fields.maxSampleRate.ranking.label}</span>
           <select class="field" bind:value={conditions.ranking.common.maxSampleRate}>
-            <option value="">Any</option>
+            <option value={null}>Any</option>
             {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
           </select>
         </label>
@@ -368,14 +392,14 @@
         <label>
           <span>{fields.minBitDepth.ranking.label}</span>
           <select class="field" bind:value={conditions.ranking.common.minBitDepth}>
-            <option value="">Any</option>
+            <option value={null}>Any</option>
             {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
           </select>
         </label>
         <label>
           <span>{fields.maxBitDepth.ranking.label}</span>
           <select class="field" bind:value={conditions.ranking.common.maxBitDepth}>
-            <option value="">Any</option>
+            <option value={null}>Any</option>
             {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
           </select>
         </label>
@@ -398,7 +422,7 @@
                 {@render fieldHelp(fields.strictTitle.ranking, 'strict-title-ranking-help')}
               </div>
               <div class="config-grid config-grid-spaced single-config-field">
-                <label><span>{fields.lengthTolerance.ranking.label} <small>sec</small></span><input class="field" type="number" min="0" bind:value={conditions.ranking.track.lengthTolerance} placeholder="Disabled" /></label>
+                <label><span>{fields.lengthTolerance.ranking.label} <small>sec</small></span><IntegerInput bind:value={conditions.ranking.track.lengthTolerance} placeholder="Disabled" /></label>
               </div>
             {/if}
             {#if family === 'album' || family === 'mixed'}

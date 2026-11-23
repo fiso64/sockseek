@@ -310,6 +310,10 @@ export class DaemonApiClient {
     return this.http.post(`/users/${encodeURIComponent(username)}/browses`, request, signal);
   }
 
+  cancelUserBrowse(browseId: string): Promise<UserBrowseDto> {
+    return this.http.post(`/user-browses/${encodeURIComponent(browseId)}/cancel`);
+  }
+
   getUserBrowse(browseId: string, signal?: AbortSignal): Promise<UserBrowseDto> {
     return this.http.get(`/user-browses/${encodeURIComponent(browseId)}`, signal);
   }

@@ -223,7 +223,8 @@ public sealed class TransferAnalyticsReader(
                         .Distinct()
                         .Count(),
                 })
-                .OrderByDescending(row => row.DownloadCount)
+                .OrderByDescending(row => row.DistinctPeerCount)
+                .ThenByDescending(row => row.DownloadCount)
                 .ThenBy(row => row.Identity)
                 .Take(query.TopCount)
                 .ToListAsync(cancellationToken)

@@ -46,7 +46,6 @@ public sealed class UnsupportedNameFormatVariableException(string variable)
 /// <summary>Shared conditional/fallback name-format grammar.</summary>
 public static partial class NameFormatRenderer
 {
-    internal const string FolderAndFilename = "{foldername}/{filename}";
 
     public static void ValidateVariables(
         string format,

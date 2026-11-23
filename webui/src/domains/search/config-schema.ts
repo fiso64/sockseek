@@ -134,6 +134,10 @@ export const SEARCH_CONFIG_FIELDS = {
       ],
     },
   },
+  trackCount: {
+    id: 'trackCount', modes: ['album', 'album-groups'], relationship: 'conditions-only',
+    conditions: { label: 'Track count', section: 'album-structure' },
+  },
   minTrackCount: {
     id: 'minTrackCount', modes: ['album', 'album-groups'], relationship: 'conditions-only',
     conditions: { label: 'Min tracks', section: 'album-structure' },
@@ -159,11 +163,11 @@ export const SEARCH_CONFIG_FIELDS = {
 export const SEARCH_AUDIO_FORMATS = ['FLAC', 'MP3', 'OGG', 'OPUS', 'M4A', 'WAV'] as const;
 export const SEARCH_GENERIC_FORMATS = ['PDF', 'EPUB', 'ZIP', 'TXT', 'JPG', 'PNG'] as const;
 export const SEARCH_SAMPLE_RATES = [
-  { value: '44100', label: '44.1 kHz' },
-  { value: '48000', label: '48 kHz' },
-  { value: '88200', label: '88.2 kHz' },
-  { value: '96000', label: '96 kHz' },
-  { value: '176400', label: '176.4 kHz' },
-  { value: '192000', label: '192 kHz' },
+  { value: 44100, label: '44.1 kHz' },
+  { value: 48000, label: '48 kHz' },
+  { value: 88200, label: '88.2 kHz' },
+  { value: 96000, label: '96 kHz' },
+  { value: 176400, label: '176.4 kHz' },
+  { value: 192000, label: '192 kHz' },
 ] as const;
-export const SEARCH_BIT_DEPTHS = ['16', '24', '32'] as const;
+export const SEARCH_BIT_DEPTHS = [16, 24, 32] as const;

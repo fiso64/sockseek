@@ -124,7 +124,7 @@ namespace Sockseek.Core.Extractors;
             else if (sourceKind == SourceKind.LikedAlbums)
             {
                 context.Log.Info("Loading liked albums..");
-                var albumList = await spotifyClient.GetAlbums(max, off);
+                var albumList = await spotifyClient.GetAlbums(extraction, max, off);
                 albumList.ItemName              = "Spotify Liked Albums";
                 albumList.EnablesIndexByDefault = true;
                 result = albumList;
@@ -508,7 +508,7 @@ namespace Sockseek.Core.Extractors;
             return songs;
         }
 
-        public async Task<JobList> GetAlbums(int max = int.MaxValue, int offset = 0)
+        public async Task<JobList> GetAlbums(ExtractionSettings extraction, int max = int.MaxValue, int offset = 0)
         {
             if (!loggedIn)
                 throw new Exception("Can't get liked albums as user is not logged in");
@@ -546,7 +546,7 @@ namespace Sockseek.Core.Extractors;
                     {
                         ItemNumber            = num++,
                         EnablesIndexByDefault = true,
-                        ExtractorFolderCond = new FolderConditionPatch { MinTrackCount = album.TotalTracks },
+                        ExtractorFolderCond = extraction.AlbumTrackCountCondition(album.TotalTracks),
                     };
                     queue.Add(job);
                 }
@@ -632,17 +632,7 @@ namespace Sockseek.Core.Extractors;
                     .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ?? "",
             };
 
-            var albumJob = new AlbumJob(albumQuery);
-            if (extraction.SetAlbumMinTrackCount || extraction.SetAlbumMaxTrackCount)
-            {
-                albumJob.ExtractorFolderCond = new FolderConditionPatch
-                {
-                    MinTrackCount = extraction.SetAlbumMinTrackCount ? trackCount : null,
-                    MaxTrackCount = extraction.SetAlbumMaxTrackCount ? trackCount : null,
-                };
-            }
-
-            return albumJob;
+            return new AlbumJob(albumQuery) { ExtractorFolderCond = extraction.AlbumTrackCountCondition(trackCount) };
         }
 
         private static string GetAlbumIdFromUrl(string url)

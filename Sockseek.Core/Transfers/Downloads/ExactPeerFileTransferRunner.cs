@@ -110,8 +110,8 @@ public sealed class ExactPeerFileTransferRunner
         if (maxStaleTimeMs <= 0)
             throw new ArgumentOutOfRangeException(nameof(maxStaleTimeMs));
 
-        // Music selections use their organizer to resolve the final path after transfer.
-        bool selectionLayout = owner is RemoteFileJob && owner.Config?.Output.PreserveSelectionConflicts == true;
+        // Interactive selections settle filename collisions with the finished bytes.
+        bool selectionLayout = (owner.SelectionSource ?? parentJob?.SelectionSource) is not null;
         CancellationToken cancellationToken = ct ?? CancellationToken.None;
         using var outputClaim = await fileOperations.ClaimOutputPathAsync(
             outputPath,

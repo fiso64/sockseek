@@ -158,7 +158,7 @@ public sealed class UserBrowseApiTests
             var submissionOptions = new SubmissionOptionsDto(OutputParentDir: output, ProfileNames: ["destination"]);
             var resolved = await api.ResolveUserShareDownloadSettingsAsync(submissionOptions);
             Assert.AreEqual(5432, resolved.Settings.Values.Search!.MaxStaleTime);
-            Assert.AreEqual("{foldername}/{filename}", resolved.Settings.Values.Output!.NameFormat);
+            Assert.AreEqual("", resolved.Settings.Values.Output!.NameFormat);
             CollectionAssert.AreEqual(new[] { new AppliedProfileDto("shared-files", "automatic"), new AppliedProfileDto("destination", "selected") }, resolved.AppliedProfiles.ToArray());
             Guid requestId = Guid.NewGuid();
             var downloadRequest = new StartUserShareDownloadsRequestDto(
@@ -188,7 +188,6 @@ public sealed class UserBrowseApiTests
             Assert.AreEqual(Sockseek.Core.Jobs.JobSelectionSource.PeerShares, selectionJob.SelectionSource);
             Assert.AreEqual(resolved.Settings.Values.Search.MaxStaleTime, selectionSettings.Search.MaxStaleTime);
             Assert.AreEqual(resolved.Settings.Values.Output.NameFormat, selectionSettings.Output.NameFormat);
-            Assert.IsTrue(selectionSettings.Output.PreserveSelectionConflicts);
             CollectionAssert.AreEqual(resolved.AppliedProfiles.Select(profile => new AppliedProfile(profile.Name, profile.Source)).ToArray(), selectionSettings.AppliedProfiles);
             foreach (var child in ((Sockseek.Core.Jobs.JobList)selectionJob).Jobs)
             {
@@ -212,13 +211,15 @@ public sealed class UserBrowseApiTests
             await WaitUntilAsync(() =>
                 File.Exists(Path.Combine(output, "Alpha", "Disc", "one (2).flac"))
                 && File.Exists(Path.Combine(output, "Alpha", "Disc", "two.flac"))
-                && File.Exists(Path.Combine(output, "Beta", "other.mp3")));
+                && File.Exists(Path.Combine(output, "other.mp3")));
             Assert.AreEqual("keep-existing", await File.ReadAllTextAsync(existingPath));
 
             Assert.AreEqual("1", await File.ReadAllTextAsync(Path.Combine(output, "Alpha", "Disc", "one (2).flac")));
 
             string overwriteOutput = Path.Combine(root, "overwrite-downloads");
             string overwritePath = Path.Combine(overwriteOutput, "Beta", "other.mp3");
+            // Even with an explicit format and skipping disabled, a selection never
+            // replaces an existing file; the new one gets a numbered name.
             Directory.CreateDirectory(Path.GetDirectoryName(overwritePath)!);
             await File.WriteAllTextAsync(overwritePath, "replace-me");
             var overwriteOptions = new SubmissionOptionsDto(
@@ -244,7 +245,8 @@ public sealed class UserBrowseApiTests
             }, "The overwrite workflow did not finish.", timeoutMs: 10_000);
             Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, overwriteJob!.Summary.Lifecycle.TerminalOutcome,
                 overwriteJob.Summary.Lifecycle.FailureMessage);
-            Assert.AreEqual("333", await File.ReadAllTextAsync(overwritePath));
+            Assert.AreEqual("replace-me", await File.ReadAllTextAsync(overwritePath));
+            Assert.AreEqual("333", await File.ReadAllTextAsync(Path.Combine(overwriteOutput, "Beta", "other (2).mp3")));
 
             await WaitUntilAsync(async () =>
             {

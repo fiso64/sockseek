@@ -547,7 +547,7 @@ export class SearchViewController {
     }
   }
 
-  toggle(ref: string, selected: boolean, parentRef?: string): void {
+  toggle(ref: string | readonly string[], selected: boolean, parentRef?: string): void {
     const files = parentRef ? this.state.directoryFiles.get(parentRef)?.items : undefined;
     if (!this.selection.toggle(ref, selected, parentRef, files)) return;
     this.state = { ...this.state, receipt: null };
@@ -875,8 +875,8 @@ export class SearchViewController {
       .map(row => row.ref);
   }
 
-  toggleAlbumGroupFile(groupRef: string, fileRef: string, selected: boolean): void {
-    if (!this.setAlbumGroupFiles(groupRef, [fileRef], selected)) return;
+  toggleAlbumGroupFile(groupRef: string, fileRefs: string[], selected: boolean): void {
+    if (!this.setAlbumGroupFiles(groupRef, fileRefs, selected)) return;
     this.state = { ...this.state, choiceValidationError: null, receipt: null };
     this.emit();
     if (this.state.summary) this.validateVisibleChoices(this.state.summary);

@@ -1816,7 +1816,7 @@ namespace Tests.Core
 
             Assert.AreEqual(JobTerminalOutcome.Failed, list.TerminalOutcome);
             Assert.AreEqual(JobFailureReason.ChildJobsFailed, list.FailureReason);
-            Assert.AreEqual("One or more child jobs failed.", list.FailureMessage);
+            Assert.IsNull(list.FailureMessage);
         }
 
         private sealed class FakeSongDownloadFallback : ISongDownloadFallback

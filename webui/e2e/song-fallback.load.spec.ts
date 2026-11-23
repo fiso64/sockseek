@@ -63,8 +63,8 @@ test('retains 100-candidate Song and group fallback without leaking peer penalti
       await page.locator('[data-testid="job-open"]').click();
     }
     const songId = new URL(page.url()).pathname.split('/').at(-1)!;
-    const card = page.locator('.file-item-card');
-    await expect(card.getByLabel('50% complete', { exact: true })).toBeVisible();
+    const card = page.locator('.folder-item-card');
+    await expect(card.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
     await expect(page.locator('.job-source-summary')).toContainText('Péér 099');
     await expect(card).toContainText('Artist - Song.mp3');
     await expect(card.locator('.file-transfer-audio')).toHaveText('320 kbps');

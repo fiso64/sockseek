@@ -232,11 +232,7 @@ public class FileManager
             {
                 if (remainingOnly && organized.Contains(file))
                     continue;
-                bool isAdditionalImage = additionalImages?.Contains(file) == true;
-                if (output.PreserveSelectionConflicts && !isAdditionalImage)
-                    OrganizeDownloadedFile(file, placeFile);
-                else
-                    OrganizeNonAudio(file, parent, isAdditionalImage, placeFile);
+                OrganizeNonAudio(file, parent, additionalImages?.Contains(file) == true, placeFile);
             }
         }
     }

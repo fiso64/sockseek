@@ -17,9 +17,7 @@
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import MutationStatus, { type MutationState } from '../../components/MutationStatus.svelte';
   import { anchoredMenu } from '../../lib/anchored-menu';
-  import { type createChatDrafts, mergeMessages, snapshotNeedsHistory } from './messages';
-
-  type Target = { kind: 'conversation'; id: string; username: string } | { kind: 'room'; id: string } | { kind: 'draft'; id: string; username: string };
+  import { type ChatTarget as Target, type createChatDrafts, mergeMessages, snapshotNeedsHistory } from './messages';
   type ChatList = 'rooms' | 'conversations';
   const chatLists: ChatList[] = ['conversations', 'rooms'];
 
@@ -91,6 +89,11 @@
   let composerDisabled = $derived(liveStatus !== 'connected' || runtime?.state !== 'Ready' || !target);
 
   onMount(() => {
+    const remembered = drafts.selected;
+    if (remembered && !initialUsername) {
+      if (remembered.kind === 'draft') openOrCreateConversation(remembered.username);
+      else selectTarget(remembered);
+    }
     void loadLists(true);
     let epoch = liveClient.reducer.state.epoch;
     const unsubscribe = liveClient.onState((state, changes) => {
@@ -394,11 +397,27 @@
     if (conversation) untrack(() => selectTarget(conversationTarget(conversation)));
   });
 
+  // A new chat is kept until removed explicitly; once its conversation exists
+  // the conversation row replaces it.
+  let newChats = $derived([...drafts.newChats].filter(username =>
+    !conversations.some(item => item.username === username)));
+  $effect(() => {
+    for (const username of drafts.newChats)
+      if (conversations.some(item => item.username === username)) untrack(() => drafts.newChats.delete(username));
+  });
+
+  function removeNewChat(username: string): void {
+    drafts.newChats.delete(username);
+    drafts.text.delete(`user:${username}`);
+    if (target?.kind === 'draft' && target.username === username) selectTarget(null);
+  }
+
   function selectTarget(next: Target | null): void {
     selectionRevision++;
     void activeSubscription?.();
     activeSubscription = null;
     target = next;
+    drafts.selected = next;
     targetSnapshot = null;
     historicalMessages = [];
     historyBoundary = undefined;
@@ -412,6 +431,7 @@
   function openOrCreateConversation(username: string): void {
     if (!username.trim()) return;
     const existing = conversations.find((item) => item.username === username);
+    if (!existing) drafts.newChats.add(username);
     selectTarget(existing ? conversationTarget(existing) : { kind: 'draft', id: `draft:${username}`, username });
     if (!existing) void resolveDraftConversation(username, selectionRevision);
   }
@@ -552,7 +572,7 @@
       await daemonApi.leaveRoom(id);
       rooms = rooms.filter((item) => item.roomId !== id);
       if (revision !== selectionRevision) return;
-      target = null;
+      selectTarget(null);
       mutation = { phase: 'succeeded', label: 'Room left' };
       menuOpen = false;
       await loadLists(true, ['rooms']);
@@ -714,17 +734,22 @@
           </div>
         {/if}
         <div class="chat-destination-list">
-          {#if target?.kind === 'draft'}
-            <div class="choice chat-destination user draft-target active">
+          {#each newChats as username (username)}
+            {@const active = target?.kind === 'draft' && target.username === username}
+            <div class:active class="choice chat-destination user draft-target">
               <button type="button" class="chat-destination-open"
-                aria-label={`Open draft conversation with ${target.username}`}></button>
-              <span class="avatar">{userInitials(target.username)}</span>
+                aria-label={`Open new chat with ${username}`} aria-current={active ? 'page' : undefined}
+                onclick={() => { if (!active) openOrCreateConversation(username); }}></button>
+              <span class="avatar">{userInitials(username)}</span>
               <span class="chat-destination-copy">
-                <strong>{target.username}</strong>
-                <small>{targetError ? 'History unavailable' : 'New chat'}</small>
+                <strong>{username}</strong>
+                <small>{active && targetError ? 'History unavailable' : 'New chat'}</small>
               </span>
+              <button type="button" class="button quiet chat-destination-remove" data-action="remove-new-chat"
+                aria-label={`Remove new chat with ${username}`} title="Remove"
+                onclick={() => removeNewChat(username)}><Icon name="x"/></button>
             </div>
-          {/if}
+          {/each}
           {#each conversations as conversation (conversation.conversationId)}
             <div class:active={target?.kind === 'conversation' && target.id === conversation.conversationId}
               class="choice chat-destination user">

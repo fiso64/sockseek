@@ -25,7 +25,7 @@ internal sealed class RemoteDirectoryDownloadExecutor
                 return JobOutcome.Done();
 
             var placement = new PlacementPlanner(context.Ctx(job).OutputScope);
-            var placements = placement.PlanDirectory(plan, job.Config);
+            var placements = placement.PlanDirectory(plan, job.Config, selection: job.SelectionSource is not null);
             var children = placements
                 .Select(item => new RemoteFileJob(item.Target, item.RelativePath))
                 .ToArray();

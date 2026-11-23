@@ -10,7 +10,7 @@ const clearBound = {
   minSampleRate: 'clearMinSampleRate', maxSampleRate: 'clearMaxSampleRate',
   minBitDepth: 'clearMinBitDepth', maxBitDepth: 'clearMaxBitDepth',
 } as const;
-const numberText = (value: number | string | null | undefined) => value == null ? '' : String(value);
+const integer = (value: number | string | null | undefined) => value == null ? null : Number(value);
 // A single comma separates names and a doubled comma belongs to the name.
 const parseUsernames = (text: string) => (text.match(/(?:[^,]|,,)+/g) ?? [])
   .map(name => name.trim().replaceAll(',,', ',')).filter(Boolean);
@@ -20,7 +20,7 @@ const formatUsernames = (names: string[]) => names.map(name => name.replaceAll('
 export function readSearchConditions(settings: Settings, expectedLength?: number): SearchConditions {
   const result = createEmptySearchConditions();
   function readCommon(source: FileConditions, target: SearchConditions['ranking']['common']) {
-    for (const key of bounds) target[key] = numberText(source[key]);
+    for (const key of bounds) target[key] = integer(source[key]);
     target.formats = (source.formats?.replace ?? []).map((format) => format.toUpperCase());
     target.allowedUsers = formatUsernames(source.allowedUsers?.replace ?? []);
     target.bannedUsers = formatUsernames(source.bannedUsers?.replace ?? []);
@@ -34,31 +34,29 @@ export function readSearchConditions(settings: Settings, expectedLength?: number
   result.common.rejectUnknownMetadata = required.acceptMissingProps === false;
   result.track.strictTitle = required.strictTitle ?? false;
   result.track.acceptNoLength = required.acceptNoLength ?? true;
-  result.track.expectedLength = numberText(expectedLength);
-  result.track.lengthTolerance = Number(required.lengthTolerance) < 0 ? '' : numberText(required.lengthTolerance);
+  result.track.expectedLength = integer(expectedLength);
+  result.track.lengthTolerance = Number(required.lengthTolerance) < 0 ? null : integer(required.lengthTolerance);
   result.ranking.track.strictTitle = preferred.strictTitle ?? false;
-  result.ranking.track.lengthTolerance = Number(preferred.lengthTolerance) < 0 ? '' : numberText(preferred.lengthTolerance);
+  result.ranking.track.lengthTolerance = Number(preferred.lengthTolerance) < 0 ? null : integer(preferred.lengthTolerance);
   result.album.strictAlbum = required.strictAlbum ?? false;
   result.ranking.album.strictAlbum = preferred.strictAlbum ?? false;
   result.album.strictAlbumQuality = settings.strictAlbumQuality ?? false;
-  result.album.minTrackCount = numberText(settings.necessaryFolderCond?.minTrackCount);
-  result.album.maxTrackCount = numberText(settings.necessaryFolderCond?.maxTrackCount);
+  result.album.minTrackCount = integer(settings.necessaryFolderCond?.minTrackCount);
+  result.album.maxTrackCount = integer(settings.necessaryFolderCond?.maxTrackCount);
   result.album.requiredTrackTitles = [...(settings.necessaryFolderCond?.requiredTrackTitles?.replace ?? [])];
-  result.group.minShares = numberText(settings.minGroupShares);
-  result.group.lengthTolerance = numberText(settings.groupLengthTol);
+  result.group.minShares = integer(settings.minGroupShares);
+  result.group.lengthTolerance = integer(settings.groupLengthTol);
   return result;
 }
 
-function changedNumber(before: unknown, after: unknown, label: string, clearValue?: number): number | undefined {
-  const text = after == null ? '' : String(after).trim();
-  if (text === (before == null ? '' : String(before).trim())) return undefined;
-  if (!text) {
+function changedNumber(before: number | null, after: number | null, label: string, clearValue?: number): number | undefined {
+  if (after === before) return undefined;
+  if (after == null) {
     if (clearValue !== undefined) return clearValue;
     throw new Error(`The daemon cannot yet clear an inherited ${label}. Restore its value to continue.`);
   }
-  const value = Number(text);
-  if (!Number.isSafeInteger(value) || value < 0 || value > 2147483647) throw new Error(`${label} must be a non-negative 32-bit integer.`);
-  return value;
+  if (!Number.isSafeInteger(after) || after < 0 || after > 2147483647) throw new Error(`${label} must be a non-negative 32-bit integer.`);
+  return after;
 }
 
 /** Only edited fields become overrides; all other fields retain daemon inheritance. */
@@ -68,7 +66,7 @@ export function searchConditionsPatch(mode: SearchResultMode, before: SearchCond
     const shares = changedNumber(before.group.minShares, after.group.minShares, 'minimum sharers', 1);
     // Unlike a file-condition bound, grouping tolerance has no disabled state.
     // An empty field means inherit the resolved/default value.
-    const tolerance = String(after.group.lengthTolerance ?? '').trim()
+    const tolerance = after.group.lengthTolerance != null
       ? changedNumber(before.group.lengthTolerance, after.group.lengthTolerance, 'grouping tolerance')
       : undefined;
     if (shares !== undefined) patch.minGroupShares = shares;
@@ -86,7 +84,7 @@ export function searchConditionsPatchForFamily(
     const b = ranking ? after.ranking : after;
     const patch: FileConditions = {};
     for (const key of bounds) {
-      if (String(a.common[key] ?? '').trim() && !String(b.common[key] ?? '').trim()) patch[clearBound[key]] = true;
+      if (a.common[key] != null && b.common[key] == null) patch[clearBound[key]] = true;
       else {
         const value = changedNumber(a.common[key], b.common[key], key);
         if (value !== undefined) patch[key] = value;
@@ -118,7 +116,7 @@ export function searchConditionsPatchForFamily(
   if (family === 'album' || family === 'mixed') {
     const folder: Schema<'FolderConditionsPatchDto'> = {};
     for (const key of ['minTrackCount', 'maxTrackCount'] as const) {
-      if (String(before.album[key] ?? '').trim() && !String(after.album[key] ?? '').trim()) folder[key === 'minTrackCount' ? 'clearMinTrackCount' : 'clearMaxTrackCount'] = true;
+      if (before.album[key] != null && after.album[key] == null) folder[key === 'minTrackCount' ? 'clearMinTrackCount' : 'clearMaxTrackCount'] = true;
       else {
         const value = changedNumber(before.album[key], after.album[key], key);
         if (value !== undefined) folder[key] = value;
@@ -150,8 +148,8 @@ export function rebaseSearchConditions(
   return rebase(previous, edited, baseline) as SearchConditions;
 }
 
-export function searchExpectedLength(value: unknown): number | undefined {
-  return changedNumber('', value, 'expected length');
+export function searchExpectedLength(value: number | null): number | undefined {
+  return changedNumber(null, value, 'expected length');
 }
 
 export function mergeSearchSettings(base: Settings | undefined, edits: Settings): Settings {

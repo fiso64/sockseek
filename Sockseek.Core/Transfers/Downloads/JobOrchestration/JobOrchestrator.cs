@@ -518,9 +518,7 @@ internal sealed class JobOrchestrator
             var source = anyCancelled
                 ? CancellationSourceForDerivedCancellation(jobList, jobList)
                 : JobCancellationSource.None;
-            JobOutcomeCommitter.Commit(jobList, JobOutcome.PartialSuccess(
-                "Some child jobs completed and some failed or were cancelled.",
-                source));
+            JobOutcomeCommitter.Commit(jobList, JobOutcome.PartialSuccess(cancellationSource: source));
             return;
         }
 
@@ -535,7 +533,7 @@ internal sealed class JobOrchestrator
 
         if (anyUnsuccessful)
         {
-            JobOutcomeCommitter.Commit(jobList, JobOutcome.Failed(JobFailureReason.ChildJobsFailed, "One or more child jobs failed."));
+            JobOutcomeCommitter.Commit(jobList, JobOutcome.Failed(JobFailureReason.ChildJobsFailed));
             return;
         }
 

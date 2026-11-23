@@ -202,8 +202,8 @@ test(`reviews 10k CSV rows and durably accepts ${allExcept ? 'all except one' : 
     expect(statusApiMs, 'Health is a bounded snapshot even with 10k accepted jobs.').toBeLessThan(100);
     if (!allExcept) {
       await page.goto('/downloads');
-      await expect(page.locator('.file-item-card')).toHaveCount(1);
-      await expect(page.locator('.file-item-card').getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
+      await expect(page.locator('.folder-item-card')).toHaveCount(1);
+      await expect(page.locator('.folder-item-card').getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
       const response = await page.request.get('/api/transfers?direction=download&limit=100');
       const transfers = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
       expect(transfers).toHaveLength(1);

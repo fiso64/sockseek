@@ -71,7 +71,7 @@ internal sealed class OutputFinalizer
             {
                 bool skipped = false;
                 organizer.OrganizeDownloadedFile(song, (file, destination, cleanupRoot) =>
-                    PlaceFile(cache, file, destination, cleanupRoot, parentJob.Config.Output, allowOverwrite, out skipped));
+                    PlaceFile(cache, file, destination, cleanupRoot, parentJob, allowOverwrite, out skipped));
                 if (skipped)
                     return OutputFinalizationResult.Completed(JobOutcome.AlreadyExists(song.DownloadPath));
                 EnsureFileLeftStaging(song, parentJob.Config.Output);
@@ -113,7 +113,7 @@ internal sealed class OutputFinalizer
                     organizer.OrganizeAlbum(album, filesToOrganize, additionalImages,
                         placeFile: (file, destination, cleanupRoot) =>
                         {
-                            string path = PlaceFile(cache, file, destination, cleanupRoot, album.Config.Output, allowOverwrite, out bool skipped);
+                            string path = PlaceFile(cache, file, destination, cleanupRoot, album, allowOverwrite, out bool skipped);
                             if (skipped) JobOutcomeCommitter.Commit(file, JobOutcome.AlreadyExists(path));
                             return path;
                         });
@@ -182,13 +182,16 @@ internal sealed class OutputFinalizer
 
     private static string PlaceFile(
         DownloadFileOperations.Cache cache, SongJob file, string destination, string cleanupRoot,
-        OutputSettings output, bool allowOverwrite, out bool skipped)
+        Job parentJob, bool allowOverwrite, out bool skipped)
     {
         string source = file.DownloadPath!;
+        var output = parentJob.Config.Output;
+        // Interactive selections never replace or skip existing files; collisions get numbered names.
+        bool selection = (file.SelectionSource ?? parentJob.SelectionSource) is not null;
         var placed = cache.PlaceFile(source, destination, cleanupRoot,
-            allowOverwrite: !output.PreserveSelectionConflicts && allowOverwrite,
-            replaceExisting: output.PreserveSelectionConflicts ? null : path => !TrackSkipperContext.KeepExistingOutput(file, path));
-        skipped = placed.Matched && !output.PreserveSelectionConflicts;
+            allowOverwrite: !selection && allowOverwrite,
+            replaceExisting: selection ? null : path => !TrackSkipperContext.KeepExistingOutput(file, path));
+        skipped = placed.Matched && !selection;
         if (placed.Matched && OutputStaging.Contains(source, output))
             Utils.DeleteFileAndParentsIfEmpty(source, cleanupRoot);
         return placed.Path;

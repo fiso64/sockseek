@@ -152,7 +152,7 @@ public sealed class PlacementPlannerTests
     [TestMethod]
     [DataRow(JobSelectionSource.ManualSearch)]
     [DataRow(JobSelectionSource.PeerShares)]
-    public void BlankSelectionLayoutUsesThePeerFolderForFilesAndPreservesDirectoryTrees(JobSelectionSource source)
+    public void BlankSelectionLayoutPlacesFilesFlatAndPreservesDirectoryTrees(JobSelectionSource source)
     {
         var job = new RemoteFileJob(Target("Opening.flac.flac")) { SelectionSource = source };
         var settings = DefaultJobSettingsResolver.Instance.Resolve(new DownloadSettings { Output = { ParentDir = TestParent() } }, job);
@@ -160,9 +160,12 @@ public sealed class PlacementPlannerTests
         var planner = new PlacementPlanner(OutputScope.Empty);
         var target = Target(@"Library\Album\Disc 1\Opening.flac.flac");
         var loose = planner.PlanFile(target, RelativeOutputPath.FromRemoteFile(target), output);
+        var files = planner.PlanDirectory(new DirectoryTransferPlan("Disc 1",
+            [new DirectoryTransferEntry(target, [])], representsDirectorySelection: false), output).Single();
         var album = planner.PlanDirectory(new DirectoryTransferPlan("Album",
             [new DirectoryTransferEntry(target, ["Disc 1"])]), output).Single();
-        CollectionAssert.AreEqual(new[] { "Disc 1", "Opening.flac.flac" }, loose.RelativePath.Components.ToArray());
+        CollectionAssert.AreEqual(new[] { "Opening.flac.flac" }, loose.RelativePath.Components.ToArray());
+        CollectionAssert.AreEqual(new[] { "Opening.flac.flac" }, files.RelativePath.Components.ToArray());
         CollectionAssert.AreEqual(new[] { "Album", "Disc 1", "Opening.flac.flac" }, album.RelativePath.Components.ToArray());
         var bare = Target("Opening.flac.flac");
         Assert.AreEqual("Opening.flac.flac", planner.PlanFile(bare, RelativeOutputPath.FromRemoteFile(bare), output)

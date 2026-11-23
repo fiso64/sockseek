@@ -7,14 +7,13 @@
   import UsernameLink from '../../components/UsernameLink.svelte';
   import type { TransferStateDto, Schema } from '../../api/types';
   import { daemonApi, defaultPageSize } from '../../api/client';
-  import FileItemCard from '../../components/items/FileItemCard.svelte';
   import FolderItemCard from '../../components/items/FolderItemCard.svelte';
   import TransferItemActionButton from '../../components/items/TransferItemActionButton.svelte';
   import TransferBulkActions, { type BulkCancelMode } from '../../components/TransferBulkActions.svelte';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import MutationStatus, { type MutationState } from '../../components/MutationStatus.svelte';
   import { basename, isTerminalTransfer, type FolderItemFile } from '../presentation/items';
-  import { arrangeTransferGroups, presentTransferEntry, transferEntryActions, TransferProjection, isQueuedTransfer, type TransferTimelineEntry, type TransferTimelineFolderEntry } from './model';
+  import { arrangeTransferGroups, presentTransferEntry, transferEntryActions, TransferProjection, isQueuedTransfer, type TransferTimelineEntry } from './model';
   import { transferGroupKeys, transferGroupMemberScope, transferGroupCursor } from './history';
 
   interface Props {
@@ -247,7 +246,8 @@
     }
   }
 
-  async function loadGroupMembers(entry: TransferTimelineFolderEntry): Promise<void> {
+  async function loadGroupMembers(entry: TransferTimelineEntry): Promise<void> {
+    if (!entry.groupRef) return;
     const key = groupPageKey(entry.username, entry.groupRef);
     const scope = memberScopes?.get(key);
     if (scope === undefined) return;
@@ -388,26 +388,20 @@
   }
 
   function cancelEntry(entry: TransferTimelineEntry): void {
-    if (entry.kind === 'folder') {
-      void cancelFolder(entry);
-      return;
-    }
-    void cancelIds(entry.transfer.cancellable ? entry.sourceTransferIds : [], `Cancelling ${basename(entry.path)}…`);
+    if (entry.groupRef) void cancelFolder(entry, entry.groupRef);
+    else void cancelIds(entry.transfer.cancellable ? entry.sourceTransferIds : [], `Cancelling ${basename(entry.path)}…`);
   }
 
   function removeEntry(entry: TransferTimelineEntry): void {
-    if (entry.kind === 'folder') {
-      void removeFolder(entry);
-      return;
-    }
-    void removeIds(isTerminalTransfer(entry.transfer) ? entry.sourceTransferIds : [], `Removing ${basename(entry.path)}…`);
+    if (entry.groupRef) void removeFolder(entry, entry.groupRef);
+    else void removeIds(isTerminalTransfer(entry.transfer) ? entry.sourceTransferIds : [], `Removing ${basename(entry.path)}…`);
   }
 
-  async function cancelFolder(entry: TransferTimelineFolderEntry): Promise<void> {
+  async function cancelFolder(entry: TransferTimelineEntry, groupRef: string): Promise<void> {
     if (mutation.phase === 'pending') return;
     mutation = { phase: 'pending', label: `Cancelling ${basename(entry.path)}…` };
     try {
-      const receipt = await daemonApi.cancelTransfers(direction === 'download' ? 'Download' : 'Upload', 'All', { username: entry.username, groupRef: entry.groupRef });
+      const receipt = await daemonApi.cancelTransfers(direction === 'download' ? 'Download' : 'Upload', 'All', { username: entry.username, groupRef });
       mutation = receiptStatus(receipt, 'cancelled');
       await onchanged();
     } catch (cause) {
@@ -415,14 +409,14 @@
     }
   }
 
-  async function removeFolder(entry: TransferTimelineFolderEntry): Promise<void> {
+  async function removeFolder(entry: TransferTimelineEntry, groupRef: string): Promise<void> {
     if (mutation.phase === 'pending') return;
     mutation = { phase: 'pending', label: `Removing ${basename(entry.path)} history…` };
     try {
-      const receipt = await daemonApi.removeTransfers(direction, { username: entry.username, groupRef: entry.groupRef });
+      const receipt = await daemonApi.removeTransfers(direction, { username: entry.username, groupRef });
       mutation = receiptStatus(receipt, 'removed');
       if (!Number(receipt.rejectedCount) && !Number(receipt.failedCount))
-        removeMemberRows(row => (row.identity.username ?? null) === entry.username && row.identity.groupRef === entry.groupRef
+        removeMemberRows(row => (row.identity.username ?? null) === entry.username && row.identity.groupRef === groupRef
           && isTerminalTransfer(projection.row(row).transfer));
       await onchanged();
     } catch (cause) {
@@ -430,13 +424,11 @@
     }
   }
 
-  function cancelFile(folder: TransferTimelineFolderEntry, file: FolderItemFile): void {
-    void folder;
+  function cancelFile(file: FolderItemFile): void {
     if (file.transfer?.cancellable) void cancelIds([file.id], `Cancelling ${file.relativePath}…`);
   }
 
-  function removeFile(folder: TransferTimelineFolderEntry, file: FolderItemFile): void {
-    void folder;
+  function removeFile(file: FolderItemFile): void {
     if (isTerminalTransfer(file.transfer)) void removeIds([file.id], `Removing ${file.relativePath}…`);
   }
 
@@ -495,41 +487,27 @@
             <div class="result-peer-items">
               {#each group.items as layout (layout.id)}
                 {@const entry = presentTransferEntry(layout, projection, readTransfer)}
-                {#if entry.kind === 'file'}
-                  <FileItemCard path={entry.path} sizeBytes={entry.sizeBytes} audio={entry.audio} transfer={entry.transfer}>
-                    {#snippet actions()}
-                      {#if entry.transfer.record?.status.availableActions?.some(action => action.kind === 'retry')}
-                        <TransferItemActionButton kind="retry" label={`Retry ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => void retryDownload(() => daemonApi.retryTransfer(entry.transfer.record!.transferId!))} />
+                {@const memberPage = entry.groupRef ? activeMemberPages[groupPageKey(entry.username, entry.groupRef)] : undefined}
+                <FolderItemCard path={entry.path} sizeBytes={entry.sizeBytes} files={entry.files} totalFileCount={entry.totalsKnown ? entry.totalFileCount : null} filesComplete={entry.filesComplete} dataStateLabel={entry.totalsKnown ? entry.filesComplete ? undefined : 'Showing loaded files; folder totals and actions cover the entire group.' : 'Size, progress and status cover loaded files only. Folder actions apply to the entire group.'} transfer={entry.transfer} onloadmorefiles={entry.totalsKnown && (!entry.filesComplete || memberPage?.error) ? () => void loadGroupMembers(entry) : undefined} loadingMoreFiles={Boolean(memberPage?.loading || summaryCoverage === null)} fileLoadError={memberPage?.error ?? null}
+                  actionsDisabled={mutation.phase === 'pending'} onretryfile={(file) => void retryDownload(() => daemonApi.retryTransfer(file.transfer!.record!.transferId!))}>
+                  {#snippet actions()}
+                    {#if direction === 'download' && layout.rows[0]?.groupKind === 'Directory' && isTerminalTransfer(entry.transfer) && entry.transfer.tone !== 'complete'}
+                      {#if layout.summary?.folderRetry?.completedOnRetry}
+                        <span class="badge">Completed on retry</span>
+                      {:else if Number(layout.summary?.folderRetry?.missingFiles) > 0}
+                        <TransferItemActionButton kind="retry-folder" missingFiles={Number(layout.summary?.folderRetry?.missingFiles)}
+                          disabled={mutation.phase === 'pending'} onclick={() => void retryDownload(() =>
+                            daemonApi.retryDirectory(entry.groupRef!, layout.rows[0]?.transfer.record?.identity.jobId ?? undefined))} />
                       {/if}
-                      {#if entry.transfer.cancellable}<TransferItemActionButton label={`Cancel ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => cancelEntry(entry)} />
-                      {:else if isTerminalTransfer(entry.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => removeEntry(entry)} />{/if}
-                    {/snippet}
-                  </FileItemCard>
-                {:else}
-                  {@const memberPage = activeMemberPages[groupPageKey(entry.username, entry.groupRef)]}
-                  <FolderItemCard path={entry.path} sizeBytes={entry.sizeBytes} files={entry.files} totalFileCount={entry.summaryAvailable ? entry.totalFileCount : null} filesComplete={entry.filesComplete} dataStateLabel={entry.summaryAvailable ? entry.filesComplete ? undefined : 'Showing loaded files; folder totals and actions cover the entire group.' : 'Size, progress and status cover loaded files only. Folder actions apply to the entire group.'} transfer={entry.transfer} onloadmorefiles={entry.summaryAvailable && (!entry.filesComplete || memberPage?.error) ? () => void loadGroupMembers(entry) : undefined} loadingMoreFiles={Boolean(memberPage?.loading || summaryCoverage === null)} fileLoadError={memberPage?.error ?? null}>
-                    {#snippet actions()}
-                      {#if direction === 'download' && layout.rows[0]?.groupKind === 'Directory' && isTerminalTransfer(entry.transfer) && entry.transfer.tone !== 'complete'}
-                        {#if layout.summary?.folderRetry?.completedOnRetry}
-                          <span class="badge">Completed on retry</span>
-                        {:else if Number(layout.summary?.folderRetry?.missingFiles) > 0}
-                          <TransferItemActionButton kind="retry-folder" missingFiles={Number(layout.summary?.folderRetry?.missingFiles)}
-                            disabled={mutation.phase === 'pending'} onclick={() => void retryDownload(() =>
-                              daemonApi.retryDirectory(entry.groupRef, layout.rows[0]?.transfer.record?.identity.jobId ?? undefined))} />
-                        {/if}
-                      {/if}
-                      {#if entry.transfer.cancellable}<TransferItemActionButton label={`Cancel ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => cancelEntry(entry)} />
-                      {:else if isTerminalTransfer(entry.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => removeEntry(entry)} />{/if}
-                    {/snippet}
-                    {#snippet fileActions(file)}
-                      {#if file.transfer?.record?.status.availableActions?.some(action => action.kind === 'retry')}
-                        <TransferItemActionButton kind="retry" label={`Retry ${file.relativePath}`} disabled={mutation.phase === 'pending'} onclick={() => void retryDownload(() => daemonApi.retryTransfer(file.transfer!.record!.transferId!))} />
-                      {/if}
-                      {#if file.transfer?.cancellable}<TransferItemActionButton label={`Cancel ${file.relativePath}`} disabled={mutation.phase === 'pending'} onclick={() => cancelFile(entry, file)} />
-                      {:else if isTerminalTransfer(file.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${file.relativePath}`} disabled={mutation.phase === 'pending'} onclick={() => removeFile(entry, file)} />{/if}
-                    {/snippet}
-                  </FolderItemCard>
-                {/if}
+                    {/if}
+                    {#if entry.transfer.cancellable}<TransferItemActionButton label={`Cancel ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => cancelEntry(entry)} />
+                    {:else if isTerminalTransfer(entry.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${basename(entry.path)}`} disabled={mutation.phase === 'pending'} onclick={() => removeEntry(entry)} />{/if}
+                  {/snippet}
+                  {#snippet fileActions(file)}
+                    {#if file.transfer?.cancellable}<TransferItemActionButton label={`Cancel ${file.relativePath}`} disabled={mutation.phase === 'pending'} onclick={() => cancelFile(file)} />
+                    {:else if isTerminalTransfer(file.transfer)}<TransferItemActionButton kind="remove" label={`Remove ${file.relativePath}`} disabled={mutation.phase === 'pending'} onclick={() => removeFile(file)} />{/if}
+                  {/snippet}
+                </FolderItemCard>
               {/each}
             </div>
           {/if}

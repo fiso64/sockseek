@@ -115,7 +115,7 @@ internal sealed class DirectoryTransferRunner
         if (successful == children.Count)
             return JobOutcome.Done();
         if (successful > 0)
-            return JobOutcome.PartialSuccess("Some directory files completed and some failed or were cancelled.");
+            return JobOutcome.PartialSuccess();
         if (cancelled == children.Count)
         {
             var source = children

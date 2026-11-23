@@ -162,8 +162,7 @@ namespace Sockseek.Core.Extractors;
                             throw new InvalidOperationException("Could not find Bandcamp track list in page.");
                         int n = tracks.Count;
 
-                        if (extraction.SetAlbumMinTrackCount) folderCond.MinTrackCount = n;
-                        if (extraction.SetAlbumMaxTrackCount) folderCond.MaxTrackCount = n;
+                        folderCond = extraction.AlbumTrackCountCondition(n);
                     }
 
                     result = new AlbumJob(query) { ExtractorFolderCond = folderCond };

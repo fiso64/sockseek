@@ -34,6 +34,10 @@
   let profile = $state<UserProfileDto | null>(saved?.profile ?? null);
   let profileLoading = $state(false);
   let profileError = $state<Error | null>(null);
+  let profileRequest: AbortController | null = null;
+  // Cached profiles return at once; offer cancellation only for a request
+  // that is evidently waiting on the peer.
+  let profileWaiting = $state(false);
   let profilePictureOpen = $state(false);
   let browse = $state<UserBrowseDto | null>(saved?.browse ?? null);
   let displayedBrowse = $state<UserBrowseDto | null>(saved?.browse?.state === 'complete' ? saved.browse : null);
@@ -47,6 +51,9 @@
   const activeBrowseId = $derived(view === 'shares' && browse
     && (browse.state === 'queued' || browse.state === 'running') ? browse.browseId : null);
   const browsePending = $derived(browseStarting || (!browseError && (browse?.state === 'queued' || browse?.state === 'running')));
+  // A cached or completed browse is returned complete by its start request.
+  const cancellable = $derived(view === 'user' ? profileWaiting
+    : !browseError && (browse?.state === 'queued' || browse?.state === 'running'));
 
   let pictureUrl = $derived(profile?.picture?.url ? appPath(profile.picture.url) : null);
 
@@ -131,15 +138,47 @@
   ].filter(section => section.state !== 'available' && section.reason !== 'offline') : []);
 
   async function loadProfile(value: string, refresh = false): Promise<void> {
-    const signal = lifetime.signal;
+    profileRequest?.abort();
+    const request = new AbortController();
+    profileRequest = request;
+    const signal = AbortSignal.any([lifetime.signal, request.signal]);
     profileLoading = true;
     profileError = null;
+    const waiting = setTimeout(() => { if (!signal.aborted) profileWaiting = true; }, 400);
     try {
       const result = await daemonApi.getUserProfile(value, refresh, signal);
       if (!signal.aborted) profile = result;
     }
     catch (cause) { if (!signal.aborted) profileError = asError(cause); }
-    finally { if (!signal.aborted) profileLoading = false; }
+    finally {
+      clearTimeout(waiting);
+      if (!signal.aborted) {
+        profileLoading = false;
+        profileWaiting = false;
+      }
+    }
+  }
+
+  async function cancelPeerRequest(): Promise<void> {
+    if (view === 'user') {
+      if (!profileRequest || lifetime.signal.aborted) return;
+      profileRequest.abort();
+      profileRequest = null;
+      profileLoading = false;
+      profileWaiting = false;
+      profileError = new Error('Profile request cancelled.');
+      return;
+    }
+    if (!browse) return;
+    const signal = lifetime.signal;
+    try {
+      const result = await daemonApi.cancelUserBrowse(browse.browseId);
+      if (signal.aborted) return;
+      updateBrowse(result);
+      await advanceBrowse();
+    } catch (cause) {
+      if (!signal.aborted) browseError = asError(cause);
+    }
   }
 
   async function acquireBrowse(value: string, refresh = false): Promise<void> {
@@ -209,14 +248,20 @@
 <section class="page user-browser-page">
   <header class="user-browser-heading">
     <div><h1>User browser</h1></div>
-    <nav class="segmented-control user-view-tabs" aria-label="User browser views">
-      <button type="button" class:active={view === 'user'}
-        aria-current={view === 'user' ? 'page' : undefined}
-        onclick={() => onviewchange('user')}>User</button>
-      <button type="button" class:active={view === 'shares'}
-        aria-current={view === 'shares' ? 'page' : undefined}
-        onclick={() => onviewchange('shares')}>Shares</button>
-    </nav>
+    <div class="user-browser-heading-actions">
+      {#if cancellable}
+        <button type="button" class="button danger action-button" data-testid="cancel-peer-request"
+          onclick={() => void cancelPeerRequest()}><Icon name="x"/><span>Cancel</span></button>
+      {/if}
+      <nav class="segmented-control user-view-tabs" aria-label="User browser views">
+        <button type="button" class:active={view === 'user'}
+          aria-current={view === 'user' ? 'page' : undefined}
+          onclick={() => onviewchange('user')}>User</button>
+        <button type="button" class:active={view === 'shares'}
+          aria-current={view === 'shares' ? 'page' : undefined}
+          onclick={() => onviewchange('shares')}>Shares</button>
+      </nav>
+    </div>
   </header>
 
   {#if view === 'user'}

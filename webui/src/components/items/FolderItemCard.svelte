@@ -5,6 +5,7 @@
   import LockedIndicator from '../LockedIndicator.svelte';
   import LoadMoreButton from '../LoadMoreButton.svelte';
   import TransferStateLabel from './TransferStateLabel.svelte';
+  import TransferItemActionButton from './TransferItemActionButton.svelte';
   import RelativeTime from '../RelativeTime.svelte';
   import { folderItemIconPaths, type AppIconName } from '../../app/icons';
   import type { FolderItemFile, TransferPresentation } from '../../domains/presentation/items';
@@ -32,10 +33,15 @@
     keyboardChildren?: boolean;
     transfer?: TransferPresentation;
     selectedFileIds?: Set<string>;
+    /** Shown left of the folder state label. */
+    retry?: Snippet;
     actions?: Snippet;
     fileActions?: Snippet<[FolderItemFile]>;
+    /** Retries a failed file; its button sits left of the file state label. */
+    onretryfile?: (file: FolderItemFile) => void;
+    actionsDisabled?: boolean;
     onselectall?: (selected: boolean) => void;
-    onselectfile?: (file: FolderItemFile, selected: boolean) => void;
+    onselectfiles?: (files: FolderItemFile[], selected: boolean) => void;
     onselectfolder?: (relativePath: string, selected: boolean, partial: boolean) => void;
     isfolderselected?: (relativePath: string) => boolean;
     onloadfullcontents?: () => void;
@@ -64,10 +70,13 @@
     keyboardChildren = Boolean(keyboardKey),
     transfer,
     selectedFileIds = new Set<string>(),
+    retry,
     actions,
     fileActions,
+    onretryfile,
+    actionsDisabled = false,
     onselectall,
-    onselectfile,
+    onselectfiles,
     onselectfolder,
     isfolderselected,
     onloadfullcontents,
@@ -99,6 +108,14 @@
 
   function fileTransferSecondary(value: TransferPresentation): string {
     return [value.tone === 'failed' ? undefined : value.detail, value.speed, value.eta].filter(Boolean).join(' · ');
+  }
+
+  // Without path-level selection, a subfolder selects its loaded files at once.
+  function subfolderFiles(node: FolderTreeNode, selected: boolean, into: FolderItemFile[] = []): FolderItemFile[] {
+    for (const { file } of node.files)
+      if (!file.locked && selectedFileIds.has(file.id) !== selected) into.push(file);
+    for (const child of node.folders.values()) subfolderFiles(child, selected, into);
+    return into;
   }
 
   function subfolderSizeTitle(node: FolderTreeNode): string | undefined {
@@ -197,6 +214,7 @@
       {/if}
       <div class="folder-heading-actions">
         {@render contentsControl()}
+        {#if retry}<span class="item-card-action">{@render retry()}</span>{/if}
         {#if transfer?.job}<TransferStateLabel {transfer} {path} {sizeBytes} {files} {filesComplete} />{/if}
         {#if actions}<span class="item-card-action">{@render actions()}</span>{/if}
       </div>
@@ -229,7 +247,7 @@
           ? isfolderselected(row.relativePath) && row.node.selectedCount === row.node.selectableFileCount
           : row.node.selectableFileCount > 0 && row.node.selectedCount === row.node.selectableFileCount}
         {@const rowPartial = row.node.selectedCount > 0 && (row.node.selectedCount < row.node.selectableFileCount || !rowSelected)}
-        {@const selectableFolder = selectable && onselectfolder && row.node.selectableFileCount > 0}
+        {@const selectableFolder = selectable && Boolean(onselectfolder || onselectfiles) && row.node.selectableFileCount > 0}
         <svelte:element
           this={selectableFolder ? 'label' : 'div'}
           data-keyboard-item={keyboardChildren && fileLayout === 'tree' ? row.relativePath : undefined}
@@ -251,14 +269,16 @@
               onchange={(event) => {
                 event.currentTarget.checked = rowSelected;
                 event.currentTarget.indeterminate = rowPartial;
-                onselectfolder?.(row.relativePath, !rowSelected, rowPartial);
+                if (onselectfolder) onselectfolder(row.relativePath, !rowSelected, rowPartial);
+                else onselectfiles?.(subfolderFiles(row.node, !rowSelected), !rowSelected);
               }}
             />
           {:else}
             {@render rowIcon('folder')}
           {/if}
           <strong class="folder-subfolder-path" title={row.relativePath} style:--folder-tree-depth={row.depth || undefined}>
-            {#if highlight}{@render matchedText(row.relativePath, highlight, row.relativePath.length - row.name.length)}{:else}{row.name}{/if}
+            {#if selectableFolder || row.node.selectableFileCount === 0}{@render rowIcon('folder')}{/if}
+            <span>{#if highlight}{@render matchedText(row.relativePath, highlight, row.relativePath.length - row.name.length)}{:else}{row.name}{/if}</span>
           </strong>
           <span class="folder-subfolder-count">{row.node.fileCount} {row.node.fileCount === 1 ? 'file' : 'files'}{filesComplete ? '' : ' loaded'}</span>
           <span class="folder-subfolder-size" title={subfolderSizeTitle(row.node)}>{row.node.sizeBytes === 0 && row.node.unknownSizeCount > 0 ? '—' : formatBytes(row.node.sizeBytes)}</span>
@@ -285,7 +305,7 @@
             <input
               type="checkbox"
               checked={selectedFileIds.has(file.id)}
-              onchange={(event) => onselectfile?.(file, (event.currentTarget as HTMLInputElement).checked)}
+              onchange={(event) => onselectfiles?.([file], (event.currentTarget as HTMLInputElement).checked)}
             />
           {:else if icon}
             {@render rowIcon(icon)}
@@ -323,8 +343,13 @@
                   <Icon name={transferIcon(file.transfer)} />
                 </TransferStateLabel>
               {:else}
-                <TransferStateLabel transfer={file.transfer} path={file.sourcePath ?? file.relativePath}
-                  sizeBytes={file.sizeUnknown ? null : file.sizeBytes} class="folder-file-transfer-label" />
+                <span class="folder-file-transfer-label">
+                  {#if onretryfile && file.transfer.record?.status.availableActions?.some(action => action.kind === 'retry')}
+                    <TransferItemActionButton kind="retry" label={`Retry ${file.relativePath}`} disabled={actionsDisabled} onclick={() => onretryfile(file)} />
+                  {/if}
+                  <TransferStateLabel transfer={file.transfer} path={file.sourcePath ?? file.relativePath}
+                    sizeBytes={file.sizeUnknown ? null : file.sizeBytes} />
+                </span>
               {/if}
             </span>
           {/if}

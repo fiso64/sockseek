@@ -76,6 +76,8 @@ let
     [ "[${p.name}]" ]
     ++ lib.optional (p.condition != null) ''profile-cond = "${p.condition}"''
     ++ renderSettings p.settings;
+  stateDir = "/var/lib/sockseek";
+  dataDir = "${stateDir}/data";
   conf = pkgs.writeText "sockseek.conf" (
     lib.concatStringsSep "\n" (renderSettings cfg.settings ++ lib.concatMap profileSection cfg.profiles)
     + "\n"
@@ -120,15 +122,21 @@ in
         message = "services.sockseek.profiles must have unique names.";
       }
     ];
+    # Private state in data/; downloads readable by other local users (media
+    # servers). Set serviceConfig.UMask = "0002" with a shared group for group writes.
+    services.sockseek.settings.data-dir = lib.mkDefault dataDir;
     environment.systemPackages = [ cfg.package ];
     environment.etc."sockseek/sockseek.conf".source = conf;
     users.groups.sockseek = { };
     users.users.sockseek = {
       isSystemUser = true;
       group = "sockseek";
-      home = "/var/lib/sockseek";
+      home = stateDir;
     };
-    systemd.tmpfiles.rules = [ "d /var/lib/sockseek/downloads 0750 sockseek sockseek -" ];
+    systemd.tmpfiles.rules = [
+      "d ${dataDir} 0700 sockseek sockseek -"
+      "d ${stateDir}/downloads 0755 sockseek sockseek -"
+    ];
     systemd.services.sockseek = {
       description = "Sockseek daemon and WebUI";
       after = [ "network.target" ];
@@ -144,8 +152,9 @@ in
         User = "sockseek";
         Group = "sockseek";
         StateDirectory = "sockseek";
-        StateDirectoryMode = "0750";
-        WorkingDirectory = "/var/lib/sockseek/downloads";
+        StateDirectoryMode = "0755";
+        UMask = lib.mkDefault "0022";
+        WorkingDirectory = "${stateDir}/downloads";
         ExecStart = "${lib.getExe cfg.package} daemon --config /etc/sockseek/sockseek.conf";
         ExecReload = "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
         Restart = "on-failure";

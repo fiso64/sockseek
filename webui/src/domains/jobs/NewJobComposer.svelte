@@ -406,7 +406,7 @@
         {#if preview.summary}
           <span class="new-job-footer-status">{selectedCount} selected</span>
           <div class="new-job-footer-actions">
-            {#if needsReview}<button type="button" class="button new-job-review-button" disabled={!valid || busy} onclick={() => plan(false)}>Review again</button>{/if}
+            <button type="button" class="button new-job-review-button" disabled={!valid || busy} onclick={() => plan(false)}>Review again</button>
             <button type="button" class="button primary new-job-start-button" aria-keyshortcuts="Control+Enter" title="Start (Ctrl+Enter)" disabled={!committable || !selectedCount || busy} onclick={startReviewed}>{preview.committing ? 'Starting…' : `Start ${selectedCount} ${selectedCount === 1 ? 'job' : 'jobs'}`}</button>
           </div>
         {:else}

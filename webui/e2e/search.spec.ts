@@ -136,10 +136,10 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
     await expect(sourceRow).toHaveCount(0);
     await daemon.command('release-download');
     await page.goto('/downloads');
-    const file = page.locator('.file-item-card').filter({ hasText: 'Artist - Bare.flac' });
+    const file = page.locator('.folder-item-card').filter({ hasText: 'Artist - Bare.flac' });
     await expect(file).toHaveCount(1);
+    await expect(file.locator('.folder-file-row')).toHaveCount(1);
     await expect(file.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
-    await expect(page.locator('.folder-item-card')).toHaveCount(0);
     const response = await page.request.get('/api/transfers?direction=download');
     expect(response.ok(), await response.text()).toBe(true);
     const transfers = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
@@ -795,7 +795,7 @@ test('keeps a grouped track choice and all-except plan through live group reorde
     'second-peer:Succeeded:Fixture\\Fixture Alpha.mp3',
   ]);
   for (const transfer of transfers) {
-    expect(transfer.status.localPath).toBe(join(outputDirectory, 'Fixture', win32.basename(transfer.identity.remotePath!)));
+    expect(transfer.status.localPath).toBe(join(outputDirectory, win32.basename(transfer.identity.remotePath!)));
     expect((await stat(transfer.status.localPath!)).size).toBe(8_000_000);
   }
   const jobsResponse = await page.request.get(
@@ -1536,7 +1536,7 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   await expect(page.locator('.mutation-status')).toContainText('1 download requested');
   await page.goto('/downloads');
   await expect(page.locator('.page')).toContainText('Fixture song.txt');
-  await expect(page.getByLabel('50% complete', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   await daemon.command('release-download');
   await expect(page.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   const timelineResponse = await page.request.get('/api/transfers?direction=download&limit=100');

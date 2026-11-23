@@ -30,14 +30,18 @@ export function automaticJobCountStats(job: JobSummaryDto): string[] {
       values.push(showProgress ? `${formatCount(finished)} / ${extent} finished` : extent);
     }
     if (job.lifecycle.lifecycleState !== 'Pending') {
+      // A success count equal to the finished count restates it; show the
+      // breakdown only when finished members differ in outcome.
+      const success = (count: number, label: string) => {
+        if (count > 0 && count !== Number(finished)) values.push(`${formatCount(count)} ${label}`);
+      };
       if (directory) {
-        if (Number(stats.downloadedMemberCount) > 0) values.push(`${formatCount(stats.downloadedMemberCount)} downloaded`);
-        if (Number(stats.reusedMemberCount) > 0) values.push(`${formatCount(stats.reusedMemberCount)} reused`);
+        success(Number(stats.downloadedMemberCount), 'downloaded');
+        success(Number(stats.reusedMemberCount), 'reused');
       } else if (finished != null && stats.failedMemberCount != null && stats.skippedMemberCount != null) {
         // These are mutually exclusive terminal categories. "Succeeded" does
         // not imply every nested job performed a file transfer.
-        const succeeded = Number(finished) - Number(stats.failedMemberCount) - Number(stats.skippedMemberCount);
-        if (succeeded > 0) values.push(`${formatCount(succeeded)} succeeded`);
+        success(Number(finished) - Number(stats.failedMemberCount) - Number(stats.skippedMemberCount), 'succeeded');
       }
       if (Number(stats.skippedMemberCount) > 0) values.push(`${formatCount(stats.skippedMemberCount)} skipped`);
       // The server's failure aggregate includes cancellations and partial outcomes.

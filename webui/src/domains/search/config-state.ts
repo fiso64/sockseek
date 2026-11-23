@@ -1,11 +1,11 @@
 export interface CommonSearchRanking {
   formats: string[];
-  minBitrate: string;
-  maxBitrate: string;
-  minSampleRate: string;
-  maxSampleRate: string;
-  minBitDepth: string;
-  maxBitDepth: string;
+  minBitrate: number | null;
+  maxBitrate: number | null;
+  minSampleRate: number | null;
+  maxSampleRate: number | null;
+  minBitDepth: number | null;
+  maxBitDepth: number | null;
   strictArtist: boolean;
   excludeLocked: boolean;
   allowedUsers: string;
@@ -14,7 +14,7 @@ export interface CommonSearchRanking {
 
 export interface TrackSearchRanking {
   strictTitle: boolean;
-  lengthTolerance: string;
+  lengthTolerance: number | null;
 }
 
 export interface AlbumSearchRanking {
@@ -26,13 +26,13 @@ export interface CommonSearchConditions extends CommonSearchRanking {
 }
 
 export interface TrackSearchConditions extends TrackSearchRanking {
-  expectedLength: string;
+  expectedLength: number | null;
   acceptNoLength: boolean;
 }
 
 export interface AlbumSearchConditions extends AlbumSearchRanking {
-  minTrackCount: string;
-  maxTrackCount: string;
+  minTrackCount: number | null;
+  maxTrackCount: number | null;
   requiredTrackTitles: string[];
   strictAlbumQuality: boolean;
 }
@@ -43,13 +43,14 @@ export interface SearchRankingPreferences {
   album: AlbumSearchRanking;
 }
 
+/** Numeric conditions are non-negative integers; null leaves the bound unset. */
 export interface SearchConditions {
   common: CommonSearchConditions;
   track: TrackSearchConditions;
   album: AlbumSearchConditions;
   group: {
-    minShares: string;
-    lengthTolerance: string;
+    minShares: number | null;
+    lengthTolerance: number | null;
   };
   ranking: SearchRankingPreferences;
 }
@@ -58,15 +59,15 @@ export function createEmptySearchConditions(): SearchConditions {
   const { common, track, album } = createEmptySearchRanking();
   return {
     common: { ...common, rejectUnknownMetadata: false },
-    track: { ...track, expectedLength: '', acceptNoLength: true },
+    track: { ...track, expectedLength: null, acceptNoLength: true },
     album: {
       ...album,
-      minTrackCount: '',
-      maxTrackCount: '',
+      minTrackCount: null,
+      maxTrackCount: null,
       requiredTrackTitles: [],
       strictAlbumQuality: false,
     },
-    group: { minShares: '', lengthTolerance: '' },
+    group: { minShares: null, lengthTolerance: null },
     ranking: createEmptySearchRanking(),
   };
 }
@@ -75,12 +76,12 @@ export function createEmptySearchRanking(): SearchRankingPreferences {
   return {
     common: {
       formats: [],
-      minBitrate: '',
-      maxBitrate: '',
-      minSampleRate: '',
-      maxSampleRate: '',
-      minBitDepth: '',
-      maxBitDepth: '',
+      minBitrate: null,
+      maxBitrate: null,
+      minSampleRate: null,
+      maxSampleRate: null,
+      minBitDepth: null,
+      maxBitDepth: null,
       strictArtist: false,
       excludeLocked: false,
       allowedUsers: '',
@@ -88,7 +89,7 @@ export function createEmptySearchRanking(): SearchRankingPreferences {
     },
     track: {
       strictTitle: false,
-      lengthTolerance: '',
+      lengthTolerance: null,
     },
     album: {
       strictAlbum: false,

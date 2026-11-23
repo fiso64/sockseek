@@ -53,7 +53,7 @@
     isselected: (ref: string, parentRef?: string) => boolean;
     selectedCount: number;
     onbeginrange: (additive: boolean) => (items: SearchRangeItem[], selected: boolean) => void;
-    ontoggle: (ref: string, selected: boolean, parentRef?: string) => void;
+    ontoggle: (ref: string | readonly string[], selected: boolean, parentRef?: string) => void;
     onselectfolder: (directoryRef: string, relativePath: string, selected: boolean, includeFiltered?: boolean) => void;
     isfolderselected: (directoryRef: string, relativePath: string, filtered?: boolean) => boolean;
     onselectall: (selected: boolean) => void;
@@ -74,7 +74,7 @@
     onfilteroptions: (text: string) => void;
     onloadoptions: () => void;
     onchooseoption: (groupRef: string, option: GroupOption) => void;
-    ontogglealbumfile: (groupRef: string, fileRef: string, selected: boolean) => void;
+    ontogglealbumfile: (groupRef: string, fileRefs: string[], selected: boolean) => void;
     onviewdownloads: (submissionId: string) => void;
     onback: () => void;
     onsearchagain: () => void;
@@ -822,7 +822,7 @@
         selectable={!selectionReadOnly}
         selectedFileIds={new Set(files.filter((file) => !file.locked && isselected(file.id, row.ref)).map((file) => file.id))}
         onselectall={(checked) => ontoggle(row.ref, checked)}
-        onselectfile={(file, checked) => ontogglealbumfile(row.ref, file.id, checked)}
+        onselectfiles={(files, checked) => ontogglealbumfile(row.ref, files.map(file => file.id), checked)}
       />
       {#if !children || (children.loading && !children.refreshing) || children.error || children.nextCursor}
         <div class="load-more-row"><button class="button" type="button" disabled={children?.loading} onclick={() => onloaddirectory(directory.ref.ref)}>{children?.loading ? 'Loading…' : children?.error ? 'Retry matching files' : children ? 'Load more' : 'Load matching files'}</button></div>
@@ -864,13 +864,13 @@
     <div class="search-results-actions">
       <button
         type="button"
-        class="button search-again-button"
+        class="button action-button collapse-narrow"
         disabled={!searchAgainAvailable || searchAgainPending}
         title={searchAgainAvailable ? 'Run this search again with its retained settings' : 'Single-search replay is unavailable for this job'}
         onclick={onsearchagain}
       ><Icon name="search" /><span>{searchAgainPending ? 'Starting…' : 'Search again'}</span></button>
       {#if removeAction}
-        <button type="button" class:quiet-cancel={removeAction === 'cancel'} class="button danger delete-search-button" disabled={removePending} aria-label={`${removeAction === 'cancel' ? 'Cancel' : 'Delete'} ${queryTitle()}`} title={removeAction === 'cancel' ? 'Cancel job' : 'Delete search'} onclick={onremove}>
+        <button type="button" class="button danger action-button collapse-narrow" disabled={removePending} aria-label={`${removeAction === 'cancel' ? 'Cancel' : 'Delete'} ${queryTitle()}`} title={removeAction === 'cancel' ? 'Cancel job' : 'Delete search'} onclick={onremove}>
           <Icon name={removeAction === 'cancel' ? 'x' : 'trash'} />
           <span>{removePending ? 'Working…' : removeAction === 'cancel' ? 'Cancel' : 'Delete'}</span>
         </button>
@@ -1120,7 +1120,7 @@
                       {selectedFileIds}
                       onselectall={(checked) => hidden && checked && (folderSelection.partial || filteredOnly)
                         ? onselectfolder(row.ref, '', true, true) : ontoggle(row.ref, checked)}
-                      onselectfile={(file, checked) => ontoggle(file.id, checked, row.ref)}
+                      onselectfiles={(files, checked) => ontoggle(files.map(file => file.id), checked, row.ref)}
                       onselectfolder={genericMode && !selectionReadOnly ? (path, checked, partial) => onselectfolder(row.ref, path, checked, checked && partial && hiddenPaths.has(path)) : undefined}
                       isfolderselected={genericMode ? (path) => isfolderselected(row.ref, path) && (!hiddenPaths.has(path) || isfolderselected(row.ref, path, true) && !partialPaths.has(path)) : undefined}
                     />

@@ -92,7 +92,7 @@ test('retries one refused file from Downloads and from its job', async ({ page, 
       await expect(retry).toHaveCount(0);
       const completedCard = page.getByRole('article').filter({ hasText: 'downloads.txt' })
         .filter({ has: page.getByRole('button', { name: 'Complete', exact: true }) });
-      await completedCard.getByRole('button', { name: 'Remove downloads.txt' }).click();
+      await completedCard.getByRole('button', { name: 'Remove Fixture' }).click();
       await expect(retry).toBeVisible();
       const nextRequest = page.waitForResponse(response => response.url().endsWith(`/transfers/${failed.transferId}/retry`));
       await retry.click();
@@ -185,12 +185,9 @@ test('cancels a live download and retains its cancelled state after reload', asy
   } satisfies Schema<'SubmitJobListRequestDto'> });
   expect(response.status()).toBe(202);
   await page.goto('/downloads');
-  const card = page.locator('.file-item-card').filter({ hasText: 'Fixture song.txt' });
-  await expect(card.getByLabel('50% complete', { exact: true })).toBeVisible();
-  await expect(card.locator('.transfer-state')).toHaveText('Downloading');
-  await expect(card.locator('.transfer-progress-meta').first()).toContainText('64 B · 50%');
-  await expect(card.locator('.file-transfer-age')).toHaveText(/^(just now|\d+ .+ ago)$/);
-  await expect(card.locator('.file-transfer-age time')).toHaveAttribute('datetime', /T/);
+  const card = page.locator('.folder-item-card').filter({ hasText: 'Fixture song.txt' });
+  const file = card.locator('.folder-file-row');
+  await expect(card.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: 'Actions for fixture-peer', exact: true }).click();
   for (const name of ['Profile', 'Shares', 'Message']) {
     await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
@@ -199,12 +196,12 @@ test('cancels a live download and retains its cancelled state after reload', asy
   await expect(page).toHaveURL(/\/chat\/users\/fixture-peer$/);
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
   await page.goto('/downloads');
-  await expect(card.getByLabel('50% complete', { exact: true })).toBeVisible();
+  await expect(card.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   await page.mouse.move(0, 0);
-  const cancelAction = card.getByRole('button', { name: 'Cancel Fixture song.txt', exact: true });
+  const cancelAction = file.getByRole('button', { name: 'Cancel Fixture song.txt', exact: true });
   await expect(cancelAction).toHaveCSS('opacity', '0');
   await expect(cancelAction).toHaveCSS('pointer-events', 'none');
-  await card.locator('.file-item-main').hover();
+  await file.hover();
   await expect(cancelAction).toHaveCSS('opacity', '1');
   await expect(cancelAction).toHaveCSS('pointer-events', 'auto');
   await cancelAction.click();
@@ -214,13 +211,10 @@ test('cancels a live download and retains its cancelled state after reload', asy
   await page.reload();
   await expect(card).toContainText('Cancelled');
   await page.mouse.move(0, 0);
-  await expect(card.getByRole('button', { name: 'Remove Fixture song.txt', exact: true })).toBeVisible();
-  await expect(card.getByRole('button', { name: 'Remove Fixture song.txt', exact: true })).toHaveCSS('opacity', '1');
-  await expect(card.locator('.file-transfer-path')).toHaveCSS('direction', 'rtl');
-  await expect(card.locator('.file-transfer-path .folder-path-ancestors')).toHaveText('Fixture\\');
-  await expect(card.locator('.file-transfer-name')).toHaveText('Fixture song.txt');
-  await card.locator('.file-item-main').hover();
-  await card.getByRole('button', { name: 'Remove Fixture song.txt', exact: true }).click();
+  await expect(file.getByRole('button', { name: 'Remove Fixture song.txt', exact: true })).toBeVisible();
+  await expect(card.locator('.folder-transfer-path')).toHaveText('Fixture');
+  await file.hover();
+  await file.getByRole('button', { name: 'Remove Fixture song.txt', exact: true }).click();
   await expect(page.locator('.mutation-status')).toContainText('1 transfer removed');
   await expect(card).toHaveCount(0);
   await page.reload();
@@ -245,8 +239,8 @@ test('groups independent downloads by submission and keeps group actions isolate
   const folder = page.locator('.folder-item-card').filter({ hasText: 'One.txt' });
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
   await submit(['Separate']);
-  const separate = page.locator('.file-item-card').filter({ hasText: 'Separate.txt' });
-  await expect(separate.getByLabel('50% complete', { exact: true })).toBeVisible();
+  const separate = page.locator('.folder-item-card').filter({ hasText: 'Separate.txt' });
+  await expect(separate.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   const response = await page.request.get('/api/transfers?direction=download&limit=100');
   const rows = (await response.json() as Schema<'TransferTimelinePageDto'>).items;
   expect(rows).toHaveLength(3);
@@ -263,7 +257,7 @@ test('groups independent downloads by submission and keeps group actions isolate
   await folder.getByRole('button', { name: 'Cancel Fixture', exact: true }).click();
   await expect(page.locator('.mutation-status')).toContainText('2 transfers cancelled');
   await expect(folder.locator('.folder-file-row').getByRole('button', { name: 'Cancelled', exact: true })).toHaveCount(2);
-  await expect(separate.getByLabel('50% complete', { exact: true })).toBeVisible();
+  await expect(separate.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   await page.reload();
   await expect(folder.locator('.folder-file-row').getByRole('button', { name: 'Cancelled', exact: true })).toHaveCount(2);
   await folder.locator('.folder-item-summary').hover();
@@ -273,7 +267,7 @@ test('groups independent downloads by submission and keeps group actions isolate
   await daemon.command('release-download');
   await expect(separate.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   await page.reload();
-  await expect(page.locator('.folder-item-card')).toHaveCount(0);
+  await expect(folder).toHaveCount(0);
   await expect(separate.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
 });
 
@@ -471,7 +465,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   } satisfies Schema<'SubmitJobListRequestDto'> });
   expect(unrelated.status()).toBe(202);
   try {
-    const unrelatedCard = page.locator('.file-item-card, .folder-item-card').filter({ hasText: 'Unrelated.txt' });
+    const unrelatedCard = page.locator('.folder-item-card').filter({ hasText: 'Unrelated.txt' });
     await expect(unrelatedCard.getByRole('button', { name: 'Downloading', exact: true }).first()).toBeVisible();
     await daemon.command('release-download');
     // A failed timeline observation must preserve loaded rows and make Retry
@@ -490,7 +484,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
     releaseSummary();
     await daemon.command('release-download');
   }
-  await expect(page.locator('.file-item-card, .folder-item-card').filter({ hasText: 'Unrelated.txt' }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
+  await expect(page.locator('.folder-item-card').filter({ hasText: 'Unrelated.txt' }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'Folder totals unavailable' })).toBeVisible();
   await expect(partialFolder.locator('.folder-file-row')).toHaveCount(2);
   await expect(partialFolder).toContainText('Size, progress and status cover loaded files only.');
@@ -550,7 +544,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   });
   await page.reload();
   await expect(page.getByRole('status').filter({ hasText: 'Retained history degraded' })).toBeVisible();
-  await expect(page.locator('.file-item-card, .folder-item-card').filter({ hasText: 'Unrelated.txt' }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
+  await expect(page.locator('.folder-item-card').filter({ hasText: 'Unrelated.txt' }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await expect(page.getByText('No downloads', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('alert').filter({ hasText: 'Transfers unavailable' })).toHaveCount(0);
 });

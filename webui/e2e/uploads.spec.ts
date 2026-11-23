@@ -30,11 +30,11 @@ test('cancels queued uploads within a mixed folder without cancelling active fil
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto('/uploads');
   await daemon.command('request-upload');
-  await expect(page.locator('.file-item-card').filter({ hasText: 'Uploaded.txt' })
-    .getByLabel('50% complete', { exact: true })).toBeVisible();
+  await expect(page.locator('.folder-item-card').filter({ hasText: 'Uploaded.txt' })
+    .getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   await daemon.command('request-queued-upload');
   const active = page.locator('.folder-file-row').filter({ hasText: 'Uploaded.txt' });
-  await expect(active.getByLabel('50% complete', { exact: true })).toBeVisible();
+  await expect(active.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   const queued = page.locator('.folder-file-row').filter({ hasText: 'Queued.txt' });
   await expect(queued.getByRole('button', { name: 'Queued', exact: true })).toBeVisible();
   const folder = page.locator('.folder-item-card').filter({ hasText: 'Uploaded.txt' });
@@ -71,7 +71,7 @@ test('cancels queued uploads within a mixed folder without cancelling active fil
   expect({ historyReads, summaryReads }, 'Opposite-direction retirement leaves the upload page valid.')
     .toEqual(beforeDownload);
   expect(globalTransferRows, 'Sidebar totals do not require unrelated global transfer rows.').toBe(0);
-  await expect(active.getByLabel('50% complete', { exact: true })).toBeVisible();
+  await expect(active.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   await expect(queued.getByRole('button', { name: 'Queued', exact: true })).toBeVisible();
   const activeDetail = active.locator('.folder-file-transfer-detail');
   await expect(activeDetail).toContainText('remaining');
@@ -91,7 +91,7 @@ test('cancels queued uploads within a mixed folder without cancelling active fil
   await page.getByRole('button', { name: 'Cancel queued', exact: true }).click();
   await expect(page.locator('.mutation-status')).toContainText('1 transfer cancelled');
   await expect(queued.getByText('Cancelled', { exact: true })).toBeVisible();
-  await expect(active.getByLabel('50% complete', { exact: true })).toBeVisible();
+  await expect(active.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   const removeCompleted = page.getByRole('button', { name: 'Remove all completed', exact: true });
   await expect(removeCompleted).toBeDisabled();
   await daemon.command('release-upload');
@@ -99,7 +99,7 @@ test('cancels queued uploads within a mixed folder without cancelling active fil
   await removeCompleted.click();
   await expect(page.locator('.mutation-status')).toContainText('1 transfer removed');
   await expect(page.getByText('Uploaded.txt', { exact: true })).toHaveCount(0);
-  const remaining = page.locator('.file-item-card').filter({ hasText: 'Queued.txt' });
+  const remaining = page.locator('.folder-item-card').filter({ hasText: 'Queued.txt' });
   await expect(remaining.getByRole('button', { name: 'Cancelled', exact: true })).toBeVisible();
 });
 
@@ -110,15 +110,15 @@ test('serves a peer upload through live progress and retained history', async ({
     const url = new URL(request.url());
     if (request.method() === 'POST' && url.pathname === '/api/transfers/timeline') historyReads++;
   });
-  const card = page.locator('.file-item-card').filter({ hasText: 'Uploaded.txt' });
+  const card = page.locator('.folder-item-card').filter({ hasText: 'Uploaded.txt' });
   try {
     await page.goto('/uploads');
     await expect(page.getByText('No uploads', { exact: true })).toBeVisible();
     await daemon.command('request-upload');
     releaseSnapshot();
-    await expect(card.getByLabel('50% complete', { exact: true })).toBeVisible();
+    await expect(card.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   } finally { releaseSnapshot(); }
-  await expect(card.getByLabel('50% complete', { exact: true })).toBeVisible();
+  await expect(card.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   await card.getByRole('button', { name: 'Uploading', exact: true }).click();
   const details = page.getByRole('dialog', { name: 'Transfer details', exact: true });
   await expect(details).toContainText('upload-peer');
@@ -134,19 +134,19 @@ test('serves a peer upload through live progress and retained history', async ({
   await expect(page.getByRole('menuitem', { name: 'Shares', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(card.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
-  await expect(card.locator('.file-transfer-footer')).toHaveCount(0);
+  await expect(card.locator('.folder-transfer-footer')).toHaveCount(0);
   historyReads = 0;
   await page.reload();
   await expect(page.getByLabel('Connection status')).toContainText('Connected');
   await expect(card.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
-  await expect(card.locator('.file-transfer-footer')).toHaveCount(0);
+  await expect(card.locator('.folder-transfer-footer')).toHaveCount(0);
   expect(historyReads).toBe(1);
   await card.getByRole('button', { name: 'Complete', exact: true }).click();
   await expect(details.locator('dt').filter({ hasText: /^Transferred$/ }).locator('+ dd')).toHaveText('128 B');
   await expect(details.locator('dt').filter({ hasText: /^Finished$/ }).locator('+ dd')).not.toBeEmpty();
   expect(historyReads).toBe(1);
   await details.getByRole('button', { name: 'Close transfer details', exact: true }).click();
-  await card.locator('.file-item-main').hover();
+  await card.locator('.folder-file-row').hover();
   await card.getByRole('button', { name: 'Remove Uploaded.txt', exact: true }).click();
   await expect(card).toHaveCount(0);
   await page.reload();
@@ -161,8 +161,8 @@ test('keeps two completed uploads in one retained folder and Content ranking', a
   await page.goto('/uploads');
   await daemon.command('request-upload');
   const folder = page.locator('.folder-item-card').filter({ hasText: 'Uploaded.txt' });
-  await expect(page.locator('.file-item-card').filter({ hasText: 'Uploaded.txt' })
-    .getByLabel('50% complete', { exact: true })).toBeVisible();
+  await expect(page.locator('.folder-item-card').filter({ hasText: 'Uploaded.txt' })
+    .getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   await daemon.command('request-queued-upload');
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
   await expect(folder.locator('.folder-file-row').first()).toContainText('Queued.txt');
@@ -207,7 +207,7 @@ test('explains a failed upload and supersedes it when the peer retries', async (
   await page.goto('/uploads');
   await daemon.command('fail-next-upload');
   await daemon.command('request-upload');
-  const card = page.locator('.file-item-card').filter({ hasText: 'Uploaded.txt' });
+  const card = page.locator('.folder-item-card').filter({ hasText: 'Uploaded.txt' });
   await expect(card.getByRole('button', { name: 'Failed', exact: true })).toBeVisible();
   await page.reload();
   await card.getByRole('button', { name: 'Failed', exact: true }).click();
@@ -220,10 +220,10 @@ test('explains a failed upload and supersedes it when the peer retries', async (
   await expect(dialog).toHaveCount(0);
   await daemon.command('request-upload');
   await expect(card).toHaveCount(1);
-  await expect(card.getByLabel('50% complete', { exact: true })).toBeVisible();
-  await expect(page.locator('.folder-item-card')).toHaveCount(0);
+  await expect(card.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.folder-item-card')).toHaveCount(1);
   await page.reload();
-  await expect(card.getByLabel('50% complete', { exact: true })).toBeVisible();
+  await expect(card.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   await daemon.command('release-upload');
   await expect(card.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   const archived = await page.request.get('/api/transfers?direction=upload&includeRemoved=true');

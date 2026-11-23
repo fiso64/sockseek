@@ -1353,7 +1353,7 @@ describe('Search View request isolation', () => {
       await controller.openGroupOptions('group');
       expect(controller.current().directoryFiles.get('second')?.items).toHaveLength(2);
       controller.chooseGroupOption('group', controller.current().groupOptions!.items[1]!);
-      controller.toggleAlbumGroupFile('group', 'second-intro', false);
+      controller.toggleAlbumGroupFile('group', ['second-intro'], false);
       expect(controller.current().albumFileSelections.get('group')?.mode).toBe('AllExcept');
       await controller.stepGroupOption('group', -1);
       expect(controller.isSelected('group')).toBe(false);

@@ -9,23 +9,17 @@ namespace Tests;
 public sealed class JobSettingsComposerTests
 {
     [TestMethod]
-    public void SelectionDefaultAndExplicitTemplateRemainDistinctAfterReplayAndOverrides()
+    public void SelectionsKeepTheRequestedNameFormatAcrossReplay()
     {
-        const string format = "{foldername}/{filename}";
         var composer = new JobSettingsComposer(null, ProfileCatalog.Empty);
         var song = new SongJob(new SongQuery()) { SelectionSource = JobSelectionSource.ManualSearch };
-        foreach (string requested in new[] { "", format })
+        foreach (string requested in new[] { "", "{foldername}/{filename}" })
         {
             var composed = composer.ComposeDetailed(new DownloadSettings(), song, request: new(
                 Download: new SettingsPatch([new("Output.NameFormat", requested)])));
             var saved = RetainedSettingsCodec.Deserialize(RetainedSettingsCodec.Serialize(composed.Settings));
-            Assert.AreEqual(format, saved.Output.NameFormat);
-            Assert.AreEqual(requested.Length == 0, saved.Output.PreserveSelectionConflicts);
-            var automatic = DefaultJobSettingsResolver.Instance.Resolve(saved, new SongJob(new SongQuery()));
-            Assert.AreEqual(requested, automatic.Output.NameFormat);
-            Assert.IsFalse(automatic.Output.PreserveSelectionConflicts);
-            saved.Output.NameFormat = format;
-            Assert.IsFalse(DefaultJobSettingsResolver.Instance.Resolve(saved, song).Output.PreserveSelectionConflicts);
+            Assert.AreEqual(requested, saved.Output.NameFormat);
+            Assert.AreEqual(requested, DefaultJobSettingsResolver.Instance.Resolve(saved, song).Output.NameFormat);
         }
     }
 

@@ -4,35 +4,23 @@ import { audioAttributes as audio, isTerminalTransfer } from '../presentation/it
 import { formatBytes } from '../../app/format';
 import { compareTransferPosition } from './history';
 
-export interface TransferTimelineFileEntry {
-  kind: 'file';
+/** Every transfer card is a folder card; an ungrouped transfer is a one-file
+ * folder of its parent path without a group reference. */
+export interface TransferTimelineEntry {
   id: string;
   peer: string;
   username: string | null;
-  path: string;
-  sizeBytes: number | null;
-  audio?: AudioAttributes;
-  sourceTransferIds: string[];
-  transfer: TransferPresentation;
-}
-
-export interface TransferTimelineFolderEntry {
-  kind: 'folder';
-  id: string;
-  peer: string;
-  username: string | null;
-  groupRef: string;
+  groupRef: string | null;
   path: string;
   sizeBytes: number | null;
   files: FolderItemFile[];
   totalFileCount: number;
   filesComplete: boolean;
-  summaryAvailable: boolean;
+  /** Whole-entry totals are known: a group summary exists, or the transfer is ungrouped. */
+  totalsKnown: boolean;
   sourceTransferIds: string[];
   transfer: TransferPresentation;
 }
-
-export type TransferTimelineEntry = TransferTimelineFileEntry | TransferTimelineFolderEntry;
 
 export interface TransferTimelinePeerGroup {
   key: string;
@@ -63,7 +51,6 @@ interface UnifiedTransfer {
 /** Membership/order is determined by fetched timeline rows, never byte progress. */
 export interface TransferEntryLayout {
   id: string;
-  kind: 'file' | 'folder';
   rows: readonly UnifiedTransfer[];
   summary?: Schema<'TransferGroupSummaryDto'>;
   direction: 'download' | 'upload';
@@ -103,7 +90,7 @@ export class TransferProjection {
       const previous = this.layouts.get(entry.id);
       // An unrelated arrival must not recreate every card's row subscriptions.
       // Drop departed entries with the page; this cache has no separate lifetime.
-      const retained = previous && previous.kind === entry.kind && previous.direction === entry.direction
+      const retained = previous && previous.direction === entry.direction
         && sameGroupSummary(previous.summary, entry.summary) && previous.rows.length === entry.rows.length
         && entry.rows.every((row, index) => row === previous.rows[index]) ? previous : entry;
       entries[index] = retained;
@@ -128,35 +115,25 @@ export class TransferProjection {
 
   private readonly rows = new WeakMap<TransferStateDto, UnifiedTransfer>();
   private readonly folderFiles = new WeakMap<UnifiedTransfer, { path: string; file: FolderItemFile }>();
-  private readonly fileEntries = new WeakMap<UnifiedTransfer, TransferTimelineFileEntry>();
-  private readonly groups = new WeakMap<Schema<'TransferGroupSummaryDto'>, {
-    rows: UnifiedTransfer[]; entry: TransferTimelineFolderEntry;
+  // Keyed by the immutable group summary, or by the row of an ungrouped transfer.
+  private readonly entries = new WeakMap<object, {
+    rows: UnifiedTransfer[]; entry: TransferTimelineEntry;
   }>();
 
-  group(summary: Schema<'TransferGroupSummaryDto'> | undefined, rows: UnifiedTransfer[]): TransferTimelineFolderEntry | undefined {
-    const previous = summary && this.groups.get(summary);
+  entry(key: object | undefined, rows: UnifiedTransfer[]): TransferTimelineEntry | undefined {
+    const previous = key && this.entries.get(key);
     return previous && previous.rows.length === rows.length && rows.every((row, index) => row === previous.rows[index])
       ? previous.entry : undefined;
   }
 
-  rememberGroup(summary: Schema<'TransferGroupSummaryDto'> | undefined, rows: UnifiedTransfer[], entry: TransferTimelineFolderEntry): void {
-    if (summary) this.groups.set(summary, { rows, entry });
+  rememberEntry(key: object | undefined, rows: UnifiedTransfer[], entry: TransferTimelineEntry): void {
+    if (key) this.entries.set(key, { rows, entry });
   }
 
   row(value: TransferStateDto): UnifiedTransfer {
     let row = this.rows.get(value);
     if (!row) { row = fromTransfer(value); this.rows.set(value, row); }
     return row;
-  }
-
-  file(row: UnifiedTransfer): TransferTimelineFileEntry {
-    let entry = this.fileEntries.get(row);
-    if (!entry) {
-      entry = { kind: 'file', id: row.id, peer: row.peer, username: row.username, path: row.path,
-        sizeBytes: row.sizeBytes, audio: row.audio, sourceTransferIds: [row.id], transfer: row.transfer };
-      this.fileEntries.set(row, entry);
-    }
-    return entry;
   }
 
   folderFile(row: UnifiedTransfer, path: string): FolderItemFile {
@@ -211,7 +188,7 @@ function arrangeRows(
   // Group identity is authoritative even while optional totals are unavailable.
   for (const row of rows) {
     if (!row.groupRef) {
-      entries.push({ kind: 'file', id: row.id, rows: [row], direction });
+      entries.push({ id: row.id, rows: [row], direction });
       continue;
     }
 
@@ -219,21 +196,14 @@ function arrangeRows(
     if (renderedGroups.has(key)) continue;
     const run = groupedRows.get(key)!;
     renderedGroups.add(key);
-    const summary = summaryByKey.get(key);
-    // Whole-group totals, rather than the fetched page, prove a one-file group.
-    const singleFile = row.groupKind === 'Files' && summary && Number(summary.fileCount) === 1 && run.length === 1;
-    entries.push({
-      kind: singleFile ? 'file' : 'folder',
-      id: singleFile ? row.id : key,
-      rows: run, summary, direction,
-    });
+    entries.push({ id: key, rows: run, summary: summaryByKey.get(key), direction });
   }
 
   const groups: TransferPeerLayout[] = [];
   const peerOccurrences = new Map<string, number>();
   for (const entry of projection.keepLayouts(entries)) {
     const row = entry.rows[0]!;
-    const count = entry.kind === 'folder' ? Number(entry.summary?.fileCount ?? entry.rows.length) : 1;
+    const count = Number(entry.summary?.fileCount ?? entry.rows.length);
     const previous = groups.at(-1);
     if (previous?.username === row.username && previous.peer === row.peer) {
       previous.items.push(entry);
@@ -267,23 +237,26 @@ export function presentTransferEntry(
 ): TransferTimelineEntry {
   const run = entry.rows.map(row => currentRow(row, projection, readTransfer));
   const row = run[0]!;
-  if (entry.kind === 'file') return projection.file(row);
   const { summary, direction } = entry;
-  const cached = projection.group(summary, run);
+  // An ungrouped transfer is a complete one-file folder: its own state is the
+  // card state, and a path without a parent folder names the card itself.
+  const ungrouped = !row.groupRef;
+  const cacheKey = summary ?? (ungrouped ? row : undefined);
+  const cached = projection.entry(cacheKey, run);
   if (cached) return cached;
-  const folderPath = row.groupDisplayPath ?? parentPath(row.path);
+  const folderPath = row.groupDisplayPath ?? (parentPath(row.path) || row.path);
   const totalFileCount = Number(summary?.fileCount ?? run.length);
-  const result: TransferTimelineFolderEntry = {
-    kind: 'folder', id: entry.id, peer: row.peer, username: row.username,
-    groupRef: row.groupRef!, path: folderPath,
+  const result: TransferTimelineEntry = {
+    id: entry.id, peer: row.peer, username: row.username,
+    groupRef: row.groupRef, path: folderPath,
     sizeBytes: groupKnownSize(run, summary),
     files: projection.folderOrder(entry.rows).map(index => projection.folderFile(run[index]!, folderPath)),
-    totalFileCount, filesComplete: Boolean(summary) && run.length === totalFileCount,
-    summaryAvailable: Boolean(summary), sourceTransferIds: run.map(item => item.id),
+    totalFileCount, filesComplete: ungrouped || Boolean(summary) && run.length === totalFileCount,
+    totalsKnown: ungrouped || Boolean(summary), sourceTransferIds: run.map(item => item.id),
     transfer: summary ? combineGroupSummary(summary, direction, row.createdAt)
-      : combineFolderPresentation(run, direction, row.createdAt),
+      : ungrouped ? row.transfer : combineFolderPresentation(run, direction, row.createdAt),
   };
-  projection.rememberGroup(summary, run, result);
+  projection.rememberEntry(cacheKey, run, result);
   return result;
 }
 
@@ -292,11 +265,9 @@ export function* transferEntryActions(
   entry: TransferEntryLayout, projection: TransferProjection,
   readTransfer: (id: string) => TransferStateDto | undefined,
 ): Generator<TransferPresentation> {
-  if (entry.kind === 'folder') {
-    if (entry.summary) yield combineGroupSummary(entry.summary, entry.direction, entry.rows[0]!.createdAt);
-    else yield combineFolderPresentation(entry.rows.map(row => currentRow(row, projection, readTransfer)),
-      entry.direction, entry.rows[0]!.createdAt);
-  }
+  if (entry.summary) yield combineGroupSummary(entry.summary, entry.direction, entry.rows[0]!.createdAt);
+  else if (entry.rows[0]!.groupRef) yield combineFolderPresentation(entry.rows.map(row => currentRow(row, projection, readTransfer)),
+    entry.direction, entry.rows[0]!.createdAt);
   for (const row of entry.rows) yield currentRow(row, projection, readTransfer).transfer;
 }
 

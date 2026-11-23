@@ -104,7 +104,7 @@ it('groups interleaved transfers by run identity independently of optional total
   expect(summarized[0]!.transferCount).toBe(3);
   expect(summarized[0]!.items.map((item) => item.path)).toEqual(['A', 'B']);
   expect(summarized[0]!.items[0]?.sourceTransferIds).toEqual(['transfer-0', 'transfer-2']);
-  expect(summarized[0]!.items[0]?.kind === 'folder' && summarized[0]!.items[0].filesComplete).toBe(true);
+  expect(summarized[0]!.items[0]?.filesComplete).toBe(true);
 });
 
 it.each(['download', 'upload'] as const)('sorts %s folder files by name while keeping cards and progress stable', direction => {
@@ -126,8 +126,6 @@ it.each(['download', 'upload'] as const)('sorts %s folder files by name while ke
   } as TransferStateDto;
   const read = vi.fn((id: string) => id === 'one' ? live : undefined);
   const card = presentTransferEntry(layout, projection, read);
-  expect(card.kind).toBe('folder');
-  if (card.kind !== 'folder') throw new Error('Expected a folder');
   expect(card.files.map(file => file.id)).toEqual(['two', 'one']);
   expect(card.files[1]!.transfer).toMatchObject({ tone: 'active', progressPercent: 50 });
   expect(card.transfer).toMatchObject({ tone: 'active', progressPercent: 25 });
@@ -177,12 +175,8 @@ it.each(['download', 'upload'] as const)('uses whole-group totals for single-fil
     cancelledCount: 0, interruptedCount: 0,
   } satisfies Schema<'TransferGroupSummaryDto'>);
   const single = buildTransferGroups([uploaded], [], direction, [summary(1)])[0]!.items[0]!;
-  const explicitDirectory = { ...uploaded, identity: { ...uploaded.identity, groupKind: 'Directory' as const } };
-  expect(buildTransferGroups([explicitDirectory], [], direction, [summary(1)])[0]!.items[0]!.kind).toBe('folder');
-  expect(single.kind).toBe('file');
+  expect(single.files).toHaveLength(1);
   expect(single.sourceTransferIds).toEqual(['single']);
-  expect(buildTransferGroups([uploaded], [], direction, [summary(2)])[0]!.items[0]!.kind).toBe('folder');
-  expect(buildTransferGroups([uploaded], [], direction)[0]!.items[0]!.kind).toBe('folder');
 });
 
 it('shows transfer speed only while a file is active, even if a terminal snapshot retains its last sample', () => {
@@ -334,11 +328,10 @@ it('weights grouped transfer progress by bytes and leaves it unknown when a file
   const small = file('small', 100, 100);
   const large = file('large', 900, 0);
   const grouped = buildTransferGroups([small, large], [], 'download')[0]!.items[0]!;
-  expect(grouped.kind).toBe('folder');
   expect(grouped.transfer.progressPercent).toBe(10);
   const unknown = buildTransferGroups([small, file('unknown', null, 0)], [], 'download')[0]!.items[0]!;
   expect(unknown.transfer.progressPercent).toBeUndefined();
-  expect(unknown.kind === 'folder' && unknown.sizeBytes).toBe(100);
+  expect(unknown.sizeBytes).toBe(100);
 });
 
 it('uses whole-group totals and status when only one folder member is loaded', () => {
@@ -357,8 +350,6 @@ it('uses whole-group totals and status when only one folder member is loaded', (
     cancelledCount: 0, interruptedCount: 0,
   } satisfies Schema<'TransferGroupSummaryDto'>;
   const item = buildTransferGroups([loaded], [], 'download', [summary])[0]!.items[0]!;
-  expect(item.kind).toBe('folder');
-  if (item.kind !== 'folder') throw new Error('Expected a folder entry.');
   expect(item.totalFileCount).toBe(2);
   expect(item.filesComplete).toBe(false);
   expect(item.sizeBytes).toBe(1000);
@@ -383,8 +374,6 @@ it('uses the exact completed-folder count even when its member page is partial',
     cancelledCount: 0, interruptedCount: 0,
   } satisfies Schema<'TransferGroupSummaryDto'>;
   const item = buildTransferGroups([loaded], [], 'download', [summary])[0]!.items[0]!;
-  expect(item.kind).toBe('folder');
-  if (item.kind !== 'folder') throw new Error('Expected a folder entry.');
   expect(item.filesComplete).toBe(false);
   expect(item.transfer.progressText).toBe('2 files complete');
   expect(item.transfer.completedAt).toBeUndefined();
@@ -424,7 +413,7 @@ it('does not invent a timestamp or audio properties for a live transfer with mis
   } as unknown as TransferStateDto;
   const item = buildTransferGroups([], [live], 'download')[0]!.items[0]!;
   expect(item.transfer.createdAt).toBeUndefined();
-  expect(item.kind === 'file' && item.audio).toBeUndefined();
+  expect(item.files[0]?.audio).toBeUndefined();
   const retained = { revision: 1,
     transferId: 'live',
     createdAtUtc: '2026-09-10T00:00:00Z',
@@ -445,16 +434,12 @@ it('keeps unknown transfer file sizes absent while preserving valid zero and kno
     file: { name: 'Unknown.txt', size: null },
   } as unknown as TransferStateDto;
   const unknown = buildTransferGroups([], [live], 'download')[0]!.items[0]!;
-  expect(unknown.kind).toBe('file');
-  if (unknown.kind !== 'file') throw new Error('Expected a file entry');
   expect(unknown.sizeBytes).toBeNull();
   const known = buildTransferGroups([], [{ ...live, file: { ...live.file!, size: 128 } }], 'download')[0]!.items[0]!;
-  expect(known.kind === 'file' && known.sizeBytes).toBe(128);
+  expect(known.sizeBytes).toBe(128);
   const grouped = buildTransferGroups([], [{ ...live, identity: {
     ...live.identity, groupRef: 'directory', groupDisplayPath: 'Folder',
   } }], 'download')[0]!.items[0]!;
-  expect(grouped.kind).toBe('folder');
-  if (grouped.kind !== 'folder') throw new Error('Expected a folder entry');
   expect(grouped.sizeBytes).toBeNull();
   expect(grouped.files[0]?.sizeUnknown).toBe(true);
   const summary = {
@@ -467,7 +452,7 @@ it('keeps unknown transfer file sizes absent while preserving valid zero and kno
   const summarized = buildTransferGroups([], [{ ...live, identity: {
     ...live.identity, groupRef: 'directory', groupDisplayPath: 'Folder',
   } }], 'download', [summary])[0]!.items[0]!;
-  expect(summarized.kind === 'folder' && summarized.sizeBytes).toBeNull();
+  expect(summarized.sizeBytes).toBeNull();
 
   const retained = { revision: 1,
     transferId: 'retained-unknown',
@@ -477,12 +462,12 @@ it('keeps unknown transfer file sizes absent while preserving valid zero and kno
     progress: { totalBytes: -1, bytesTransferred: 0 }
   } as TransferStateDto;
   const historical = buildTransferGroups([retained], [], 'download')[0]!.items[0]!;
-  expect(historical.kind === 'file' && historical.sizeBytes).toBeNull();
+  expect(historical.sizeBytes).toBeNull();
   const zero = buildTransferGroups([{
     ...retained,
     progress: { ...retained.progress, totalBytes: 0 }
   }], [], 'download')[0]!.items[0]!;
-  expect(zero.kind === 'file' && zero.sizeBytes).toBe(0);
+  expect(zero.sizeBytes).toBe(0);
 });
 
 
@@ -510,7 +495,6 @@ it('projects fresh immutable snapshots even when a replacement keeps its revisio
   } satisfies Schema<'TransferGroupSummaryDto'>;
   const folder = (rows: TransferStateDto[], totals = summary) => {
     const entry = buildTransferGroups(rows, [], 'download', [totals], projection)[0]!.items[0]!;
-    if (entry.kind !== 'folder') throw new Error('Expected a folder.');
     return entry;
   };
   const initial = folder([one, two]);
@@ -608,8 +592,7 @@ it.each(['live', 'retained'])('renders planned nested paths for a custom directo
     progress: { totalBytes: 10, bytesTransferred: 10 }, scheduling: { requestedAtUtc: history.createdAtUtc },
   } as TransferStateDto;
   const folder = buildTransferGroups(source === 'retained' ? [history] : [], source === 'live' ? [live] : [], 'download')[0]!.items[0]!;
-  expect(folder.kind).toBe('folder');
-  if (folder.kind === 'folder') {
+  {
     expect(folder.path).toBe('My selection');
     expect(folder.files[0]!.relativePath).toBe('Artwork/cover.jpg');
     expect(folder.sourceTransferIds).toEqual(['nested']);

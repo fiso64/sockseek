@@ -19,6 +19,8 @@
     selectable?: boolean;
     keyboardKey?: string;
     transfer?: TransferPresentation;
+    /** Shown left of the transfer state label. */
+    retry?: Snippet;
     actions?: Snippet;
     onselect?: (selected: boolean) => void;
   }
@@ -34,6 +36,7 @@
     selectable = false,
     keyboardKey,
     transfer,
+    retry,
     actions,
     onselect,
   }: Props = $props();
@@ -78,6 +81,7 @@
           </div>
         </div>
         <div class="folder-heading-actions">
+          {#if retry}<span class="item-card-action">{@render retry()}</span>{/if}
           <TransferStateLabel {transfer} {path} {sizeBytes} circular={transfer.tone === 'complete'}>
             {#if transfer.tone === 'complete'}<Icon name="check" />{:else}{transfer.state}{/if}
           </TransferStateLabel>

@@ -103,6 +103,7 @@ testers.runNixOSTest {
     login()
     assert json.loads(request(job))["summary"]["jobId"] == result["jobId"]
     assert json.loads(request("/api/transfers?direction=download"))["items"][0]["transferId"] == transfer
-    machine.succeed("test -s /var/lib/sockseek/sockseek.db")
+    machine.succeed("test -s /var/lib/sockseek/data/sockseek.db")
+    assert machine.succeed("stat -c %a /var/lib/sockseek/data /var/lib/sockseek/downloads").split() == ["700", "755"]
   '';
 }

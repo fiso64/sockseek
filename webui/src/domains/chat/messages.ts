@@ -1,4 +1,4 @@
-import { SvelteMap } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { wireInteger, type ChatMessageDto } from '../../api/types';
 
 /** Later observations replace the same message, including send-state changes. */
@@ -19,10 +19,21 @@ export function snapshotNeedsHistory(boundary: ChatMessageDto | undefined, tail:
   return wireInteger(tail[0]!.sequence) > wireInteger(boundary.sequence);
 }
 
-/** Drafts and retry identities belong to the signed-in tab, across route changes. */
+export type ChatTarget =
+  | { kind: 'conversation'; id: string; username: string }
+  | { kind: 'room'; id: string }
+  | { kind: 'draft'; id: string; username: string };
+
+/**
+ * Drafts, opened new chats, the selected chat and retry identities belong to
+ * the signed-in tab, across route changes. New chats stay until removed
+ * explicitly or replaced by their created conversation.
+ */
 export function createChatDrafts() {
   return {
     text: new SvelteMap<string, string>(),
     unconfirmed: new Map<string, { text: string; id: string }>(),
+    newChats: new SvelteSet<string>(),
+    selected: null as ChatTarget | null,
   };
 }

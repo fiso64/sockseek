@@ -651,7 +651,7 @@
           onfilteroptions={(text) => void searchController.filterGroupOptions(text)}
           onloadoptions={() => void searchController.loadMoreGroupOptions()}
           onchooseoption={(ref, option) => searchController.chooseGroupOption(ref, option)}
-          ontogglealbumfile={(groupRef, fileRef, selected) => searchController.toggleAlbumGroupFile(groupRef, fileRef, selected)}
+          ontogglealbumfile={(groupRef, fileRefs, selected) => searchController.toggleAlbumGroupFile(groupRef, fileRefs, selected)}
           onviewdownloads={(id) => { jobLists.downloads.filterSubmission(id); jobsTab = 'downloads'; backToJobs(); }}
           onback={backToJobs}
           onsearchagain={() => void rerunActiveSearch()}

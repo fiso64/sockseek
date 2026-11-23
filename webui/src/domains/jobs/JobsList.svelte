@@ -142,7 +142,7 @@
           items={[{ id: 'searches', label: 'Searches' }, { id: 'downloads', label: 'Download jobs' }]} />
       </div>
     </div>
-    <button type="button" data-testid="new-job" class="button new-job-button" onclick={onnew}><span>+</span> New job</button>
+    <button type="button" data-testid="new-job" class="button action-button new-job-button" onclick={onnew}><span>+</span> New job</button>
   </header>
 
   {#if submissionId}<div class="jobs-filter">Showing one download request <button type="button" onclick={onclearfilter}>Show all download jobs</button></div>{/if}

@@ -51,7 +51,7 @@ namespace Sockseek.Core.Extractors;
                     }
                 case "collection":
                     {
-                        var queue = await musicBrainzClient.GetCollectionReleases(mbid, max, off);
+                        var queue = await musicBrainzClient.GetCollectionReleases(mbid, max, off, extraction);
                         if (reverse)
                         {
                             queue.ReverseMembers();
@@ -82,7 +82,7 @@ namespace Sockseek.Core.Extractors;
             _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         }
 
-        public async Task<JobList> GetReleaseAsAlbum(string mbid, int max, int offset, ExtractionSettings extraction, bool fromReleaseGroup = false)
+        public async Task<JobList> GetReleaseAsAlbum(string mbid, int max, int offset, ExtractionSettings extraction)
         {
             var queue = new JobList();
             if (offset > 0 || max == 0)
@@ -114,11 +114,7 @@ namespace Sockseek.Core.Extractors;
 
             queue.Add(new AlbumJob(query)
             {
-                ExtractorFolderCond = new FolderConditionPatch
-                {
-                    MinTrackCount = totalTracks,
-                    MaxTrackCount = (!fromReleaseGroup || extraction.SetAlbumMaxTrackCount) ? totalTracks : null,
-                }
+                ExtractorFolderCond = extraction.AlbumTrackCountCondition(totalTracks),
             });
             return queue;
         }
@@ -148,10 +144,10 @@ namespace Sockseek.Core.Extractors;
                 throw new InvalidOperationException("MusicBrainz release group did not include a release id.");
 
             _log.Info($"Found release '{bestRelease.GetProperty("title").GetString()}' ({releaseMbid}) in release group. Getting album info...");
-            return await GetReleaseAsAlbum(releaseMbid, max, offset, extraction, true);
+            return await GetReleaseAsAlbum(releaseMbid, max, offset, extraction);
         }
 
-        public async Task<JobList> GetCollectionReleases(string mbid, int max, int offset)
+        public async Task<JobList> GetCollectionReleases(string mbid, int max, int offset, ExtractionSettings extraction)
         {
             var collectionInfoUrl = $"https://musicbrainz.org/ws/2/collection/{mbid}?fmt=json";
             var collectionInfoResponse = await _httpClient.GetStringAsync(collectionInfoUrl);
@@ -193,7 +189,7 @@ namespace Sockseek.Core.Extractors;
                     {
                         ItemNumber = offset + count + 1,
                         EnablesIndexByDefault = true,
-                        ExtractorFolderCond = new FolderConditionPatch { MinTrackCount = trackCount, MaxTrackCount = trackCount },
+                        ExtractorFolderCond = extraction.AlbumTrackCountCondition(trackCount),
                     };
                     queue.Add(job);
                     count++;

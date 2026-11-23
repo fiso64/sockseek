@@ -200,18 +200,10 @@ public sealed class JobSettingsComposer
             settings.Extraction.RequestedMode = requested;
 
         var output = settings.Output;
-        if (output.PreserveSelectionConflicts && job.SelectionSource is null)
-            output.NameFormat = "";
-        if (!output.PreserveSelectionConflicts && !string.IsNullOrWhiteSpace(output.NameFormat)
-            && job.IsOrdinaryRemoteTransfer(settings))
+        if (!string.IsNullOrWhiteSpace(output.NameFormat) && job.IsOrdinaryRemoteTransfer(settings))
         {
             try { NameFormatRenderer.ValidateVariables(output.NameFormat, NameFormatVariableProvider.Supported); }
             catch (UnsupportedNameFormatVariableException) { output.NameFormat = ""; }
-        }
-        if (string.IsNullOrWhiteSpace(output.NameFormat) && job.SelectionSource.HasValue)
-        {
-            output.NameFormat = NameFormatRenderer.FolderAndFilename;
-            output.PreserveSelectionConflicts = true;
         }
     }
 

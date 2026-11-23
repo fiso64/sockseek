@@ -426,7 +426,7 @@ test('filters Unicode share names without changing the selected download identit
   expect((await submitted).postDataJSON().options.profileNames).toEqual(['download-preset']);
   await expect(page.locator('.mutation-status')).toContainText('1 download requested');
   await page.goto('/downloads');
-  const file = page.locator('.file-item-card');
+  const file = page.locator('.folder-item-card');
   await expect(file).toHaveCount(1);
   await expect(file.getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   await expect(file).toContainText('Აbc.txt');

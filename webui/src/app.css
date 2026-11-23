@@ -258,6 +258,8 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 }
 .chat-destination-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .chat-destination.user > :not(.chat-destination-open) { position: relative; z-index: 1; pointer-events: none; }
+.chat-destination.user > .chat-destination-remove { pointer-events: auto; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; }
+.chat-destination-remove svg { width: 15px; height: 15px; }
 .avatar {
   width: 30px;
   height: 30px;
@@ -506,7 +508,7 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   .chat-section-heading > span { display: none; }
   .chat-destination { grid-template-columns: 1fr; justify-items: center; padding-inline: 4px; position: relative; }
   .chat-destination-copy { display: none; }
-  .chat-destination .unread-count { position: absolute; top: 4px; right: 4px; }
+  .chat-destination .unread-count, .chat-destination.user > .chat-destination-remove { position: absolute; top: 4px; right: 4px; }
   .chat-add-row {
     position: absolute;
     z-index: 15;
@@ -748,6 +750,9 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   margin-bottom: 10px;
 }
 .config-grid-spaced { margin-top: 12px; }
+.track-count-grid { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+.track-count-grid.split { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; }
+.track-count-mode { width: 34px; height: 34px; display: grid; place-items: center; padding: 0; --app-icon-size: 17px; }
 .config-grid label,
 .config-stack label {
   min-width: 0;
@@ -1050,6 +1055,21 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   align-items: center;
   margin-bottom: 22px;
 }
+/* Icon-and-label actions in page and card headers share one size across tabs.
+   `collapse-narrow` keeps only the icon on phones. */
+.action-button {
+  --app-icon-size: 16px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 550;
+  white-space: nowrap;
+}
 .icon-button {
   width: 34px;
   height: 34px;
@@ -1066,18 +1086,6 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 .search-results-summary > span:not(.search-status-badge) + span:not(.search-status-badge)::before { content: "·"; margin-right: 9px; color: var(--faint); }
 
 .search-results-actions { grid-area: 1 / 4; display: inline-flex; align-items: center; gap: 7px; }
-.search-again-button,
-.delete-search-button {
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  border-radius: 8px;
-  font-size: 0.75rem;
-}
-.search-again-button .app-icon,
-.delete-search-button .app-icon { --app-icon-size: 16px; }
 
 .result-refine-wrap { position: relative; z-index: 6; margin-bottom: 16px; }
 .result-refine-row {
@@ -1392,15 +1400,17 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .folder-subfolder-row > .folder-row-icon { --app-icon-size: 15px; justify-self: center; }
 .folder-subfolder-path {
   grid-column: 2 / 4;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   margin-inline-start: min(calc(var(--folder-tree-depth, 0) * 18px), 35%);
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--text);
   font-size: 0.74rem;
   font-weight: 600;
 }
+.folder-subfolder-path > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-subfolder-path > .folder-row-icon { flex: 0 0 auto; }
 .folder-subfolder-size { white-space: nowrap; }
 /* Generic directory trees keep folder rows as compact as their file rows. */
 .folder-item-card.tree-layout > .folder-result-summary { padding: 8px 10px; }
@@ -1451,8 +1461,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 @media (max-width: 700px) {
   .search-results-title h1 { white-space: normal; overflow-wrap: anywhere; line-height: 1.2; }
   .search-results-actions { gap: 5px; }
-  .search-again-button span, .delete-search-button span { display: none; }
-  .search-again-button, .delete-search-button { width: 36px; justify-content: center; padding: 0; }
+  .action-button.collapse-narrow > span { display: none; }
+  .action-button.collapse-narrow { width: 36px; padding: 0; }
   .search-history-open {
     display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 4px 10px;
   }
@@ -1558,7 +1568,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   column-gap: 10px;
   --transfer-column-gap: clamp(22px, 10px + 2vw, 38px);
   --transfer-status-width: 9rem;
-  grid-template-columns: 34px minmax(0, 1fr) fit-content(160px) max-content max-content var(--transfer-status-width) var(--transfer-actions-width, max-content);
+  grid-template-columns: 34px minmax(0, 1fr) fit-content(160px) max-content max-content var(--transfer-status-width) max-content;
 }
 .transfer-files > :is(.folder-file-row, .folder-subfolder-row) {
   grid-column: 1 / -1;
@@ -1602,7 +1612,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   color: var(--faint);
   font-size: 0.62rem;
 }
-.folder-file-transfer-label { flex: 0 0 auto; }
+.folder-file-transfer-label { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; }
 .transfer-item-action-button {
   flex: none;
   width: 27px;
@@ -1637,23 +1647,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 }
 .transfers-heading > div:first-child { min-width: 0; }
 .transfer-bulk-actions { display: inline-flex; align-items: center; gap: 8px; }
-.transfer-remove-completed-button,
-.bulk-cancel-main,
-.bulk-cancel-menu-button {
-  height: 36px;
-}
-.transfer-remove-completed-button,
-.bulk-cancel-main {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  font-size: 0.74rem;
-  font-weight: 550;
-}
-.transfer-remove-completed-button { border-radius: 8px; }
-.transfer-remove-completed-button .app-icon,
-.bulk-cancel-main .app-icon { --app-icon-size: 15px; }
+.bulk-cancel-menu-button { height: 36px; }
 .bulk-cancel-split { position: relative; display: inline-flex; }
 .bulk-cancel-main { border-radius: 8px 0 0 8px; }
 .bulk-cancel-menu-button {
@@ -1687,8 +1681,6 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .bulk-cancel-check { color: var(--accent); }
 
 .page-content:has(> .downloads-page, > .uploads-page) { scrollbar-gutter: stable; }
-/* A failed download can offer both retry and remove. */
-.downloads-page { --transfer-actions-width: 62px; }
 .transfer-peer-list { display: grid; gap: 12px; }
 .transfer-peer-list .result-peer-items { gap: 10px; padding-top: 3px; }
 .transfer-peer-list .peer-result-count { color: var(--faint); font-size: .66rem; font-weight: 450; }
@@ -1727,7 +1719,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
     contain-intrinsic-block-size: none;
   }
   .transfer-files {
-    grid-template-columns: 34px minmax(0, 1fr) max-content max-content var(--transfer-status-width) var(--transfer-actions-width, max-content);
+    grid-template-columns: 34px minmax(0, 1fr) max-content max-content var(--transfer-status-width) max-content;
   }
   .folder-file-row.has-transfer .folder-file-path { grid-column: 2; grid-row: 1; }
   .folder-file-row.has-transfer .folder-file-audio { grid-column: 2; grid-row: 2; text-align: left; }
@@ -1754,9 +1746,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   .transfer-bulk-actions { align-self: flex-start; flex-wrap: wrap; }
   .transfer-progress-meta { flex-direction: column; gap: 3px; }
   .transfer-progress-meta span:last-child { text-align: left; }
-  .downloads-page { --transfer-actions-width: 28px; }
   .transfer-files {
-    grid-template-columns: 32px minmax(0, 1fr) max-content 28px var(--transfer-actions-width, max-content);
+    grid-template-columns: 32px minmax(0, 1fr) max-content 28px max-content;
     column-gap: 7px;
   }
   .folder-file-row.has-transfer .folder-file-path { grid-column: 2; grid-row: 1; }
@@ -1766,7 +1757,6 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   .folder-file-transfer-strip { display: contents; }
   .folder-file-state { grid-column: 4; grid-row: 1; justify-self: end; }
   .folder-file-row.has-transfer .folder-file-action { grid-column: 5; grid-row: 1; }
-  .folder-file-row.has-transfer .folder-file-action:has(> :nth-child(2)) { grid-column: 4 / 6; }
   .folder-file-progress-group, .folder-file-transfer-detail, .folder-file-transfer-label {
     grid-column: 2 / -1;
     justify-self: start;
@@ -1802,6 +1792,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   margin-bottom: 20px;
 }
 .user-browser-heading h1 { margin: 0; font-size: 1.72rem; font-weight: 650; letter-spacing: -0.025em; }
+.user-browser-heading-actions { display: flex; align-items: center; gap: 10px; }
 .user-view-tabs, .segmented-tabs {
   display: inline-flex;
   gap: 3px;
@@ -2030,7 +2021,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 
 @media (max-width: 700px) {
   .user-browser-heading { align-items: stretch; flex-direction: column; }
-  .user-view-tabs { align-self: flex-start; }
+  .user-browser-heading-actions { align-self: flex-start; }
   .user-profile-primary { grid-template-columns: 96px minmax(0, 1fr); gap: 15px; padding: 16px; }
   .user-profile-picture { width: 96px; height: 96px; border-radius: 13px; }
   .user-profile-copy p { font-size: 0.76rem; }
@@ -2743,16 +2734,6 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   gap: 18px;
 }
 .jobs-list-heading > div { min-width: 0; }
-.new-job-button {
-  min-height: 36px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 12px;
-  border-radius: 9px;
-  font-size: .76rem;
-  font-weight: 620;
-}
 .new-job-button > span { color: var(--accent); font-size: 1rem; line-height: 1; }
 
 .new-job-composer {

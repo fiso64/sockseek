@@ -642,12 +642,12 @@
         {#if job.display.createdAtUtc}<span class="job-detail-header-fact job-detail-age"><RelativeTime timestamp={job.display.createdAtUtc} /></span>{/if}
         {#if !info && !hasContent}<TransferStateLabel transfer={detailTransfer} class={`search-status-badge ${jobStatusClass(job)}`}>{statusLabel}</TransferStateLabel>{/if}
         {#if repeatOptions?.canRunAgain}
-          <button type="button" class="button quiet" data-testid="run-again" disabled={retryBusy} onclick={() => repeat(() => daemonApi.runAgain(jobId))}><Icon name="refresh" />Run again</button>
+          <button type="button" class="button action-button collapse-narrow" data-testid="run-again" aria-label="Run again" title="Run again" disabled={retryBusy} onclick={() => repeat(() => daemonApi.runAgain(jobId))}><Icon name="refresh" /><span>Run again</span></button>
         {/if}
         {#if job.lifecycle.availableActions?.some((action) => action.kind === 'cancel')}
-          <button type="button" class="button danger delete-search-button quiet-cancel" aria-label="Cancel" title="Cancel job" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
+          <button type="button" class="button danger action-button collapse-narrow" aria-label="Cancel" title="Cancel job" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
         {:else if canDeleteSubmission(job)}
-          <button type="button" class="button danger delete-search-button" data-testid="delete-submission" aria-label="Delete submission" title="Delete submission from history" disabled={deletingSubmissions.has(job.display.submissionId!)} onclick={() => ondelete(job)}><Icon name="trash" /><span>Delete submission</span></button>
+          <button type="button" class="button danger action-button collapse-narrow" data-testid="delete-submission" aria-label="Delete submission" title="Delete submission from history" disabled={deletingSubmissions.has(job.display.submissionId!)} onclick={() => ondelete(job)}><Icon name="trash" /><span>Delete submission</span></button>
         {/if}
       </div>
     {/if}
@@ -707,20 +707,20 @@
       {/snippet}
       <FileItemCard path={selectedFile.path} sizeBytes={file.fileSize == null && target?.size == null ? null : Number(file.fileSize ?? target?.size)}
         audio={audioAttributes(target)}
-        transfer={detailTransfer} actions={retryId ? fileRetry : undefined} />
+        transfer={detailTransfer} retry={retryId ? fileRetry : undefined} />
     </section>
   {:else if payload?.kind === 'album' && !skippedOutput}
     {#if payload.resolvedFolderPath || manifest}
       <section class="job-content-section">
         {#if payload.resolvedFolderUsername}<div class="job-source-heading"><div class="job-source-summary"><span class="job-source-identity">From: <UsernameLink username={payload.resolvedFolderUsername} actions={userActions} /></span></div></div>{/if}
-        <FolderItemCard path={(payload.resolvedFolderPath ?? manifest?.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} actions={missingFiles > 0 ? folderRetry : undefined} />
+        <FolderItemCard path={(payload.resolvedFolderPath ?? manifest?.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} retry={missingFiles > 0 ? folderRetry : undefined} />
         {#if moreFolderFiles}<button type="button" class="button job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
       </section>
     {/if}
   {:else if payload?.kind === 'remote-directory'}
     <section class="job-content-section">
       {#if payload.sourceUsername}<div class="job-source-heading"><div class="job-source-summary"><span class="job-source-identity">From: <UsernameLink username={payload.sourceUsername} actions={userActions} /></span></div></div>{/if}
-      <FolderItemCard path={(payload.sourceFolderPath ?? manifest?.displayRoot ?? payload.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} actions={missingFiles > 0 ? folderRetry : undefined} />
+      <FolderItemCard path={(payload.sourceFolderPath ?? manifest?.displayRoot ?? payload.displayRoot) || 'Selected files'} sizeBytes={directoryKnownSize(payload.directory)} files={folderFiles} totalFileCount={folderFileCount} filesComplete={manifest != null && !moreFolderFiles} dataStateLabel={planStateLabel} transfer={folderTransfer} retry={missingFiles > 0 ? folderRetry : undefined} />
       {#if moreFolderFiles}<button type="button" class="button job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
     </section>
   {/if}

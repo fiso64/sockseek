@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using Sockseek.Core.Extractors;
+using Sockseek.Core.Models;
 
 namespace Sockseek.Core.Settings;
 
@@ -49,11 +50,18 @@ public class ExtractionSettings
     [SettingOption("--uta", "--upgrade-to-album")]
     public bool UpgradeToAlbum { get; set; }
 
-    [SettingOption("--emtc", "--extract-min-track-count")]
+    [SettingOption("--no-extract-min-tracks", FixedValue = "false")]
     public bool SetAlbumMinTrackCount { get; set; } = true;
 
-    [SettingOption("--eMtc", "--extract-max-track-count")]
-    public bool SetAlbumMaxTrackCount { get; set; }
+    [SettingOption("--no-extract-max-tracks", FixedValue = "false")]
+    public bool SetAlbumMaxTrackCount { get; set; } = true;
+
+    /// Folder track-count bounds from an album track count reported by the source.
+    public FolderConditionPatch AlbumTrackCountCondition(int? trackCount) => new()
+    {
+        MinTrackCount = SetAlbumMinTrackCount ? trackCount : null,
+        MaxTrackCount = SetAlbumMaxTrackCount ? trackCount : null,
+    };
 }
 
 /// Controls Bandcamp extraction behaviour.

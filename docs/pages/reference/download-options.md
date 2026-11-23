@@ -252,7 +252,11 @@ Most common flags:
                                 ranked by coverage.
 --min-album-track-count <num>   Minimum number of tracks in an album folder
 --max-album-track-count <num>   Maximum number of tracks in an album folder
---extract-max-track-count       Set maximum album track count from extracted sources
+--no-extract-min-tracks         Do not set the minimum album track count from extracted
+                                sources
+--no-extract-max-tracks         Do not set the maximum album track count from extracted
+                                sources. By default extractors that report an album's
+                                track count use it as both minimum and maximum.
 --album-track-count-max-retries Max retries when album track count fails (default: 5)
 --album-art <option>            Retrieve additional images after downloading the album:
                                 'default': No additional images

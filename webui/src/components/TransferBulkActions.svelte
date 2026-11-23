@@ -46,13 +46,13 @@
 <svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeydown} />
 
 <div class="transfer-bulk-actions" bind:this={root}>
-  <button type="button" class="button transfer-remove-completed-button" disabled={!canRemoveCompleted || busy} title="Remove successful transfers from history" onclick={onremovecompleted}>
+  <button type="button" class="button action-button" disabled={!canRemoveCompleted || busy} title="Remove successful transfers from history" onclick={onremovecompleted}>
     <Icon name="trash" />
     <span>Remove all completed</span>
   </button>
 
   <div class="bulk-cancel-split" bind:this={splitRoot}>
-    <button type="button" class="button bulk-cancel-main" disabled={!canCancel || busy} onclick={oncancel}>
+    <button type="button" class="button action-button bulk-cancel-main" disabled={!canCancel || busy} onclick={oncancel}>
       <Icon name="x" />
       <span>{buttonLabel}</span>
     </button>
