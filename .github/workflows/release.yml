@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: '24'
       - if: matrix.deb
-        run: sudo apt-get update && sudo apt-get install -y acl build-essential debhelper
+        run: sudo apt-get update && sudo apt-get install -y build-essential debhelper
       - name: Build release files
         env:
           RID: ${{ matrix.rid }}

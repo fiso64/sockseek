@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run as root on a disposable systemd host with acl, curl and jq installed.
+# Run as root on a disposable systemd host with curl and jq installed.
 set -euo pipefail
 deb=$(realpath "${1:?Pass the release .deb}")
 conf=/etc/sockseek/sockseek.conf
@@ -44,9 +44,8 @@ get() { curl -fsS -b "$work/cookies" -c "$work/cookies" "$url$1"; }
 
 systemctl enable --now sockseek
 login
+# Another local user, such as a media server, reads downloads without extra setup.
 useradd --system --no-create-home sockseek-media-test
-setfacl -m u:sockseek-media-test:--x "$state"
-setfacl -m u:sockseek-media-test:r-x "$state/downloads"
 csrf=$(get /api/auth/session | jq -er .antiforgeryToken)
 job=$(curl -fsS -b "$work/cookies" -H "X-CSRF-Token: $csrf" \
     --json '{"songQuery":{"artist":"Fixture Artist","title":"Fixture Song"}}' \
@@ -59,7 +58,7 @@ get "/api/jobs/$job" | jq -e '.summary.lifecycle.terminalOutcome == "Succeeded"'
 transfer=$(get '/api/transfers?direction=download' | jq -er '.items[0].transferId')
 test -d "$state/downloads"
 test -s "$state/data/sockseek.db"
-[[ $(stat -c %a "$state/data") == 700 && $(stat -c %a "$state") == 750 ]]
+[[ $(stat -c %a "$state/data") == 700 && $(stat -c %a "$state") == 755 ]]
 media=$(find "$state/downloads" -name '*.mp3' -type f -print -quit)
 runuser -u sockseek-media-test -- cmp "$media" "$fixture/Fixture Artist - Fixture Song.mp3"
 invocation=$(systemctl show -p InvocationID --value sockseek)
