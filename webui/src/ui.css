@@ -243,7 +243,9 @@ mark.filter-match {
 
 /* A default action joined to an arrow that opens its alternatives. */
 .split-button { position: relative; display: inline-flex; }
-.split-button-main { border-radius: 8px 0 0 8px; }
+/* Only the joined corners are squared, and with enough weight to win over
+   the button classes the main part also carries. */
+.split-button .split-button-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split-button-toggle {
   width: 31px;
   display: grid;
@@ -251,7 +253,8 @@ mark.filter-match {
   height: 36px;
   margin-left: -1px;
   padding: 0;
-  border-radius: 0 8px 8px 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 .split-button-toggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .split-button-menu {

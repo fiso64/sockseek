@@ -46,10 +46,16 @@ test('separates search and download tabs with narrow rows, retained jobs and bro
     }));
     expect(layout.contentWidth).toBeLessThanOrEqual(layout.width);
     await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Downloads', exact: true }).click();
+    // Downloads opens on its files; the requests are one tab away.
+    await expect(page.getByRole('tab', { name: 'Files', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('tab', { name: 'Requests', exact: true }).click();
     await expect(page.locator('.search-history-query')).toHaveText('Fixture album download');
     await expect(page.getByRole('tab', { name: 'Requests', exact: true })).toHaveAttribute('aria-selected', 'true');
     await page.goBack();
+    await expect(page.getByRole('tab', { name: 'Files', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await page.goBack();
     await expect(searchRow).toBeVisible();
+    await page.goForward();
     await page.goForward();
     await expect(page.locator('.search-history-query')).toHaveText('Fixture album download');
     // A transfer acknowledgement during connection hydration must not trigger

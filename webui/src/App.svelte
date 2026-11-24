@@ -60,7 +60,7 @@
   // the one being shown.
   let navigationPage = $derived<PageId>(activePage === 'jobs' ? jobsTab : activePage);
   // The Downloads entry returns to whichever of its views was used last.
-  let downloadsView = $state<DownloadsView>('requests');
+  let downloadsView = $state<DownloadsView>('files');
   $effect(() => {
     if (activePage === 'downloads') downloadsView = 'files';
     else if (activePage === 'jobs' && jobsTab === 'downloads') downloadsView = 'requests';

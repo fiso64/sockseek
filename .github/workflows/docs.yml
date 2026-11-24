@@ -8,6 +8,8 @@ on:
     branches: [v4]
     paths:
       - 'docs/**'
+      # Regenerated on every API change; the manual does not include it.
+      - '!docs/openapi.json'
       - 'webui/public/**'
       - '.github/workflows/docs.yml'
 
