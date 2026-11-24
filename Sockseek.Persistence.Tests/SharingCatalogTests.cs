@@ -20,6 +20,13 @@ public sealed class SharingCatalogTests
             RemotePathKey.Create(fixture.File.RemotePath));
         Assert.IsNull(await reader.ResolveFileAsync(RemotePathKey.Create("music/artist/cafe\u0301 track.FLAC")));
         var search = await reader.SearchAsync("café track", 10, []);
+        // A legacy client's lower-cased request still finds the file.
+        var lowerCased = await reader.ResolveFileAsync(RemotePathKey.Create(fixture.File.RemotePath.ToLowerInvariant()));
+        Assert.AreEqual(fixture.File.RemotePath, lowerCased?.File.RemotePath);
+        // "*rack" matches words ending in "rack", and only beside a complete word.
+        Assert.AreEqual(1, (await reader.SearchAsync("*rack café", 10, [])).Count);
+        Assert.AreEqual(0, (await reader.SearchAsync("*rac café", 10, [])).Count);
+        Assert.AreEqual(0, (await reader.SearchAsync("*rack", 10, [])).Count);
         var directory = await reader.GetDirectoryAsync(
             RemotePathKey.Create(@"Music\Artist"));
         var browse = new List<ShareCatalogBrowseDirectoryRow>();

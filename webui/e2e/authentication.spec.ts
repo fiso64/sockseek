@@ -44,6 +44,19 @@ test('signs in, manages a CLI key in System, and revokes the browser session on 
   expect(secret).toMatch(/^ssk_[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}$/);
   const remote = await page.request.get(`${daemon.url}/api/server/info`, { headers: { 'X-API-Key': secret } });
   expect(remote.status()).toBe(200);
+  // A daemon reached over plain HTTP has no async clipboard. Copying must still
+  // work from inside the dialog, where the rest of the page is inert.
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }));
+  await dialog.getByRole('button', { name: 'Copy key', exact: true }).click();
+  await expect(dialog.getByRole('status')).toHaveText('Copied');
+  const pasteTarget = await dialog.evaluateHandle(element => {
+    const input = document.createElement('input');
+    element.append(input);
+    input.focus();
+    return input;
+  });
+  await page.keyboard.press('ControlOrMeta+V');
+  expect(await pasteTarget.evaluate(input => { const value = input.value; input.remove(); return value; })).toBe(secret);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: 'Revoke Laptop CLI' }).click();

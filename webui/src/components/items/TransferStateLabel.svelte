@@ -5,7 +5,7 @@
   import Icon from '../Icon.svelte';
   import Modal from '../Modal.svelte';
   import { jobSkipExplanation } from '../../domains/jobs/status';
-  import { folderSources, type FolderItemFile, type TransferPresentation } from '../../domains/presentation/items';
+  import { folderSources, isBusyTransfer, type FolderItemFile, type TransferPresentation } from '../../domains/presentation/items';
   import { formatBytes, formatCount, humanizeStateValue } from '../../app/format';
 
   let { transfer, path, sizeBytes, files, filesComplete = false, circular = false, children, class: extraClass = '' }: {
@@ -23,7 +23,9 @@
   let expanded = $state(false);
   let technicalDetails = $derived(open && expanded && transfer.job?.lifecycle.hasFailureDetail && transfer.job.jobId
     ? daemonApi.getJobFailureDetail(transfer.job.jobId) : undefined);
-  let classes = $derived(`status-label ${circular ? 'status-label-icon folder-file-state' : 'transfer-state'} ${transfer.tone ?? ''} transfer-${transfer.direction ?? 'download'} ${extraClass}`);
+  // A long queue is still one short badge.
+  let queuePosition = $derived(transfer.queuePosition ? transfer.queuePosition > 999 ? '999+' : String(transfer.queuePosition) : '');
+  let classes = $derived(`status-label ${circular ? 'status-label-icon folder-file-state' : 'transfer-state'} ${transfer.tone ?? ''} ${isBusyTransfer(transfer) ? 'busy' : ''} ${queuePosition ? 'with-count' : ''} transfer-${transfer.direction ?? 'download'} ${extraClass}`);
 
   type Field = [string, string | undefined];
   function date(value?: string | null): string | undefined {
@@ -63,6 +65,7 @@
         [sources.complete ? remoteFolders.length === 1 ? 'Remote folder' : 'Remote folders' : 'Remote folders (loaded files)', remoteFolders.length ? remoteFolders.join('\n') : undefined],
         [job?.lifecycle.skipReason === 'AlreadyExists' ? 'Existing path' : 'Local path', localPath ?? undefined],
         ['Size', total == null ? undefined : formatBytes(total)],
+        ['Queue position', transfer.queuePosition ? formatCount(transfer.queuePosition) : undefined],
         ['Attempts', row ? formatCount(row.status.attemptCount) : undefined],
         ['Folder attempt', directory?.attemptNumber == null ? undefined : formatCount(directory.attemptNumber)],
         ['Skip reason', jobSkipExplanation(job, file?.existingFileSource ?? directory?.existingFileSource) || undefined],
@@ -103,8 +106,9 @@
 </script>
 
 <button type="button" class={classes} onclick={() => { open = true; }}
-  aria-label={circular ? transfer.state : undefined} aria-haspopup="dialog" title={transfer.tone === 'failed' && message ? message : 'Show transfer details'}>
+  aria-label={circular ? queuePosition ? `${transfer.state}, position ${transfer.queuePosition}` : transfer.state : undefined} aria-haspopup="dialog" title={transfer.tone === 'failed' && message ? message : 'Show transfer details'}>
   {#if children}{@render children()}{:else}{transfer.state}{/if}
+  {#if queuePosition}<span class="status-label-count" data-testid="queue-position">{circular ? '' : '#'}{queuePosition}</span>{/if}
   {#if !circular}<Icon name="info" class="status-details-icon" />{/if}
 </button>
 {#if open}

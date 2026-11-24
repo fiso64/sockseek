@@ -19,7 +19,13 @@ internal static class SharingAndTransferCommands
             string? action = Positional(args, 1);
             if (!Guid.TryParse(Positional(args, 2), out var id) || !Equals(action, "rerun") && !Equals(action, "retry-directory"))
                 return ConfiguredCommandDispatcher.Usage("Expected 'job rerun|retry-directory <id>'.");
-            var job = Equals(action, "rerun") ? await api.RunJobAgainAsync(id, cancellationToken)
+            bool exact = args.Contains("--exact", StringComparer.OrdinalIgnoreCase);
+            if (exact && !Equals(action, "rerun"))
+                return ConfiguredCommandDispatcher.Usage("--exact applies to 'job rerun'.");
+            // Like the web UI: read the source again when there is one.
+            bool extractAgain = Equals(action, "rerun") && !exact
+                && (await api.GetJobDetailAsync(id, cancellationToken))?.RepeatOptions?.CanExtractAgain == true;
+            var job = Equals(action, "rerun") ? await api.RunJobAgainAsync(id, cancellationToken, extractAgain)
                 : await api.RetryDirectoryAsync(id, cancellationToken);
             if (JsonRequested(args)) Write(job, json: true);
             else Console.WriteLine($"Queued job {job.Display.DisplayId} ({job.JobId}).");
@@ -120,7 +126,7 @@ internal static class SharingAndTransferCommands
         int limit = ParseLimit(Option(args, "--limit"), ServerProtocol.DefaultPageSize);
         var filter = new TransferHistoryFilter(
             Direction: Option(args, "--direction"),
-            State: Option(args, "--state"),
+            Phase: Option(args, "--phase"),
             TerminalOutcome: Option(args, "--outcome"),
             Username: Option(args, "--username"),
             IncludeRemoved: args.Contains("--include-removed", StringComparer.OrdinalIgnoreCase));
@@ -140,7 +146,7 @@ internal static class SharingAndTransferCommands
         {
             Console.WriteLine(
                 $"{transfer.TransferId:D}  {transfer.Identity.Direction,-8} "
-                + $"{transfer.Status.State,-12} {transfer.Identity.Username ?? "-"}  "
+                + $"{transfer.Status.Phase,-14} {transfer.Identity.Username ?? "-"}  "
                 + $"{transfer.Identity.RemotePath ?? "-"}");
             if (transfer.Status.TerminalOutcome == TransferTerminalOutcome.Failed)
             {
@@ -300,7 +306,7 @@ internal static class SharingAndTransferCommands
 
     private static bool ConsumesValue(string argument)
         => argument.Equals("--direction", StringComparison.OrdinalIgnoreCase)
-           || argument.Equals("--state", StringComparison.OrdinalIgnoreCase)
+           || argument.Equals("--phase", StringComparison.OrdinalIgnoreCase)
            || argument.Equals("--outcome", StringComparison.OrdinalIgnoreCase)
            || argument.Equals("--username", StringComparison.OrdinalIgnoreCase)
            || argument.Equals("--group-ref", StringComparison.OrdinalIgnoreCase)
@@ -321,7 +327,7 @@ internal static class SharingAndTransferCommands
                     [
                         "--json",
                         "--direction",
-                        "--state",
+                        "--phase",
                         "--outcome",
                         "--username",
                         "--group-ref",
@@ -332,7 +338,7 @@ internal static class SharingAndTransferCommands
                     ],
                     StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(
-                    ["--json"],
+                    Equals(args[0], "job") ? ["--json", "--exact"] : ["--json"],
                     StringComparer.OrdinalIgnoreCase);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var positional = new List<string>();

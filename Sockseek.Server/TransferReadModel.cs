@@ -11,7 +11,29 @@ namespace Sockseek.Server;
 /// </summary>
 internal static class TransferReadModel
 {
-    internal static bool IsQueued(string state) => state.StartsWith("Queued", StringComparison.OrdinalIgnoreCase);
+    internal static bool IsQueued(Api.TransferPhase phase) => phase is Api.TransferPhase.QueuedLocally or Api.TransferPhase.QueuedRemotely or Api.TransferPhase.QueuedForPeer;
+
+    internal static bool IsQueued(Sockseek.Core.Snapshots.TransferPhase phase)
+        => phase is Sockseek.Core.Snapshots.TransferPhase.QueuedLocally or Sockseek.Core.Snapshots.TransferPhase.QueuedRemotely
+            or Sockseek.Core.Snapshots.TransferPhase.QueuedForPeer;
+
+    /// <summary>Stored phase names; every waiting phase shares this prefix.</summary>
+    internal static bool IsQueued(string storedPhase) => storedPhase.StartsWith("Queued", StringComparison.OrdinalIgnoreCase);
+
+    internal static Sockseek.Core.Snapshots.TransferPhase Phase(UploadTransferSnapshot upload)
+        => upload.State switch
+        {
+            // Every byte is written, but the upload ends only when the peer
+            // closes the connection: slow peers are still receiving the tail,
+            // and some clients keep the connection open for a while.
+            UploadTransferState.InProgress when upload.SizeBytes > 0 && upload.BytesTransferred >= upload.SizeBytes
+                => Sockseek.Core.Snapshots.TransferPhase.Finalizing,
+            // An upload waits only in this daemon's own queue.
+            UploadTransferState.Queued => Sockseek.Core.Snapshots.TransferPhase.QueuedLocally,
+            UploadTransferState.Initializing => Sockseek.Core.Snapshots.TransferPhase.Initializing,
+            UploadTransferState.InProgress => Sockseek.Core.Snapshots.TransferPhase.InProgress,
+            _ => Sockseek.Core.Snapshots.TransferPhase.Ended,
+        };
 
     public static TransferDeltaDto Difference(TransferStateDto? previous, TransferStateDto current)
     {
@@ -32,116 +54,8 @@ internal static class TransferReadModel
             && left.SampleRate == right.SampleRate && left.Length == right.Length
             && (left.Attributes ?? []).SequenceEqual(right.Attributes ?? []);
 
-    private static DateTimeOffset? Milliseconds(DateTimeOffset? value)
+    internal static DateTimeOffset? Milliseconds(DateTimeOffset? value)
         => value is { } time ? DateTimeOffset.FromUnixTimeMilliseconds(time.ToUnixTimeMilliseconds()) : null;
-
-    public static TransferStateDto FromDownload(TransferSnapshot transfer, bool isTerminal,
-        DateTimeOffset? completedAtUtc, string? failureMessage,
-        TransferStateDto? previous = null, TransferFields fields = TransferFields.All, bool retainedHistory = false)
-    {
-        bool terminal = isTerminal
-            || transfer.TerminalOutcome != TransferSnapshotTerminalOutcome.None;
-        return new(
-            transfer.Id,
-            transfer.Revision,
-            previous?.Identity ?? new TransferIdentityFieldsDto(
-                transfer.JobId,
-                transfer.WorkflowId,
-                transfer.Direction.ToString(),
-                transfer.Source.ToString(),
-                transfer.Username,
-                transfer.RemotePath,
-                transfer.CandidateKey,
-                transfer.GroupRef,
-                transfer.GroupDisplayPath,
-                transfer.Candidate?.Peer.UploadSpeed,
-                transfer.Candidate?.Peer.HasFreeUploadSlot,
-                transfer.GroupRelativePath, (Sockseek.Api.TransferGroupKind)transfer.GroupKind,
-                ServerSnapshotMapper.ToFallbackSourceDto(transfer.Fallback)),
-            previous is not null && (fields & TransferFields.Status) == 0 ? previous.Status : new TransferStatusFieldsDto(
-                transfer.State ?? "",
-                transfer.LocalPath,
-                transfer.AttemptCount,
-                terminal,
-                Outcome(transfer.TerminalOutcome),
-                transfer.FailureReason.ToServer(),
-                transfer.CancellationReason.ToServer(),
-                terminal
-                    ? retainedHistory && transfer.TerminalOutcome == TransferSnapshotTerminalOutcome.Failed
-                        && transfer.Source == TransferSnapshotSource.SoulseekPeer && transfer.JobId.HasValue
-                        && transfer.LocalPath != null ? RetryAction(transfer.Id) : []
-                    :
-                    [
-                        new ResourceActionDto(
-                            ServerResourceActionKind.Cancel,
-                            "POST",
-                            $"/api/transfers/{transfer.Id:D}/cancel"),
-                    ],
-                completedAtUtc,
-                failureMessage),
-            previous is not null && (fields & TransferFields.Progress) == 0 ? previous.Progress : new TransferProgressFieldsDto(
-                transfer.BytesTransferred,
-                transfer.TotalBytes,
-                transfer.BytesPerSecond,
-                transfer.LastProgressAtUtc),
-            previous is not null && (fields & TransferFields.Scheduling) == 0 ? previous.Scheduling
-                : transfer.RequestedAtUtc is { } requested
-                ? new TransferSchedulingFieldsDto(requested, transfer.StartedAtUtc)
-                : null,
-            previous?.File ?? ToFileMetadata(transfer.File),
-            Milliseconds(transfer.RequestedAtUtc) ?? previous?.CreatedAtUtc ?? DateTimeOffset.UnixEpoch);
-    }
-
-    public static TransferStateDto FromUpload(
-        UploadTransferSnapshot transfer, TransferStateDto? previous = null, TransferFields fields = TransferFields.All)
-    {
-        bool terminal = transfer.State is UploadTransferState.Completed
-            or UploadTransferState.Cancelled
-            or UploadTransferState.Failed
-            or UploadTransferState.Interrupted;
-        var terminalOutcome = Outcome(transfer.State);
-        return new TransferStateDto(
-            transfer.TransferId,
-            transfer.Revision,
-            previous?.Identity ?? new TransferIdentityFieldsDto(
-                null,
-                null,
-                "Upload",
-                "SoulseekPeer",
-                transfer.Username,
-                transfer.RemotePath,
-                null,
-                transfer.GroupRef,
-                transfer.GroupDisplayPath, GroupKind: Sockseek.Api.TransferGroupKind.Files),
-            previous is not null && (fields & TransferFields.Status) == 0 ? previous.Status : new TransferStatusFieldsDto(
-                transfer.State.ToString(),
-                null,
-                transfer.Attempt?.Number ?? 0,
-                terminal,
-                terminalOutcome,
-                transfer.FailureReason.ToServer(),
-                transfer.CancellationSource.ToServer(),
-                terminal
-                    ? []
-                    :
-                    [
-                        new ResourceActionDto(
-                            ServerResourceActionKind.Cancel,
-                            "POST",
-                            $"/api/transfers/{transfer.TransferId:D}/cancel"),
-                    ],
-                transfer.FinishedAtUtc, transfer.FailureMessage),
-            previous is not null && (fields & TransferFields.Progress) == 0 ? previous.Progress : new TransferProgressFieldsDto(
-                transfer.BytesTransferred,
-                transfer.SizeBytes,
-                checked((long)Math.Max(0, transfer.BytesPerSecond)),
-                transfer.LastProgressAtUtc),
-            previous is not null && (fields & TransferFields.Scheduling) == 0 ? previous.Scheduling : new TransferSchedulingFieldsDto(
-                transfer.RequestedAtUtc,
-                transfer.Attempt?.StartedAtUtc),
-            previous?.File ?? ToFileMetadata(transfer.File),
-            Milliseconds(transfer.RequestedAtUtc) ?? previous?.CreatedAtUtc ?? DateTimeOffset.UnixEpoch);
-    }
 
     internal static TransferTerminalOutcome Outcome(TransferSnapshotTerminalOutcome outcome)
         => outcome switch
@@ -163,8 +77,12 @@ internal static class TransferReadModel
             _ => TransferTerminalOutcome.None,
         };
 
-    private static ResourceActionDto[] RetryAction(Guid id) => [new(ServerResourceActionKind.Retry, "POST", $"/api/transfers/{id:D}/retry")];
+    internal static ResourceActionDto[] RetryAction(Guid id) => [new(ServerResourceActionKind.Retry, "POST", $"/api/transfers/{id:D}/retry")];
 
+    // TODO [ARCHITECTURE]: Persistence stores transfer enums (phase, outcome, direction,
+    // cancellation and failure) as free strings. Readers parse them here, SQL
+    // matches them by literal and prefix, and tests seed raw text. Type the
+    // persisted model so a renamed value fails to compile, not at read time.
     public static TransferStateDto FromRetained(PersistedTransfer transfer)
     {
         var outcome = Enum.Parse<TransferTerminalOutcome>(transfer.TerminalOutcome, ignoreCase: true);
@@ -173,7 +91,7 @@ internal static class TransferReadModel
             new(transfer.JobId, transfer.WorkflowId, transfer.Direction, transfer.Source,
                 transfer.Username, transfer.RemotePath, null, transfer.GroupRef,
                 transfer.GroupDisplayPath, GroupRelativePath: transfer.GroupRelativePath, GroupKind: Enum.Parse<Sockseek.Api.TransferGroupKind>(transfer.GroupKind)),
-            new(transfer.State, transfer.LocalPath, transfer.AttemptCount, outcome != TransferTerminalOutcome.None,
+            new(Enum.Parse<Api.TransferPhase>(transfer.State), transfer.LocalPath, transfer.AttemptCount, outcome != TransferTerminalOutcome.None,
                 outcome, failure, PublicCancellationSource(transfer.CancellationSource),
                 transfer.CanRetry ? RetryAction(transfer.Id) : [],
                 transfer.CompletedAtUtc, transfer.FailureMessage, transfer.RemovedAtUtc),
@@ -203,7 +121,7 @@ internal static class TransferReadModel
         return Enum.TryParse<TransferFailureReason>(transfer.FailureReason, out var reason) ? reason : TransferFailureReason.Unknown;
     }
 
-    private static FileMetadataDto? ToFileMetadata(
+    internal static FileMetadataDto? ToFileMetadata(
         Sockseek.Core.Snapshots.TransferFileMetadataSnapshot? file)
         => file is null
             ? null
@@ -255,19 +173,9 @@ internal static class TransferReadModel
             current.File?.Size ?? retained?.FileSize,
             current.BytesTransferred, current.BytesPerSecond, retained?.RemovedAtUtc);
 
-    private static bool TransferStatusEquals(
-        TransferStatusFieldsDto left,
-        TransferStatusFieldsDto right)
-        => left.State == right.State
-            && left.LocalPath == right.LocalPath
-            && left.AttemptCount == right.AttemptCount
-            && left.IsTerminal == right.IsTerminal
-            && left.TerminalOutcome == right.TerminalOutcome
-            && left.FailureReason == right.FailureReason
-            && left.CancellationSource == right.CancellationSource
-            && left.CompletedAtUtc == right.CompletedAtUtc
-            && left.FailureMessage == right.FailureMessage
-            && left.RemovedAtUtc == right.RemovedAtUtc
+    // Record equality covers every scalar; only the action list needs its contents compared.
+    private static bool TransferStatusEquals(TransferStatusFieldsDto left, TransferStatusFieldsDto right)
+        => left with { AvailableActions = right.AvailableActions } == right
             && left.AvailableActions.SequenceEqual(right.AvailableActions);
 
 }
@@ -330,9 +238,12 @@ public sealed class TransferReadSnapshot
     private int? PeerUploadSpeed => download?.Candidate?.Peer.UploadSpeed;
     private bool? PeerHasFreeUploadSlot => download?.Candidate?.Peer.HasFreeUploadSlot;
     internal TransferFileMetadataSnapshot? File => download?.File ?? upload?.File;
-    internal string State => download is not null ? download.State ?? "" : upload!.State.ToString();
+    internal Sockseek.Core.Snapshots.TransferPhase Phase => download?.Phase ?? TransferReadModel.Phase(upload!);
+    /// <summary>The stored phase name.</summary>
+    internal string State => Phase.ToString();
     internal string? LocalPath => download?.LocalPath;
     internal int AttemptCount => download?.AttemptCount ?? upload?.Attempt?.Number ?? 0;
+    private int? QueuePosition => download?.QueuePosition;
     internal bool IsTerminal { get; }
     internal TransferTerminalOutcome TerminalOutcome => download is not null
         ? TransferReadModel.Outcome(download.TerminalOutcome) : TransferReadModel.Outcome(upload!.State);
@@ -344,6 +255,19 @@ public sealed class TransferReadSnapshot
         ? download.FailureReason.ToServer() : upload!.FailureReason.ToServer();
     private TransferCancellationSource CancellationSource => download is not null
         ? download.CancellationReason.ToServer() : upload!.CancellationSource.ToServer();
+
+    /// <summary>
+    /// Every fact of the wire status. Change detection and projection both read
+    /// this one value, so a new status fact is declared here and nowhere else.
+    /// </summary>
+    private readonly record struct StatusFacts(
+        Sockseek.Core.Snapshots.TransferPhase Phase, string? LocalPath, int AttemptCount, bool IsTerminal,
+        TransferTerminalOutcome TerminalOutcome, TransferFailureReason FailureReason,
+        TransferCancellationSource CancellationSource, DateTimeOffset? CompletedAtUtc, string? FailureMessage,
+        int? QueuePosition);
+
+    private StatusFacts Status => new(Phase, LocalPath, AttemptCount, IsTerminal, TerminalOutcome, FailureReason,
+        CancellationSource, CompletedAtUtc, FailureMessage, QueuePosition);
     internal DateTimeOffset? CompletedAtUtc { get; }
     internal string? FailureMessage { get; }
     internal DateTimeOffset? RequestedAtUtc => download is not null ? download.RequestedAtUtc : upload!.RequestedAtUtc;
@@ -356,10 +280,38 @@ public sealed class TransferReadSnapshot
     public TransferStateDto ToDto()
     {
         if (Volatile.Read(ref wire) is { } current) return current;
-        var projected = download is not null
-            ? TransferReadModel.FromDownload(download, IsTerminal, CompletedAtUtc, FailureMessage, previousWire, wireFields, retainedHistory)
-            : TransferReadModel.FromUpload(upload!, previousWire, wireFields);
+        // Components the change did not touch are reused from the previous row.
+        bool Kept(TransferFields field) => previousWire is not null && (wireFields & field) == 0;
+        var projected = new TransferStateDto(
+            TransferId,
+            Revision,
+            previousWire?.Identity ?? new TransferIdentityFieldsDto(
+                JobId, WorkflowId, Direction, Source, Username, RemotePath, CandidateKey, GroupRef, GroupDisplayPath,
+                PeerUploadSpeed, PeerHasFreeUploadSlot, GroupRelativePath, (Api.TransferGroupKind)GroupKind,
+                ServerSnapshotMapper.ToFallbackSourceDto(download?.Fallback)),
+            Kept(TransferFields.Status) ? previousWire!.Status : ToDto(Status),
+            Kept(TransferFields.Progress) ? previousWire!.Progress
+                : new TransferProgressFieldsDto(BytesTransferred, TotalBytes, BytesPerSecond, LastProgressAtUtc),
+            Kept(TransferFields.Scheduling) ? previousWire!.Scheduling
+                : RequestedAtUtc is { } requested ? new TransferSchedulingFieldsDto(requested, StartedAtUtc) : null,
+            previousWire?.File ?? TransferReadModel.ToFileMetadata(File),
+            TransferReadModel.Milliseconds(RequestedAtUtc) ?? previousWire?.CreatedAtUtc ?? DateTimeOffset.UnixEpoch);
         return Interlocked.CompareExchange(ref wire, projected, null) ?? projected;
+    }
+
+    private TransferStatusFieldsDto ToDto(StatusFacts status)
+        => new(status.Phase.ToServer(), status.LocalPath, status.AttemptCount, status.IsTerminal, status.TerminalOutcome,
+            status.FailureReason, status.CancellationSource, AvailableActions(), status.CompletedAtUtc,
+            status.FailureMessage, QueuePosition: status.QueuePosition);
+
+    private ResourceActionDto[] AvailableActions()
+    {
+        if (!IsTerminal)
+            return [new(ServerResourceActionKind.Cancel, "POST", $"/api/transfers/{TransferId:D}/cancel")];
+        // Only a retained failed peer download with a known job and output can be retried.
+        return retainedHistory && download is { TerminalOutcome: TransferSnapshotTerminalOutcome.Failed,
+                Source: TransferSnapshotSource.SoulseekPeer, JobId: not null, LocalPath: not null }
+            ? TransferReadModel.RetryAction(TransferId) : [];
     }
 
     private (bool Added, TransferFields Changed, TransferStateDto? Baseline, TransferFields Wire) Projection(TransferReadSnapshot? previous)
@@ -387,11 +339,7 @@ public sealed class TransferReadSnapshot
     internal TransferFields Difference(TransferReadSnapshot previous)
     {
         var fields = TransferFields.None;
-        if (State != previous.State || LocalPath != previous.LocalPath || AttemptCount != previous.AttemptCount
-            || IsTerminal != previous.IsTerminal || TerminalOutcome != previous.TerminalOutcome
-            || FailureReason != previous.FailureReason || CancellationSource != previous.CancellationSource
-            || CompletedAtUtc != previous.CompletedAtUtc || FailureMessage != previous.FailureMessage)
-            fields |= TransferFields.Status;
+        if (Status != previous.Status) fields |= TransferFields.Status;
         if (BytesTransferred != previous.BytesTransferred || TotalBytes != previous.TotalBytes
             || BytesPerSecond != previous.BytesPerSecond || LastProgressAtUtc != previous.LastProgressAtUtc)
             fields |= TransferFields.Progress;

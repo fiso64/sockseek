@@ -187,7 +187,7 @@ internal sealed class OutputFinalizer
         string source = file.DownloadPath!;
         var output = parentJob.Config.Output;
         // Interactive selections never replace or skip existing files; collisions get numbered names.
-        bool selection = (file.SelectionSource ?? parentJob.SelectionSource) is not null;
+        bool selection = file.IsHandPicked || parentJob.IsHandPicked;
         var placed = cache.PlaceFile(source, destination, cleanupRoot,
             allowOverwrite: !selection && allowOverwrite,
             replaceExisting: selection ? null : path => !TrackSkipperContext.KeepExistingOutput(file, path));

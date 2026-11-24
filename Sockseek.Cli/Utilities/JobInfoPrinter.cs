@@ -9,13 +9,11 @@ internal static class JobInfoPrinter
 {
     private const int LabelWidth = 16;
 
-    public static void Print(JobDetailDto detail, IReadOnlyList<JobSummaryDto> children)
+    public static void Print(JobDetailDto detail, IReadOnlyList<JobSummaryDto> children, TransferStatusFieldsDto? transfer = null)
     {
         var s = detail.Summary;
 
-        var status = CliJobStatusPresenter.ForSummary(
-            s,
-            detail.Payload is SongJobPayloadDto songPayload ? songPayload.TransferState : null);
+        var status = CliJobStatusPresenter.ForSummary(s, transfer);
 
         Printing.WriteLine(force: true);
         Printing.Write($"[{s.Display.DisplayId:000}] {s.Display.Kind}", ConsoleColor.White, force: true);

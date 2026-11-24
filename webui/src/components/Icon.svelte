@@ -141,6 +141,9 @@
     <path d="M9.5 14.5 7.8 16.2a3.2 3.2 0 1 1-4.5-4.5L6 9" />
     <path d="m14.5 9.5 1.7-1.7a3.2 3.2 0 1 1 4.5 4.5L18 15" />
     <path d="m8.5 15.5 7-7" />
+  {:else if name === 'copy'}
+    <rect x="8.5" y="8.5" width="11" height="11" rx="2" />
+    <path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2" />
   {:else if name === 'upload-file'}
     <path d="M7 3.5h6l4 4V20H7z" />
     <path d="M13 3.5V8h4M12 17v-6M9.5 13.5 12 11l2.5 2.5" />

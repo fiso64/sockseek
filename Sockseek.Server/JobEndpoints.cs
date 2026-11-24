@@ -118,6 +118,7 @@ internal static class JobEndpoints
 
         app.MapPost("/api/submissions/{submissionId:guid}/rerun", async (
             Guid submissionId,
+            bool? extractAgain,
             JobSubmissions submissions,
             CancellationToken cancellationToken) =>
         {
@@ -125,7 +126,7 @@ internal static class JobEndpoints
             {
                 var submitted = await submissions.RerunSubmissionAsync(
                     submissionId,
-                    cancellationToken);
+                    cancellationToken, extractAgain == true);
                 return submitted == null
                     ? Results.NotFound()
                     : Results.Accepted($"/api/submissions/{submitted.Display.SubmissionId}", submitted);
@@ -141,20 +142,21 @@ internal static class JobEndpoints
         })
             .WithTags("Submissions")
             .WithSummary("Reruns a submission from its retained normalized command and effective settings.")
-            .WithDescription("Current credentials are rebound only for retained credential slots. Current defaults and profiles do not replace the retained root settings.")
+            .WithDescription("Current credentials are rebound only for retained credential slots. Current defaults and profiles do not replace the retained root settings. With extractAgain, sources are read as they are now instead of replaying the items captured at acceptance.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/jobs/{jobId:guid}/rerun", async (
             Guid jobId,
+            bool? extractAgain,
             JobSubmissions submissions,
             CancellationToken cancellationToken) =>
         {
             try
             {
                 JobSummaryDto? submitted = await submissions.RerunJobAsync(
-                    jobId, cancellationToken);
+                    jobId, cancellationToken, extractAgain == true);
                 return submitted == null
                     ? Results.NotFound()
                     : Results.Accepted($"/api/jobs/{submitted.JobId}", submitted);
@@ -172,6 +174,31 @@ internal static class JobEndpoints
             .WithSummary("Runs one accepted job again using its saved command and settings.")
             .WithDescription("A child runs independently of its siblings.")
             .Produces<JobSummaryDto>(StatusCodes.Status202Accepted)
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status503ServiceUnavailable);
+
+        app.MapGet("/api/jobs/{jobId:guid}/rerun-draft", async (
+            Guid jobId, JobSubmissions submissions, CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return await submissions.GetRerunDraftAsync(jobId, cancellationToken) is { } draft
+                    ? Results.Ok(draft) : Results.NotFound();
+            }
+            catch (NotSupportedException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            catch (Exception ex) when (IsInvalidRequest(ex))
+            {
+                return BadRequest(ex);
+            }
+        })
+            .WithTags("Job Submission")
+            .WithSummary("Reads one accepted job's request back as a draft to change and submit again.")
+            .WithDescription("Settings are given as selected profiles plus the difference from what they resolve to now. Edits made to individual items during review are not included.")
+            .Produces<JobRerunDraftDto>()
             .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status503ServiceUnavailable);

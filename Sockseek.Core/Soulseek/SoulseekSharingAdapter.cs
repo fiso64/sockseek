@@ -340,6 +340,11 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
             currentProfile.Picture?.Bytes));
     }
 
+    // The protocol has no "try again later". Clients show a refusal's text and
+    // retry only the reasons they know: Nicotine+ asks again within minutes
+    // after this one, and treats any text of our own as final.
+    private const string TryAgainLater = "Pending shutdown.";
+
     public async Task EnqueueUploadAsync(
         string username,
         IPEndPoint endpoint,
@@ -360,7 +365,7 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
             if (global is null)
             {
                 SharingTelemetry.RecordDroppedRequest("upload");
-                throw new DownloadEnqueueException("Temporarily unavailable; try again later.");
+                throw new DownloadEnqueueException(TryAgainLater);
             }
 
             UploadCoordinatorAdmission result = await uploads.AdmitAsync(
@@ -376,13 +381,13 @@ public sealed class SoulseekSharingAdapter : ISoulseekInboundRequestRouter, IDis
 
             throw new DownloadEnqueueException(result.Rejection switch
             {
-                UploadAdmissionRejection.Unavailable => "Temporarily unavailable; try again later.",
+                UploadAdmissionRejection.Unavailable => TryAgainLater,
                 _ => "File not shared.",
             });
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
-            throw new DownloadEnqueueException("Temporarily unavailable; try again later.");
+            throw new DownloadEnqueueException(TryAgainLater);
         }
     }
 

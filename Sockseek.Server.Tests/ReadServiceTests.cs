@@ -37,7 +37,7 @@ public sealed class ReadServiceTests
         var started = DateTimeOffset.UnixEpoch;
         var transfer = new TransferSnapshot(Guid.NewGuid(), TransferSnapshotDirection.Download,
             TransferSnapshotSource.SoulseekPeer, Guid.NewGuid(), Guid.NewGuid(), 1,
-            "Peer", @"Share\File.bin", "local", null, "InProgress", 0, 100, 1, null,
+            "Peer", @"Share\File.bin", "local", null, Sockseek.Core.Snapshots.TransferPhase.InProgress, 0, 100, 1, null,
             RequestedAtUtc: started);
         lock (stateGate) apply.Invoke(state, [transfer, false, null, null, null]);
         var queries = new TransferReadService(state, supervisor.Runtime, persistence);
@@ -45,7 +45,7 @@ public sealed class ReadServiceTests
         await using var updates = queries.ObserveTransferTimelineAsync(
             new(TransferCommandDirection.Download, IncludeGroupSummaries: true), events, deadline.Token).GetAsyncEnumerator();
         Assert.IsTrue(await updates.MoveNextAsync());
-        Assert.AreEqual("InProgress", updates.Current.Items.Single().Status.State);
+        Assert.AreEqual(Sockseek.Api.TransferPhase.InProgress, updates.Current.Items.Single().Status.Phase);
         Assert.AreEqual(TransferRetainedCoverageState.Unavailable, updates.Current.GroupSummaries!.RetainedCoverage.State);
         var jobs = new JobReadService(state, supervisor, persistence);
         await using var jobUpdates = jobs.ObserveJobsAsync(transfer.JobId!.Value,
@@ -57,7 +57,7 @@ public sealed class ReadServiceTests
 
         // This workflow is outside the compact daemon stream. Its final facts
         // and later runtime eviction must still reach an existing page reader.
-        var final = transfer with { Revision = 3, State = "Completed", BytesTransferred = 100,
+        var final = transfer with { Revision = 3, Phase = Sockseek.Core.Snapshots.TransferPhase.Ended, BytesTransferred = 100,
             TerminalOutcome = TransferSnapshotTerminalOutcome.Succeeded };
         lock (stateGate)
         {
@@ -154,7 +154,7 @@ public sealed class ReadServiceTests
             Assert.IsTrue(persistence.MutationSink.TryEnqueue(new TransferPersistenceMutation(
                 runtimeId, 2, DateTimeOffset.UtcNow, transferId, 1, PersistenceMutationPriority.Terminal,
                 null, null, "Download", "SoulseekPeer", "healthy-peer", @"Share\Good.bin", "local",
-                "Completed", "Succeeded", 100, 100, 1, "None", null, GroupRef: "healthy-folder")));
+                "Ended", "Succeeded", 100, 100, 1, "None", null, GroupRef: "healthy-folder")));
             await WaitForVisibleAsync(persistence, async () =>
                 persistence.HealthSnapshot!.PermanentlyFailedMutationCount == 1
                 && await persistence.TransferHistory!.GetTransferAsync(transferId) != null);
@@ -229,7 +229,7 @@ public sealed class ReadServiceTests
                         INSERT INTO transfers (id, last_runtime_id, last_sequence, direction, source,
                             username, state, terminal_outcome, total_bytes, transferred_bytes, attempt_count,
                             created_at_utc, completed_at_utc, failure_reason, cancellation_source, revision)
-                        VALUES ($id, $runtime, 1, $direction, 'SoulseekPeer', 'Peer', $outcome, $outcome,
+                        VALUES ($id, $runtime, 1, $direction, 'SoulseekPeer', 'Peer', 'Ended', $outcome,
                             100, 50, 1, 100, 200, $failure, $cancellation, 1);
                         """;
                     command.Parameters.AddWithValue("$id", id);
@@ -498,9 +498,9 @@ public sealed class ReadServiceTests
                 initialMutation with { TransferId = fallbackId, RemotePath = "Known.bin", Sequence = 10, TotalBytes = -1,
                     File = new("Known.bin", 400, ".bin", null, null, null, null), GroupRef = edgeGroup },
                 initialMutation with { TransferId = newerId, RemotePath = "Newer.bin", Sequence = 11, Revision = 3, TotalBytes = 200,
-                    TransferredBytes = 200, State = "Completed", TerminalOutcome = "Succeeded", GroupRef = edgeGroup },
+                    TransferredBytes = 200, State = "Ended", TerminalOutcome = "Succeeded", GroupRef = edgeGroup },
                 initialMutation with { TransferId = archivedId, RemotePath = "Archived.bin", Sequence = 12, TransferredBytes = 100,
-                    State = "Completed", TerminalOutcome = "Succeeded", GroupRef = edgeGroup },
+                    State = "Ended", TerminalOutcome = "Succeeded", GroupRef = edgeGroup },
                 initialMutation with { TransferId = equalId, RemotePath = "Empty.bin", Sequence = 13, TotalBytes = -1,
                     File = new("Empty.bin", 0, ".bin", null, null, null, null), GroupRef = edgeGroup },
             };
@@ -607,7 +607,7 @@ public sealed class ReadServiceTests
                 AddLive(Guid.Parse($"ffffffff-ffff-ffff-ffff-{index:000000000000}"), 1,
                     $@"Share\Queued{index}.bin", 100, 0,
                     Sockseek.Core.Transfers.Uploads.UploadTransferState.Queued);
-            var cancelledPage = await facade.GetTransfersAsync(new(Limit: 1, Direction: "Upload", State: "Cancelled", Username: "peer", GroupRef: groupRef));
+            var cancelledPage = await facade.GetTransfersAsync(new(Limit: 1, Direction: "Upload", TerminalOutcome: "Cancelled", Username: "peer", GroupRef: groupRef));
             Assert.AreEqual(cancelledId, cancelledPage.Items.Single().TransferId,
                 "A nonmatching queue prefix cannot hide a matching live group member.");
             Assert.IsNull(cancelledPage.NextCursor);
@@ -645,15 +645,15 @@ public sealed class ReadServiceTests
         DateTimeOffset origin = DateTimeOffset.UnixEpoch;
 
         DateTimeOffset completedAt = origin.AddSeconds(5);
-        TransferStateDto retainedOverlap = TimelineRow(overlap, origin.AddSeconds(3), "Retained") with
+        TransferStateDto retainedOverlap = TimelineRow(overlap, origin.AddSeconds(3), Api.TransferPhase.Ended) with
         {
-            Status = TimelineRow(overlap, origin.AddSeconds(3), "Retained").Status with
+            Status = TimelineRow(overlap, origin.AddSeconds(3), Api.TransferPhase.Ended).Status with
             { CompletedAtUtc = completedAt, FailureMessage = "retained-detail" },
         };
         TransferTimelinePageDto page = TransferReadService.ComposeTransferTimeline(
-            [retainedOverlap, TimelineRow(older, origin.AddSeconds(2), "Completed")],
-            [TimelineRow(overlap, origin.AddSeconds(3), "InProgress")],
-            [TimelineRow(queued, origin.AddSeconds(4), "Queued")],
+            [retainedOverlap, TimelineRow(older, origin.AddSeconds(2), Api.TransferPhase.Ended)],
+            [TimelineRow(overlap, origin.AddSeconds(3), Api.TransferPhase.InProgress)],
+            [TimelineRow(queued, origin.AddSeconds(4), Api.TransferPhase.QueuedLocally)],
             limit: 2,
             retainedHasMore: false,
             queueHasMore: false,
@@ -662,7 +662,7 @@ public sealed class ReadServiceTests
         CollectionAssert.AreEqual(
             new[] { queued, overlap },
             page.Items.Select(item => item.TransferId).ToArray());
-        Assert.AreEqual("InProgress", page.Items.Single(item => item.TransferId == overlap).Status.State);
+        Assert.AreEqual(Sockseek.Api.TransferPhase.InProgress, page.Items.Single(item => item.TransferId == overlap).Status.Phase);
         Assert.AreEqual(completedAt, page.Items.Single(item => item.TransferId == overlap).Status.CompletedAtUtc);
         Assert.AreEqual("retained-detail", page.Items.Single(item => item.TransferId == overlap).Status.FailureMessage);
         Assert.AreEqual(2, page.Items.Select(item => item.TransferId).Distinct().Count());
@@ -673,8 +673,8 @@ public sealed class ReadServiceTests
     public void TransferTimelineComposition_PrefersNewerRetainedStateAfterLiveCapture()
     {
         var id = Guid.NewGuid();
-        var retained = TimelineRow(id, DateTimeOffset.UnixEpoch, "Completed") with { Revision = 8 };
-        var captured = retained with { Status = retained.Status with { State = "InProgress" }, Revision = 7 };
+        var retained = TimelineRow(id, DateTimeOffset.UnixEpoch, Api.TransferPhase.Ended) with { Revision = 8 };
+        var captured = retained with { Status = retained.Status with { Phase = Sockseek.Api.TransferPhase.InProgress }, Revision = 7 };
         var page = TransferReadService.ComposeTransferTimeline(
             [retained], [captured], [], 10, false, false,
             new TransferRetainedCoverageDto(TransferRetainedCoverageState.Available));
@@ -720,7 +720,7 @@ public sealed class ReadServiceTests
                 Username: "retained-peer",
                 RemotePath: @"Share\Retained.mp3",
                 LocalPath: null,
-                State: "Failed",
+                State: "Ended",
                 TerminalOutcome: "Failed",
                 TotalBytes: 100,
                 TransferredBytes: 50,
@@ -1261,10 +1261,10 @@ public sealed class ReadServiceTests
     private static TransferStateDto TimelineRow(
         Guid id,
         DateTimeOffset createdAtUtc,
-        string state)
+        Api.TransferPhase phase)
         => new(id, 1,
             new(null, null, "Upload", "SoulseekPeer", "peer", @"Share\File.bin", null),
-            new(state, null, 0, false, TransferTerminalOutcome.None, Api.TransferFailureReason.None,
+            new(phase, null, 0, false, TransferTerminalOutcome.None, Api.TransferFailureReason.None,
                 TransferCancellationSource.None, []),
             new(0, 100, null), new(createdAtUtc, null), CreatedAtUtc: createdAtUtc);
 

@@ -60,7 +60,7 @@ public sealed class ExactPeerFileTransferRunner
     private readonly SoulseekClientManager clientManager;
     private readonly ActiveDownloadTracker activeDownloads;
     private readonly DownloadEvents events;
-    private readonly StaleDownloadCoordinator staleDownloads;
+    private readonly PeerTransferMonitor peerTransfers;
     private readonly DownloadFileOperations fileOperations;
     private readonly ILogger<ExactPeerFileTransferRunner> logger;
 
@@ -70,7 +70,7 @@ public sealed class ExactPeerFileTransferRunner
                         SoulseekClientManager clientManager,
                         ActiveDownloadTracker activeDownloads,
                         DownloadEvents events,
-                        StaleDownloadCoordinator staleDownloads,
+                        PeerTransferMonitor peerTransfers,
                         DownloadFileOperations fileOperations,
                         ILogger<ExactPeerFileTransferRunner>? logger = null, CancellationToken shutdown = default)
     {
@@ -79,7 +79,7 @@ public sealed class ExactPeerFileTransferRunner
         this.clientManager = clientManager;
         this.activeDownloads = activeDownloads;
         this.events = events;
-        this.staleDownloads = staleDownloads;
+        this.peerTransfers = peerTransfers;
         this.fileOperations = fileOperations;
         this.logger = logger ?? NullLogger<ExactPeerFileTransferRunner>.Instance;
     }
@@ -91,6 +91,9 @@ public sealed class ExactPeerFileTransferRunner
         return Path.Combine(Path.GetDirectoryName(outputPath)!, Utils.FitPathComponent(name + OutputStaging.IncompleteExtension));
     }
 
+    // TODO [ARCHITECTURE]: Split this method. Output staging, the attempt/retry loop and the
+    // terminal classification (who cancelled, why it failed) are interleaved
+    // through nested lambdas, local functions and three catch blocks.
     public async Task<ExactFileTransferOutcome> DownloadFile(
         PeerFileTarget target,
         string outputPath,
@@ -111,7 +114,7 @@ public sealed class ExactPeerFileTransferRunner
             throw new ArgumentOutOfRangeException(nameof(maxStaleTimeMs));
 
         // Interactive selections settle filename collisions with the finished bytes.
-        bool selectionLayout = (owner.SelectionSource ?? parentJob?.SelectionSource) is not null;
+        bool selectionLayout = owner.IsHandPicked || parentJob?.IsHandPicked == true;
         CancellationToken cancellationToken = ct ?? CancellationToken.None;
         using var outputClaim = await fileOperations.ClaimOutputPathAsync(
             outputPath,
@@ -150,7 +153,7 @@ public sealed class ExactPeerFileTransferRunner
         long totalBytes = target.Size ?? 0;
         long lastProgressPublished = long.MinValue;
 
-        StaleDownloadCoordinator.PeerTransferActivity? staleActivity = null;
+        PeerTransferMonitor.PeerTransferActivity? staleActivity = null;
         var transferOptions = new TransferOptions(
             disposeOutputStreamOnCompletion: false,
             stateChanged: (state) =>
@@ -250,6 +253,7 @@ public sealed class ExactPeerFileTransferRunner
 
             int maxRetries = checked(transfer.UnknownErrorRetries + 1);
             bool correctedSize = false;
+            int peerWaits = 0;
             while (true)
             {
                 try
@@ -264,7 +268,7 @@ public sealed class ExactPeerFileTransferRunner
                         target,
                         outputPath,
                         incompleteOutputPath);
-                    var completed = await staleDownloads.WatchPeerTransferAsync(
+                    var completed = await peerTransfers.WatchPeerTransferAsync(
                         activeDownload,
                         maxStaleTimeMs,
                         async activity =>
@@ -289,7 +293,8 @@ public sealed class ExactPeerFileTransferRunner
                             {
                                 staleActivity = null;
                             }
-                        }, client);
+                        }, client, position => events.RaiseDownloadQueuePosition(
+                            transferId, owner, target, outputPath, position));
                     if (completed.Size is { } completedSize && completedSize != target.Size)
                     {
                         target = target.WithSize(completedSize);
@@ -316,6 +321,12 @@ public sealed class ExactPeerFileTransferRunner
                     if (correctSize) maxRetries = checked(maxRetries + 1);
                     bool canRetry = correctSize || IsRetryableTransferFailure(e)
                         && attemptCount < maxRetries;
+                    // A download someone chose from this peer has no other source
+                    // to fall back on. While the peer may still serve it, keep it
+                    // and ask again later, as other clients do.
+                    PeerWait wait = !correctSize && owner.IsHandPicked
+                        ? PeerMayServeLater(e, retriesLeft: canRetry, peerWaits) : PeerWait.None;
+                    canRetry |= wait != PeerWait.None;
 
                     DownloadLogMessages.TransferAttemptFailed(
                         logger,
@@ -354,6 +365,17 @@ public sealed class ExactPeerFileTransferRunner
                         owner.BytesTransferred = 0;
                         lastProgressPublished = long.MinValue;
                         correctedSize = true;
+                    }
+
+                    if (wait != PeerWait.None)
+                    {
+                        // TODO [BEHAVIOUR]: A waiting download keeps its job slot, as one
+                        // queued remotely does. Twenty files waiting for one peer stall
+                        // every other download; waiting should not count against
+                        // ConcurrentJobs.
+                        events.RaiseDownloadWaitingForPeer(transferId, owner, target, outputPath);
+                        await peerTransfers.WaitForPeerAsync(client, target.Username,
+                            untilOnline: wait == PeerWait.UntilOnline, peerWaits++, downloadCts.Token);
                     }
 
                     if (!clientManager.IsConnectedAndLoggedIn)
@@ -399,7 +421,12 @@ public sealed class ExactPeerFileTransferRunner
             if (ex is OperationCanceledException cancelled
                 && (activeDownload?.Cts.IsCancellationRequested == true || ct?.IsCancellationRequested == true))
             {
-                CancelTransfer(stopped ? TransferCancellationReason.DaemonShutdown : TransferCancellationReason.Requested);
+                // A cancelled token alone does not say who asked. Only an explicit
+                // request on this transfer or its jobs is the user's.
+                bool requested = activeDownload?.UserCancelled == true
+                    || IsUserRequest(owner.CancellationSource) || IsUserRequest(parentJob?.CancellationSource);
+                CancelTransfer(stopped ? TransferCancellationReason.DaemonShutdown
+                    : requested ? TransferCancellationReason.Requested : TransferCancellationReason.OwningJob);
                 if (ct?.IsCancellationRequested != true)
                     throw new DownloadCancelledException(cancelled);
             }
@@ -506,6 +533,10 @@ public sealed class ExactPeerFileTransferRunner
         return ExactFileTransferOutcome.Completed(result);
     }
 
+    private static bool IsUserRequest(JobCancellationSource? source)
+        => source is JobCancellationSource.UserRequestedJob or JobCancellationSource.UserRequestedWorkflow
+            or JobCancellationSource.UserRequestedAllJobs;
+
     private static TransferFailureReason FailureReason(Exception exception)
     {
         var reason = TransferFailureReason.PeerFailure;
@@ -522,6 +553,37 @@ public sealed class ExactPeerFileTransferRunner
         }
         return reason;
     }
+
+    private enum PeerWait
+    {
+        /// <summary>Waiting cannot help, or ordinary retries remain.</summary>
+        None,
+        UntilOnline,
+        /// <summary>Pause, then ask again.</summary>
+        Pause,
+    }
+
+    /// <summary>Whether a failed attempt should wait for the peer instead of ending the download.</summary>
+    private static PeerWait PeerMayServeLater(Exception exception, bool retriesLeft, int earlierWaits)
+    {
+        for (Exception? cause = exception; cause is not null; cause = cause.InnerException)
+        {
+            if (cause is UserOfflineException) return PeerWait.UntilOnline;
+            // The peer's own queue limits, in the words clients send them.
+            if (cause is TransferRejectedException && (cause.Message.Contains("Too many files", StringComparison.OrdinalIgnoreCase)
+                || cause.Message.Contains("Too many megabytes", StringComparison.OrdinalIgnoreCase)
+                || cause.Message.Contains("User limit of", StringComparison.OrdinalIgnoreCase)
+                || cause.Message.Contains("Pending shutdown", StringComparison.OrdinalIgnoreCase)))
+                return PeerWait.Pause;
+        }
+        // A peer that is online but cannot be reached may never be: give its
+        // connection a limited number of further chances (about an hour and a half).
+        return !retriesLeft && earlierWaits < UnreachablePeerWaits && IsRetryableTransferFailure(exception)
+            && FailureReason(exception) is TransferFailureReason.ConnectionFailed or TransferFailureReason.TimedOut
+            ? PeerWait.Pause : PeerWait.None;
+    }
+
+    private const int UnreachablePeerWaits = 5;
 
     private static bool IsRetryableTransferFailure(Exception exception)
     {

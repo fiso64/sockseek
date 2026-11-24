@@ -423,6 +423,7 @@ test('keeps a delayed send response in its original conversation', async ({ page
     await composer.fill('Unsent second draft');
     const nav = page.getByRole('navigation', { name: 'Primary navigation' });
     await nav.getByRole('button', { name: 'Downloads', exact: true }).click();
+    await page.getByRole('tab', { name: 'Files', exact: true }).click();
     await nav.getByRole('button', { name: 'Chat', exact: true }).click();
     await page.getByRole('button', { name: 'Open conversation with SecondPeer', exact: true }).click();
     const returned = page.waitForResponse((response) => new URL(response.url()).pathname === path && response.request().method() === 'POST');

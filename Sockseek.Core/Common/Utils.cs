@@ -62,11 +62,13 @@ public static partial class Utils
         return Path.GetFullPath(path);
     }
 
-    // TODO [ARCHITECTURE]: Introduce explicit path value types for local filesystem paths
-    // and Soulseek remote paths. Several cross-platform bugs have come from treating those
-    // as interchangeable strings and relying on ad hoc separator normalization at call sites.
-    // Keep raw config paths, normalized local paths, and Soulseek paths distinct enough that
-    // the compiler helps prevent accidental mixing.
+    // TODO [ARCHITECTURE]: Finish the move to path value types. RelativeOutputPath,
+    // SharePath and the PeerBrowse path types now cover placement, shares and browsing,
+    // but a Soulseek remote path is still a plain string in targets, candidates and
+    // transfers, and these *Slsk helpers turn one into a local path by swapping
+    // separators. Several cross-platform bugs came from mixing the two. A remote path
+    // type would retire the helpers and let the compiler keep raw config paths,
+    // normalized local paths and Soulseek paths apart.
     public static string GetAsPathSlsk(string fname)
     {
         return fname.Replace('\\', Path.DirectorySeparatorChar);

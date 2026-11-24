@@ -53,7 +53,7 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   phase = 'jobs';
   const jobsStart = performance.now();
   await page.getByRole('navigation', { name: 'Primary navigation' })
-    .getByRole('button', { name: 'Jobs' }).click();
+    .getByRole('button', { name: 'Searches' }).click();
   await expect(page.locator('.resource-state-notice.empty.blocking')).toBeVisible();
   expect(jobListObservations).toBe(1);
   expect(requests.filter(item => item.path.startsWith('/api/jobs?') || item.path === '/api/jobs/snapshot')).toHaveLength(0);
@@ -213,6 +213,7 @@ test('measures common UI requests and a 10k-file search @Load', async ({ page, d
   const downloadsStart = performance.now();
   await page.getByRole('navigation', { name: 'Primary navigation' })
     .getByRole('button', { name: 'Downloads' }).click();
+    await page.getByRole('tab', { name: 'Files', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Downloads', exact: true })).toBeVisible();
   await expect(page.locator('.resource-state-notice.empty.blocking')).toContainText('No downloads');
   expect(requests.filter(item => item.phase === 'downloads' && item.method === 'POST'

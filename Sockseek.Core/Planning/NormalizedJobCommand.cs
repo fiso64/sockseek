@@ -117,6 +117,14 @@ public sealed record NormalizedJobCommand
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AlbumValidationRequirement? AlbumValidation { get; init; }
     public bool HasPlannedExtraction { get; init; }
+    // The input was a file sent with the request. It is not kept, so its
+    // captured result is the only copy of that source.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool UploadedInput { get; init; }
+    /// <summary>A source whose input still names something that can be read: a link or a path, not an upload.</summary>
+    [JsonIgnore]
+    public bool HasReadableInput => Kind == JobSnapshotKind.Extract && !UploadedInput && ArtifactId == null
+        && !string.IsNullOrEmpty(Input);
     public string? PlannedExtractionFailure { get; init; }
     public NormalizedJobCommand? ExtractedResult { get; init; }
     public SearchDefinition? SearchDefinition { get; init; }

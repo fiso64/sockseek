@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { JobSummaryDto } from '../../api/types';
+  import type { JobSummaryDto, TransferStateDto } from '../../api/types';
   import { formatCount } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
   import { searchModeLabel } from '../search/model';
@@ -8,8 +8,10 @@
   import { automaticJobListStats, automaticJobProgressPercent, searchJobStats } from './list-stats';
   import { jobStatusLabel, jobStatusClass } from './status';
 
-  let { job, root, resultState, progressPercent, deleting = false, onopen, oncancel, ondelete }: {
+  let { job, root, transfer, resultState, progressPercent, deleting = false, onopen, oncancel, ondelete }: {
     job: JobSummaryDto;
+    /** The job's own live transfer; only single-file jobs have one. */
+    transfer?: TransferStateDto;
     root?: JobSummaryDto;
     resultState?: 'loading' | 'unavailable';
     progressPercent?: number;
@@ -26,7 +28,7 @@
   const typeLabel = $derived(identity.display.kind === 'extract' ? identity.display.sourceDetail ?? 'Import'
     : searchMode ? searchModeLabel(searchMode) : jobKindLabel(job.display.kind));
   const statusLabel = $derived(resultState === 'unavailable' ? 'Result unavailable'
-    : resultState === 'loading' ? 'Loading result' : jobStatusLabel(job));
+    : resultState === 'loading' ? 'Loading result' : jobStatusLabel(job, transfer));
   const searchStats = $derived(job.display.kind === 'search' ? searchJobStats(job) : []);
   const stats = $derived(job.display.kind === 'search' || resultState ? [] : automaticJobListStats(job));
   const percent = $derived.by(() => {
@@ -43,7 +45,7 @@
     <span class="search-history-icon" data-job-icon={icon} role="img" aria-label={typeLabel} title={typeLabel}><Icon name={icon} /></span>
     <span class="search-history-copy"><span class="search-history-query">{title}</span><small>{typeLabel}</small></span>
     {#if job.display.kind === 'search' && statusLabel !== 'Complete'}
-      <span class={`status-label search-status-badge ${resultState ? 'pending' : jobStatusClass(job)}`}>{statusLabel}</span>
+      <span class={`status-label search-status-badge ${resultState ? 'pending' : jobStatusClass(job, transfer)}`}>{statusLabel}</span>
     {/if}
     {#if searchStats.length || stats.length}
       <span data-testid="job-stats" class="search-history-stats" class:search-history-counts={job.display.kind === 'search'} title={stats.length ? stats.join(' · ') : undefined}>
@@ -59,7 +61,7 @@
     {#if job.display.kind !== 'search'}
       <span class="job-row-status">
         <span class="status-label job-row-status-minimum" aria-hidden="true">Complete</span>
-        <span class={`status-label search-status-badge ${resultState ? 'pending' : jobStatusClass(job)}`}>{statusLabel}</span>
+        <span class={`status-label search-status-badge ${resultState ? 'pending' : jobStatusClass(job, transfer)}`}>{statusLabel}</span>
       </span>
     {/if}
   </button>

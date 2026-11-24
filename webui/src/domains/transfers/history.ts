@@ -41,39 +41,6 @@ export function transferGroupKeys(
   return [...keys.values()];
 }
 
-/** Track the loaded group's membership, not its accidental share of a global page. */
-export function transferGroupMemberScope(
-  summary: Schema<'TransferGroupSummaryDto'>,
-  history: readonly TransferStateDto[],
-  cached: readonly TransferStateDto[] = [],
-  globalBoundary: TransferStateDto | null = history.at(-1) ?? null,
-): string {
-  const direction = summary.key.direction.toLowerCase();
-  const inGroup = (row: TransferStateDto): boolean => row.identity.direction.toLowerCase() === direction
-    && (row.identity.username ?? null) === (summary.key.username ?? null) && row.identity.groupRef === summary.key.groupRef;
-  const cachedGroup = cached.filter(inGroup);
-  const oldestCached = cachedGroup.reduce<TransferStateDto | undefined>((oldest, row) =>
-    !oldest || comparePosition(row, oldest) < 0 ? row : oldest, undefined);
-  // Revealing older global rows does not change the cached folder prefix.
-  // Replacements/removals inside that prefix must still invalidate it, even
-  // when their aggregate byte/status counts happen to remain identical.
-  const ids = new Set(history.filter(row => inGroup(row)
-    && (!oldestCached || comparePosition(row, oldestCached) >= 0)).map(row => row.transferId));
-  const boundary = globalBoundary;
-  if (boundary) {
-    for (const row of cachedGroup) {
-      // Only rows below the fresh keyset boundary may be absent harmlessly.
-      // A missing newer row was removed, not displaced by an unrelated arrival.
-      if (comparePosition(row, boundary) <= 0) ids.add(row.transferId);
-    }
-  }
-  return JSON.stringify([
-    [...ids].sort(), summary.fileCount, summary.knownTotalBytes,
-    summary.unknownTotalCount, summary.queuedCount, summary.inProgressCount,
-    summary.succeededCount, summary.failedCount, summary.cancelledCount, summary.interruptedCount,
-  ]);
-}
-
 function comparePosition(left: TransferStateDto, right: TransferStateDto): number {
   return compareTransferPosition(left.createdAtUtc, left.transferId, right.createdAtUtc, right.transferId);
 }
@@ -87,17 +54,3 @@ export function compareTransferPosition(
   const leftId = leftTransferId.toLowerCase(), rightId = rightTransferId.toLowerCase();
   return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
 }
-
-/** Both cursors use the same moving keyset; skip the farther fetched prefix. */
-export function transferGroupCursor(
-  cached: readonly TransferStateDto[],
-  memberCursor: string | null,
-  globalBoundary: TransferStateDto | null,
-  globalCursor: string | null,
-): string | null {
-  const oldest = cached.reduce<TransferStateDto | null>((oldest, row) =>
-    !oldest || comparePosition(row, oldest) < 0 ? row : oldest, null);
-  return globalCursor && globalBoundary && (!oldest || comparePosition(globalBoundary, oldest) < 0)
-    ? globalCursor : memberCursor ?? globalCursor;
-}
-

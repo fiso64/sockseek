@@ -164,7 +164,6 @@ public sealed record SongJobPayloadDto(
     ServerJobFailureReason? FailureReason = null,
     string? FailureMessage = null,
     IReadOnlyList<ResourceActionDto>? AvailableActions = null,
-    string? TransferState = null,
     ServerJobCancellationSource CancellationSource = ServerJobCancellationSource.None,
     ServerSongDownloadSource DownloadSource = ServerSongDownloadSource.None,
     PeerFileTargetDto? ExactTarget = null,

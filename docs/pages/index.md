@@ -13,6 +13,20 @@ The background daemon is a full Soulseek client and includes a webui. You can se
 
 Once signed in, try [your first WebUI search or download](./using-sockseek/daemon.md#your-first-webui-search-or-download).
 
+## Desktop UI
+
+If you want a desktop Soulseek client, or a graphical interface for the Sockseek download tool, you can have one today. Run the daemon on your own computer and use the WebUI in your browser:
+
+1. [Install the release binary](./installation/release-archive.md).
+2. Run `sockseek daemon --no-auth` in a terminal and leave it open.
+3. Open [http://127.0.0.1:5030](http://127.0.0.1:5030).
+
+`--no-auth` skips the WebUI sign-in. That suits a desktop because the daemon only accepts connections from your own computer by default. If you set `server-ip` to make it reachable from other devices, [set a password](./using-sockseek/daemon.md#start-the-daemon) and drop `--no-auth`.
+
+The daemon runs for as long as the terminal stays open. Everything the download tool does, including playlist, CSV and album downloads, is available from **New job** in the WebUI.
+
+Sockseek will soon be packaged as a proper desktop app, so this will not need a terminal.
+
 
 ## Local CLI (one-shot downloading)
 

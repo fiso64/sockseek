@@ -36,7 +36,7 @@
   "get-deleted": {"type":"bool","description":"Attempt to retrieve titles of deleted videos from wayback machine. Requires yt-dlp."},
   "group": {"type":"bool","description":"Group download mode: Find and download all distinct songs associated with the provided artist, album, or title."},
   "group-length-tol": {"type":"int","description":"Max length tolerance in seconds to consider two tracks or albums equal. (Default: 3)"},
-  "incomplete-album-action": {"type":"string","description":"What to do with completed album files when the album does not complete. Values: 'move' to move to {configured output dir}/failed (default), 'move:<path>' to move to a custom path, 'delete' to delete them, or 'keep' to leave them where they are."},
+  "incomplete-album-action": {"type":"string","description":"What to do with completed album files when the album does not complete. Values: 'move' to move to {configured output dir}/failed (default), 'move:<path>' to move to a custom path, 'delete' to delete them, or 'keep' to leave them where they are. A folder downloaded from search results or a peer's shares defaults to 'keep'; --interactive picks do not."},
   "index-path": {"type":"string","description":"Override default path for Sockseek index"},
   "input": {"type":"string","description":"Sockseek's --input setting."},
   "input-type": {"type":"string","description":"[csv|youtube|spotify|bandcamp|string|list|soulseek-link| musicbrainz] (default: auto)"},

@@ -10,7 +10,7 @@ using System.Threading.Channels;
 namespace Tests.Core;
 
 [TestClass]
-public class StaleDownloadCoordinatorTests
+public class PeerTransferMonitorTests
 {
     private static readonly TimeSpan MaxStaleTime = TimeSpan.FromSeconds(5);
 
@@ -264,6 +264,34 @@ public class StaleDownloadCoordinatorTests
             $"Checking one active peer allocated {allocated:N0} bytes; completed peers must not be copied on every deadline check.");
     }
 
+    [TestMethod]
+    public void RemotelyQueuedDownloadReportsItsPlaceOnEntryAndAtTheInterval()
+    {
+        using var scenario = new Scenario();
+        int asked = 0;
+        var client = new ClientTests.MockSoulseekClient([]) { QueuePosition = (_, _) => ++asked == 1 ? 3 : 2 };
+        var reported = new List<int>();
+        var attempt = scenario.Start("user-a", @"Music\Artist - Song.mp3", client: client, queuePositionChanged: reported.Add);
+
+        scenario.Coordinator.RequestDueQueuePositions();
+        Assert.AreEqual(0, asked, "Only a download in the peer's queue has a place in it.");
+
+        scenario.ReportState(attempt, TransferStates.Queued | TransferStates.Remotely, bytesTransferred: 0);
+        scenario.Coordinator.RequestDueQueuePositions();
+        scenario.Coordinator.RequestDueQueuePositions();
+        CollectionAssert.AreEqual(new[] { 3 }, reported);
+        Assert.AreEqual(1, asked, "The peer is asked once per interval.");
+
+        scenario.Advance(PeerTransferMonitor.QueuePositionInterval);
+        scenario.Coordinator.RequestDueQueuePositions();
+        CollectionAssert.AreEqual(new[] { 3, 2 }, reported);
+
+        scenario.ReportState(attempt, TransferStates.InProgress, bytesTransferred: 0);
+        scenario.Advance(PeerTransferMonitor.QueuePositionInterval);
+        scenario.Coordinator.RequestDueQueuePositions();
+        Assert.AreEqual(2, asked);
+    }
+
     private sealed class Scenario : IDisposable
     {
         private readonly ManualTimeProvider clock = new();
@@ -271,14 +299,15 @@ public class StaleDownloadCoordinatorTests
 
         public Scenario()
         {
-            Coordinator = new StaleDownloadCoordinator(ActiveDownloads, clock);
+            Coordinator = new PeerTransferMonitor(ActiveDownloads, clock);
         }
 
         public ManualTimeProvider Clock => clock;
         public ActiveDownloadTracker ActiveDownloads { get; } = new();
-        public StaleDownloadCoordinator Coordinator { get; }
+        public PeerTransferMonitor Coordinator { get; }
 
-        public AttemptHandle Start(string username, string filename, Job? parentJob = null)
+        public AttemptHandle Start(string username, string filename, Job? parentJob = null,
+            ISoulseekClient? client = null, Action<int>? queuePositionChanged = null)
         {
             var response = new SearchResponse(username, 1, true, 100_000, 0, []);
             var file = TestHelpers.CreateSlFile(filename, size: 50_000, length: 180);
@@ -289,7 +318,7 @@ public class StaleDownloadCoordinatorTests
             };
             var activeDownload = new ActiveDownload(Guid.NewGuid(), song, candidate, "C:/downloads/song.mp3", new CancellationTokenSource(), parentJob);
             ActiveDownloads.TryAdd(activeDownload);
-            var activityReady = new TaskCompletionSource<StaleDownloadCoordinator.PeerTransferActivity>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var activityReady = new TaskCompletionSource<PeerTransferMonitor.PeerTransferActivity>(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var task = Coordinator.WatchPeerTransferAsync(
                 activeDownload,
@@ -299,7 +328,7 @@ public class StaleDownloadCoordinatorTests
                     activityReady.TrySetResult(activity);
                     await release.Task;
                     return true;
-                });
+                }, client, queuePositionChanged);
 
             var attempt = new AttemptHandle(
                 song,
@@ -347,7 +376,7 @@ public class StaleDownloadCoordinatorTests
     private sealed record AttemptHandle(
         SongJob Song,
         ActiveDownload Download,
-        StaleDownloadCoordinator.PeerTransferActivity Activity,
+        PeerTransferMonitor.PeerTransferActivity Activity,
         TaskCompletionSource Release,
         Task Task)
     {

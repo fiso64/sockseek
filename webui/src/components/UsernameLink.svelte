@@ -3,6 +3,7 @@
   import Icon from './Icon.svelte';
   import type { UserLinkActions } from '../app/navigation';
   import { anchoredMenu } from '../lib/anchored-menu';
+  import { copyText } from '../lib/clipboard';
 
   interface Props {
     highlight?: RegExp;
@@ -14,6 +15,7 @@
   let { highlight, username, actions, title }: Props = $props();
   let root = $state<HTMLSpanElement | null>(null);
   let open = $state(false);
+  let copied = $state(false);
 
   function toggle(event: MouseEvent): void {
     event.stopPropagation();
@@ -24,6 +26,14 @@
     event.stopPropagation();
     open = false;
     actions[action](username);
+  }
+
+  async function copy(event: MouseEvent): Promise<void> {
+    event.stopPropagation();
+    // Leave the confirmation visible for a moment, then close like any choice.
+    copied = await copyText(username);
+    if (!copied) { open = false; return; }
+    setTimeout(() => { open = false; copied = false; }, 900);
   }
 
   function handleWindowPointerDown(event: PointerEvent): void {
@@ -53,6 +63,7 @@
       <button class="menu-item" type="button" role="menuitem" onclick={(event) => choose('profile', event)}><Icon name="user" /><span>Profile</span></button>
       <button class="menu-item" type="button" role="menuitem" onclick={(event) => choose('shares', event)}><Icon name="folder" /><span>Shares</span></button>
       <button class="menu-item" type="button" role="menuitem" onclick={(event) => choose('message', event)}><Icon name="chat" /><span>Message</span></button>
+      <button class="menu-item" type="button" role="menuitem" data-testid="copy-username" onclick={(event) => void copy(event)}><Icon name={copied ? 'check' : 'copy'} /><span>{copied ? 'Copied' : 'Copy'}</span></button>
     </div>
   {/if}
 </span>

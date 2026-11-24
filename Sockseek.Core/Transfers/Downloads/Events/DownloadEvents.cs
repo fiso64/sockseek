@@ -190,7 +190,7 @@ public class DownloadEvents
                 CoreChange.NextSequence(),
                 UtcNow(),
                 Execution(owner),
-                SnapshotTransfer(facts, transferId, owner, target, outputPath, state: "Started", bytesTransferred: owner.BytesTransferred, totalBytes: target.Size ?? 0, attemptCount: 0,
+                SnapshotTransfer(facts, transferId, owner, target, outputPath, TransferPhase.Starting, bytesTransferred: owner.BytesTransferred, totalBytes: target.Size ?? 0,
                     transition: TransferLifecycleTransition.Requested)), DownloadStarted);
         });
 
@@ -199,7 +199,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
-            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "Started", 0, 0, 0,
+            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, TransferPhase.Starting, 0, 0, 0,
                 transition: TransferLifecycleTransition.Requested)), FallbackTransferStarted));
 
     internal void RaiseDownloadProgress(
@@ -215,7 +215,7 @@ public class DownloadEvents
             UtcNow(),
             Reference(song),
             CoreSnapshotFactory.CreateFileDownloadState(song),
-            SnapshotTransfer(facts, transferId, song, c, outputPath, state: "InProgress", bytesTransferred: xfer, totalBytes: total, attemptCount: 0,
+            SnapshotTransfer(facts, transferId, song, c, outputPath, TransferPhase.InProgress, bytesTransferred: xfer, totalBytes: total,
                 transition: TransferLifecycleTransition.Progress, bytesPerSecond: bytesPerSecond)), DownloadProgress));
 
     internal void RaiseDownloadStateChanged(
@@ -232,11 +232,57 @@ public class DownloadEvents
             UtcNow(),
             Reference(song),
             CoreSnapshotFactory.CreateFileDownloadState(song),
-            SnapshotTransfer(facts, transferId, song, c, outputPath, s.ToString(), bytesTransferred, totalBytes, attemptCount: 0,
+            SnapshotTransfer(facts, transferId, song, c, outputPath, PhaseOf(s), bytesTransferred, totalBytes,
                 transition: s.HasFlag(TransferStates.InProgress)
                     ? TransferLifecycleTransition.Started
                     : TransferLifecycleTransition.Observed,
                 bytesPerSecond: bytesPerSecond)), DownloadStateChanged));
+
+    /// <summary>The peer reported this transfer's place in its upload queue.</summary>
+    internal void RaiseDownloadQueuePosition(
+        Guid transferId,
+        FileDownloadJob song,
+        PeerFileTarget c,
+        string outputPath,
+        int position)
+        => PublishNonTerminalTransfer(transferId, facts =>
+        {
+            // The answer can arrive after the peer started the transfer.
+            if (facts.Phase != TransferPhase.QueuedRemotely || position <= 0 || facts.QueuePosition == position) return;
+            facts.QueuePosition = position;
+            Publish(new DownloadStateChangedChange(
+                CoreChange.NextSequence(),
+                UtcNow(),
+                Reference(song),
+                CoreSnapshotFactory.CreateFileDownloadState(song),
+                SnapshotTransfer(facts, transferId, song, c, outputPath, TransferPhase.QueuedRemotely,
+                    song.BytesTransferred, c.Size ?? 0)), DownloadStateChanged);
+        });
+
+    /// <summary>The download is kept and will be asked for again once the peer can serve it.</summary>
+    internal void RaiseDownloadWaitingForPeer(
+        Guid transferId,
+        FileDownloadJob song,
+        PeerFileTarget c,
+        string outputPath)
+        => PublishNonTerminalTransfer(transferId, facts => Publish(new DownloadStateChangedChange(
+            CoreChange.NextSequence(),
+            UtcNow(),
+            Reference(song),
+            CoreSnapshotFactory.CreateFileDownloadState(song),
+            SnapshotTransfer(facts, transferId, song, c, outputPath, TransferPhase.QueuedForPeer,
+                song.BytesTransferred, c.Size ?? 0)), DownloadStateChanged));
+
+    /// <summary>The one mapping from Soulseek.NET's download state flags.</summary>
+    internal static TransferPhase PhaseOf(TransferStates state)
+        => state.HasFlag(TransferStates.Completed) ? TransferPhase.Ended
+            : state.HasFlag(TransferStates.InProgress) ? TransferPhase.InProgress
+            : state.HasFlag(TransferStates.Initializing) ? TransferPhase.Initializing
+            // Soulseek.NET documents an unqualified download queue as remote.
+            : state.HasFlag(TransferStates.Queued)
+                ? state.HasFlag(TransferStates.Locally) ? TransferPhase.QueuedLocally : TransferPhase.QueuedRemotely
+            : state.HasFlag(TransferStates.Requested) ? TransferPhase.Requested
+            : TransferPhase.Starting;
 
     internal void RaiseDownloadAttemptFailed(
         Guid transferId,
@@ -251,7 +297,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
-            SnapshotTransfer(facts, transferId, song, c, transferOutputPath, state: "AttemptFailed", bytesTransferred: song.BytesTransferred, totalBytes: c.Size ?? 0, attemptCount: attempt),
+            SnapshotTransfer(facts, transferId, song, c, transferOutputPath, TransferPhase.Retrying, bytesTransferred: song.BytesTransferred, totalBytes: c.Size ?? 0, attemptCount: attempt),
             attemptOutputPath,
             attempt,
             maxAttempts,
@@ -268,7 +314,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
-            SnapshotTransfer(facts, transferId, song, candidate, finalLocalPath, "Completed", totalBytes, totalBytes, attemptCount,
+            SnapshotTransfer(facts, transferId, song, candidate, finalLocalPath, TransferPhase.Ended, totalBytes, totalBytes, attemptCount,
                 transition: TransferLifecycleTransition.Completed),
             finalLocalPath), TransferCompleted));
 
@@ -286,7 +332,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
-            SnapshotTransfer(facts, transferId, song, candidate, outputPath, "Failed", bytesTransferred, totalBytes, attemptCount,
+            SnapshotTransfer(facts, transferId, song, candidate, outputPath, TransferPhase.Ended, bytesTransferred, totalBytes, attemptCount,
                 transition: TransferLifecycleTransition.Failed,
                 failureReason: reason),
             reason,
@@ -305,7 +351,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
-            SnapshotTransfer(facts, transferId, song, candidate, outputPath, "Cancelled", bytesTransferred, totalBytes, attemptCount,
+            SnapshotTransfer(facts, transferId, song, candidate, outputPath, TransferPhase.Ended, bytesTransferred, totalBytes, attemptCount,
                 transition: TransferLifecycleTransition.Cancelled,
                 cancellationReason: reason),
             reason), TransferCancelled));
@@ -337,7 +383,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
-            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, finalLocalPath, "Completed", totalBytes, totalBytes, attemptCount,
+            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, finalLocalPath, TransferPhase.Ended, totalBytes, totalBytes, attemptCount,
                 transition: TransferLifecycleTransition.Completed),
             finalLocalPath), TransferCompleted));
 
@@ -353,7 +399,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
-            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "Failed", 0, 0, attemptCount,
+            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, TransferPhase.Ended, 0, 0, attemptCount,
                 transition: TransferLifecycleTransition.Failed,
                 failureReason: reason),
             reason,
@@ -370,7 +416,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             completedAtUtc,
             Reference(song),
-            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "Cancelled", 0, 0, attemptCount,
+            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, TransferPhase.Ended, 0, 0, attemptCount,
                 transition: TransferLifecycleTransition.Cancelled,
                 cancellationReason: reason),
             reason), TransferCancelled));
@@ -387,7 +433,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
-            SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, "AttemptStarted", song.BytesTransferred, candidate.Size ?? 0, attemptNumber,
+            SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, TransferPhase.Starting, song.BytesTransferred, candidate.Size ?? 0, attemptNumber,
                 transition: TransferLifecycleTransition.Started),
             attemptId,
             attemptNumber,
@@ -406,7 +452,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
-            SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, "AttemptCompleted", song.BytesTransferred, candidate.Size ?? 0, attemptNumber),
+            SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, TransferPhase.Finalizing, song.BytesTransferred, candidate.Size ?? 0, attemptNumber),
             attemptId,
             attemptNumber,
             NextAttemptRevision(facts, attemptId)), TransferAttemptCompleted));
@@ -424,7 +470,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
-            SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, "AttemptFailed", song.BytesTransferred, candidate.Size ?? 0, attemptNumber),
+            SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, TransferPhase.Retrying, song.BytesTransferred, candidate.Size ?? 0, attemptNumber),
             attemptId,
             attemptNumber,
             NextAttemptRevision(facts, attemptId),
@@ -442,7 +488,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
-            SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, "AttemptCancelled", song.BytesTransferred, candidate.Size ?? 0, attemptNumber),
+            SnapshotTransfer(facts, transferId, song, candidate, transferOutputPath, TransferPhase.Retrying, song.BytesTransferred, candidate.Size ?? 0, attemptNumber),
             attemptId,
             attemptNumber,
             NextAttemptRevision(facts, attemptId),
@@ -458,7 +504,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
-            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "AttemptStarted", 0, 0, 1,
+            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, TransferPhase.Starting, 0, 0, 1,
                 transition: TransferLifecycleTransition.Started),
             attemptId,
             AttemptNumber: 1,
@@ -477,7 +523,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
-            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "AttemptCompleted", producedBytes, producedBytes, 1),
+            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, TransferPhase.Finalizing, producedBytes, producedBytes, 1),
             attemptId,
             AttemptNumber: 1,
             AttemptRevision: NextAttemptRevision(facts, attemptId)), TransferAttemptCompleted));
@@ -493,7 +539,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
-            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "AttemptFailed", 0, 0, 1),
+            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, TransferPhase.Retrying, 0, 0, 1),
             attemptId,
             AttemptNumber: 1,
             AttemptRevision: NextAttemptRevision(facts, attemptId),
@@ -510,7 +556,7 @@ public class DownloadEvents
             CoreChange.NextSequence(),
             UtcNow(),
             Reference(song),
-            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, "AttemptCancelled", 0, 0, 1),
+            SnapshotFallbackTransfer(facts, transferId, song, sourceReference, outputPath, TransferPhase.Retrying, 0, 0, 1),
             attemptId,
             AttemptNumber: 1,
             AttemptRevision: NextAttemptRevision(facts, attemptId),
@@ -579,16 +625,20 @@ public class DownloadEvents
     private IReadOnlyList<JobSnapshot> SnapshotSongs(IEnumerable<SongJob> songs)
         => SnapshotCollections.Freeze(songs.Select(song => Snapshot(song)));
 
+    // TODO [ARCHITECTURE]: The peer and fallback publishers (Started, Completed, Failed,
+    // Cancelled and the four attempt events) are near-copies that differ only
+    // in how the source is described. Give both one source description so each
+    // event is published by one method.
     private TransferSnapshot SnapshotTransfer(
         TransferFacts facts,
         Guid transferId,
         FileDownloadJob song,
         PeerFileTarget candidate,
         string outputPath,
-        string? state,
+        TransferPhase phase,
         long bytesTransferred,
         long totalBytes,
-        int attemptCount,
+        int? attemptCount = null,
         TransferLifecycleTransition transition = TransferLifecycleTransition.Observed,
         double? bytesPerSecond = null,
         TransferFailureReason? failureReason = null,
@@ -612,10 +662,10 @@ public class DownloadEvents
                 : null;
             facts.Candidate = evidence;
             facts.Metadata = CoreSnapshotFactory.CreateDownloadTransfer(
-                transferId, song, candidate, outputPath, revision, state, bytesTransferred, totalBytes, attemptCount, evidence);
+                transferId, song, candidate, outputPath, revision, phase, bytesTransferred, totalBytes, attemptCount ?? facts.AttemptCount, evidence);
             RememberTransfer(song, transferId);
         }
-        return CaptureTransfer(facts, revision, outputPath, state, bytesTransferred, totalBytes, attemptCount,
+        return CaptureTransfer(facts, revision, outputPath, phase, bytesTransferred, totalBytes, attemptCount,
             transition, bytesPerSecond, failureReason, cancellationReason);
     }
 
@@ -625,10 +675,10 @@ public class DownloadEvents
         SongJob song,
         string sourceReference,
         string? outputPath,
-        string? state,
+        TransferPhase phase,
         long bytesTransferred,
         long totalBytes,
-        int attemptCount,
+        int? attemptCount = null,
         TransferLifecycleTransition transition = TransferLifecycleTransition.Observed,
         double? bytesPerSecond = null,
         TransferFailureReason? failureReason = null,
@@ -643,10 +693,10 @@ public class DownloadEvents
             facts.FileGroup = null;
             facts.Candidate = null;
             facts.Metadata = CoreSnapshotFactory.CreateFallbackTransfer(
-                transferId, song, sourceReference, outputPath, revision, state, bytesTransferred, totalBytes, attemptCount);
+                transferId, song, sourceReference, outputPath, revision, phase, bytesTransferred, totalBytes, attemptCount ?? facts.AttemptCount);
             RememberTransfer(song, transferId);
         }
-        return CaptureTransfer(facts, revision, outputPath, state, bytesTransferred, totalBytes, attemptCount,
+        return CaptureTransfer(facts, revision, outputPath, phase, bytesTransferred, totalBytes, attemptCount,
             transition, bytesPerSecond, failureReason, cancellationReason);
     }
 
@@ -660,10 +710,10 @@ public class DownloadEvents
         TransferFacts facts,
         long revision,
         string? outputPath,
-        string? state,
+        TransferPhase phase,
         long bytesTransferred,
         long totalBytes,
-        int attemptCount,
+        int? attemptCount,
         TransferLifecycleTransition transition,
         double? bytesPerSecond,
         TransferFailureReason? failureReason,
@@ -671,6 +721,12 @@ public class DownloadEvents
     {
         DateTimeOffset now = UtcNow();
         facts.RequestedAtUtc = facts.RequestedAtUtc is { } requested && requested < now ? requested : now;
+        // The facts own what outlives one event. Only the events that begin or
+        // end an attempt name its number; state and progress keep the latest.
+        if (attemptCount is { } attempt) facts.AttemptCount = Math.Max(facts.AttemptCount, attempt);
+        // A queue position describes only the current wait in the peer's queue.
+        if (phase != TransferPhase.QueuedRemotely) facts.QueuePosition = null;
+        facts.Phase = phase;
 
         if (transition is TransferLifecycleTransition.Started
             or TransferLifecycleTransition.Progress)
@@ -710,10 +766,11 @@ public class DownloadEvents
         {
             Revision = revision,
             LocalPath = outputPath,
-            State = state,
+            Phase = phase,
             BytesTransferred = bytesTransferred,
             TotalBytes = totalBytes,
-            AttemptCount = attemptCount,
+            AttemptCount = facts.AttemptCount,
+            QueuePosition = facts.QueuePosition,
             RequestedAtUtc = facts.RequestedAtUtc,
             StartedAtUtc = facts.StartedAtUtc,
             LastProgressAtUtc = facts.LastProgressAtUtc,
@@ -796,6 +853,9 @@ public class DownloadEvents
         public DateTimeOffset? RequestedAtUtc { get; set; }
         public DateTimeOffset? StartedAtUtc { get; set; }
         public DateTimeOffset? LastProgressAtUtc { get; set; }
+        public int AttemptCount { get; set; }
+        public TransferPhase Phase { get; set; }
+        public int? QueuePosition { get; set; }
         public long? BytesPerSecond { get; set; }
         public TransferSnapshotTerminalOutcome TerminalOutcome { get; set; }
         public DateTimeOffset? CompletedAtUtc { get; set; }

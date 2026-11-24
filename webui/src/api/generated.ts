@@ -6607,11 +6607,13 @@ export interface paths {
         put?: never;
         /**
          * Reruns a submission from its retained normalized command and effective settings.
-         * @description Current credentials are rebound only for retained credential slots. Current defaults and profiles do not replace the retained root settings.
+         * @description Current credentials are rebound only for retained credential slots. Current defaults and profiles do not replace the retained root settings. With extractAgain, sources are read as they are now instead of replaying the items captured at acceptance.
          */
         post: {
             parameters: {
-                query?: never;
+                query?: {
+                    extractAgain?: boolean;
+                };
                 header?: never;
                 path: {
                     submissionId: string;
@@ -6680,7 +6682,9 @@ export interface paths {
          */
         post: {
             parameters: {
-                query?: never;
+                query?: {
+                    extractAgain?: boolean;
+                };
                 header?: never;
                 path: {
                     jobId: string;
@@ -6737,6 +6741,84 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{jobId}/rerun-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reads one accepted job's request back as a draft to change and submit again.
+         * @description Settings are given as selected profiles plus the difference from what they resolve to now. Edits made to individual items during review are not included.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    jobId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["JobRerunDraftDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiErrorDto"];
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8743,7 +8825,7 @@ export interface paths {
                     workflowId?: string;
                     direction?: string;
                     source?: string;
-                    state?: string;
+                    phase?: string;
                     terminalOutcome?: string;
                     username?: string;
                     groupRef?: string;
@@ -11099,6 +11181,8 @@ export interface components {
             /** Format: int64 */
             rejectedCount: number | string;
             rejectionReasons: components["schemas"]["SubmissionReasonCountDto"][];
+            /** Format: uuid */
+            jobId?: null | string;
         };
         /** @enum {unknown} */
         CompletedJobCategory: "Searches" | "Downloads";
@@ -12267,7 +12351,8 @@ export interface components {
                             };
                         };
                         status: {
-                            state: string;
+                            /** @enum {unknown} */
+                            phase: "Starting" | "QueuedLocally" | "Requested" | "QueuedRemotely" | "QueuedForPeer" | "Initializing" | "InProgress" | "Finalizing" | "Retrying" | "Ended";
                             localPath?: null | string;
                             /** Format: int32 */
                             attemptCount: number | string;
@@ -12286,12 +12371,14 @@ export interface components {
                              * @default None
                              * @enum {unknown}
                              */
-                            cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                            cancellationSource: "None" | "User" | "OwningJob" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
                             /** Format: date-time */
                             completedAtUtc?: null | string;
                             failureMessage?: null | string;
                             /** Format: date-time */
                             removedAtUtc?: null | string;
+                            /** Format: int32 */
+                            queuePosition?: null | number | string;
                             availableActions?: {
                                 /** @enum {unknown} */
                                 kind: "cancel" | "retry";
@@ -12341,7 +12428,8 @@ export interface components {
                         createdAtUtc: string;
                     };
                     status?: {
-                        state: string;
+                        /** @enum {unknown} */
+                        phase: "Starting" | "QueuedLocally" | "Requested" | "QueuedRemotely" | "QueuedForPeer" | "Initializing" | "InProgress" | "Finalizing" | "Retrying" | "Ended";
                         localPath?: null | string;
                         /** Format: int32 */
                         attemptCount: number | string;
@@ -12360,12 +12448,14 @@ export interface components {
                          * @default None
                          * @enum {unknown}
                          */
-                        cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                        cancellationSource: "None" | "User" | "OwningJob" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
                         /** Format: date-time */
                         completedAtUtc?: null | string;
                         failureMessage?: null | string;
                         /** Format: date-time */
                         removedAtUtc?: null | string;
+                        /** Format: int32 */
+                        queuePosition?: null | number | string;
                         availableActions?: {
                             /** @enum {unknown} */
                             kind: "cancel" | "retry";
@@ -12731,7 +12821,6 @@ export interface components {
             failureReason?: null | components["schemas"]["ServerJobFailureReason"];
             failureMessage?: null | string;
             availableActions?: null | components["schemas"]["ResourceActionDto"][];
-            transferState?: null | string;
             cancellationSource?: components["schemas"]["ServerJobCancellationSource"];
             downloadSource?: components["schemas"]["ServerSongDownloadSource"];
             exactTarget?: null | {
@@ -12852,6 +12941,15 @@ export interface components {
             missingFiles: number | string;
             /** Format: uuid */
             retryTransferId?: null | string;
+            /** @default false */
+            canExtractAgain: boolean;
+            /** @default false */
+            canEditAgain: boolean;
+        };
+        JobRerunDraftDto: {
+            job: components["schemas"]["JobDraftDto"];
+            profileNames: string[];
+            downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
         };
         JobStatusActivityDto: {
             /** Format: int32 */
@@ -13177,6 +13275,20 @@ export interface components {
             extractArtist?: null | boolean;
             parseTitleTemplate?: null | string;
             regex?: null | components["schemas"]["CollectionPatchDtoOfRegexRuleDto"];
+        };
+        ProcessMemoryDto: {
+            /** Format: int64 */
+            residentBytes: number | string;
+            /** Format: int64 */
+            peakResidentBytes: number | string;
+            /** Format: int64 */
+            heapBytes?: null | number | string;
+            /** Format: int64 */
+            runtimeBytes?: null | number | string;
+            /** Format: int64 */
+            mappedFileBytes?: null | number | string;
+            /** Format: int64 */
+            swappedBytes?: null | number | string;
         };
         ProfileSummaryDto: {
             name: string;
@@ -13673,6 +13785,7 @@ export interface components {
             configuration?: null | components["schemas"]["ConfigurationStatusDto"];
             connection?: null | components["schemas"]["SoulseekConnectionDto"];
             profile?: null | components["schemas"]["LocalUserProfileDto"];
+            memory?: null | components["schemas"]["ProcessMemoryDto"];
         };
         /** @enum {unknown} */
         ServerUserNotificationKind: "PrivateMessage" | "RoomMention";
@@ -14262,7 +14375,8 @@ export interface components {
                         };
                     };
                     status: {
-                        state: string;
+                        /** @enum {unknown} */
+                        phase: "Starting" | "QueuedLocally" | "Requested" | "QueuedRemotely" | "QueuedForPeer" | "Initializing" | "InProgress" | "Finalizing" | "Retrying" | "Ended";
                         localPath?: null | string;
                         /** Format: int32 */
                         attemptCount: number | string;
@@ -14281,12 +14395,14 @@ export interface components {
                          * @default None
                          * @enum {unknown}
                          */
-                        cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                        cancellationSource: "None" | "User" | "OwningJob" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
                         /** Format: date-time */
                         completedAtUtc?: null | string;
                         failureMessage?: null | string;
                         /** Format: date-time */
                         removedAtUtc?: null | string;
+                        /** Format: int32 */
+                        queuePosition?: null | number | string;
                         availableActions?: {
                             /** @enum {unknown} */
                             kind: "cancel" | "retry";
@@ -14336,7 +14452,8 @@ export interface components {
                     createdAtUtc: string;
                 };
                 status?: {
-                    state: string;
+                    /** @enum {unknown} */
+                    phase: "Starting" | "QueuedLocally" | "Requested" | "QueuedRemotely" | "QueuedForPeer" | "Initializing" | "InProgress" | "Finalizing" | "Retrying" | "Ended";
                     localPath?: null | string;
                     /** Format: int32 */
                     attemptCount: number | string;
@@ -14355,12 +14472,14 @@ export interface components {
                      * @default None
                      * @enum {unknown}
                      */
-                    cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                    cancellationSource: "None" | "User" | "OwningJob" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
                     /** Format: date-time */
                     completedAtUtc?: null | string;
                     failureMessage?: null | string;
                     /** Format: date-time */
                     removedAtUtc?: null | string;
+                    /** Format: int32 */
+                    queuePosition?: null | number | string;
                     availableActions?: {
                         /** @enum {unknown} */
                         kind: "cancel" | "retry";
@@ -15026,7 +15145,8 @@ export interface components {
                             };
                         };
                         status: {
-                            state: string;
+                            /** @enum {unknown} */
+                            phase: "Starting" | "QueuedLocally" | "Requested" | "QueuedRemotely" | "QueuedForPeer" | "Initializing" | "InProgress" | "Finalizing" | "Retrying" | "Ended";
                             localPath?: null | string;
                             /** Format: int32 */
                             attemptCount: number | string;
@@ -15045,12 +15165,14 @@ export interface components {
                              * @default None
                              * @enum {unknown}
                              */
-                            cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                            cancellationSource: "None" | "User" | "OwningJob" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
                             /** Format: date-time */
                             completedAtUtc?: null | string;
                             failureMessage?: null | string;
                             /** Format: date-time */
                             removedAtUtc?: null | string;
+                            /** Format: int32 */
+                            queuePosition?: null | number | string;
                             availableActions?: {
                                 /** @enum {unknown} */
                                 kind: "cancel" | "retry";
@@ -15100,7 +15222,8 @@ export interface components {
                         createdAtUtc: string;
                     };
                     status?: {
-                        state: string;
+                        /** @enum {unknown} */
+                        phase: "Starting" | "QueuedLocally" | "Requested" | "QueuedRemotely" | "QueuedForPeer" | "Initializing" | "InProgress" | "Finalizing" | "Retrying" | "Ended";
                         localPath?: null | string;
                         /** Format: int32 */
                         attemptCount: number | string;
@@ -15119,12 +15242,14 @@ export interface components {
                          * @default None
                          * @enum {unknown}
                          */
-                        cancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+                        cancellationSource: "None" | "User" | "OwningJob" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
                         /** Format: date-time */
                         completedAtUtc?: null | string;
                         failureMessage?: null | string;
                         /** Format: date-time */
                         removedAtUtc?: null | string;
+                        /** Format: int32 */
+                        queuePosition?: null | number | string;
                         availableActions?: {
                             /** @enum {unknown} */
                             kind: "cancel" | "retry";
@@ -15531,7 +15656,7 @@ export interface components {
          * @default None
          * @enum {unknown}
          */
-        TransferCancellationSource: "None" | "User" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
+        TransferCancellationSource: "None" | "User" | "OwningJob" | "Peer" | "DaemonShutdown" | "CatalogInvalidation";
         /** @enum {unknown} */
         TransferCommandDirection: "Download" | "Upload";
         TransferCommandReasonCountDto: {
@@ -15572,6 +15697,12 @@ export interface components {
          * @enum {unknown}
          */
         TransferFailureReason: "None" | "FileUnavailable" | "FileNoLongerShared" | "FileChanged" | "InvalidOffset" | "Denied" | "PeerDisconnected" | "ConnectionFailed" | "TransferTimedOut" | "InternalError" | "Unknown" | "LocalStorageError";
+        TransferGroupExtentDto: {
+            username?: null | string;
+            groupRef: string;
+            /** Format: int32 */
+            memberLimit: number | string;
+        };
         TransferGroupKeyDto: {
             direction: components["schemas"]["TransferCommandDirection"];
             username?: null | string;
@@ -15643,6 +15774,8 @@ export interface components {
             transferIds: string[];
             direction?: null | string;
         };
+        /** @enum {unknown} */
+        TransferPhase: "Starting" | "QueuedLocally" | "Requested" | "QueuedRemotely" | "QueuedForPeer" | "Initializing" | "InProgress" | "Finalizing" | "Retrying" | "Ended";
         TransferProgressFieldsDto: {
             /** Format: int64 */
             bytesTransferred: number | string;
@@ -15697,7 +15830,7 @@ export interface components {
             createdAtUtc: string;
         };
         TransferStatusFieldsDto: {
-            state: string;
+            phase: components["schemas"]["TransferPhase"];
             localPath?: null | string;
             /** Format: int32 */
             attemptCount: number | string;
@@ -15710,6 +15843,8 @@ export interface components {
             failureMessage?: null | string;
             /** Format: date-time */
             removedAtUtc?: null | string;
+            /** Format: int32 */
+            queuePosition?: null | number | string;
             availableActions?: components["schemas"]["ResourceActionDto"][] | null;
         };
         /**
@@ -15735,9 +15870,14 @@ export interface components {
             };
             username?: null | string;
             groupRef?: null | string;
-            additionalTransferIds?: null | string[];
             /** @default false */
             includeGroupSummaries: boolean;
+            /**
+             * Format: int32
+             * @default 80
+             */
+            folderCompletionLimit: number | string;
+            expandedGroups?: null | components["schemas"]["TransferGroupExtentDto"][];
         };
         TransferTimelineUpdateDto: {
             items: components["schemas"]["TransferStateDto"][];

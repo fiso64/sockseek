@@ -5,6 +5,8 @@
   import { untrack } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import TransferStateLabel from '../../components/items/TransferStateLabel.svelte';
+  import SplitButton from '../../components/SplitButton.svelte';
+  import { newJobStartFromRerun, type NewJobStart } from './submission';
   import TransferItemActionButton from '../../components/items/TransferItemActionButton.svelte';
   import { audioAttributes, basename, type TransferPresentation } from '../presentation/items';
   import { daemonApi, defaultPageSize, nestedPageSize } from '../../api/client';
@@ -30,7 +32,7 @@
   import UsernameLink from '../../components/UsernameLink.svelte';
   import type { UserLinkActions } from '../../app/navigation';
 
-  let { jobId, initialDetail = null, userActions, connected, liveStatus, visible, observeJobs, observeJobList, onback, onopenjob, ondelete, deletingSubmissions = new Set<string>(), deleteError = null }: {
+  let { jobId, initialDetail = null, userActions, connected, liveStatus, visible, observeJobs, observeJobList, onback, onopenjob, oneditagain, ondelete, deletingSubmissions = new Set<string>(), deleteError = null }: {
     jobId: string;
     initialDetail?: Schema<'JobDetailDto'> | null;
     userActions: UserLinkActions;
@@ -41,6 +43,7 @@
     observeJobList: DaemonLiveClient['observeJobList'];
     onback: () => void;
     onopenjob: (job: JobSummaryDto | string, detail?: Schema<'JobDetailDto'>) => void;
+    oneditagain: (start: NewJobStart) => void;
     ondelete: (job: JobSummaryDto) => void;
     deletingSubmissions?: ReadonlySet<string>;
     deleteError?: Error | null;
@@ -223,6 +226,17 @@
   let retryId = $derived(repeatOptions?.retryTransferId);
   let missingFiles = $derived(repeatOptions?.canRunAgain ? 0 : Number(repeatOptions?.missingFiles ?? 0));
   let retryBusy = $state(false);
+
+  async function editAgain() {
+    const owner = jobId;
+    retryBusy = true;
+    try {
+      const start = newJobStartFromRerun(await daemonApi.getRerunDraft(owner));
+      if (jobId === owner) oneditagain(start);
+    } catch (cause) {
+      if (jobId === owner) actionError = new Error(String(cause));
+    } finally { retryBusy = false; }
+  }
 
   async function repeat(submit: () => Promise<JobSummaryDto>) {
     const owner = jobId;
@@ -485,7 +499,16 @@
         {#if job.display.createdAtUtc}<span class="job-detail-header-fact job-detail-age"><RelativeTime timestamp={job.display.createdAtUtc} /></span>{/if}
         {#if !info && !hasContent}<TransferStateLabel transfer={detailTransfer} class={`search-status-badge ${jobStatusClass(job)}`}>{statusLabel}</TransferStateLabel>{/if}
         {#if repeatOptions?.canRunAgain}
-          <button type="button" class="button action-button collapse-narrow" data-testid="run-again" aria-label="Run again" title="Run again" disabled={retryBusy} onclick={() => repeat(() => daemonApi.runAgain(jobId))}><Icon name="refresh" /><span>Run again</span></button>
+          <!-- The main action reads the source as it is now when there is one.
+               Replaying the saved items is the alternative, not the default. -->
+          <SplitButton label="Run again" icon="refresh" testId="run-again" class="collapse-narrow" disabled={retryBusy}
+            menuLabel="More ways to run again"
+            onclick={() => repeat(() => daemonApi.runAgain(jobId, repeatOptions.canExtractAgain))}
+            items={[
+              ...(repeatOptions.canExtractAgain
+                ? [{ id: 'exact', label: 'Run this exact list', onselect: () => void repeat(() => daemonApi.runAgain(jobId)) }] : []),
+              ...(repeatOptions.canEditAgain ? [{ id: 'options', label: 'Run again with options…', onselect: () => void editAgain() }] : []),
+            ]} />
         {/if}
         {#if job.lifecycle.availableActions?.some((action) => action.kind === 'cancel')}
           <button type="button" class="button danger action-button collapse-narrow" aria-label="Cancel" title="Cancel job" onclick={() => void cancel()}><Icon name="x" /><span>Cancel</span></button>
@@ -583,7 +606,7 @@
         {/if}
         {#each displayedRelatedRows as entry (entry.job.jobId)}
           {@const child = entry.job}
-          <JobRow job={child} root={entry.root}
+          <JobRow job={child} root={entry.root} transfer={child.jobId ? liveTransfersByJob.get(child.jobId) : undefined}
             resultState={entry.error || entry.missingResultId ? 'unavailable' : undefined}
             progressPercent={child.jobId ? childFileProgress.get(child.jobId) : undefined}
             onopen={onopenjob} oncancel={job => void cancel(job.jobId)} />

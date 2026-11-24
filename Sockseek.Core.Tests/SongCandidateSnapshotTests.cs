@@ -114,5 +114,5 @@ public sealed class SongCandidateSnapshotTests
 
     private static TransferSnapshot Snapshot(SongJob song, PeerFileTarget target)
         => CoreSnapshotFactory.CreateDownloadTransfer(
-            Guid.NewGuid(), song, target, "output", 1, "InProgress", 64, 128, 1);
+            Guid.NewGuid(), song, target, "output", 1, TransferPhase.InProgress, 64, 128, 1);
 }

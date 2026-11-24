@@ -228,7 +228,7 @@ sockseek share scan [--cancel]      Start or cancel a scan
 ```text
 sockseek transfers                  List transfers
   --direction upload|download       Filter by transfer direction
-  --state <state>                   Filter by transfer state
+  --phase <phase>                   Filter by transfer phase
   --outcome <outcome>               Filter by terminal outcome
   --username <name>                 Filter by peer
   --include-removed                 Include transfers removed from history
@@ -247,7 +247,9 @@ sockseek transfers remove           Remove matching transfers from history
 <!-- sockseek-help-topic:start(transfer) -->
 ```text
 sockseek transfer cancel|retry|remove <id>
-sockseek job rerun|retry-directory <id>
                                     Cancel one transfer or remove it from history
+sockseek job rerun <id>             Run a job again, reading its source (link, file path) as it is now
+  --exact                           Run the items saved with the job instead of reading the source
+sockseek job retry-directory <id>   Download the files a folder job is still missing
 ```
 <!-- sockseek-help-topic:end -->

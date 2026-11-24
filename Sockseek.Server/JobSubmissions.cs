@@ -410,15 +410,46 @@ public sealed partial class JobSubmissions
 
         var settings = ResolveRootSettings(job, resolver, options?.DownloadSettings, childDrafts);
         activity?.AddEvent(new("prepared"));
+        return await AcceptRootAsync(job, settings, resolver, planned: null, createReceipt, ct, activity,
+            submissionId, sourceRevision, artifactId, commitFingerprint: commitFingerprint).ConfigureAwait(false);
+    }
 
-        await new JobPlanner(resolver).PrepareResolvedAsync(job, settings, ct).ConfigureAwait(false);
-        activity?.AddEvent(new("planned"));
-        SubmissionSpecification? specification = job.Retention == JobRetention.Memory
-            ? null : SubmissionSpecification.Create(job);
+    /// <summary>
+    /// The one way a root job with final settings is accepted, whether it was
+    /// just submitted or comes from a saved plan.
+    /// </summary>
+    /// <param name="planned">
+    /// The saved plan the job was restored from. Null reads the job's sources
+    /// now and retains what they give, so the accepted job can be run again.
+    /// </param>
+    private async Task<TReceipt> AcceptRootAsync<TReceipt>(
+        Job job,
+        DownloadSettings settings,
+        SubmissionOptionsJobSettingsResolver resolver,
+        SubmissionSpecification? planned,
+        Func<JobSummaryDto, DownloadSettings, TReceipt> createReceipt,
+        CancellationToken ct,
+        Activity? activity = null,
+        Guid? submissionId = null,
+        SubmissionSourceRevision? sourceRevision = null,
+        string? artifactId = null,
+        Guid? rerunOfSubmissionId = null,
+        Guid? previewId = null,
+        string? commitFingerprint = null)
+    {
+        SubmissionSpecification? specification = planned;
+        if (specification is null)
+        {
+            await new JobPlanner(resolver).PrepareResolvedAsync(job, settings, ct).ConfigureAwait(false);
+            activity?.AddEvent(new("planned"));
+            if (job.Retention != JobRetention.Memory) specification = SubmissionSpecification.Create(job);
+        }
         SubmissionIdentity.AssignAccepted(
             job,
             sourceRevision is null || specification is null ? specification : specification with { SourceRevision = sourceRevision },
             submissionId,
+            rerunOfSubmissionId: rerunOfSubmissionId,
+            previewId: previewId,
             artifactId: artifactId);
         activity?.AddEvent(new("captured"));
         job.EnsureDisplayId();
@@ -517,19 +548,9 @@ public sealed partial class JobSubmissions
         CommitJobPreviewResponseDto receipt,
         CancellationToken cancellationToken)
     {
-        SubmissionIdentity.AssignAccepted(
-            root,
-            specification,
-            submissionId: submissionId,
-            previewId: previewId);
-        await AcceptAsync(
-            root,
-            rootSettings,
-            sourceJobId: null,
-            cancellationToken,
-            settingsAreFinal: true,
-            commitFingerprint: commitFingerprint,
-            commitReceipt: receipt).ConfigureAwait(false);
+        await AcceptRootAsync(root, rootSettings, SettingsResolver, specification, (_, _) => receipt,
+            cancellationToken, submissionId: submissionId, previewId: previewId,
+            commitFingerprint: commitFingerprint).ConfigureAwait(false);
     }
 
     internal DownloadSettings PrepareSearchViewSelectionJob(
@@ -611,21 +632,70 @@ public sealed partial class JobSubmissions
 
     public async Task<JobSummaryDto?> RerunSubmissionAsync(
         Guid submissionId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool extractAgain = false)
     {
         if (persistence?.Submissions == null)
             throw new NotSupportedException("Submission rerun is unavailable because persistence is disabled or not started.");
-        return await ReplayAsync(persistence.Submissions, submissionId, null, Stopwatch.StartNew(), cancellationToken)
+        return await ReplayAsync(persistence.Submissions, submissionId, null, Stopwatch.StartNew(), cancellationToken, extractAgain)
             .ConfigureAwait(false);
     }
 
+    /// <param name="extractAgain">
+    /// Read the job's source as it is now instead of replaying the items
+    /// captured when it was accepted.
+    /// </param>
     public async Task<JobSummaryDto?> RerunJobAsync(
         Guid sourceJobId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool extractAgain = false)
     {
         if (persistence?.Submissions == null || persistence.JobHistory == null)
             throw new NotSupportedException("Search replay is unavailable because persistence is disabled or not started.");
         var started = System.Diagnostics.Stopwatch.StartNew();
+        if (await FindSubmissionAsync(sourceJobId, cancellationToken).ConfigureAwait(false) is not Guid submissionId)
+            return null;
+        return await ReplayAsync(persistence.Submissions, submissionId, sourceJobId, started, cancellationToken, extractAgain)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads a job's request back as a draft, so it can be changed and
+    /// submitted as a new job.
+    /// </summary>
+    public async Task<JobRerunDraftDto?> GetRerunDraftAsync(Guid sourceJobId, CancellationToken cancellationToken)
+    {
+        if (persistence?.Submissions == null || persistence.JobHistory == null)
+            throw new NotSupportedException("Job history is unavailable because persistence is disabled or not started.");
+        if (await FindSubmissionAsync(sourceJobId, cancellationToken).ConfigureAwait(false) is not Guid submissionId
+            || await persistence.Submissions.GetSpecificationJsonAsync(submissionId, cancellationToken)
+                .ConfigureAwait(false) is not { } retained)
+            return null;
+        SubmissionSpecification specification = SubmissionSpecificationCodec.Deserialize(retained).ForRequest(sourceJobId)
+            ?? throw new ArgumentException($"Job {sourceJobId} has no matching planned command in its retained submission.");
+        JobDraftDto draft = JobRequestMapper.CreateEditableDraft(specification.Command)
+            ?? throw new ArgumentException("This job was not entered as one source or query, so it cannot be edited.");
+        DownloadSettings settings = specification.MaterializeSettings(defaultDownloadSettings);
+        JobSettingsContext context = JobRequestMapper.CreateSettingsContext(draft);
+        string[] profiles = settings.AppliedProfiles.Where(profile => profile.Source == "selected")
+            .Select(profile => profile.Name).ToArray();
+        DownloadSettings current;
+        try
+        {
+            current = SettingsResolver.ResolveDetailed(context, new SubmissionOptionsDto(ProfileNames: profiles)).Settings;
+        }
+        catch (ArgumentException) when (profiles.Length > 0)
+        {
+            // A profile was removed or changed since. Its settings are then
+            // part of the difference instead.
+            profiles = [];
+            current = SettingsResolver.ResolveDetailed(context, new SubmissionOptionsDto()).Settings;
+        }
+        return new(draft, profiles, DownloadSettingsPatchDtoMapper.FromDifference(current, settings));
+    }
+
+    private async Task<Guid?> FindSubmissionAsync(Guid sourceJobId, CancellationToken cancellationToken)
+    {
         Guid submissionId;
         // A live or admitted job may not have reached job history yet. Its
         // identity is already authoritative; execution settings still come from
@@ -638,9 +708,9 @@ public sealed partial class JobSubmissions
         }
         else
         {
-            await persistence.WaitForJobHandoffAsync(sourceJobId, cancellationToken, includeSearchResults: false)
+            await persistence!.WaitForJobHandoffAsync(sourceJobId, cancellationToken, includeSearchResults: false)
                 .ConfigureAwait(false);
-            PersistedJob? source = await persistence.JobHistory
+            PersistedJob? source = await persistence.JobHistory!
                 .GetJobAsync(sourceJobId, cancellationToken).ConfigureAwait(false);
             if (source == null)
                 return null;
@@ -648,14 +718,12 @@ public sealed partial class JobSubmissions
                 throw new ArgumentException("Only a retained job can run again.");
             submissionId = retainedSubmissionId;
         }
-
-        return await ReplayAsync(persistence.Submissions, submissionId, sourceJobId, started, cancellationToken)
-            .ConfigureAwait(false);
+        return submissionId;
     }
 
     private async Task<JobSummaryDto?> ReplayAsync(
         ISubmissionStore submissions, Guid submissionId, Guid? selectedJobId, Stopwatch started,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool extractAgain = false)
     {
         // Accepted intent is committed before execution starts. Replaying it
         // requires neither terminal history handoffs nor mutable job counts.
@@ -669,25 +737,25 @@ public sealed partial class JobSubmissions
         SubmissionSpecification specification =
             SubmissionSpecificationCodec.Deserialize(retained);
         if (selectedJobId is Guid id)
-            specification = specification.ForJob(id)
+            specification = (extractAgain ? specification.ForRequest(id) : specification.ForJob(id))
                 ?? throw new ArgumentException($"Job {id} has no matching planned command in its retained submission.");
         if (selectedJobId.HasValue && !specification.Command.CanRunAgain)
             throw new ArgumentException("Use the peer selection's retry action for this job.");
+        if (extractAgain)
+        {
+            // Never substitute the saved items: the caller asked for the source.
+            if (!specification.CanExtractAgain())
+                throw new ArgumentException("This job has no source that can be read again.");
+            specification = specification.WithFreshExtraction();
+        }
         var (job, settings) = specification.Materialize(defaultDownloadSettings);
         if (settings.NeedLogin && !CanAcceptLoginRequiredJobs())
             throw new ArgumentException("This retained submission requires Soulseek login, but the server is not configured for it.");
 
-        SubmissionIdentity.AssignAccepted(
-            job,
-            specification,
-            rerunOfSubmissionId: submissionId);
         long materializedMs = started.ElapsedMilliseconds;
-        await AcceptAsync(
-            job,
-            settings,
-            sourceJobId: null,
-            cancellationToken,
-            settingsAreFinal: true).ConfigureAwait(false);
+        // An exact replay keeps its saved plan; reading the source again plans anew.
+        await AcceptRootAsync(job, settings, SettingsResolver, planned: extractAgain ? null : specification,
+            static (summary, _) => summary, cancellationToken, rerunOfSubmissionId: submissionId).ConfigureAwait(false);
         long durationMs = started.ElapsedMilliseconds;
         ServerLogMessages.SubmissionRerunAccepted(logger, submissionId, job.SubmissionId!.Value, durationMs);
         ServerLogMessages.SubmissionRerunTiming(logger, submissionId, job.SubmissionId.Value,

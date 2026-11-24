@@ -216,14 +216,14 @@ public class StaleDownloadTests
         };
         var activeDownloads = new ActiveDownloadTracker();
         var events = new DownloadEvents();
-        var staleDownloads = new StaleDownloadCoordinator(activeDownloads, clock);
+        var peerTransfers = new PeerTransferMonitor(activeDownloads, clock);
         using var fileOperations = new DownloadFileOperations(engineSettings.ConcurrentJobs);
         var downloader = new ExactPeerFileTransferRunner(
             client,
             TestHelpers.CreateMockClientManager(client, engineSettings),
             activeDownloads,
             events,
-            staleDownloads, fileOperations);
+            peerTransfers, fileOperations);
         var started = NewSignal();
         var releaseStarted = NewSignal();
         events.DownloadStarted += _ =>
@@ -247,7 +247,7 @@ public class StaleDownloadTests
             await started.Task.WaitAsync(SignalTimeout);
 
             clock.Advance(MaxStaleTime);
-            Assert.AreEqual(0, staleDownloads.CancelStaleDownloads(),
+            Assert.AreEqual(0, peerTransfers.CancelStaleDownloads(),
                 "Work before the Soulseek transfer is established must not be part of stale cancellation.");
             Assert.IsFalse(song.Cts?.IsCancellationRequested == true);
 

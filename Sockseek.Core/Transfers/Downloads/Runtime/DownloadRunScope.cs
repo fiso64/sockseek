@@ -15,7 +15,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
     private readonly PeerFailureTracker peerFailures;
     private readonly DownloadEvents events;
     private readonly SearchEvents searchEvents;
-    private readonly StaleDownloadCoordinator staleDownloads;
+    private readonly PeerTransferMonitor peerTransfers;
     private readonly TimeProvider timeProvider;
     private readonly IPeerDirectorySource? directorySource;
     private readonly ILoggerFactory loggerFactory;
@@ -38,7 +38,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
         PeerFailureTracker peerFailures,
         DownloadEvents events,
         SearchEvents searchEvents,
-        StaleDownloadCoordinator staleDownloads,
+        PeerTransferMonitor peerTransfers,
         TimeProvider? timeProvider = null,
         IPeerDirectorySource? directorySource = null,
         ILoggerFactory? loggerFactory = null)
@@ -49,7 +49,7 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
         this.peerFailures = peerFailures;
         this.events = events;
         this.searchEvents = searchEvents;
-        this.staleDownloads = staleDownloads;
+        this.peerTransfers = peerTransfers;
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.directorySource = directorySource;
         this.loggerFactory = loggerFactory
@@ -133,12 +133,12 @@ internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
             clientManager,
             activeDownloads,
             events,
-            staleDownloads,
+            peerTransfers,
             fileOperations,
             loggerFactory.CreateLogger<ExactPeerFileTransferRunner>(), appCts.Token);
 
         if (automaticStaleChecksEnabled)
-            staleDownloadTask ??= Task.Run(() => staleDownloads.RunAsync(appCts.Token), appCts.Token);
+            staleDownloadTask ??= Task.Run(() => peerTransfers.RunAsync(appCts.Token), appCts.Token);
 
         DownloadLogMessages.ServicesInitialized(logger);
         servicesInitialized = true;

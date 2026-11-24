@@ -1,3 +1,6 @@
+/* TODO [ARCHITECTURE]: Split this file by feature. Rules of equal specificity depend on
+   their order here, so a later block silently overrides an earlier one, and
+   sibling layouts (such as the two page headings) drift apart. */
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--text);
@@ -389,8 +392,7 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
-.chat-messages:not(.short-thread) > :first-child { margin-top: auto; }
-.chat-messages.short-thread > :first-child { margin-top: 0; }
+/* A thread fills from the top and scrolls once it is full, so a growing one never changes sides. */
 .chat-empty-thread {
   margin: auto;
   display: grid;
@@ -1220,6 +1222,19 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 
 
 .result-tier { display: grid; gap: 10px; }
+/* Peer groups share one column grid, sized by their content: names (capped)
+   and each stat line up across peers, and every header spans the same width. */
+.peer-group-list { grid-template-columns: 18px fit-content(28ch) repeat(3, max-content) minmax(0, 1fr); column-gap: 14px; }
+.peer-group-list > .peer-item-group { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-content: start; }
+.peer-group-list .result-peer-header { grid-column: 1 / 6; grid-template-columns: subgrid; width: auto; }
+.peer-group-list .result-peer-items { grid-column: 1 / -1; }
+.peer-group-list .peer-identity { min-width: 16ch; }
+.peer-group-list .peer-metadata, .peer-group-list .peer-stats { display: contents; }
+.peer-group-list .peer-stats > * { position: relative; z-index: 1; }
+.peer-group-list .peer-stats > * + *::before { content: none; }
+.peer-group-list .peer-slot { grid-column: 3; }
+.peer-group-list .peer-upload-stat { grid-column: 4; justify-self: end; }
+.peer-group-list .peer-queue-stat { grid-column: 5; }
 .redesigned-search-page .result-tier { gap: var(--peer-group-gap); }
 .result-peer-group { min-width: 0; }
 .result-peer-header {
@@ -1237,13 +1252,13 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   text-align: left;
 }
 .result-peer-header.compact { grid-template-columns: 18px minmax(180px, 1fr) auto; }
-.result-peer-header.compact .peer-metadata { grid-template-columns: 84px; }
 .result-peer-header:hover { background: var(--surface-subtle); }
 .peer-chevron { width: 15px; height: 15px; color: var(--muted); transition: transform 120ms ease; transform: rotate(90deg); }
 .peer-chevron.collapsed { transform: rotate(0deg); }
 .peer-identity { min-width: 0; display: flex; align-items: center; gap: 9px; }
 .peer-identity > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.86rem; font-weight: 650; }
-.peer-metadata { display: grid; grid-template-columns: 88px 58px 58px; gap: 12px; align-items: center; }
+.peer-stats { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 0; }
+.peer-stats > * + *::before { content: "·"; margin-inline: 7px; color: var(--faint); }
 .peer-stat { min-width: 0; display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .peer-stat b { color: var(--text); font-size: 0.76rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .peer-slot { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; white-space: nowrap; }
@@ -1427,7 +1442,9 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   grid-column: 2; min-width: 0; display: flex; align-items: center; gap: 7px;
   padding-inline-start: min(calc(var(--folder-tree-depth, 0) * 18px), 35%);
 }
-.folder-file-path strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 0.76rem; font-weight: 520; }
+/* A long file name loses its beginning, not its end: the track title and
+   extension come last. The isolated inner text keeps its spelling and order. */
+.folder-file-path strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; color: var(--text); font-size: 0.76rem; font-weight: 520; }
 .folder-file-audio { grid-column: 3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .folder-file-length, .folder-subfolder-count { grid-column: 4; text-align: right; }
 .folder-file-size, .folder-subfolder-size { grid-column: 5; text-align: right; }
@@ -1444,7 +1461,6 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   .result-refine-row { align-items: stretch; flex-wrap: wrap; }
   .result-filter-control { width: 100%; flex-basis: 100%; }
   .result-peer-header { grid-template-columns: 18px minmax(150px, 1fr) auto; }
-  .peer-metadata { grid-template-columns: 58px 58px; }
   .peer-upload-stat { display: none; }
   .result-peer-items { padding-left: 18px; }
   .file-result-row { grid-template-columns: 24px minmax(220px, 1fr) 82px 60px; }
@@ -1490,6 +1506,13 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   .result-peer-header,
   .result-peer-header.compact { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 9px; }
   .peer-metadata { display: block; }
+  /* Narrow: stats wrap under the name instead of sharing columns. */
+  .peer-group-list { grid-template-columns: 18px minmax(0, 1fr); column-gap: 9px; }
+  .peer-group-list .result-peer-header { grid-column: 1 / -1; }
+  .peer-group-list .peer-identity { min-width: 0; }
+  .peer-group-list .peer-metadata { display: block; grid-column: 2; }
+  .peer-group-list .peer-stats { display: inline-flex; }
+  .peer-group-list .peer-stats > * + *::before { content: "·"; }
   .peer-result-count { display: block; }
   .result-peer-items { padding-left: 0; }
   .file-result-row { grid-template-columns: 22px minmax(0, 1fr) 64px; gap: 8px; }
@@ -1555,7 +1578,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   height: 3px;
 }
 .folder-file-progress.failed > i { background-color: var(--danger); }
-.folder-file-progress.cancelled > i { background-color: var(--muted); }
+.folder-file-progress:is(.cancelled, .queued) > i { background-color: var(--muted); }
 .folder-file-progress-group {
   display: inline-flex;
   flex: none;
@@ -1586,8 +1609,19 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   }
   .folder-file-progress-group { grid-area: 1 / 1; }
   .folder-file-transfer-strip > .folder-file-state { grid-area: 1 / 2; }
-  .folder-file-transfer-detail { grid-area: 2 / 1 / auto / -1; }
+  /* The speed or attempt text hangs below the bar without taking a grid row,
+     so the bar and state icon stay on the row's centre line when it appears. */
+  .folder-file-transfer-strip { position: relative; }
+  .folder-file-transfer-detail {
+    position: absolute;
+    grid-area: auto;
+    inset: calc(50% + 8px) 24px auto 0;
+    line-height: 1;
+  }
   .folder-file-transfer-label { grid-area: 1 / 1 / auto / -1; justify-self: end; }
+  /* Room below the centre line for the status cell's speed or attempt text,
+     so a row keeps its height as its transfer changes state. */
+  .folder-file-row.has-transfer, .transfer-peer-list .folder-file-row.has-transfer { min-height: 48px; }
 }
 .folder-file-row .folder-file-transfer-strip { grid-column: 6; }
 .folder-file-row .folder-file-action { grid-column: 7; }
@@ -1638,47 +1672,16 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 }
 
 
+/* Same box as the job list heading: Downloads switches between the two. */
 .transfers-heading {
-  margin-bottom: 22px;
+  margin-bottom: 18px;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 18px;
 }
 .transfers-heading > div:first-child { min-width: 0; }
 .transfer-bulk-actions { display: inline-flex; align-items: center; gap: 8px; }
-.bulk-cancel-menu-button { height: 36px; }
-.bulk-cancel-split { position: relative; display: inline-flex; }
-.bulk-cancel-main { border-radius: 8px 0 0 8px; }
-.bulk-cancel-menu-button {
-  width: 31px;
-  display: grid;
-  place-items: center;
-  margin-left: -1px;
-  padding: 0;
-  border-radius: 0 8px 8px 0;
-}
-.bulk-cancel-menu-button svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.bulk-cancel-menu {
-  position: fixed;
-  z-index: 80;
-  width: 150px;
-  padding: 5px;
-  border-radius: 9px;
-}
-.bulk-cancel-menu button {
-  width: 100%;
-  min-height: 32px;
-  display: grid;
-  grid-template-columns: 16px 1fr;
-  align-items: center;
-  gap: 7px;
-  padding: 0 8px;
-  border-radius: 6px;
-  text-align: left;
-  font-size: 0.74rem;
-}
-.bulk-cancel-check { color: var(--accent); }
 
 .page-content:has(> .downloads-page, > .uploads-page) { scrollbar-gutter: stable; }
 .transfer-peer-list { display: grid; gap: 12px; }
@@ -1762,6 +1765,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
     justify-self: start;
   }
   .folder-file-transfer-detail { white-space: normal; }
+  /* Stacked rows have no spare line; the attempt stays in the details dialog. */
+  .folder-file-transfer-detail.attempt { display: none; }
   .folder-file-progress { min-width: 56px; max-width: 82px; }
   .transfer-peer-list .file-result-row:not(.transfer-summary) {
     grid-template-columns: minmax(0, 1fr) 68px 28px;
@@ -2190,7 +2195,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 
 /* Viewport-aware anchored menus share one clipping contract. */
 .chat-options-menu,
-.bulk-cancel-menu,
+.split-button-menu,
 .username-action-menu,
 .mode-icon-menu {
   margin: 0;

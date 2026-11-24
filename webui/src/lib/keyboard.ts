@@ -144,7 +144,8 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
         mark(row, event.detail === 0);
         return;
       }
-      if (additive) selectionControl(row)?.click();
+      // A plain click selects only this row; on a selected row it deselects it.
+      if (additive || checked(row)) selectionControl(row)?.click();
       else options.beginRange?.(false)([row], true);
     }
     if (!(event.target instanceof HTMLInputElement)) event.preventDefault();

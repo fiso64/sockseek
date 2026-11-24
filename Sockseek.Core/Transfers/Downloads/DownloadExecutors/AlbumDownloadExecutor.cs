@@ -538,7 +538,7 @@ internal sealed class AlbumDownloadExecutor
             MarkUnfinishedAlbumFilesCancelled(job, chosenFolder);
             ReportStaleAlbumCandidateIfNeeded(job, chosenFolder, selection.WasPreselected, willTryNextFolder);
 
-            await context.OutputFinalizer.HandleIncompleteAlbumAsync(job, chosenFolder, config.ResolveIncompleteAlbumAction(), config);
+            await context.OutputFinalizer.HandleIncompleteAlbumAsync(job, chosenFolder, config.ResolveIncompleteAlbumAction(job.IsHandPicked), config);
 
             if (job.Cts != null && job.Cts.IsCancellationRequested)
             {
@@ -561,6 +561,11 @@ internal sealed class AlbumDownloadExecutor
         AlbumFolder folder,
         CancellationTokenSource cts)
     {
+        // A failed track ends the folder early so the next candidate can be
+        // tried, or an interactive job can return to its picker. A hand-picked
+        // folder has no alternative: its other files still download, and the
+        // folder retry covers the rest.
+        bool failFast = !job.IsHandPicked;
         await BoundedAsync.ForEachAsync(
             job.EnsureTrackJobs(folder),
             context.Runtime.ConcurrentJobLimit,
@@ -575,7 +580,7 @@ internal sealed class AlbumDownloadExecutor
                     config,
                     organizer,
                     cts,
-                    cancelGroupOnFail: !af.IsNotAudio,
+                    cancelGroupOnFail: failFast && !af.IsNotAudio,
                     finalizePlacement: !af.IsNotAudio);
             });
     }
@@ -675,7 +680,7 @@ internal sealed class AlbumDownloadExecutor
         DownloadSettings config)
     {
         if (outcome.TerminalOutcome is JobTerminalOutcome.Failed or JobTerminalOutcome.Cancelled)
-            await context.OutputFinalizer.HandleIncompleteAlbumAsync(job, folder, config.ResolveIncompleteAlbumAction(), config);
+            await context.OutputFinalizer.HandleIncompleteAlbumAsync(job, folder, config.ResolveIncompleteAlbumAction(job.IsHandPicked), config);
     }
 
     void MarkUnfinishedAlbumFilesCancelled(AlbumJob job, AlbumFolder folder)

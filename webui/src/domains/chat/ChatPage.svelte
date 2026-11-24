@@ -823,7 +823,7 @@
         {/if}
         <MutationStatus state={mutation}/>
       </div>
-      <div class:short-thread={activeMessages.length < 6} class="chat-messages" aria-live="polite" bind:this={messagesElement} onscroll={markVisibleMessagesRead}>
+      <div class="chat-messages" aria-live="polite" bind:this={messagesElement} onscroll={markVisibleMessagesRead}>
         {#if messageCursor}
           <LoadMoreButton loading={messagesLoading}
             onclick={() => void loadEarlier()}/>

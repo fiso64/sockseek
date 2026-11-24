@@ -50,6 +50,7 @@ namespace Sockseek.Api;
 [JsonSerializable(typeof(JobSummaryStatsDto))]
 [JsonSerializable(typeof(JobDetailDto))]
 [JsonSerializable(typeof(JobRepeatOptionsDto))]
+[JsonSerializable(typeof(JobRerunDraftDto))]
 [JsonSerializable(typeof(DirectoryManifestPageDto))]
 [JsonSerializable(typeof(WorkflowSummaryDto))]
 [JsonSerializable(typeof(WorkflowDetailDto))]

@@ -101,7 +101,7 @@ internal static class HistoricalJobDtoMapper
     public static JobPayloadDto ToPayload(PersistedJob job) => ToPayload(ReadSnapshot(job));
 
     internal static JobPayloadDto ToPayload(JobSnapshot snapshot)
-        => ServerSnapshotMapper.ToJobPayload(snapshot, _ => null);
+        => ServerSnapshotMapper.ToJobPayload(snapshot);
 
     internal static JobDetailDto ToDetail(PersistedJob job, int childCount)
     {

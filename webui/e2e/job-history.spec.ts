@@ -45,9 +45,9 @@ test('separates search and download tabs with narrow rows, retained jobs and bro
       contentWidth: element.scrollWidth,
     }));
     expect(layout.contentWidth).toBeLessThanOrEqual(layout.width);
-    await page.getByRole('tab', { name: 'Download jobs', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Downloads', exact: true }).click();
     await expect(page.locator('.search-history-query')).toHaveText('Fixture album download');
-    await expect(page.getByRole('tab', { name: 'Download jobs', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tab', { name: 'Requests', exact: true })).toHaveAttribute('aria-selected', 'true');
     await page.goBack();
     await expect(searchRow).toBeVisible();
     await page.goForward();
@@ -92,7 +92,7 @@ test('keeps loaded Jobs rows visible when a later observation fails', async ({ p
 
   unavailable = true;
   await page.getByRole('button', { name: 'Dashboard', exact: true }).click();
-  await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await page.getByRole('button', { name: 'Downloads', exact: true }).click();
   const alert = page.getByRole('alert').filter({ hasText: 'Jobs unavailable' });
   await expect(alert).toBeVisible();
   await expect(row).toBeVisible();
@@ -170,7 +170,7 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   await daemon.command('release-download');
   await expect(page.locator('[data-testid="job-row"] .search-status-badge')).toHaveText(Array(total).fill('Complete'));
   listing = true;
-  await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await page.getByRole('button', { name: 'Downloads', exact: true }).click();
   await expect(page.locator('.search-history-query')).toHaveText(
     Array.from({ length: nestedPageSize }, (_, index) => parentName(total - index)));
   await expect(page.locator('.search-history-row .search-status-badge.complete')).toHaveCount(nestedPageSize);
@@ -194,11 +194,9 @@ test('renders full Jobs scopes and child pages without redundant detail reads', 
   expect(detailReads).toEqual([]);
 
   await page.locator('.page-content').evaluate(element => { element.scrollTop = 400; element.dispatchEvent(new Event('scroll')); });
-  // The tabs live in the scrolling header. Playwright's click (even forced)
-  // scrolls an offscreen tab into view first, replacing the position under test.
-  await page.getByRole('tab', { name: 'Searches', exact: true }).dispatchEvent('click');
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Searches', exact: true }).click();
   await expect(page.getByText('No searches yet', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Download jobs', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Downloads', exact: true }).click();
   await expect(page.locator('.search-history-row')).toHaveCount(total);
   expect(Math.abs(await page.locator('.page-content').evaluate(element => element.scrollTop) - 400)).toBeLessThan(20);
   expect(observedLimits.slice(-2)).toEqual([nestedPageSize, 2 * nestedPageSize]);

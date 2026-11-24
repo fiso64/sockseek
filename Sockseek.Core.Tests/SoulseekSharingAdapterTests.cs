@@ -42,7 +42,7 @@ public sealed class SoulseekSharingAdapterTests
         var endpoint = new IPEndPoint(IPAddress.Loopback, 1234);
         var unavailable = await Assert.ThrowsExactlyAsync<DownloadEnqueueException>(
             () => adapter.EnqueueUploadAsync("alice", endpoint, @"Public\missing.flac"));
-        Assert.AreEqual("Temporarily unavailable; try again later.", unavailable.Message);
+        Assert.AreEqual("Pending shutdown.", unavailable.Message);
         reader.ResolveFailure = null;
         var missing = await Assert.ThrowsExactlyAsync<DownloadEnqueueException>(
             () => adapter.EnqueueUploadAsync("alice", endpoint, @"Public\missing.flac"));

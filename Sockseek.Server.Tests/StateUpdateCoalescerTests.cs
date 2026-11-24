@@ -35,7 +35,7 @@ public class StateUpdateCoalescerTests
                 new(Guid.Empty, 1, started, null, bytes, 12.9), null, file, "Group", "Folder"), previous);
             return new(new TransferSnapshot(id, TransferSnapshotDirection.Download, TransferSnapshotSource.SoulseekPeer,
                 null, null, revision, "Peer", "Folder\\Exact.bin", "output.bin", "candidate",
-                initializing ? "Initializing" : "InProgress", bytes, 100, 1, null,
+                initializing ? Sockseek.Core.Snapshots.TransferPhase.Initializing : Sockseek.Core.Snapshots.TransferPhase.InProgress, bytes, 100, 1, null,
                 RequestedAtUtc: DateTimeOffset.UnixEpoch, StartedAtUtc: started,
                 LastProgressAtUtc: DateTimeOffset.UnixEpoch, BytesPerSecond: 12, File: file,
                 GroupRef: "Group", GroupDisplayPath: "Folder", GroupRelativePath: "Exact.bin"), previous: previous);
@@ -59,7 +59,7 @@ public class StateUpdateCoalescerTests
         coalescer.Flush();
         var changedBack = published[1].State.Transfers.Single();
         Assert.IsNull(changedBack.Added);
-        Assert.AreEqual("InProgress", changedBack.Status?.State);
+        Assert.AreEqual(Sockseek.Api.TransferPhase.InProgress, changedBack.Status?.Phase);
         Assert.AreEqual(10L, changedBack.Progress?.BytesTransferred);
         Assert.AreEqual(DateTimeOffset.UnixEpoch, changedBack.Scheduling?.StartedAtUtc);
         var fourth = Capture(4, 20, false, 7, third);
@@ -74,7 +74,7 @@ public class StateUpdateCoalescerTests
         Assert.AreEqual(1, earlier.File!.Attributes!.Single().Value);
         Assert.AreEqual(10L, earlier.Progress.BytesTransferred);
         Assert.AreEqual(80L, detail.Progress.BytesTransferred);
-        Assert.AreEqual("Initializing", detail.Status.State);
+        Assert.AreEqual(Sockseek.Api.TransferPhase.Initializing, detail.Status.Phase);
     }
 
     [TestMethod]
@@ -456,7 +456,7 @@ public class StateUpdateCoalescerTests
         Guid transferId, Guid jobId, Guid workflowId, long revision, long bytes, bool terminal)
         => new(transferId, TransferSnapshotDirection.Download, TransferSnapshotSource.SoulseekPeer,
             jobId, workflowId, revision, "user", "track.mp3", "track.mp3", "candidate",
-            terminal ? "Completed" : "InProgress", bytes, 100, 1, null,
+            terminal ? Sockseek.Core.Snapshots.TransferPhase.Ended : Sockseek.Core.Snapshots.TransferPhase.InProgress, bytes, 100, 1, null,
             RequestedAtUtc: DateTimeOffset.UnixEpoch,
             TerminalOutcome: terminal ? TransferSnapshotTerminalOutcome.Succeeded : TransferSnapshotTerminalOutcome.None);
 

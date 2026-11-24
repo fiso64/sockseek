@@ -21,8 +21,10 @@ public sealed partial class TransferReadService
     }
 
     /// <summary>
-    /// Observe a moving page, not every transfer that happens to arrive while it
-    /// is open. HTTP and observations use the same live-before-durable read owner.
+    /// Observe a moving extent, not every transfer that happens to arrive while it
+    /// is open: the newest transfers, plus the older members that make the folders
+    /// among them whole, within a fixed row budget. HTTP and observations use the
+    /// same live-before-durable read owner.
     /// The shared coalescing clock flushes facts even without a daemon packet;
     /// changed facts update the fetched window without rereading retained rows.
     /// Canonical reads handle initial membership, invalidation and backfill;
@@ -37,8 +39,18 @@ public sealed partial class TransferReadService
         ArgumentNullException.ThrowIfNull(scope);
         if (!Enum.IsDefined(scope.Direction)) throw new ArgumentOutOfRangeException(nameof(scope.Direction));
         if (scope.Limit < 1) throw new ArgumentOutOfRangeException(nameof(scope.Limit));
+        if (scope.FolderCompletionLimit < 0) throw new ArgumentOutOfRangeException(nameof(scope.FolderCompletionLimit));
         string direction = scope.Direction.ToString();
-        var additionalIds = scope.AdditionalTransferIds?.ToHashSet() ?? [];
+        // A scoped read of one folder is already that folder; only the general
+        // timeline extends its newest transfers to whole folders.
+        bool wholeFolders = scope.IncludeGroupSummaries && scope.GroupRef is null;
+        var memberLimits = (scope.ExpandedGroups ?? []).ToDictionary(
+            group => new TransferGroupKeyDto(scope.Direction, group.Username, group.GroupRef),
+            group => Math.Max(1, group.MemberLimit));
+        Dictionary<TransferGroupKeyDto, long> fileCounts = [];
+        // A folder with more members than the extent shows ends at this member.
+        // Its older members cannot enter, so their changes are not this reader's.
+        Dictionary<TransferGroupKeyDto, (long CreatedAt, Guid Id)> folderFloors = [];
         int prefixCount = 0;
         bool hasMore = false;
         var changed = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
@@ -50,9 +62,9 @@ public sealed partial class TransferReadService
         Dictionary<Guid, TransferStateDto> selected = [];
         Dictionary<Guid, TransferReadSnapshot?> liveChanges = [];
         SortedDictionary<(long CreatedAt, Guid Id), TransferReadSnapshot> pendingRows = [];
-        Dictionary<Guid, TransferReadSnapshot> pendingAdditional = [];
-        HashSet<Guid> changedAdditional = [];
-        bool refreshAdditional = true;
+        // Facts for rows this reader already holds are bounded by its extent,
+        // not by the arrival buffer: a burst of newer rows must not drop them.
+        Dictionary<Guid, TransferReadSnapshot> pendingHeld = [];
         TransferRetainedCoverageDto? observedCoverage = null;
         var initialPosition = live.GetTransferReadPosition();
         long pendingRevision = initialPosition.Sequence;
@@ -71,8 +83,17 @@ public sealed partial class TransferReadService
         bool CouldEnter(TransferReadSnapshot row)
         {
             var key = (row.RequestedAtUtc?.ToUnixTimeMilliseconds() ?? 0L, row.TransferId);
-            return prefixCount < scope.Limit || additionalIds.Contains(row.TransferId) || selected.ContainsKey(row.TransferId)
-                || !hasMore || oldest is null || key.CompareTo(oldest.Value) >= 0;
+            return prefixCount < scope.Limit || selected.ContainsKey(row.TransferId)
+                || !hasMore || oldest is null || key.CompareTo(oldest.Value) >= 0 || CouldJoinShownFolder(row, key);
+        }
+        // An older member of a folder in the extent belongs to it too, unless
+        // that folder is deliberately shown only in part.
+        bool CouldJoinShownFolder(TransferReadSnapshot row, (long CreatedAt, Guid Id) key)
+        {
+            if (!wholeFolders || row.GroupRef is not { } shownRef) return false;
+            var folder = new TransferGroupKeyDto(scope.Direction, row.Username, shownRef);
+            return requestedGroups.Contains(folder)
+                && !(folderFloors.TryGetValue(folder, out var floor) && key.CompareTo(floor) < 0);
         }
         bool InRequestedGroup(TransferReadSnapshot row) => Matches(row) && row.GroupRef is { } groupRef
             && (initializing || requestedGroups.Contains(new(scope.Direction, row.Username, groupRef)));
@@ -93,7 +114,6 @@ public sealed partial class TransferReadService
                     positionChanged = true;
                     dirty = true;
                     reload = true;
-                    refreshAdditional = true;
                     groupsChanged = scope.IncludeGroupSummaries;
                     changed.Writer.TryWrite(true);
                     return;
@@ -107,9 +127,8 @@ public sealed partial class TransferReadService
                     && ((change.Previous is { } before && InRequestedGroup(before)) || InRequestedGroup(row)))
                     groupsChanged = scope.IncludeGroupSummaries;
                 if (!relevant) return;
-                if (selected.ContainsKey(row.TransferId) || additionalIds.Contains(row.TransferId))
+                if (selected.ContainsKey(row.TransferId))
                     liveChanges[row.TransferId] = matches ? change.Current : null;
-                if (additionalIds.Contains(row.TransferId)) changedAdditional.Add(row.TransferId);
                 bool terminal = row.IsTerminal;
                 bool orderChanged = change.Previous is { } old
                     && old.RequestedAtUtc?.ToUnixTimeMilliseconds() != row.RequestedAtUtc?.ToUnixTimeMilliseconds();
@@ -129,24 +148,25 @@ public sealed partial class TransferReadService
                     // precede its first publication and have no later notification.
                     // A corrected request timestamp may differ from the immutable
                     // SQL creation key; let the canonical read choose its order.
-                    reload |= orderChanged || removed && !terminal || !removed && !matches;
+                    var key = (row.RequestedAtUtc?.ToUnixTimeMilliseconds() ?? 0L, row.TransferId);
+                    // An older folder member this reader does not hold yet enters
+                    // through the folder's own canonical read, not as an arrival.
+                    bool olderMember = hasMore && oldest is { } boundary && key.CompareTo(boundary) < 0
+                        && !selected.ContainsKey(row.TransferId);
+                    reload |= orderChanged || removed && !terminal || !removed && !matches || olderMember;
                     if (change.Previous is { } prior)
                         pendingRows.Remove((prior.RequestedAtUtc?.ToUnixTimeMilliseconds() ?? 0L, prior.TransferId));
-                    if (matches || removed && terminal)
+                    if (olderMember || !matches && !(removed && terminal)) pendingHeld.Remove(row.TransferId);
+                    else if (selected.ContainsKey(row.TransferId)) pendingHeld[row.TransferId] = row;
+                    else
                     {
-                        if (additionalIds.Contains(row.TransferId)) pendingAdditional[row.TransferId] = row;
-                        else
+                        pendingRows[key] = row;
+                        if (pendingRows.Count > scope.Limit)
                         {
-                            var key = (row.RequestedAtUtc?.ToUnixTimeMilliseconds() ?? 0L, row.TransferId);
-                            pendingRows[key] = row;
-                            if (pendingRows.Count > scope.Limit)
-                            {
-                                pendingRows.Remove(pendingRows.First().Key);
-                                pendingOverflow = true;
-                            }
+                            pendingRows.Remove(pendingRows.First().Key);
+                            pendingOverflow = true;
                         }
                     }
-                    else pendingAdditional.Remove(row.TransferId);
                 }
             }
         }
@@ -159,11 +179,17 @@ public sealed partial class TransferReadService
                 {
                     dirty = true;
                     reload = true;
-                    refreshAdditional = true;
                     groupsChanged = scope.IncludeGroupSummaries;
                 }
                 if (dirty || groupsChanged || positionChanged) changed.Writer.TryWrite(true);
             }
+        }
+
+        TransferGroupKeyDto GroupOf(TransferStateDto row) => new(scope.Direction, row.Identity.Username, row.Identity.GroupRef!);
+        void RememberFileCounts(TransferGroupSummariesResponseDto? summaries)
+        {
+            if (summaries?.RetainedCoverage.State != TransferRetainedCoverageState.Available) return;
+            fileCounts = summaries.Items.ToDictionary(summary => summary.Key, summary => summary.FileCount);
         }
 
         events.Flushed += Observe;
@@ -188,7 +214,6 @@ public sealed partial class TransferReadService
                 long revision;
                 TransferReadSnapshot[] rowUpdates;
                 Dictionary<Guid, TransferStateDto> previous;
-                HashSet<Guid> additionalRefresh;
                 Dictionary<Guid, TransferReadSnapshot?> progress;
                 lock (gate)
                 {
@@ -203,15 +228,12 @@ public sealed partial class TransferReadService
                     reload = false;
                     pendingOverflow = false;
                     groupsChanged = false;
-                    rowUpdates = pendingRows.Values.Concat(pendingAdditional.Values).ToArray();
+                    rowUpdates = pendingRows.Values.Concat(pendingHeld.Values).ToArray();
                     pendingRows = [];
-                    pendingAdditional = [];
+                    pendingHeld = [];
                     previous = selected;
                     progress = liveChanges;
                     liveChanges = [];
-                    additionalRefresh = refreshAdditional ? additionalIds : changedAdditional;
-                    changedAdditional = [];
-                    refreshAdditional = false;
                 }
                 if (!readRows)
                 {
@@ -233,6 +255,7 @@ public sealed partial class TransferReadService
                     var summaries = refreshGroups
                         ? await ReadRequestedTransferGroupSummariesAsync(requestedGroups, cancellationToken).ConfigureAwait(false)
                         : null;
+                    RememberFileCounts(summaries);
                     if (refreshGroups || publishPosition && revision > publishedRevision
                         || progressUpdates.Count > 0)
                     {
@@ -250,9 +273,8 @@ public sealed partial class TransferReadService
                 StateStreamPositionDto position;
                 if (readHistory)
                 {
-                    var (page, additional) = await ReadObservedTransferPageAsync(scope, additionalIds,
-                        previous, additionalRefresh, cancellationToken).ConfigureAwait(false);
-                    found = page.Items.Concat(additional).ToDictionary(row => row.TransferId);
+                    var page = await ReadObservedTransferPageAsync(scope, cancellationToken).ConfigureAwait(false);
+                    found = page.Items.ToDictionary(row => row.TransferId);
                     coverage = page.RetainedCoverage;
                     position = page.ReadPosition!;
                     knownMore = page.NextCursor is not null;
@@ -281,21 +303,79 @@ public sealed partial class TransferReadService
                 var window = ComposeTransferTimeline(found.Values.ToArray(), [], [], scope.Limit,
                     knownMore, false, coverage);
                 var windowRows = window.Items.ToList();
-                var prefixIds = windowRows.Select(row => row.TransferId).ToHashSet();
-                windowRows.AddRange(found.Values.Where(row => additionalIds.Contains(row.TransferId) && !prefixIds.Contains(row.TransferId))
-                    .OrderByDescending(row => row.CreatedAtUtc).ThenByDescending(row => row.TransferId));
+                var nextGroups = scope.IncludeGroupSummaries ? TransferGroups(windowRows) : [];
+                // Totals say how many members a folder has, which decides whether
+                // it continues beyond the newest transfers.
+                TransferGroupSummariesResponseDto? groupSummaries = scope.IncludeGroupSummaries
+                    && (first || refreshGroups || !nextGroups.SetEquals(requestedGroups))
+                    ? await ReadRequestedTransferGroupSummariesAsync(nextGroups, cancellationToken).ConfigureAwait(false)
+                    : null;
+                RememberFileCounts(groupSummaries);
+                Dictionary<TransferGroupKeyDto, (long CreatedAt, Guid Id)> nextFloors = [];
+                if (wholeFolders && window.NextCursor is not null)
+                {
+                    HashSet<Guid>? prefixIds = null;
+                    ILookup<TransferGroupKeyDto, TransferStateDto>? held = null;
+                    // Extra rows are spent newest folder first, and only on folders
+                    // they make whole, so the extent has a fixed upper size.
+                    long budget = scope.FolderCompletionLimit;
+                    foreach (var folder in windowRows.Where(row => row.Identity.GroupRef is not null).GroupBy(GroupOf).ToArray())
+                    {
+                        int shown = folder.Count();
+                        var last = folder.Last();
+                        bool counted = fileCounts.TryGetValue(folder.Key, out long fileCount);
+                        bool expanded = memberLimits.TryGetValue(folder.Key, out int memberLimit);
+                        // An explicit request is the reader's own bound. Otherwise
+                        // complete the folder if its missing members fit the budget;
+                        // without totals, one more than the budget shows whether they do.
+                        long wanted = expanded ? (counted ? Math.Min(memberLimit, fileCount) : memberLimit) - shown
+                            : counted ? fileCount - shown : budget + 1;
+                        if (wanted > 0 && (expanded || counted && wanted <= budget || !counted && budget > 0))
+                        {
+                            prefixIds ??= windowRows.Select(row => row.TransferId).ToHashSet();
+                            held ??= found.Values.Where(row => !prefixIds.Contains(row.TransferId) && row.Identity.GroupRef is not null)
+                                .ToLookup(GroupOf);
+                            IReadOnlyList<TransferStateDto> olderMembers = held[folder.Key]
+                                .OrderByDescending(row => row.CreatedAtUtc).ThenByDescending(row => row.TransferId)
+                                .Take((int)wanted).ToArray();
+                            // Rows that just left the newest transfers are already here.
+                            // Read the folder itself for a fresh extent, or when its
+                            // total says members are missing.
+                            if (readHistory || counted && olderMembers.Count < wanted)
+                            {
+                                var tail = await GetTransfersAsync(new TransferQuery(Cursor: window.NextCursor, Limit: (int)wanted,
+                                    Direction: direction, Username: folder.Key.Username, GroupRef: folder.Key.GroupRef),
+                                    cancellationToken).ConfigureAwait(false);
+                                if (tail.RetainedCoverage.State != TransferRetainedCoverageState.Available)
+                                    coverage = tail.RetainedCoverage;
+                                olderMembers = tail.Items;
+                            }
+                            bool whole = counted || olderMembers.Count <= budget;
+                            if (expanded || whole)
+                            {
+                                if (!expanded) budget -= olderMembers.Count;
+                                foreach (var member in olderMembers)
+                                    if (prefixIds.Add(member.TransferId)) { windowRows.Add(member); shown++; last = member; }
+                                if (!expanded && !counted) continue;
+                            }
+                        }
+                        // Only a folder with more members than it shows has a floor.
+                        if (!counted || fileCount > shown)
+                            nextFloors[folder.Key] = (last.CreatedAtUtc.ToUnixTimeMilliseconds(), last.TransferId);
+                    }
+                }
                 Guid[] ids = windowRows.Select(row => row.TransferId).ToArray();
                 var members = ids.ToHashSet();
                 var removed = revisions.Keys.Where(id => !members.Contains(id)).ToArray();
                 var updates = windowRows.Where(row => !revisions.TryGetValue(row.TransferId, out long revision)
                     || row.Revision != revision).ToArray();
                 bool membershipChanged = first || previousCursor != window.NextCursor || !ids.SequenceEqual(previousIds);
+                bool refreshLate;
                 lock (gate)
                 {
                     selected = windowRows.ToDictionary(row => row.TransferId);
-                    var nextGroups = scope.IncludeGroupSummaries ? TransferGroups(windowRows) : [];
-                    if (scope.IncludeGroupSummaries && (first || !nextGroups.SetEquals(requestedGroups))) refreshGroups = true;
                     requestedGroups = nextGroups;
+                    folderFloors = nextFloors;
                     prefixCount = window.Items.Count;
                     hasMore = window.NextCursor is not null;
                     oldest = window.Items.Count == 0 ? null
@@ -303,13 +383,16 @@ public sealed partial class TransferReadService
                     // A mutation during the read must not be advertised as an
                     // interval with unchanged summaries. Leave its pending flags
                     // for the next flush as well; that read may be newer still.
-                    refreshGroups |= groupsChanged;
+                    refreshLate = groupsChanged && groupSummaries is null;
                     initializing = false;
                     observedCoverage = coverage;
                 }
-                var groupSummaries = refreshGroups
-                    ? await ReadRequestedTransferGroupSummariesAsync(requestedGroups, cancellationToken).ConfigureAwait(false)
-                    : null;
+                if (refreshLate)
+                {
+                    groupSummaries = await ReadRequestedTransferGroupSummariesAsync(requestedGroups, cancellationToken).ConfigureAwait(false);
+                    RememberFileCounts(groupSummaries);
+                }
+                refreshGroups = groupSummaries is not null;
                 if (membershipChanged || updates.Length > 0 || removed.Length > 0 || refreshGroups
                     || previousCoverage != coverage || position.Sequence > publishedRevision)
                     yield return new(updates, removed, coverage,
@@ -339,20 +422,18 @@ public sealed partial class TransferReadService
         if (after is null) return before?.IsTerminal == true;
         return before is not null && before.Direction == after.Direction
             && before.Username == after.Username && before.GroupRef == after.GroupRef
-            && before.IsTerminal == after.IsTerminal && before.State == after.State
+            && before.IsTerminal == after.IsTerminal && before.Phase == after.Phase
             && before.TerminalOutcome == after.TerminalOutcome && before.File?.Size == after.File?.Size
             && before.TotalBytes == after.TotalBytes
             && before.BytesTransferred == after.BytesTransferred
             && before.BytesPerSecond == after.BytesPerSecond;
     }
 
-    private async Task<(TransferTimelinePageDto Page, IReadOnlyList<TransferStateDto> Additional)> ReadObservedTransferPageAsync(
-        TransferTimelineScopeDto scope, IReadOnlySet<Guid> additionalIds,
-        IReadOnlyDictionary<Guid, TransferStateDto> previous, IReadOnlySet<Guid> refresh,
-        CancellationToken cancellationToken)
+    private async Task<TransferTimelinePageDto> ReadObservedTransferPageAsync(
+        TransferTimelineScopeDto scope, CancellationToken cancellationToken)
     {
         using var activity = TransferReads.StartActivity("timeline.page");
-        activity?.SetTag("transfer.count", (long)scope.Limit + additionalIds.Count);
+        activity?.SetTag("transfer.count", (long)scope.Limit);
         try
         {
             var position = live.GetTransferReadPosition();
@@ -361,18 +442,7 @@ public sealed partial class TransferReadService
             var query = new TransferQuery(Limit: scope.Limit, Direction: scope.Direction.ToString(),
                 Username: scope.Username, GroupRef: scope.GroupRef);
             var page = await GetTransfersAsync(query, cancellationToken).ConfigureAwait(false);
-            page = page with { ReadPosition = position };
-            var missing = additionalIds.Except(page.Items.Select(row => row.TransferId)).ToHashSet();
-            if (missing.Count == 0) return (page, []);
-            // These are explicitly fetched identities, not a second moving
-            // prefix. Unrelated arrivals do not invalidate their canonical rows.
-            var readIds = missing.Where(id => refresh.Contains(id) || !previous.ContainsKey(id)).ToHashSet();
-            var cached = missing.Except(readIds).Select(id => previous[id]).ToArray();
-            if (readIds.Count == 0) return (page, cached);
-            var additional = await GetTransfersAsync(query with { Limit = readIds.Count, TransferIds = readIds },
-                cancellationToken).ConfigureAwait(false);
-            return (additional.RetainedCoverage.State == TransferRetainedCoverageState.Available
-                ? page : page with { RetainedCoverage = additional.RetainedCoverage }, cached.Concat(additional.Items).ToArray());
+            return page with { ReadPosition = position };
         }
         catch
         {

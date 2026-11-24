@@ -56,7 +56,6 @@ public static class ServerSnapshotMapper
 
     public static JobPayloadDto ToJobPayload(
         JobSnapshot job,
-        Func<Guid, string?> getTransferState,
         JobOutcomeSummary? liveListOutcomes = null,
         JobOutcomeSummary? liveGroupOutcomes = null,
         JobOutcomeSummary? liveAlbumGroupsOutcomes = null)
@@ -84,7 +83,7 @@ public static class ServerSnapshotMapper
                 search.Revision,
                 search.IsComplete,
                 search.Definition?.GroupResults ?? false),
-            SongJobSnapshotPayload song => ToSongJobPayloadDto(job, song, getTransferState(job.Id)),
+            SongJobSnapshotPayload song => ToSongJobPayloadDto(job, song),
             AlbumJobSnapshotPayload album => new AlbumJobPayloadDto(
                 ToAlbumQueryDto(album.Query),
                 album.ResultCount,
@@ -241,8 +240,7 @@ public static class ServerSnapshotMapper
 
     public static SongJobPayloadDto ToSongJobPayloadDto(
         JobSnapshot job,
-        SongJobSnapshotPayload song,
-        string? transferState = null)
+        SongJobSnapshotPayload song)
     {
         return new SongJobPayloadDto(
             ToSongQueryDto(song.Query),
@@ -266,7 +264,6 @@ public static class ServerSnapshotMapper
             job.FailureReason.ToServer(),
             job.FailureMessage,
             BuildJobActions(job.Id, job.CanCancel),
-            transferState,
             job.CancellationSource.ToServer(),
             song.DownloadSource.ToServer(),
             song.ExactTarget == null ? null : ToPeerFileTargetDto(song.ExactTarget),

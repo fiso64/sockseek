@@ -326,7 +326,7 @@ internal sealed class TransferState
             return new()
             {
                 Rows = 1, Active = active ? 1 : 0, Downloads = download ? 1 : 0, Uploads = upload ? 1 : 0,
-                Queued = active && TransferReadModel.IsQueued(row.State) ? 1 : 0,
+                Queued = active && TransferReadModel.IsQueued(row.Phase) ? 1 : 0,
                 Failed = row.TerminalOutcome == TransferTerminalOutcome.Failed ? 1 : 0,
                 DownloadRate = download ? row.BytesPerSecond ?? 0 : 0,
                 UploadRate = upload ? row.BytesPerSecond ?? 0 : 0,

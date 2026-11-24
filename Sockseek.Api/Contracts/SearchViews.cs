@@ -299,4 +299,7 @@ public sealed record CommitSearchViewSelectionResponseDto(
     long SubmittedCount,
     long SkippedCount,
     long RejectedCount,
-    IReadOnlyList<SubmissionReasonCountDto> RejectionReasons);
+    IReadOnlyList<SubmissionReasonCountDto> RejectionReasons,
+    // Set when the selection became exactly one job, so a client can open it
+    // instead of listing the submission.
+    Guid? JobId = null);

@@ -1,26 +1,25 @@
 <script lang="ts">
   import EmptyState from '../../components/EmptyState.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
-  import { onDestroy, untrack } from 'svelte';
   import { runTransferCommands } from './commands';
-  import type { UserLinkActions } from '../../app/navigation';
+  import { downloadsViews, type DownloadsView, type UserLinkActions } from '../../app/navigation';
+  import PageTabs from '../../components/PageTabs.svelte';
   import UsernameLink from '../../components/UsernameLink.svelte';
   import type { TransferStateDto, Schema } from '../../api/types';
-  import { daemonApi, defaultPageSize } from '../../api/client';
+  import { daemonApi } from '../../api/client';
   import FolderItemCard from '../../components/items/FolderItemCard.svelte';
   import TransferItemActionButton from '../../components/items/TransferItemActionButton.svelte';
   import TransferBulkActions, { type BulkCancelMode } from '../../components/TransferBulkActions.svelte';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import MutationStatus, { type MutationState } from '../../components/MutationStatus.svelte';
   import { basename, isTerminalTransfer, type FolderItemFile } from '../presentation/items';
+  import { transferGroupKeyId } from './history';
   import { arrangeTransferGroups, presentTransferEntry, transferEntryActions, TransferProjection, isQueuedTransfer, type TransferTimelineEntry } from './model';
-  import { transferGroupKeys, transferGroupMemberScope, transferGroupCursor } from './history';
 
   interface Props {
     direction: 'download' | 'upload';
     readTransfer: (id: string) => TransferStateDto | undefined;
     items: readonly TransferStateDto[];
-    globalBoundary: TransferStateDto | null;
     coverage?: Schema<'TransferRetainedCoverageDto'> | null;
     summaries?: readonly Schema<'TransferGroupSummaryDto'>[];
     summaryCoverage?: Schema<'TransferRetainedCoverageDto'> | null;
@@ -32,16 +31,19 @@
     onloadmore: () => void;
     onchanged: () => Promise<void> | void;
     onretrysummaries: () => Promise<void> | void;
-    onfetchedmembers: (rows: TransferStateDto[]) => void;
-    missingMembers?: readonly string[];
+    ondownloadsview?: (view: DownloadsView) => void;
+    /** Show more members of a folder that has more than the extent brought. */
+    onexpandgroup: (username: string | null, groupRef: string, shown: number) => void;
+    expandingGroups?: readonly string[];
     userActions: UserLinkActions;
+    /** Hold the cards back for a frame so the page itself paints first. */
+    deferred?: boolean;
   }
 
   let {
     direction,
     readTransfer,
     items,
-    globalBoundary,
     coverage = null,
     summaries = [],
     summaryCoverage = null,
@@ -53,107 +55,25 @@
     onloadmore,
     onchanged,
     onretrysummaries,
-    onfetchedmembers,
-    missingMembers = [],
+    ondownloadsview,
+    onexpandgroup,
+    expandingGroups = [],
     userActions,
+    deferred = false,
   }: Props = $props();
 
   let mutation = $state<MutationState>({ phase: 'idle' });
   let bulkCancelMode = $state<BulkCancelMode>('all');
   let retryingSummaries = $state(false);
   let collapsedPeers = $state<Set<string>>(new Set());
-  interface GroupMemberPage {
-    scope: string;
-    requestId: number;
-    rows: TransferStateDto[];
-    nextCursor: string | null;
-    loadedOnce: boolean;
-    loading: boolean;
-    error: string | null;
-    refreshFailedScope?: string;
-  }
-  let memberPages = $state<Record<string, GroupMemberPage>>({});
-  $effect(() => {
-    const rows = Object.values(memberPages).flatMap(page => page.rows);
-    untrack(() => onfetchedmembers(rows));
-  });
-  $effect(() => {
-    const missing = missingMembers;
-    if (missing.length) untrack(() => removeMemberRows(row => missing.includes(row.transferId)));
-  });
-  onDestroy(() => onfetchedmembers([]));
-  let nextMemberRequestId = 0;
-  let memberScopes = $derived.by(() => {
-    // A timeline refresh clears summaryCoverage until its replacement arrives.
-    // Keep the last verified member pages visible during that handoff; a new
-    // available summary below will invalidate only groups that actually changed.
-    if (summaryCoverage === null && !summaryError) return null;
-    const scopes = new Map<string, string>();
-    if (summaryCoverage?.state !== 'Available' || summaryError) {
-      // Totals are optional metadata, not ownership of already fetched files.
-      // Retain pages for groups still present in the timeline snapshot;
-      // an authoritative removal must not leave a cached folder behind.
-      for (const group of transferGroupKeys(direction, items)) {
-        const key = groupPageKey(group.username ?? null, group.groupRef);
-        const page = memberPages[key];
-        if (page) scopes.set(key, page.scope);
-      }
-      return scopes;
-    }
-    const rowsByGroup = new Map<string, TransferStateDto[]>();
-    for (const row of items) {
-      if (row.identity.direction.toLowerCase() !== direction || !row.identity.groupRef) continue;
-      const key = groupPageKey(row.identity.username ?? null, row.identity.groupRef);
-      const rows = rowsByGroup.get(key) ?? [];
-      rows.push(row);
-      rowsByGroup.set(key, rows);
-    }
-    for (const summary of summaries) {
-      if (summary.key.direction.toLowerCase() !== direction) continue;
-      const key = groupPageKey(summary.key.username ?? null, summary.key.groupRef);
-      scopes.set(key, transferGroupMemberScope(summary, rowsByGroup.get(key) ?? [], memberPages[key]?.rows, globalBoundary));
-    }
-    return scopes;
-  });
-  let activeMemberPages = $derived.by(() => {
-    const active: Record<string, GroupMemberPage> = {};
-    for (const [key, page] of Object.entries(memberPages)) {
-      if (memberScopes === null || memberScopes.has(key)) active[key] = page;
-    }
-    return active;
-  });
-  $effect(() => {
-    // Keep loaded rows while a group changes, then replace them from that
-    // group's own timeline. Status changes must not collapse an expanded card.
-    const scopes = memberScopes;
-    if (!scopes || summaryCoverage?.state !== 'Available' || summaryError) return;
-    const removed = Object.keys(memberPages).filter((key) => !scopes.has(key));
-    if (removed.length) {
-      const next = { ...memberPages };
-      for (const key of removed) delete next[key];
-      memberPages = next;
-    }
-    for (const [key, page] of Object.entries(memberPages)) {
-      const scope = scopes.get(key);
-      if (scope && page.scope !== scope && !page.loading && page.refreshFailedScope !== scope)
-        void refreshGroupMembers(key, scope, page);
-    }
-  });
-  let memberRows = $derived.by(() => {
-    const rows = new Map<string, TransferStateDto>();
-    for (const page of Object.values(activeMemberPages))
-      for (const item of page.rows) rows.set(item.transferId, item);
-    for (const item of items) rows.set(item.transferId, item);
-    return [...rows.values()];
-  });
-  // Reuse the last verified totals while their replacement is loading, just
-  // as we reuse its member pages. An explicit unavailable/error response still
-  // drops those totals and shows the degraded state above.
+  // Reuse the last verified totals while their replacement is loading. An
+  // explicit unavailable/error response still drops those totals and shows
+  // the degraded state above.
   const projection = new TransferProjection();
   // Only authoritative timeline membership and summary changes arrange cards.
   // Each card below reads its own transfer IDs; byte progress cannot rebuild or
   // reorder the page, and unrelated global transfers are never dependencies.
-  let groups = $derived(arrangeTransferGroups(memberRows, direction,
+  let groups = $derived(arrangeTransferGroups(deferred ? [] : items, direction,
     !summaryError && (summaryCoverage === null || summaryCoverage.state === 'Available') ? summaries : [], projection));
   let canBulkCancel = $derived.by(() => {
     for (const group of groups) for (const entry of group.items)
@@ -176,133 +96,6 @@
     const next = new Set(collapsedPeers);
     if (next.has(key)) next.delete(key); else next.add(key);
     collapsedPeers = next;
-  }
-
-  function groupPageKey(username: string | null, groupRef: string): string {
-    return JSON.stringify([direction, username, groupRef]);
-  }
-
-  function scopeForMemberRows(key: string, rows: TransferStateDto[]): string | undefined {
-    const summary = summaries.find(item => item.key.direction.toLowerCase() === direction
-      && groupPageKey(item.key.username ?? null, item.key.groupRef) === key);
-    return summary ? transferGroupMemberScope(summary, items, rows, globalBoundary) : undefined;
-  }
-
-  function finishSupersededMemberRequest(key: string, requestId: number): void {
-    const current = memberPages[key];
-    if (current?.requestId === requestId)
-      memberPages = { ...memberPages, [key]: { ...current, loading: false } };
-  }
-
-  function removeMemberRows(matches: (row: TransferStateDto) => boolean): void {
-    let next: typeof memberPages | undefined;
-    for (const [key, page] of Object.entries(memberPages)) {
-      const rows = page.rows.filter(row => !matches(row));
-      if (rows.length === page.rows.length) continue;
-      next ??= { ...memberPages };
-      next[key] = { ...page, rows, scope: scopeForMemberRows(key, rows) ?? page.scope,
-        requestId: ++nextMemberRequestId, loading: false, refreshFailedScope: undefined };
-    }
-    if (next) memberPages = next;
-  }
-
-  async function refreshGroupMembers(key: string, scope: string, previous: GroupMemberPage): Promise<void> {
-    if (previous.loading) return;
-    const requestId = ++nextMemberRequestId;
-    const [, username, groupRef] = JSON.parse(key) as [string, string | null, string];
-    memberPages = { ...memberPages, [key]: {
-      ...previous, requestId, loading: true, error: null, refreshFailedScope: undefined,
-    } };
-    try {
-      const rows = new Map<string, TransferStateDto>();
-      let cursor: string | null = null;
-      do {
-        const limit = defaultPageSize;
-        const page = await daemonApi.getTransferGroupMembers(direction, username, groupRef, cursor, limit);
-        if (page.retainedCoverage.state !== 'Available')
-          throw new Error(page.retainedCoverage.reason ?? 'Retained folder history is unavailable.');
-        for (const item of page.items) rows.set(item.transferId, item);
-        cursor = page.nextCursor ?? null;
-      } while (cursor && rows.size < previous.rows.length);
-      if (memberPages[key]?.requestId !== requestId) return;
-      if (memberScopes?.get(key) !== scope) {
-        finishSupersededMemberRequest(key, requestId);
-        return;
-      }
-      const loadedRows = [...rows.values()];
-      memberPages = { ...memberPages, [key]: {
-        scope: scopeForMemberRows(key, loadedRows) ?? scope, requestId, rows: loadedRows, nextCursor: cursor,
-        loadedOnce: true, loading: false, error: null,
-      } };
-    } catch (cause) {
-      if (memberPages[key]?.requestId !== requestId) return;
-      if (memberScopes?.get(key) !== scope) {
-        finishSupersededMemberRequest(key, requestId);
-        return;
-      }
-      memberPages = { ...memberPages, [key]: {
-        ...previous, requestId, loading: false, error: errorMessage(cause), refreshFailedScope: scope,
-      } };
-    }
-  }
-
-  async function loadGroupMembers(entry: TransferTimelineEntry): Promise<void> {
-    if (!entry.groupRef) return;
-    const key = groupPageKey(entry.username, entry.groupRef);
-    const scope = memberScopes?.get(key);
-    if (scope === undefined) return;
-    const previous = activeMemberPages[key];
-    if (previous?.loading) return;
-    if (previous?.loadedOnce && previous.scope !== scope) {
-      await refreshGroupMembers(key, scope, previous);
-      return;
-    }
-    const requestId = ++nextMemberRequestId;
-    const restart = Boolean(previous?.loadedOnce && !previous.nextCursor && !previous.error);
-    // The global timeline is already a complete newest-first prefix of this same
-    // moving keyset timeline. Start this folder after that prefix rather than
-    // rereading its first page. Retain the prefix too: a later global refresh
-    // can shift it without shrinking an explicitly expanded folder.
-    const cursor = restart ? null : transferGroupCursor(previous?.rows ?? [], previous?.nextCursor ?? null, globalBoundary, nextCursor);
-    const loadedRows = new Map((previous?.rows ?? []).map(item => [item.transferId, item]));
-    for (const item of items)
-      if (item.identity.direction.toLowerCase() === direction && (item.identity.username ?? null) === entry.username && item.identity.groupRef === entry.groupRef)
-        loadedRows.set(item.transferId, item);
-    memberPages = { ...memberPages, [key]: {
-      scope, requestId,
-      rows: previous?.rows ?? [], nextCursor: previous?.nextCursor ?? null,
-      loadedOnce: previous?.loadedOnce ?? false, loading: true, error: null,
-    } };
-    try {
-      const page = await daemonApi.getTransferGroupMembers(
-        direction, entry.username, entry.groupRef, cursor);
-      if (memberPages[key]?.requestId !== requestId) return;
-      if (memberScopes?.get(key) !== scope) {
-        finishSupersededMemberRequest(key, requestId);
-        return;
-      }
-      if (page.retainedCoverage.state !== 'Available')
-        throw new Error(page.retainedCoverage.reason ?? 'Retained folder history is unavailable.');
-      const rows = restart ? new Map<string, TransferStateDto>() : loadedRows;
-      for (const item of page.items) rows.set(item.transferId, item);
-      const resultRows = [...rows.values()];
-      memberPages = { ...memberPages, [key]: {
-        scope: scopeForMemberRows(key, resultRows) ?? scope, requestId,
-        rows: resultRows, nextCursor: page.nextCursor ?? null,
-        loadedOnce: true, loading: false, error: null,
-      } };
-    } catch (cause) {
-      if (memberPages[key]?.requestId !== requestId) return;
-      if (memberScopes?.get(key) !== scope) {
-        finishSupersededMemberRequest(key, requestId);
-        return;
-      }
-      memberPages = { ...memberPages, [key]: {
-        scope, requestId,
-        rows: previous?.rows ?? [], nextCursor: previous?.nextCursor ?? null,
-        loadedOnce: previous?.loadedOnce ?? false, loading: false, error: errorMessage(cause),
-      } };
-    }
   }
 
   async function retryDownload(request: () => Promise<Schema<'JobSummaryDto'>>): Promise<void> {
@@ -331,15 +124,10 @@
   async function removeIds(ids: string[], label: string): Promise<void> {
     if (!ids.length || mutation.phase === 'pending') return;
     mutation = { phase: 'pending', label };
-    const removed = new Set<string>();
     const { succeeded, failed, firstError } = await runTransferCommands(ids, async (id) => {
       const receipt = await daemonApi.removeTransfer(id);
       if (Number(receipt.rejectedCount) || Number(receipt.failedCount)) throw new Error('The daemon rejected or failed this removal operation.');
-      removed.add(id);
     });
-    // An acknowledged removal is authoritative even when optional totals fail.
-    // Evict only successful identities; failed siblings keep their fetched rows.
-    removeMemberRows(row => removed.has(row.transferId));
     mutation = {
       phase: failed === ids.length ? 'rejected' : 'succeeded',
       label: succeeded ? `${succeeded} transfer${succeeded === 1 ? '' : 's'} removed` : 'Remove rejected',
@@ -367,8 +155,6 @@
     try {
       const receipt = await daemonApi.removeTransfers(direction, { terminalOutcome: 'Succeeded' });
       mutation = receiptStatus(receipt, 'removed');
-      if (!Number(receipt.rejectedCount) && !Number(receipt.failedCount))
-        removeMemberRows(row => row.status.terminalOutcome === 'Succeeded');
       await onchanged();
     } catch (cause) {
       mutation = { phase: 'rejected', label: 'Remove failed', detail: errorMessage(cause) };
@@ -415,9 +201,6 @@
     try {
       const receipt = await daemonApi.removeTransfers(direction, { username: entry.username, groupRef });
       mutation = receiptStatus(receipt, 'removed');
-      if (!Number(receipt.rejectedCount) && !Number(receipt.failedCount))
-        removeMemberRows(row => (row.identity.username ?? null) === entry.username && row.identity.groupRef === groupRef
-          && isTerminalTransfer(projection.row(row).transfer));
       await onchanged();
     } catch (cause) {
       mutation = { phase: 'rejected', label: 'Folder removal failed', detail: errorMessage(cause) };
@@ -446,7 +229,14 @@
 
 <section class={`page ${direction}s-page`}>
   <header class="page-heading transfers-heading">
-    <div><h1>{direction === 'download' ? 'Downloads' : 'Uploads'}</h1></div>
+    <div class="page-heading-title">
+      <h1>{direction === 'download' ? 'Downloads' : 'Uploads'}</h1>
+      {#if direction === 'download' && ondownloadsview}
+        <div class="page-heading-tabs">
+          <PageTabs variant="segmented" id="downloads-view" label="Downloads" value="files" onchange={ondownloadsview} items={downloadsViews} />
+        </div>
+      {/if}
+    </div>
     <TransferBulkActions
       mode={bulkCancelMode}
       canCancel={canBulkCancel}
@@ -467,7 +257,9 @@
     <MutationStatus state={mutation} />
   </div>
 
-  {#if (loading || !coverage && !error) && !groups.length}
+  {#if deferred}
+    <!-- The cards mount in the next frame; this is not a loading state. -->
+  {:else if (loading || !coverage && !error) && !groups.length}
     <LoadingIndicator label={`Loading ${direction}s`} blocking />
   {:else if error && !groups.length}
     <div class={`resource-state-notice ${daemonOffline ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{daemonOffline ? 'Daemon unavailable' : 'Transfers unavailable'}</strong><small>{daemonOffline ? direction === 'download' ? 'Downloads can’t be loaded while the daemon is offline.' : 'Uploads can’t be loaded while the daemon is offline.' : error.message}</small></span>{#if !daemonOffline}<button class="button" type="button" onclick={() => void onchanged()}>Retry</button>{/if}</div>
@@ -487,8 +279,8 @@
             <div class="result-peer-items">
               {#each group.items as layout (layout.id)}
                 {@const entry = presentTransferEntry(layout, projection, readTransfer)}
-                {@const memberPage = entry.groupRef ? activeMemberPages[groupPageKey(entry.username, entry.groupRef)] : undefined}
-                <FolderItemCard path={entry.path} sizeBytes={entry.sizeBytes} files={entry.files} totalFileCount={entry.totalsKnown ? entry.totalFileCount : null} filesComplete={entry.filesComplete} dataStateLabel={entry.totalsKnown ? entry.filesComplete ? undefined : 'Showing some of the files. Totals and actions cover the whole folder.' : 'Totals cover loaded files only. Actions apply to the whole folder.'} transfer={entry.transfer} onloadmorefiles={entry.totalsKnown && (!entry.filesComplete || memberPage?.error) ? () => void loadGroupMembers(entry) : undefined} loadingMoreFiles={Boolean(memberPage?.loading || summaryCoverage === null)} fileLoadError={memberPage?.error ?? null}
+                {@const expanding = entry.groupRef != null && expandingGroups.includes(transferGroupKeyId({ direction: direction === 'download' ? 'Download' : 'Upload', username: entry.username, groupRef: entry.groupRef }))}
+                <FolderItemCard path={entry.path} sizeBytes={entry.sizeBytes} files={entry.files} totalFileCount={entry.totalsKnown ? entry.totalFileCount : null} filesComplete={entry.filesComplete} transfer={entry.transfer} onloadmorefiles={entry.groupRef && entry.totalsKnown && !entry.filesComplete ? () => onexpandgroup(entry.username, entry.groupRef!, entry.files.length) : undefined} loadingMoreFiles={expanding || summaryCoverage === null}
                   actionsDisabled={mutation.phase === 'pending'} onretryfile={(file) => void retryDownload(() => daemonApi.retryTransfer(file.transfer!.record!.transferId!))}>
                   {#snippet actions()}
                     {#if direction === 'download' && layout.rows[0]?.groupKind === 'Directory' && isTerminalTransfer(entry.transfer) && entry.transfer.tone !== 'complete'}

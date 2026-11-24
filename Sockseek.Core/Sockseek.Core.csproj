@@ -28,9 +28,8 @@
     <!-- Upstream 10.0.2 is unlisted/deprecated for CriticalBugs, with no newer release.
          Review https://github.com/jpdillingham/Soulseek.NET/releases before upgrading;
          retain the search-disposal workaround until an upstream fix is verified.
-         TODO: Upgrade to a release containing upload-linger fixes cf30b1bc/c97972ca.
-         See SoulseekUploadProtocolInvoker; verify a receiver holding its socket open
-         no longer holds an upload slot beyond MaximumLingerTime. -->
+         The pending upgrade for the upload-linger fix is tracked by the TODO in
+         UploadCoordinator (SoulseekUploadProtocolInvoker). -->
     <PackageReference Include="Soulseek" Version="10.0.2" />
     <PackageReference Include="SpotifyAPI.Web" Version="7.4.2" />
     <PackageReference Include="SpotifyAPI.Web.Auth" Version="7.4.2" />

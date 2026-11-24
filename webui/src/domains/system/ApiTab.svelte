@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { copyText } from '../../lib/clipboard';
   import { onMount } from 'svelte';
   import { DaemonHttpClient } from '../../api/http';
   import type { Schema } from '../../api/types';
@@ -53,8 +54,7 @@
   }
 
   async function copy(): Promise<void> {
-    try { await navigator.clipboard.writeText(created!.secret); copyNotice = 'Copied'; }
-    catch { copyNotice = 'Select the key and copy it manually.'; }
+    copyNotice = await copyText(created!.secret) ? 'Copied' : 'Select the key and copy it manually.';
   }
 
 </script>

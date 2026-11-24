@@ -440,7 +440,8 @@ public sealed class SqliteInitializationTests
             Assert.AreEqual(secondRuntime.Current!.RuntimeId, job.LastRuntimeId);
             Assert.AreEqual(0L, job.LastSequence);
             Assert.AreEqual("Interrupted", search.ResultPersistenceState);
-            Assert.AreEqual("Interrupted", transfer.State);
+            Assert.AreEqual("Ended", transfer.State);
+            Assert.AreEqual("Interrupted", transfer.TerminalOutcome);
             Assert.AreEqual("Interrupted", attempt.State);
             Assert.AreEqual("Unclean", priorRuntime.ShutdownKind);
             Assert.AreEqual(clock.GetUtcNow().ToUnixTimeMilliseconds(), accounting.CompleteFromUtc);

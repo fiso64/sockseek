@@ -191,7 +191,7 @@ test('cancels a live download and retains its cancelled state after reload', asy
   await expect(card.locator('.folder-transfer-age')).toHaveText(/^(just now|\d+ .+ ago)$/);
   await expect(card.locator('.folder-transfer-age time')).toHaveAttribute('datetime', /T/);
   await page.getByRole('button', { name: 'Actions for fixture-peer', exact: true }).click();
-  for (const name of ['Profile', 'Shares', 'Message']) {
+  for (const name of ['Profile', 'Shares', 'Message', 'Copy']) {
     await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
   }
   await page.getByRole('menuitem', { name: 'Message', exact: true }).click();
@@ -353,8 +353,10 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   expect(Number(summary.knownTotalBytes)).toBe(256);
   let resolveUnrelatedHistory!: () => void;
   const unrelatedHistory = new Promise<void>((resolve) => { resolveUnrelatedHistory = resolve; });
-  let firstTimelinePage = true;
-  let firstTimelineCursor: string | null = null;
+  // Ask the real daemon for an extent of one transfer and no rows to complete
+  // folders with, so a two-file folder is partial without downloading hundreds.
+  let smallExtent = true;
+  const small = (scope: Schema<'TransferTimelineScopeDto'>) => smallExtent ? { ...scope, limit: 1, folderCompletionLimit: 0 } : scope;
   let coverageOverride: Schema<'TransferRetainedCoverageDto'> | null = null;
   let failTimeline = true;
   let failSummary = false;
@@ -364,33 +366,24 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await page.routeWebSocket('**/api/events?**', route => {
     const server = route.connectToServer();
     const failedInvocations = new Set<string>();
-    const scopes = new Map<string, Schema<'TransferTimelineScopeDto'>>();
+    const scopes = new Set<string>();
     route.onMessage(message => {
-      if (typeof message === 'string') for (const frame of message.split('\u001e').filter(Boolean)) {
+      if (typeof message !== 'string') { server.send(message); return; }
+      for (const frame of message.split('\u001e').filter(Boolean)) {
         const value = JSON.parse(frame);
-        if (value.type === 4 && value.target === 'ObserveTransferTimeline') scopes.set(value.invocationId, value.arguments[0]);
+        if (value.type === 4 && value.target === 'ObserveTransferTimeline') {
+          scopes.add(value.invocationId);
+          value.arguments[0] = small(value.arguments[0]);
+        }
+        server.send(JSON.stringify(value) + '\u001e');
       }
-      server.send(message);
     });
     server.onMessage(message => {
       if (typeof message !== 'string') { route.send(message); return; }
       for (const frame of message.split('\u001e').filter(Boolean)) {
         const value = JSON.parse(frame);
         if (failedInvocations.has(value.invocationId)) continue;
-        const scope = scopes.get(value.invocationId);
-        if (scope && value.type === 2) {
-          // The real HTTP first page is limited below. Keep its omitted folder
-          // member outside the observed prefix until explicitly fetched too.
-          const excluded = rows[1]!.transferId;
-          const additional = new Set(scope.additionalTransferIds);
-          if (!additional.has(excluded)) {
-            value.item.items = value.item.items.filter((row: Schema<'TransferStateDto'>) => row.transferId !== excluded);
-            if (value.item.windowTransferIds?.includes(excluded)) {
-              value.item.windowTransferIds = value.item.windowTransferIds.filter((id: string) => id !== excluded);
-              value.item.nextCursor = firstTimelineCursor;
-              value.item.boundaryTransferId = rows[0]!.transferId;
-            }
-          }
+        if (scopes.has(value.invocationId) && value.type === 2) {
           if (coverageOverride) value.item.retainedCoverage = coverageOverride;
           if (failSummary && value.item.groupSummaries) value.item.groupSummaries = unavailableSummary;
         }
@@ -408,34 +401,14 @@ test('groups directory downloads in live and retained transfer views', async ({ 
     });
   });
   await page.route(url => url.pathname === '/api/transfers' || url.pathname === '/api/transfers/timeline', async (route) => {
-    if (new URL(route.request().url()).searchParams.has('groupRef')) {
-      await route.continue();
-      return;
-    }
-    if (firstTimelinePage) {
-      firstTimelinePage = false;
-      const url = new URL(route.request().url());
-      url.searchParams.set('limit', '1');
-      // Exercise the real page boundary/cursor without downloading 100 files
-      // in ordinary CI. Do not fabricate the first page or its continuation.
-      const response = url.pathname === '/api/transfers/timeline'
-        ? await route.fetch({ postData: { ...route.request().postDataJSON(), limit: 1 } })
-        : await route.fetch({ url: url.toString() });
-      firstTimelineCursor = ((await response.json()) as Schema<'TransferTimelineUpdateDto'>).nextCursor ?? null;
-      await route.fulfill({ response });
-      return;
-    }
-    const response = await route.fetch();
+    const response = route.request().method() === 'POST'
+      ? await route.fetch({ postData: small(route.request().postDataJSON()) }) : await route.fetch();
     const body = await response.json() as Schema<'TransferTimelineUpdateDto'>;
     if (body.items.some((item) => item.identity.remotePath === 'Other\\Unrelated.txt'))
       resolveUnrelatedHistory();
     if (failSummary) await delayedSummary;
-    const additional = new Set<string>(route.request().postDataJSON()?.additionalTransferIds ?? []);
     await route.fulfill({ response, json: {
-      ...body,
-      groupSummaries: failSummary ? unavailableSummary : body.groupSummaries,
-      items: body.items.filter((item) => item.identity.groupRef !== rows[0]!.identity.groupRef || item.transferId === rows[0]!.transferId || additional.has(item.transferId)),
-      nextCursor: null,
+      ...body, groupSummaries: failSummary ? unavailableSummary : body.groupSummaries,
     } });
   });
   await page.reload();
@@ -444,18 +417,26 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await expect(partialFolder.locator('.folder-transfer-path')).toHaveText('Fixture');
   await expect(partialFolder.locator('.folder-transfer-path')).toHaveAttribute('title', 'Fixture');
   await expect(partialFolder.locator('.folder-transfer-file-count')).toContainText('1/2');
-  await expect(partialFolder).toContainText('Showing some of the files');
+  await expect(partialFolder.locator('.item-data-state')).toHaveCount(0);
   await expect(partialFolder.locator('.folder-file-state.complete')).toHaveCount(1);
   await expect(partialFolder.locator('.folder-transfer-footer')).toHaveCount(0);
-  const nextMembers = page.waitForResponse(response => response.ok()
-    && new URL(response.url()).pathname === '/api/transfers'
-    && new URL(response.url()).searchParams.has('groupRef'));
+  // More of the folder arrives through the same extent, not a member request.
+  const memberReads: string[] = [];
+  const recordMemberRead = (request: import('@playwright/test').Request) => {
+    if (new URL(request.url()).searchParams.has('groupRef')) memberReads.push(request.url());
+  };
+  page.on('request', recordMemberRead);
   await partialFolder.getByRole('button', { name: 'Load more' }).click();
-  const nextMemberPage = await (await nextMembers).json() as Schema<'TransferTimelineUpdateDto'>;
-  expect(nextMemberPage.items).toHaveLength(1);
-  expect(nextMemberPage.items[0]!.transferId).not.toBe(rows[0]!.transferId);
   await expect(partialFolder.locator('.folder-file-row')).toHaveCount(2);
   await expect(partialFolder.locator('.folder-transfer-file-count')).toContainText('2');
+  await expect(partialFolder.getByRole('button', { name: 'Load more' })).toHaveCount(0);
+  page.off('request', recordMemberRead);
+  expect(memberReads).toEqual([]);
+  // An ordinary extent holds the whole folder without being asked.
+  smallExtent = false;
+  await page.reload();
+  await expect(partialFolder.locator('.folder-file-row')).toHaveCount(2);
+  await expect(partialFolder.getByRole('button', { name: 'Load more' })).toHaveCount(0);
 
   failSummary = true;
 
@@ -478,8 +459,8 @@ test('groups directory downloads in live and retained transfer views', async ({ 
     await expect(partialFolder.locator('.folder-file-row')).toHaveCount(2);
     await failure.getByRole('button', { name: 'Retry', exact: true }).click();
     await unrelatedHistory;
-    // The replacement snapshot (rows and totals) is withheld. The previous verified folder page
-    // must not flash back to its single timeline member during this handoff.
+    // The replacement snapshot (rows and totals) is withheld. The previous verified folder
+    // must stay as it was during this handoff.
     await expect(partialFolder.locator('.folder-file-row')).toHaveCount(2);
     await expect(partialFolder.locator('.folder-transfer-file-count')).toContainText('2');
   } finally {
@@ -489,14 +470,14 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await expect(page.locator('.folder-item-card').filter({ hasText: 'Unrelated.txt' }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'Folder totals unavailable' })).toBeVisible();
   await expect(partialFolder.locator('.folder-file-row')).toHaveCount(2);
-  await expect(partialFolder).toContainText('Totals cover loaded files only.');
   await expect(partialFolder.locator('.folder-transfer-file-count')).toContainText('2');
   await page.setViewportSize({ width: 390, height: 900 });
   await page.setViewportSize({ width: 1280, height: 720 });
-  // Removing an expanded-only member must work even without folder totals.
-  const expandedPath = nextMemberPage.items[0]!.identity.groupRelativePath!;
+  // Removing a folder's older member must work even without folder totals.
+  const olderMember = rows[1]!;
+  const expandedPath = olderMember.identity.groupRelativePath!;
   const expandedFile = partialFolder.locator('.folder-file-row').filter({ has: page.getByLabel(`Remove ${expandedPath}`, { exact: true }) });
-  await page.route(`**/api/transfers/${nextMemberPage.items[0]!.transferId}`, async route => {
+  await page.route(`**/api/transfers/${olderMember.transferId}`, async route => {
     await route.fulfill({ contentType: 'application/json', json: {
       resolvedCount: 1, succeededCount: 0, noOpCount: 0, rejectedCount: 1, failedCount: 0,
       reasons: [{ reason: 'FixtureRemovalRejected', count: 1 }],
@@ -551,7 +532,7 @@ test('groups directory downloads in live and retained transfer views', async ({ 
   await expect(page.getByRole('alert').filter({ hasText: 'Transfers unavailable' })).toHaveCount(0);
 });
 
-test('keeps a loaded folder member page when another member finishes', async ({ page, daemon }) => {
+test('keeps the members of an expanded folder when another member finishes', async ({ page, daemon }) => {
   await daemon.command('hold-download');
   const submitted = await page.request.post('/api/jobs/lists', { data: {
     name: 'Member transition fixture', jobs: [{ kind: 'remote-directory', plan: {
@@ -563,7 +544,7 @@ test('keeps a loaded folder member page when another member finishes', async ({ 
   } satisfies Schema<'SubmitJobListRequestDto'> });
   expect(submitted.status()).toBe(202);
   await page.goto('/downloads');
-  const folder = page.locator('.folder-item-card').filter({ hasText: 'Active.txt' });
+  const folder = page.locator('.folder-item-card').filter({ has: page.locator('.folder-transfer-path', { hasText: /^Fixture$/ }) });
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
   const retained = await page.request.get('/api/transfers?direction=download&limit=100');
   expect(retained.ok()).toBeTruthy();
@@ -574,64 +555,32 @@ test('keeps a loaded folder member page when another member finishes', async ({ 
   expect(cancel.ok()).toBeTruthy();
   await expect(folder.locator('.folder-file-row').filter({ hasText: 'Cancelled.txt' })).toContainText('Cancelled');
 
-  let failGroupRefresh = false;
+  // Ask the real daemon for one transfer and no rows to complete folders with,
+  // so the two-file folder is partial until it is expanded.
   await page.routeWebSocket('**/api/events?**', route => {
     const server = route.connectToServer();
-    const scopes = new Map<string, Schema<'TransferTimelineScopeDto'>>();
     route.onMessage(message => {
-      if (typeof message === 'string') for (const frame of message.split('\u001e').filter(Boolean)) {
-        const value = JSON.parse(frame);
-        if (value.type === 4 && value.target === 'ObserveTransferTimeline') scopes.set(value.invocationId, value.arguments[0]);
-      }
-      server.send(message);
-    });
-    server.onMessage(message => {
-      if (typeof message !== 'string') { route.send(message); return; }
+      if (typeof message !== 'string') { server.send(message); return; }
       for (const frame of message.split('\u001e').filter(Boolean)) {
         const value = JSON.parse(frame);
-        const scope = scopes.get(value.invocationId);
-        if (scope && value.type === 2 && !scope.additionalTransferIds?.includes(cancelled!.transferId)) {
-          value.item.items = value.item.items.filter((row: Schema<'TransferStateDto'>) => row.transferId !== cancelled!.transferId);
-          if (value.item.windowTransferIds) {
-            value.item.windowTransferIds = value.item.windowTransferIds.filter((id: string) => id !== cancelled!.transferId);
-            value.item.nextCursor = null;
-            value.item.boundaryTransferId = value.item.windowTransferIds.at(-1) ?? null;
-          }
-        }
-        route.send(JSON.stringify(value) + '\u001e');
+        if (value.type === 4 && value.target === 'ObserveTransferTimeline')
+          value.arguments[0] = { ...value.arguments[0], limit: 1, folderCompletionLimit: 0 };
+        server.send(JSON.stringify(value) + '\u001e');
       }
     });
-  });
-  await page.route(url => url.pathname === '/api/transfers' || url.pathname === '/api/transfers/timeline', async (route) => {
-    if (new URL(route.request().url()).searchParams.has('groupRef')) {
-      if (failGroupRefresh) {
-        await route.abort('failed');
-        return;
-      }
-      await route.continue();
-      return;
-    }
-    const response = await route.fetch();
-    const body = await response.json() as Schema<'TransferTimelinePageDto'>;
-    await route.fulfill({ response, json: {
-      ...body, items: body.items.filter((row) => row.transferId !== cancelled!.transferId), nextCursor: null,
-    } });
+    server.onMessage(message => route.send(message));
   });
   await page.reload();
   await expect(folder.locator('.folder-file-row')).toHaveCount(1);
+  await expect(folder.locator('.folder-transfer-file-count')).toContainText('1/2');
   await folder.getByRole('button', { name: 'Load more' }).click();
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
-  failGroupRefresh = true;
   await daemon.command('release-download');
   const members = folder.locator('.folder-file-row');
   await expect(members.filter({ hasText: 'Active.txt' }).getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await expect(members.filter({ hasText: 'Cancelled.txt' }).getByRole('button', { name: 'Cancelled', exact: true })).toBeVisible();
-  await expect(folder.getByRole('button', { name: 'Retry loading folder files' })).toBeVisible();
-  failGroupRefresh = false;
-  await folder.getByRole('button', { name: 'Retry loading folder files' }).click();
-  await expect(folder.getByRole('button', { name: 'Retry loading folder files' })).toHaveCount(0);
   await expect(folder.locator('.folder-transfer-file-count')).toContainText('2');
-  await expect(folder.locator('.folder-file-row').filter({ hasText: 'Cancelled.txt' })).toContainText('Cancelled');
+  await expect(folder.getByRole('button', { name: 'Load more' })).toHaveCount(0);
 });
 
 test('cancels every member of a live directory from its folder action', async ({ page, daemon }) => {

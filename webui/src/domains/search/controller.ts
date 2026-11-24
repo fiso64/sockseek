@@ -844,7 +844,11 @@ export class SearchViewController {
     }
     const request = this.selection.input();
     const key = selectionCountKey(summary.viewId, request);
-    if (key === this.countRequestKey) return;
+    // A selection can return to an earlier value after its count was cleared
+    // (a click resets the range, then selects the same row). Reuse only a count
+    // that is still pending or present for this exact selection.
+    if (key === this.countRequestKey && (this.countRequest || this.selection.value.selectionCounts
+      || this.state.selectionCountsError)) return;
     this.countRequest?.abort();
     this.countRequest = null;
     this.countRequestKey = key;
@@ -860,10 +864,12 @@ export class SearchViewController {
       if (this.stopped || this.countRequestKey !== key || controller.signal.aborted) return;
       if (!this.selection.acceptCounts(request, counts))
         throw new Error('Selection count does not match the requested selection and revision.');
+      this.countRequest = null;
       this.state = { ...this.state, selectionCountsLoading: false };
       this.emit();
     }).catch(error => {
       if (this.stopped || this.countRequestKey !== key || controller.signal.aborted) return;
+      this.countRequest = null;
       this.selection.clearCounts();
       this.state = { ...this.state, selectionCountsLoading: false, selectionCountsError: asError(error) };
       this.emit();

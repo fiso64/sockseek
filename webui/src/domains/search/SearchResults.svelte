@@ -76,6 +76,7 @@
     onchooseoption: (groupRef: string, option: GroupOption) => void;
     ontogglealbumfile: (groupRef: string, fileRefs: string[], selected: boolean) => void;
     onviewdownloads: (submissionId: string) => void;
+    onopendownload: (jobId: string) => void;
     onback: () => void;
     onsearchagain: () => void;
   }
@@ -120,6 +121,7 @@
     onchooseoption,
     ontogglealbumfile,
     onviewdownloads,
+    onopendownload,
     onback,
     onsearchagain,
   }: Props = $props();
@@ -1002,7 +1004,8 @@
 
   {#if viewState.receipt}
     <p class:partially-succeeded={Number(viewState.receipt.skippedCount) > 0 || Number(viewState.receipt.rejectedCount) > 0} class="mutation-status succeeded">
-      {#if viewState.receipt.submissionId}<button type="button" class="text-button" onclick={() => onviewdownloads(viewState.receipt!.submissionId!)}>View download jobs</button>{/if}
+      {#if viewState.receipt.jobId}<button type="button" class="text-button" data-testid="open-download-job" onclick={() => onopendownload(viewState.receipt!.jobId!)}>View download job</button>
+      {:else if viewState.receipt.submissionId}<button type="button" class="text-button" data-testid="view-download-jobs" onclick={() => onviewdownloads(viewState.receipt!.submissionId!)}>View download jobs</button>{/if}
       {formatCount(mutationDownloadCount)} download{Number(mutationDownloadCount) === 1 ? '' : 's'} requested
       {#if Number(viewState.receipt.skippedCount) || Number(viewState.receipt.rejectedCount)}<small>{formatCount(viewState.receipt.skippedCount)} skipped · {formatCount(viewState.receipt.rejectedCount)} rejected</small>{/if}
     </p>
@@ -1075,7 +1078,7 @@
             {/if}
           </div>
         {/if}
-        <div class:preferred-tier={tier === 'Preferred'} class="result-tier">
+        <div class:preferred-tier={tier === 'Preferred'} class="result-tier peer-group-list">
           {#each groups as group (group.key)}
             {@const first = group.rows[0]}
             {@const peer = first.value.peer}

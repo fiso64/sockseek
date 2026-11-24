@@ -57,38 +57,7 @@
 </section>
 
 <style>
-  .peer-item-group { container-type: inline-size; }
-  .result-peer-header,
-  .result-peer-header.compact {
-    width: max-content;
-    max-width: none;
-    min-height: 44px;
-    grid-template-columns: 18px minmax(20ch, max-content) auto;
-    gap: 8px;
-    padding: 5px 12px 5px 0;
-    font-size: .86rem;
-  }
-  .result-peer-header.compact { grid-template-columns: 18px minmax(20ch, max-content); }
-  .peer-identity :global(.username-link) { overflow: visible; text-overflow: clip; }
-  .peer-metadata {
-    display: grid;
-    grid-template-columns: max-content 10ch max-content;
-    gap: 12px;
-    margin-left: 8px;
-    font-size: .76rem;
-  }
-  .peer-metadata :global(.peer-upload-stat) { grid-area: 1 / 2; justify-content: flex-end; }
-  .peer-metadata :global(.peer-queue-stat) { grid-area: 1 / 3; }
-  .peer-metadata :global(.peer-slot) { grid-area: 1 / 1; display: inline-flex; min-inline-size: 8em; font-weight: 600; }
+  /* Columns come from the enclosing .peer-group-list (app.css). */
+  .result-peer-header { min-height: 44px; padding: 5px 12px 5px 0; font-size: .86rem; }
   .result-peer-items { padding-left: 26px; }
-
-  @container (max-width: 30rem) {
-    .result-peer-header,
-    .result-peer-header.compact { width: 100%; max-width: 100%; grid-template-columns: 18px minmax(0, 1fr); row-gap: 2px; }
-    .peer-identity :global(.username-link) { white-space: normal; overflow-wrap: anywhere; }
-    .peer-metadata { grid-area: 2 / 2; display: flex; flex-wrap: wrap; gap: 6px 12px; margin-left: 0; }
-    .peer-metadata :global(.peer-slot) { order: -1; }
-    .peer-metadata :global(.peer-upload-stat) { width: 10ch; }
-    .result-peer-items { padding-left: 0; }
-  }
 </style>

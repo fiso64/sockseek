@@ -1,14 +1,13 @@
 import { untrack } from 'svelte';
-import { defaultPageSize, type DaemonApiClient } from '../../api/client';
+import { defaultPageSize, nestedPageSize, type DaemonApiClient } from '../../api/client';
 import type { DaemonLiveClient } from '../../api/live';
 import { TransferRows, updatedTransfer } from '../../api/state.svelte';
 import { wireInteger, type Schema, type TransferStateDto } from '../../api/types';
-import { mergeTransferHistory, transferGroupKeys, transferGroupKeyId } from './history';
+import { mergeTransferHistory, transferGroupKeyId } from './history';
 
 type TransferDirection = 'download' | 'upload';
 type TransferTimelineState = Readonly<{
   items: readonly TransferStateDto[];
-  boundary: TransferStateDto | null;
   cursor: string | null;
   coverage: Schema<'TransferRetainedCoverageDto'> | null;
   summaries: readonly Schema<'TransferGroupSummaryDto'>[];
@@ -19,6 +18,9 @@ type TransferTimelineState = Readonly<{
 }>;
 
 /** One requested extent owns its rows, whole-folder totals and observation.
+ * The daemon decides what it holds: the newest transfers, plus the older members
+ * that make their folders whole within a fixed row budget. Showing more of a
+ * large folder widens that same extent.
  * Connected readers start with the observation's snapshot. HTTP supplies the
  * same snapshot when live delivery is unavailable; its fresh successor scope
  * reconciles the gap. No summary polling or client-side paging.
@@ -29,14 +31,15 @@ export class TransferTimelineController {
   // Each response replaces a snapshot; individual wire fields are not mutable
   // UI state. Deep proxies would create subscriptions for every file property.
   timeline = $state.raw<Readonly<Record<TransferDirection, TransferTimelineState>>>({
-    download: { items: [], boundary: null, cursor: null, coverage: null, summaries: [], summaryCoverage: null, summaryError: null, loading: false, error: null },
-    upload: { items: [], boundary: null, cursor: null, coverage: null, summaries: [], summaryCoverage: null, summaryError: null, loading: false, error: null },
+    download: { items: [], cursor: null, coverage: null, summaries: [], summaryCoverage: null, summaryError: null, loading: false, error: null },
+    upload: { items: [], cursor: null, coverage: null, summaries: [], summaryCoverage: null, summaryError: null, loading: false, error: null },
   });
   private scopeRevision = $state({ download: 0, upload: 0 });
   private pageLimit = { download: defaultPageSize, upload: defaultPageSize };
   private httpRead = { download: false, upload: false };
-  private additionalIds: Record<TransferDirection, Set<string>> = { download: new Set(), upload: new Set() };
-  missingMembers = $state<Record<TransferDirection, string[]>>({ download: [], upload: [] });
+  private expandedGroups: Record<TransferDirection, Map<string, Schema<'TransferGroupExtentDto'>>> = { download: new Map(), upload: new Map() };
+  /** Folders whose wider extent has been requested and not yet delivered. */
+  expandingGroups = $state.raw<Record<TransferDirection, readonly string[]>>({ download: [], upload: [] });
   private observationFailed = false;
   private epochs: Partial<Record<TransferDirection, string>> = {};
   private observedDirection: TransferDirection | null = null;
@@ -65,9 +68,9 @@ export class TransferTimelineController {
       const scope: Schema<'TransferTimelineScopeDto'> = {
         direction: direction === 'download' ? 'Download' : 'Upload', limit,
         knownRevisions: Object.fromEntries(this.timeline[direction].items.map(row => [row.transferId, this.rows[direction].get(row.transferId)?.revision ?? row.revision])),
-        additionalTransferIds: [...this.additionalIds[direction]], includeGroupSummaries: true,
+        includeGroupSummaries: true, folderCompletionLimit: nestedPageSize,
+        expandedGroups: [...this.expandedGroups[direction].values()],
       };
-      const extraIds = new Set(scope.additionalTransferIds);
       let ids = new Set<string>();
       return this.observeTimeline(scope, update => {
         if (disposed) return;
@@ -75,7 +78,7 @@ export class TransferTimelineController {
           this.observedDirection = direction;
           this.observationFailed = false;
         }
-        ids = this.applyUpdate(direction, update, ids, extraIds);
+        ids = this.applyUpdate(direction, update, ids);
       }, cause => {
         if (disposed) return;
         this.observedDirection = null;
@@ -96,14 +99,12 @@ export class TransferTimelineController {
   }
 
   private applyUpdate(direction: TransferDirection, update: Schema<'TransferTimelineUpdateDto'>,
-    ids: Set<string>, requestedAdditional: ReadonlySet<string>): Set<string> {
+    ids: Set<string>): Set<string> {
     const current = this.timeline[direction];
-    const pendingMembers = current.items.filter(row => this.additionalIds[direction].has(row.transferId)
-      && !requestedAdditional.has(row.transferId));
-    if (update.windowTransferIds) ids = new Set(update.windowTransferIds);
-    // A folder fetch may finish during a snapshot/scope change. Its newly
-    // fetched members are not deletions in a response that never requested them.
-    for (const row of pendingMembers) ids.add(row.transferId);
+    if (update.windowTransferIds) {
+      ids = new Set(update.windowTransferIds);
+      if (this.expandingGroups[direction].length) this.expandingGroups = { ...this.expandingGroups, [direction]: [] };
+    }
     for (const row of update.items) ids.add(row.transferId);
     for (const id of update.removedTransferIds) ids.delete(id);
     const records = this.rows[direction];
@@ -124,24 +125,11 @@ export class TransferTimelineController {
       for (const id of [...records.keys()]) if (!ids.has(id)) records.delete(id);
     for (const id of update.removedTransferIds) records.delete(id);
     const membership = Boolean(update.windowTransferIds || update.items.length || update.removedTransferIds.length);
-    const missing = update.windowTransferIds
-      ? new Set([...requestedAdditional].filter(id => !ids.has(id))) : new Set(this.missingMembers[direction]);
-    for (const row of update.items) missing.delete(row.transferId);
-    for (const id of update.removedTransferIds) if (requestedAdditional.has(id)) missing.add(id);
-    if (missing.size || this.missingMembers[direction].length)
-      this.missingMembers = { ...this.missingMembers, [direction]: [...missing] };
     const rows = membership ? mergeTransferHistory([], [...ids]
       .map(id => records.get(id)).filter((row): row is TransferStateDto => row !== undefined)) : current.items;
-    let summaries = update.groupSummaries?.items ?? current.summaries;
-    if (update.groupSummaries && pendingMembers.length) {
-      const pendingGroups = new Set(transferGroupKeys(direction, pendingMembers).map(transferGroupKeyId));
-      const included = new Set(summaries.map(summary => transferGroupKeyId(summary.key)));
-      summaries = [...summaries, ...current.summaries.filter(summary => pendingGroups.has(transferGroupKeyId(summary.key))
-        && !included.has(transferGroupKeyId(summary.key)))];
-    }
+    const summaries = update.groupSummaries?.items ?? current.summaries;
     this.timeline = { ...this.timeline, [direction]: {
       ...current, items: rows, coverage: update.retainedCoverage, cursor: update.nextCursor ?? null,
-      boundary: membership ? rows.find(row => row.transferId === update.boundaryTransferId) ?? null : current.boundary,
       summaries, summaryCoverage: update.groupSummaries?.retainedCoverage ?? current.summaryCoverage,
       summaryError: update.groupSummaries ? summaryFailure(update.groupSummaries) : current.summaryError,
       loading: update.windowTransferIds ? false : current.loading,
@@ -150,21 +138,14 @@ export class TransferTimelineController {
     return ids;
   }
 
-  registerMembers(direction: TransferDirection, rows: TransferStateDto[]): void {
-    for (const row of rows) {
-      const records = this.rows[direction];
-      const next = updatedTransfer(untrack(() => records.get(row.transferId)),
-        { transferId: row.transferId, revision: row.revision, added: row });
-      if (next) records.set(row.transferId, next);
-    }
-    const previous = this.additionalIds[direction];
-    const next = new Set(rows.map(row => row.transferId));
-    const changed = previous.size !== next.size || [...next].some(id => !previous.has(id));
-    this.additionalIds[direction] = next;
-    if (rows.length) this.timeline = { ...this.timeline, [direction]: {
-      ...this.timeline[direction], items: mergeTransferHistory(this.timeline[direction].items, rows),
-    } };
-    if (changed) this.scopeRevision[direction]++;
+  /** Show a folder's members beyond those the extent brought: one more page. */
+  expandGroup(direction: TransferDirection, username: string | null, groupRef: string, shown: number): void {
+    const key = transferGroupKeyId({ direction: direction === 'download' ? 'Download' : 'Upload', username, groupRef });
+    if (this.expandingGroups[direction].includes(key)) return;
+    this.expandedGroups[direction].set(key, { username, groupRef, memberLimit: shown + defaultPageSize });
+    this.expandingGroups = { ...this.expandingGroups, [direction]: [...this.expandingGroups[direction], key] };
+    if (this.connected && !this.observationFailed) this.scopeRevision[direction]++;
+    else void this.load(direction, true);
   }
 
   afterMutation(direction: TransferDirection): Promise<void> | void {
@@ -185,16 +166,16 @@ export class TransferTimelineController {
     this.stop(direction);
     this.httpRead[direction] = true;
     this.timeline = { ...this.timeline, [direction]: { ...this.timeline[direction], loading: true, error: null } };
-    const requestedAdditional = new Set(this.additionalIds[direction]);
     try {
       // HTTP and live observe the same newest-first extent. One read supplies
       // its rows/totals; a refresh needs no stale cursors or per-page merging.
       const page = await this.api.getTransferTimeline({
         direction: direction === 'download' ? 'Download' : 'Upload', limit,
-        additionalTransferIds: [...requestedAdditional], includeGroupSummaries: true,
+        includeGroupSummaries: true, folderCompletionLimit: nestedPageSize,
+        expandedGroups: [...this.expandedGroups[direction].values()],
       });
       this.pageLimit[direction] = limit;
-      this.applyUpdate(direction, page, new Set(), requestedAdditional);
+      this.applyUpdate(direction, page, new Set());
       if (this.activeDirection === null || this.activeDirection === direction) this.observationFailed = false;
     } catch (error) {
       this.timeline = { ...this.timeline, [direction]: { ...this.timeline[direction], loading: false, error: asError(error) } };

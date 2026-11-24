@@ -54,12 +54,12 @@ public class EngineSupervisorTests
             id,
             1,
             new TransferIdentityFieldsDto(null, null, "Download", "SoulseekPeer", "peer", "file", null),
-            new TransferStatusFieldsDto("InProgress", null, 1, false),
+            new TransferStatusFieldsDto(Sockseek.Api.TransferPhase.InProgress, null, 1, false),
             new TransferProgressFieldsDto(0, 100));
         TransferStateDto Terminal(Guid id) => Active(id) with
         {
             Status = new TransferStatusFieldsDto(
-                "Completed", null, 1, true, TransferTerminalOutcome.Succeeded),
+                Sockseek.Api.TransferPhase.Ended, null, 1, true, TransferTerminalOutcome.Succeeded),
         };
         var current = new Dictionary<Guid, TransferStateDto>
         {

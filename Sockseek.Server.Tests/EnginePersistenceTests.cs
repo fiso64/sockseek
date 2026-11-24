@@ -753,7 +753,7 @@ public sealed class EnginePersistenceTests
         events.RaiseTransferCompleted(secondTransferId, second, secondTarget, "C:/downloads/Second.bin", 20L, 1);
 
         var started = sink.Mutations.OfType<TransferPersistenceMutation>()
-            .Where(mutation => mutation.State == "Started").ToArray();
+            .Where(mutation => mutation.State == "Starting").ToArray();
         var completed = sink.Mutations.OfType<TransferTerminalPersistenceMutation>()
             .Select(mutation => mutation.Transfer).ToArray();
         Assert.AreEqual(2, started.Length);
@@ -786,7 +786,7 @@ public sealed class EnginePersistenceTests
         events.RaiseTransferCompleted(transferId, file, target, "C:/downloads/Root/Selected.bin", 12L, 1);
 
         var started = sink.Mutations.OfType<TransferPersistenceMutation>()
-            .Single(mutation => mutation.State == "Started");
+            .Single(mutation => mutation.State == "Starting");
         var completed = sink.Mutations.OfType<TransferTerminalPersistenceMutation>().Single().Transfer;
         Assert.AreEqual($"files:{directory.WorkflowId:D}:Root", started.GroupRef);
         Assert.AreEqual(started.GroupRef, completed.GroupRef);

@@ -1367,6 +1367,10 @@ namespace Tests.Cancellation
                     await WaitForAsync(engine, () => job.IsAwaitingSelection || job.IsUnsuccessfulTerminal);
                     var failedAlbum = (AlbumJob)job;
                     Assert.AreEqual(1, attempts, "A rejected explicit source must return control to the caller.");
+                    // Pins today's answer to the open question on Job.IsHandPicked:
+                    // interactive mode predates the daemon and web UI, and its pick
+                    // still ends the folder on a failed track and returns to the picker.
+                    Assert.IsFalse(job.IsHandPicked, "An interactive pick is not hand-picked.");
                     Assert.IsTrue(engine.TryStartManualAlbumSelection(job.Id,
                         failedAlbum.Results.Single(folder => folder.Username == "other-peer"), failedAlbum.Query, null, out _));
                     await WaitForAsync(engine, () => job.IsTerminal);

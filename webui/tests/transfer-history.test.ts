@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import type { TransferStateDto, Schema } from '../src/api/types';
-import { transferGroupMemberScope, transferGroupKeys, mergeTransferHistory, transferGroupCursor } from '../src/domains/transfers/history';
+import { transferGroupKeys, mergeTransferHistory } from '../src/domains/transfers/history';
 import { arrangeTransferGroups, presentTransferEntry, transferEntryActions, liveTransferPresentation, TransferProjection } from '../src/domains/transfers/model';
 import { runTransferCommands } from '../src/domains/transfers/commands';
 
@@ -23,7 +23,7 @@ function buildTransferGroups(
 it('collects exact group identities once across live/retained overlap and isolates direction', () => {
   const history = ['Peer', 'Peer', 'peer'].map(username => ({ revision: 1, transferId: 'fixture', createdAtUtc: '2026-09-10T00:00:00Z',
     identity: { source: 'SoulseekPeer', username: username, direction: 'Download', groupRef: 'Group' },
-    status: { attemptCount: 0, isTerminal: false, terminalOutcome: 'None', state: 'Queued', availableActions: [] },
+    status: { attemptCount: 0, isTerminal: false, terminalOutcome: 'None', phase: 'QueuedLocally', availableActions: [] },
     progress: { totalBytes: -1, bytesTransferred: 0 }
   }) as TransferStateDto);
   const live = [
@@ -43,38 +43,12 @@ it('collects exact group identities once across live/retained overlap and isolat
 
 });
 
-it('keeps an expanded folder valid when unrelated arrivals displace its global-page suffix', () => {
-  const row = (id: string, seconds: number, username = 'Peer') => ({ revision: 1,
-    transferId: id,
-    createdAtUtc: new Date(seconds * 1000).toISOString(),
-    identity: { source: 'SoulseekPeer', direction: 'Download', username: username, groupRef: 'group' },
-    status: { attemptCount: 0, isTerminal: false, terminalOutcome: 'None', state: 'Queued', availableActions: [] },
-    progress: { totalBytes: -1, bytesTransferred: 0 }
-  }) as TransferStateDto;
-  const summary = { key: { direction: 'Download', username: 'Peer', groupRef: 'group' },
-    fileCount: 4, knownTotalBytes: 40, unknownTotalCount: 0, queuedCount: 0, inProgressCount: 0,
-    succeededCount: 4, failedCount: 0, cancelledCount: 0, interruptedCount: 0,
-  } as Schema<'TransferGroupSummaryDto'>;
-  const cached = [row('d', 4), row('c', 3), row('b', 2), row('a', 1)];
-  expect(transferGroupCursor(cached.slice(0, 2), 'member', cached[2]!, 'global')).toBe('global');
-  expect(transferGroupCursor(cached, 'member', cached[2]!, 'global')).toBe('member');
-  expect(transferGroupCursor([], null, cached[2]!, 'global')).toBe('global');
-  const prefix = cached.slice(0, 2);
-  expect(transferGroupMemberScope(summary, cached, prefix))
-    .toBe(transferGroupMemberScope(summary, prefix, prefix));
-  const scope = transferGroupMemberScope(summary, prefix, cached);
-  expect(transferGroupMemberScope(summary, [row('other', 5, 'Other'), ...prefix], cached)).toBe(scope);
-  // A known member above the fresh boundary was removed, not simply displaced.
-  expect(transferGroupMemberScope(summary, [cached[0]!, cached[2]!], cached)).not.toBe(scope);
-  expect(transferGroupMemberScope({ ...summary, failedCount: 1 }, prefix, cached)).not.toBe(scope);
-});
-
 it('groups interleaved transfers by run identity independently of optional totals', () => {
   const rows = ['A', 'B', 'A'].map((groupRef, index) => ({ revision: 1,
     transferId: `transfer-${index}`,
     createdAtUtc: `2026-09-10T00:00:0${3 - index}Z`,
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: `${groupRef}\\file-${index}`, groupRef: groupRef, groupDisplayPath: groupRef },
-    status: { attemptCount: 0, availableActions: [], state: 'Queued', terminalOutcome: 'None', isTerminal: false },
+    status: { attemptCount: 0, availableActions: [], phase: 'QueuedLocally', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: 100, bytesTransferred: 0 }
   }) as TransferStateDto);
   for (const direction of ['download', 'upload'] as const) {
@@ -112,7 +86,7 @@ it.each(['download', 'upload'] as const)('sorts %s folder files by name while ke
     transferId,
     createdAtUtc: `2026-10-26T00:00:0${3 - index}Z`,
     identity: { source: 'SoulseekPeer', direction: direction === 'download' ? 'Download' : 'Upload', username: index === 2 ? 'Other' : 'Peer', remotePath: `Folder\\${index === 0 ? "10" : "2"} Track.flac`, groupRef: index === 2 ? null : 'folder' },
-    status: { attemptCount: 0, availableActions: [], state: 'Queued', terminalOutcome: 'None', isTerminal: false },
+    status: { attemptCount: 0, availableActions: [], phase: 'QueuedLocally', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: 100, bytesTransferred: 0 }
   }) as TransferStateDto);
   const projection = new TransferProjection();
@@ -121,7 +95,7 @@ it.each(['download', 'upload'] as const)('sorts %s folder files by name while ke
   const live = { createdAtUtc: '2026-09-10T00:00:00Z',
     transferId: 'one', revision: 2,
     identity: { source: 'SoulseekPeer', direction: direction === 'download' ? 'Download' : 'Upload', username: 'Peer', remotePath: 'Folder\\10 Track.flac', groupRef: 'folder' },
-    status: { attemptCount: 0, state: 'InProgress', isTerminal: false, terminalOutcome: 'None', availableActions: [{ kind: 'cancel' }] },
+    status: { attemptCount: 0, phase: 'InProgress', isTerminal: false, terminalOutcome: 'None', availableActions: [{ kind: 'cancel' }] },
     progress: { bytesTransferred: 50, totalBytes: 100, bytesPerSecond: 10 },
   } as TransferStateDto;
   const read = vi.fn((id: string) => id === 'one' ? live : undefined);
@@ -135,7 +109,7 @@ it.each(['download', 'upload'] as const)('sorts %s folder files by name while ke
   const finished = rows.map(row => ({
     ...row,
     revision: 3,
-    status: { ...row.status, state: 'Completed', terminalOutcome: 'Succeeded' as const, isTerminal: true },
+    status: { ...row.status, phase: 'Ended' as const, terminalOutcome: 'Succeeded' as const, isTerminal: true },
     progress: { ...row.progress, bytesTransferred: 100 }
   }));
   const after = arrangeTransferGroups([...finished].reverse(), direction, [], projection);
@@ -150,7 +124,7 @@ it('does not merge an unknown peer with a literal peer named Unknown peer', () =
     transferId: `identity-${index}`,
     createdAtUtc: `2026-09-10T00:00:0${2 - index}Z`,
     identity: { source: 'SoulseekPeer', direction: 'Download', username: username, remotePath: `file-${index}.bin` },
-    status: { attemptCount: 0, availableActions: [], state: 'Completed', terminalOutcome: 'Succeeded' as const, isTerminal: true },
+    status: { attemptCount: 0, availableActions: [], phase: 'Ended', terminalOutcome: 'Succeeded' as const, isTerminal: true },
     progress: { totalBytes: 1, bytesTransferred: 1 }
   })) as TransferStateDto[];
   const groups = buildTransferGroups(rows, [], 'download');
@@ -164,7 +138,7 @@ it.each(['download', 'upload'] as const)('uses whole-group totals for single-fil
     transferId: 'single',
     createdAtUtc: '2026-09-10T00:00:00Z',
     identity: { source: 'SoulseekPeer', direction: wireDirection, username: 'Peer', remotePath: 'Shared\\Solo.txt', groupKind: 'Files', groupRef: 'shared-folder', groupDisplayPath: 'Shared' },
-    status: { attemptCount: 0, availableActions: [], state: 'InProgress', terminalOutcome: 'None', isTerminal: false },
+    status: { attemptCount: 0, availableActions: [], phase: 'InProgress', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: 100, bytesTransferred: 50 }
   } as TransferStateDto;
   const summary = (fileCount: number) => ({
@@ -184,14 +158,14 @@ it('shows transfer speed only while a file is active, even if a terminal snapsho
     transferId: 'speed',
     identity: { source: 'SoulseekPeer', direction: 'Upload', username: 'Peer', remotePath: 'Shared\\File.txt' },
     progress: { totalBytes: 128, bytesTransferred: 64, bytesPerSecond: 128 },
-    status: { attemptCount: 0, state: 'InProgress', isTerminal: false, terminalOutcome: 'None' },
+    status: { attemptCount: 0, phase: 'InProgress', isTerminal: false, terminalOutcome: 'None' },
     scheduling: { requestedAtUtc: '2026-09-10T00:00:00Z', startedAtUtc: '2026-09-10T00:00:00Z' },
   } as unknown as TransferStateDto;
   expect(liveTransferPresentation(live).speed).toBe('128 B/s');
   expect(liveTransferPresentation(live)).toMatchObject({ state: 'Uploading', progressText: '50%' });
   const finalizing = liveTransferPresentation({ ...live,
     identity: { ...live.identity, direction: 'Download' },
-    status: { ...live.status, state: 'AttemptCompleted' },
+    status: { ...live.status, phase: 'Finalizing' },
     progress: { ...live.progress, bytesTransferred: 128 },
   });
   expect(finalizing.state).toBe('Finalizing');
@@ -200,7 +174,7 @@ it('shows transfer speed only while a file is active, even if a terminal snapsho
 
   const completed = { ...live,
     progress: { ...live.progress, bytesTransferred: 128 },
-    status: { ...live.status, state: 'Completed', isTerminal: true, terminalOutcome: 'Succeeded' },
+    status: { ...live.status, phase: 'Ended', isTerminal: true, terminalOutcome: 'Succeeded' },
   } as TransferStateDto;
   expect(liveTransferPresentation(completed).speed).toBeUndefined();
 
@@ -208,7 +182,7 @@ it('shows transfer speed only while a file is active, even if a terminal snapsho
     transferId: 'speed',
     createdAtUtc: '2026-09-10T00:00:00Z',
     identity: { source: 'SoulseekPeer', direction: 'Upload', username: 'Peer', remotePath: 'Shared\\File.txt' },
-    status: { attemptCount: 0, availableActions: [], state: 'InProgress', terminalOutcome: 'None', isTerminal: false },
+    status: { attemptCount: 0, availableActions: [], phase: 'InProgress', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: 128, bytesTransferred: 64, bytesPerSecond: 128 },
     scheduling: { requestedAtUtc: '2026-09-10T00:00:00Z', startedAtUtc: '2026-09-10T00:00:00Z' }
   } as TransferStateDto;
@@ -216,7 +190,7 @@ it('shows transfer speed only while a file is active, even if a terminal snapsho
   expect(buildTransferGroups([retained], [], 'upload')[0]!.items[0]!.transfer).toMatchObject({ state: 'Uploading', progressText: '50%' });
   const historical = {
     ...retained,
-    status: { ...retained.status, state: 'Completed', terminalOutcome: 'Succeeded' as const, isTerminal: true, completedAtUtc: '2026-09-10T00:00:01Z' },
+    status: { ...retained.status, phase: 'Ended', terminalOutcome: 'Succeeded' as const, isTerminal: true, completedAtUtc: '2026-09-10T00:00:01Z' },
     progress: { ...retained.progress, bytesTransferred: 128 }
   } as TransferStateDto;
   expect(buildTransferGroups([historical], [], 'upload')[0]!.items[0]!.transfer.speed).toBeUndefined();
@@ -228,7 +202,7 @@ it('uses one live and retained active-download label and byte-plus-percent foote
     transferId: 'download',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\Track.flac' },
     progress: { totalBytes: 1_000_000, bytesTransferred: 500_000, bytesPerSecond: 250_000 },
-    status: { attemptCount: 0, state: 'InProgress', isTerminal: false, terminalOutcome: 'None' },
+    status: { attemptCount: 0, phase: 'InProgress', isTerminal: false, terminalOutcome: 'None' },
     scheduling: { requestedAtUtc: '2026-09-10T00:00:00Z', startedAtUtc: '2026-09-10T00:00:00Z' },
   } as unknown as TransferStateDto;
   expect(liveTransferPresentation(live)).toMatchObject({
@@ -238,7 +212,7 @@ it('uses one live and retained active-download label and byte-plus-percent foote
     transferId: 'download',
     createdAtUtc: '2026-09-10T00:00:00Z',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\Track.flac' },
-    status: { attemptCount: 0, availableActions: [], state: 'InProgress', terminalOutcome: 'None', isTerminal: false },
+    status: { attemptCount: 0, availableActions: [], phase: 'InProgress', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: 1_000_000, bytesTransferred: 500_000 },
     scheduling: { requestedAtUtc: '2026-09-10T00:00:00Z', startedAtUtc: '2026-09-10T00:00:00Z' }
   } as TransferStateDto;
@@ -251,22 +225,21 @@ it('keeps a resumed partially transferred file queued when its current owner sta
   const live = { revision: 1, createdAtUtc: '2026-09-10T00:00:00Z',
     transferId: 'retry', identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\Track.flac' },
     progress: { totalBytes: 1_000_000, bytesTransferred: 500_000, bytesPerSecond: 250_000 },
-    status: { attemptCount: 0, state: 'Queued (R)', isTerminal: false, terminalOutcome: 'None' },
+    status: { attemptCount: 2, queuePosition: 3, phase: 'QueuedRemotely', isTerminal: false, terminalOutcome: 'None' },
     scheduling: { requestedAtUtc: '2026-09-10T00:00:00Z', startedAtUtc: '2026-09-10T00:00:00Z' },
   } as unknown as TransferStateDto;
-  expect(liveTransferPresentation(live)).toMatchObject({ state: 'Queued (R)', tone: 'queued' });
+  expect(liveTransferPresentation(live)).toMatchObject({ state: 'Queued remotely', tone: 'queued', queuePosition: 3, attempt: 2 });
   expect(liveTransferPresentation(live).speed).toBeUndefined();
   const retained = { revision: 1,
     transferId: 'retry',
     createdAtUtc: '2026-09-10T00:00:00Z',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\Track.flac' },
-    status: { attemptCount: 0, availableActions: [], state: 'Queued (R)', terminalOutcome: 'None', isTerminal: false },
+    status: { attemptCount: 0, availableActions: [], phase: 'QueuedRemotely', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: 1_000_000, bytesTransferred: 500_000, bytesPerSecond: 250_000 },
     scheduling: { requestedAtUtc: '2026-09-10T00:00:00Z', startedAtUtc: '2026-09-10T00:00:00Z' }
   } as TransferStateDto;
-  expect(buildTransferGroups([retained], [], 'download')[0]!.items[0]!.transfer).toMatchObject({ state: 'Queued (R)', tone: 'queued' });
+  expect(buildTransferGroups([retained], [], 'download')[0]!.items[0]!.transfer).toMatchObject({ state: 'Queued remotely', tone: 'queued' });
   expect(buildTransferGroups([retained], [], 'download')[0]!.items[0]!.transfer.speed).toBeUndefined();
-  expect(buildTransferGroups([retained], [], 'download')[0]!.items[0]!.transfer.progressText).toBe('Waiting for peer');
 });
 
 it('shows the same standalone completion time before and after persistence without repeating its byte total', () => {
@@ -274,7 +247,7 @@ it('shows the same standalone completion time before and after persistence witho
     transferId: 'done',
     createdAtUtc: '2026-09-10T00:00:00Z',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\Track.flac' },
-    status: { attemptCount: 0, availableActions: [], completedAtUtc: '2026-09-10T00:01:00Z', state: 'Completed', terminalOutcome: 'Succeeded' as const, isTerminal: true },
+    status: { attemptCount: 0, availableActions: [], completedAtUtc: '2026-09-10T00:01:00Z', phase: 'Ended', terminalOutcome: 'Succeeded' as const, isTerminal: true },
     progress: { totalBytes: 1_000_000, bytesTransferred: 1_000_000 }
   } as TransferStateDto;
   expect(buildTransferGroups([row], [], 'download')[0]!.items[0]!.transfer).toMatchObject({
@@ -285,14 +258,14 @@ it('shows the same standalone completion time before and after persistence witho
   const live = { revision: 1, createdAtUtc: '2026-09-10T00:00:00Z',
     transferId: 'done', identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\Track.flac' },
     progress: { totalBytes: 1_000_000, bytesTransferred: 1_000_000, bytesPerSecond: 0 },
-    status: { attemptCount: 0, state: 'Completed', isTerminal: true, terminalOutcome: 'Succeeded' },
+    status: { attemptCount: 0, phase: 'Ended', isTerminal: true, terminalOutcome: 'Succeeded' },
   } as unknown as TransferStateDto;
   expect(liveTransferPresentation(live).progressText).toBe('Complete');
   const terminal = { ...live, status: { ...live.status, completedAtUtc: row.status.completedAtUtc } };
   expect(buildTransferGroups([], [terminal], 'download')[0]!.items[0]!.transfer)
     .toMatchObject({ completedAt: row.status.completedAtUtc, progressPercent: 100, tone: 'complete' });
   expect(liveTransferPresentation(terminal).progressText).toBeUndefined();
-  const failed = { ...live, status: { ...live.status, state: 'Failed', terminalOutcome: 'Failed' as const,
+  const failed = { ...live, status: { ...live.status, phase: 'Ended' as const, terminalOutcome: 'Failed' as const,
     failureMessage: 'Peer connection closed.' } };
   expect(liveTransferPresentation(failed)).toMatchObject({ tone: 'failed', detail: 'Peer connection closed.' });
 });
@@ -322,7 +295,7 @@ it('weights grouped transfer progress by bytes and leaves it unknown when a file
     transferId,
     createdAtUtc: '2026-09-10T00:00:00Z',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: `Folder\\${transferId}`, groupRef: 'directory', groupDisplayPath: 'Folder' },
-    status: { attemptCount: 0, availableActions: [], state: 'InProgress', terminalOutcome: 'None', isTerminal: false },
+    status: { attemptCount: 0, availableActions: [], phase: 'InProgress', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: (totalBytes) ?? -1, bytesTransferred: transferredBytes }
   }) as TransferStateDto;
   const small = file('small', 100, 100);
@@ -339,7 +312,7 @@ it('uses whole-group totals and status when only one folder member is loaded', (
     transferId: 'finished',
     createdAtUtc: '2026-09-10T00:00:00Z',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\finished.bin', groupRef: 'directory', groupDisplayPath: 'Folder' },
-    status: { attemptCount: 0, availableActions: [], state: 'Completed', terminalOutcome: 'Succeeded' as const, isTerminal: true },
+    status: { attemptCount: 0, availableActions: [], phase: 'Ended', terminalOutcome: 'Succeeded' as const, isTerminal: true },
     progress: { totalBytes: 100, bytesTransferred: 100 }
   } as TransferStateDto;
   const summary = {
@@ -363,7 +336,7 @@ it('uses the exact completed-folder count even when its member page is partial',
     transferId: 'finished',
     createdAtUtc: '2026-09-10T00:00:00Z',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\finished.bin', groupRef: 'directory', groupDisplayPath: 'Folder' },
-    status: { attemptCount: 0, availableActions: [], completedAtUtc: '2026-09-10T00:01:00Z', state: 'Completed', terminalOutcome: 'Succeeded' as const, isTerminal: true },
+    status: { attemptCount: 0, availableActions: [], completedAtUtc: '2026-09-10T00:01:00Z', phase: 'Ended', terminalOutcome: 'Succeeded' as const, isTerminal: true },
     progress: { totalBytes: 100, bytesTransferred: 100 }
   } as TransferStateDto;
   const summary = {
@@ -384,7 +357,7 @@ it('estimates folder time from unfinished active bytes, excluding failed members
     transferId: 'failed',
     createdAtUtc: '2026-09-10T00:00:00Z',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\failed.bin', groupRef: 'directory', groupDisplayPath: 'Folder' },
-    status: { attemptCount: 0, availableActions: [], state: 'Failed', terminalOutcome: 'Failed', isTerminal: true },
+    status: { attemptCount: 0, availableActions: [], phase: 'Ended', terminalOutcome: 'Failed', isTerminal: true },
     progress: { totalBytes: 100, bytesTransferred: 0 }
   } as TransferStateDto;
   const summary = {
@@ -407,7 +380,7 @@ it('does not invent a timestamp or audio properties for a live transfer with mis
     transferId: 'live',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\File.txt' },
     progress: { totalBytes: 128, bytesTransferred: 0, bytesPerSecond: 0 },
-    status: { attemptCount: 0, state: 'Queued', isTerminal: false },
+    status: { attemptCount: 0, phase: 'QueuedLocally', isTerminal: false },
     scheduling: null,
     file: { name: 'File.txt', size: 128, bitRate: null, bitDepth: null, sampleRate: null, length: null },
   } as unknown as TransferStateDto;
@@ -419,7 +392,7 @@ it('does not invent a timestamp or audio properties for a live transfer with mis
     createdAtUtc: '2026-09-10T00:00:00Z',
     scheduling: { requestedAtUtc: '2026-09-10T00:00:00Z', startedAtUtc: null },
     identity: { source: 'SoulseekPeer', direction: 'Download' },
-    status: { attemptCount: 0, availableActions: [], state: 'Queued', terminalOutcome: 'None', isTerminal: false },
+    status: { attemptCount: 0, availableActions: [], phase: 'QueuedLocally', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: -1, bytesTransferred: 0 }
   } as TransferStateDto;
   expect(buildTransferGroups([retained], [], 'download')[0]!.items[0]!.transfer.createdAt).toBe(retained.createdAtUtc);
@@ -430,7 +403,7 @@ it('keeps unknown transfer file sizes absent while preserving valid zero and kno
     transferId: 'unknown-size',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\Unknown.txt' },
     progress: { totalBytes: -1, bytesTransferred: 64, bytesPerSecond: 0 },
-    status: { attemptCount: 0, state: 'InProgress', isTerminal: false },
+    status: { attemptCount: 0, phase: 'InProgress', isTerminal: false },
     file: { name: 'Unknown.txt', size: null },
   } as unknown as TransferStateDto;
   const unknown = buildTransferGroups([], [live], 'download')[0]!.items[0]!;
@@ -458,7 +431,7 @@ it('keeps unknown transfer file sizes absent while preserving valid zero and kno
     transferId: 'retained-unknown',
     createdAtUtc: '2026-09-10T00:00:00Z',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Folder\\Retained.txt' },
-    status: { attemptCount: 0, availableActions: [], state: 'Queued', terminalOutcome: 'None', isTerminal: false },
+    status: { attemptCount: 0, availableActions: [], phase: 'QueuedLocally', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: -1, bytesTransferred: 0 }
   } as TransferStateDto;
   const historical = buildTransferGroups([retained], [], 'download')[0]!.items[0]!;
@@ -478,7 +451,7 @@ it('projects fresh immutable snapshots even when a replacement keeps its revisio
     revision: 1,
     createdAtUtc: '2026-10-24T02:00:00Z',
     identity: { source: 'SoulseekPeer', username: 'Peer', direction: 'Download', groupRef: 'group', groupDisplayPath: 'Folder', remotePath: 'Folder\\one.bin' },
-    status: { attemptCount: 0, availableActions: [], state: 'InProgress', terminalOutcome: 'None', isTerminal: false },
+    status: { attemptCount: 0, availableActions: [], phase: 'InProgress', terminalOutcome: 'None', isTerminal: false },
     progress: { totalBytes: 100, bytesTransferred: 25 }
   } as TransferStateDto;
   const two = {
@@ -521,7 +494,7 @@ it('orders transfer cards by time when UTC timestamps have different fractional 
     transferId,
     createdAtUtc,
     identity: { source: 'SoulseekPeer', username: 'Peer', direction: 'Download', remotePath: `${transferId}.bin` },
-    status: { attemptCount: 0, availableActions: [], state: 'Completed', terminalOutcome: 'Succeeded' as const, isTerminal: true },
+    status: { attemptCount: 0, availableActions: [], phase: 'Ended', terminalOutcome: 'Succeeded' as const, isTerminal: true },
     progress: { totalBytes: 1, bytesTransferred: 1 }
   })) as TransferStateDto[];
   expect(buildTransferGroups(rows, [], 'download')[0]!.items.map(item => item.path))
@@ -534,7 +507,7 @@ it('keeps peer sections stable when arrivals change their first card or position
     transferId,
     createdAtUtc: new Date(second * 1000).toISOString(),
     identity: { source: 'SoulseekPeer', username: username, direction: 'Download', remotePath: `${transferId}.bin` },
-    status: { attemptCount: 0, availableActions: [], state: 'Completed', terminalOutcome: 'Succeeded' as const, isTerminal: true },
+    status: { attemptCount: 0, availableActions: [], phase: 'Ended', terminalOutcome: 'Succeeded' as const, isTerminal: true },
     progress: { totalBytes: -1, bytesTransferred: 0 }
   }) as TransferStateDto;
   const old = row('old', 'Peer', 1);
@@ -559,7 +532,7 @@ it('merges exact changes without hiding fetched rows, losing order or regressing
     createdAtUtc: new Date(seconds * 1000).toISOString(),
     revision,
     identity: {direction: 'Download',  source: 'SoulseekPeer' },
-    status: { attemptCount: 0, isTerminal: false, terminalOutcome: 'None', state: 'Queued', availableActions: [] },
+    status: { attemptCount: 0, isTerminal: false, terminalOutcome: 'None', phase: 'QueuedLocally', availableActions: [] },
     progress: { totalBytes: -1, bytesTransferred: 0 }
   }) as TransferStateDto;
   const previous = [row('recent', 4), row('changed', 3, 4), row('removed', 2)];
@@ -582,13 +555,13 @@ it.each(['live', 'retained'])('renders planned nested paths for a custom directo
     revision: 1,
     createdAtUtc: '2026-10-25T00:00:00Z',
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', remotePath: 'Shares\\Album\\Artwork\\cover.jpg', groupRef: 'selection', groupDisplayPath: 'My selection', groupRelativePath: 'Artwork/cover.jpg' },
-    status: { attemptCount: 0, availableActions: [], state: 'Completed', terminalOutcome: 'Succeeded' as const, isTerminal: true },
+    status: { attemptCount: 0, availableActions: [], phase: 'Ended', terminalOutcome: 'Succeeded' as const, isTerminal: true },
     progress: { totalBytes: 10, bytesTransferred: 10 }
   } as TransferStateDto;
   const live = { createdAtUtc: '2026-09-10T00:00:00Z',  transferId: history.transferId, revision: 1,
     identity: { direction: history.identity.direction, source: "SoulseekPeer", username: history.identity.username, remotePath: history.identity.remotePath,
       groupRef: history.identity.groupRef, groupDisplayPath: history.identity.groupDisplayPath, groupRelativePath: history.identity.groupRelativePath },
-    status: { state: 'Completed', attemptCount: 1, isTerminal: true, terminalOutcome: 'Succeeded', availableActions: [] },
+    status: { phase: 'Ended', attemptCount: 1, isTerminal: true, terminalOutcome: 'Succeeded', availableActions: [] },
     progress: { totalBytes: 10, bytesTransferred: 10 }, scheduling: { requestedAtUtc: history.createdAtUtc },
   } as TransferStateDto;
   const folder = buildTransferGroups(source === 'retained' ? [history] : [], source === 'live' ? [live] : [], 'download')[0]!.items[0]!;
@@ -605,7 +578,7 @@ it('groups fallback providers independently and presents their titles without in
     transferId: String(index), revision: 1, createdAtUtc: new Date(index).toISOString(),
     identity: { direction: 'Download', source: 'Fallback', username: null, remotePath: 'opaque-id',
       fallback: { provider, title: 'Source title', reference: 'opaque-id' } },
-    status: { state: 'AttemptStarted', isTerminal: false, attemptCount: 1 },
+    status: { phase: 'Starting', isTerminal: false, attemptCount: 1 },
     scheduling: { requestedAtUtc: new Date(0).toISOString(), startedAtUtc: new Date(0).toISOString() },
     progress: { bytesTransferred: 0, totalBytes: 0 },
   }));
@@ -616,6 +589,6 @@ it('groups fallback providers independently and presents their titles without in
     expect(group.username).toBeNull();
     expect(group.items[0]).toMatchObject({ path: 'Source title', transfer: { state: 'Running fallback' } });
   }
-  expect(liveTransferPresentation({ ...rows[0]!, status: { ...rows[0]!.status, state: 'AttemptCompleted' } }).state)
+  expect(liveTransferPresentation({ ...rows[0]!, status: { ...rows[0]!.status, phase: 'Finalizing' } }).state)
     .toBe('Finalizing');
 });

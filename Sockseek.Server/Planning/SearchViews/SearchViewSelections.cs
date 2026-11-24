@@ -709,7 +709,8 @@ public sealed class SearchViewSelections
             reasons.OrderBy(pair => pair.Key.Reason, StringComparer.Ordinal)
                 .ThenBy(pair => pair.Key.Message, StringComparer.Ordinal)
                 .Select(pair => new SubmissionReasonCountDto(pair.Key.Reason, pair.Value, pair.Key.Message))
-                .ToArray());
+                .ToArray(),
+            root.Count == 1 ? acceptedRoot.Id : null);
         if (root.Count > 0)
         {
             await submissions.AcceptSearchSelectionAsync(

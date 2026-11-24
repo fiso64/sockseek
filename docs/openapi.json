@@ -7099,7 +7099,7 @@
           "Submissions"
         ],
         "summary": "Reruns a submission from its retained normalized command and effective settings.",
-        "description": "Current credentials are rebound only for retained credential slots. Current defaults and profiles do not replace the retained root settings.",
+        "description": "Current credentials are rebound only for retained credential slots. Current defaults and profiles do not replace the retained root settings. With extractAgain, sources are read as they are now instead of replaying the items captured at acceptance.",
         "parameters": [
           {
             "name": "submissionId",
@@ -7108,6 +7108,13 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "extractAgain",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -7161,6 +7168,13 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "extractAgain",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -7170,6 +7184,68 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JobSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
+    "/api/jobs/{jobId}/rerun-draft": {
+      "get": {
+        "tags": [
+          "Job Submission"
+        ],
+        "summary": "Reads one accepted job's request back as a draft to change and submit again.",
+        "description": "Settings are given as selected profiles plus the difference from what they resolve to now. Edits made to individual items during review are not included.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRerunDraftDto"
                 }
               }
             }
@@ -9099,7 +9175,7 @@
             }
           },
           {
-            "name": "state",
+            "name": "phase",
             "in": "query",
             "schema": {
               "type": "string"
@@ -13539,6 +13615,13 @@
             "items": {
               "$ref": "#/components/schemas/SubmissionReasonCountDto"
             }
+          },
+          "jobId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -18980,14 +19063,25 @@
                         },
                         "status": {
                           "required": [
-                            "state",
+                            "phase",
                             "attemptCount",
                             "isTerminal"
                           ],
                           "type": "object",
                           "properties": {
-                            "state": {
-                              "type": "string"
+                            "phase": {
+                              "enum": [
+                                "Starting",
+                                "QueuedLocally",
+                                "Requested",
+                                "QueuedRemotely",
+                                "QueuedForPeer",
+                                "Initializing",
+                                "InProgress",
+                                "Finalizing",
+                                "Retrying",
+                                "Ended"
+                              ]
                             },
                             "localPath": {
                               "type": [
@@ -19037,6 +19131,7 @@
                               "enum": [
                                 "None",
                                 "User",
+                                "OwningJob",
                                 "Peer",
                                 "DaemonShutdown",
                                 "CatalogInvalidation"
@@ -19062,6 +19157,15 @@
                                 "string"
                               ],
                               "format": "date-time"
+                            },
+                            "queuePosition": {
+                              "pattern": "^-?(?:0|[1-9]\\d*)$",
+                              "type": [
+                                "null",
+                                "integer",
+                                "string"
+                              ],
+                              "format": "int32"
                             },
                             "availableActions": {
                               "anyOf": [
@@ -19254,14 +19358,25 @@
                     },
                     "status": {
                       "required": [
-                        "state",
+                        "phase",
                         "attemptCount",
                         "isTerminal"
                       ],
                       "type": "object",
                       "properties": {
-                        "state": {
-                          "type": "string"
+                        "phase": {
+                          "enum": [
+                            "Starting",
+                            "QueuedLocally",
+                            "Requested",
+                            "QueuedRemotely",
+                            "QueuedForPeer",
+                            "Initializing",
+                            "InProgress",
+                            "Finalizing",
+                            "Retrying",
+                            "Ended"
+                          ]
                         },
                         "localPath": {
                           "type": [
@@ -19311,6 +19426,7 @@
                           "enum": [
                             "None",
                             "User",
+                            "OwningJob",
                             "Peer",
                             "DaemonShutdown",
                             "CatalogInvalidation"
@@ -19336,6 +19452,15 @@
                             "string"
                           ],
                           "format": "date-time"
+                        },
+                        "queuePosition": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
                         },
                         "availableActions": {
                           "anyOf": [
@@ -20862,12 +20987,6 @@
               "$ref": "#/components/schemas/ResourceActionDto"
             }
           },
-          "transferState": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "cancellationSource": {
             "$ref": "#/components/schemas/ServerJobCancellationSource"
           },
@@ -21390,6 +21509,42 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "canExtractAgain": {
+            "type": "boolean",
+            "default": false
+          },
+          "canEditAgain": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "JobRerunDraftDto": {
+        "required": [
+          "job",
+          "profileNames"
+        ],
+        "type": "object",
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/JobDraftDto"
+          },
+          "profileNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "downloadSettings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DownloadSettingsPatchDto"
+              }
+            ]
           }
         }
       },
@@ -22660,6 +22815,67 @@
                 "$ref": "#/components/schemas/CollectionPatchDtoOfRegexRuleDto"
               }
             ]
+          }
+        }
+      },
+      "ProcessMemoryDto": {
+        "required": [
+          "residentBytes",
+          "peakResidentBytes"
+        ],
+        "type": "object",
+        "properties": {
+          "residentBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "peakResidentBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "heapBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "runtimeBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "mappedFileBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "swappedBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -24823,6 +25039,16 @@
               },
               {
                 "$ref": "#/components/schemas/LocalUserProfileDto"
+              }
+            ]
+          },
+          "memory": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProcessMemoryDto"
               }
             ]
           }
@@ -27400,14 +27626,25 @@
                     },
                     "status": {
                       "required": [
-                        "state",
+                        "phase",
                         "attemptCount",
                         "isTerminal"
                       ],
                       "type": "object",
                       "properties": {
-                        "state": {
-                          "type": "string"
+                        "phase": {
+                          "enum": [
+                            "Starting",
+                            "QueuedLocally",
+                            "Requested",
+                            "QueuedRemotely",
+                            "QueuedForPeer",
+                            "Initializing",
+                            "InProgress",
+                            "Finalizing",
+                            "Retrying",
+                            "Ended"
+                          ]
                         },
                         "localPath": {
                           "type": [
@@ -27457,6 +27694,7 @@
                           "enum": [
                             "None",
                             "User",
+                            "OwningJob",
                             "Peer",
                             "DaemonShutdown",
                             "CatalogInvalidation"
@@ -27482,6 +27720,15 @@
                             "string"
                           ],
                           "format": "date-time"
+                        },
+                        "queuePosition": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
                         },
                         "availableActions": {
                           "anyOf": [
@@ -27674,14 +27921,25 @@
                 },
                 "status": {
                   "required": [
-                    "state",
+                    "phase",
                     "attemptCount",
                     "isTerminal"
                   ],
                   "type": "object",
                   "properties": {
-                    "state": {
-                      "type": "string"
+                    "phase": {
+                      "enum": [
+                        "Starting",
+                        "QueuedLocally",
+                        "Requested",
+                        "QueuedRemotely",
+                        "QueuedForPeer",
+                        "Initializing",
+                        "InProgress",
+                        "Finalizing",
+                        "Retrying",
+                        "Ended"
+                      ]
                     },
                     "localPath": {
                       "type": [
@@ -27731,6 +27989,7 @@
                       "enum": [
                         "None",
                         "User",
+                        "OwningJob",
                         "Peer",
                         "DaemonShutdown",
                         "CatalogInvalidation"
@@ -27756,6 +28015,15 @@
                         "string"
                       ],
                       "format": "date-time"
+                    },
+                    "queuePosition": {
+                      "pattern": "^-?(?:0|[1-9]\\d*)$",
+                      "type": [
+                        "null",
+                        "integer",
+                        "string"
+                      ],
+                      "format": "int32"
                     },
                     "availableActions": {
                       "anyOf": [
@@ -30564,14 +30832,25 @@
                         },
                         "status": {
                           "required": [
-                            "state",
+                            "phase",
                             "attemptCount",
                             "isTerminal"
                           ],
                           "type": "object",
                           "properties": {
-                            "state": {
-                              "type": "string"
+                            "phase": {
+                              "enum": [
+                                "Starting",
+                                "QueuedLocally",
+                                "Requested",
+                                "QueuedRemotely",
+                                "QueuedForPeer",
+                                "Initializing",
+                                "InProgress",
+                                "Finalizing",
+                                "Retrying",
+                                "Ended"
+                              ]
                             },
                             "localPath": {
                               "type": [
@@ -30621,6 +30900,7 @@
                               "enum": [
                                 "None",
                                 "User",
+                                "OwningJob",
                                 "Peer",
                                 "DaemonShutdown",
                                 "CatalogInvalidation"
@@ -30646,6 +30926,15 @@
                                 "string"
                               ],
                               "format": "date-time"
+                            },
+                            "queuePosition": {
+                              "pattern": "^-?(?:0|[1-9]\\d*)$",
+                              "type": [
+                                "null",
+                                "integer",
+                                "string"
+                              ],
+                              "format": "int32"
                             },
                             "availableActions": {
                               "anyOf": [
@@ -30838,14 +31127,25 @@
                     },
                     "status": {
                       "required": [
-                        "state",
+                        "phase",
                         "attemptCount",
                         "isTerminal"
                       ],
                       "type": "object",
                       "properties": {
-                        "state": {
-                          "type": "string"
+                        "phase": {
+                          "enum": [
+                            "Starting",
+                            "QueuedLocally",
+                            "Requested",
+                            "QueuedRemotely",
+                            "QueuedForPeer",
+                            "Initializing",
+                            "InProgress",
+                            "Finalizing",
+                            "Retrying",
+                            "Ended"
+                          ]
                         },
                         "localPath": {
                           "type": [
@@ -30895,6 +31195,7 @@
                           "enum": [
                             "None",
                             "User",
+                            "OwningJob",
                             "Peer",
                             "DaemonShutdown",
                             "CatalogInvalidation"
@@ -30920,6 +31221,15 @@
                             "string"
                           ],
                           "format": "date-time"
+                        },
+                        "queuePosition": {
+                          "pattern": "^-?(?:0|[1-9]\\d*)$",
+                          "type": [
+                            "null",
+                            "integer",
+                            "string"
+                          ],
+                          "format": "int32"
                         },
                         "availableActions": {
                           "anyOf": [
@@ -32615,6 +32925,7 @@
         "enum": [
           "None",
           "User",
+          "OwningJob",
           "Peer",
           "DaemonShutdown",
           "CatalogInvalidation"
@@ -32814,6 +33125,32 @@
           "LocalStorageError"
         ],
         "default": "None"
+      },
+      "TransferGroupExtentDto": {
+        "required": [
+          "groupRef",
+          "memberLimit"
+        ],
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "groupRef": {
+            "type": "string"
+          },
+          "memberLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
       },
       "TransferGroupKeyDto": {
         "required": [
@@ -33137,6 +33474,20 @@
           }
         }
       },
+      "TransferPhase": {
+        "enum": [
+          "Starting",
+          "QueuedLocally",
+          "Requested",
+          "QueuedRemotely",
+          "QueuedForPeer",
+          "Initializing",
+          "InProgress",
+          "Finalizing",
+          "Retrying",
+          "Ended"
+        ]
+      },
       "TransferProgressFieldsDto": {
         "required": [
           "bytesTransferred",
@@ -33344,14 +33695,14 @@
       },
       "TransferStatusFieldsDto": {
         "required": [
-          "state",
+          "phase",
           "attemptCount",
           "isTerminal"
         ],
         "type": "object",
         "properties": {
-          "state": {
-            "type": "string"
+          "phase": {
+            "$ref": "#/components/schemas/TransferPhase"
           },
           "localPath": {
             "type": [
@@ -33398,6 +33749,15 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "queuePosition": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           },
           "availableActions": {
             "anyOf": [
@@ -33502,19 +33862,27 @@
               "string"
             ]
           },
-          "additionalTransferIds": {
+          "includeGroupSummaries": {
+            "type": "boolean",
+            "default": false
+          },
+          "folderCompletionLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 80
+          },
+          "expandedGroups": {
             "type": [
               "null",
               "array"
             ],
             "items": {
-              "type": "string",
-              "format": "uuid"
+              "$ref": "#/components/schemas/TransferGroupExtentDto"
             }
-          },
-          "includeGroupSummaries": {
-            "type": "boolean",
-            "default": false
           }
         }
       },

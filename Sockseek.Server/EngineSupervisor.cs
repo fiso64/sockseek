@@ -297,8 +297,8 @@ public sealed class EngineSupervisor : IDisposable
                     transfer.Identity.GroupRef, request.GroupRef, StringComparison.Ordinal))
                 && request.Scope switch
                 {
-                    TransferCancellationScope.Queued => TransferReadModel.IsQueued(transfer.Status.State),
-                    TransferCancellationScope.InProgress => !TransferReadModel.IsQueued(transfer.Status.State),
+                    TransferCancellationScope.Queued => TransferReadModel.IsQueued(transfer.Status.Phase),
+                    TransferCancellationScope.InProgress => !TransferReadModel.IsQueued(transfer.Status.Phase),
                     _ => true,
                 })
             .ToArray();
@@ -415,7 +415,8 @@ public sealed class EngineSupervisor : IDisposable
             new SoulseekConnectionDto(Runtime.SoulseekSession?.LoggedInUsername, client?.Address, client?.Port,
                 client?.IPEndPoint?.ToString(), client?.Options.EnableListener == true ? client.Options.ListenPort : null),
             profile is null ? null : new LocalUserProfileDto(profile.Description, profile.Picture is { } picture
-                ? $"/api/server/profile/picture?v={Uri.EscapeDataString(picture.ETag.Trim('"'))}" : null));
+                ? $"/api/server/profile/picture?v={Uri.EscapeDataString(picture.ETag.Trim('"'))}" : null),
+            ProcessMemory.Read());
     }
 
     private PersistenceStatusDto GetPersistenceStatus()
@@ -690,6 +691,10 @@ public sealed class EngineSupervisor : IDisposable
         return summaries;
     }
 
+    // TODO [ARCHITECTURE]: One folder click has two implementations. Album mode creates an
+    // AlbumJob and File Search a RemoteDirectoryJob; they differ in fail-fast,
+    // retry and transfer grouping, so the same action behaves differently by
+    // search mode. Give a chosen folder one download path.
     public async Task<JobSummaryDto?> StartFolderDownloadAsync(Guid sourceJobId, StartFolderDownloadRequestDto request, CancellationToken ct)
     {
         var resolver = Submissions.SettingsResolver;

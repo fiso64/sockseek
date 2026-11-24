@@ -127,10 +127,16 @@ public sealed record TransferTimelinePageDto(
     StateStreamPositionDto? ReadPosition = null);
 
 /// <summary>
-/// A moving timeline extent. Known revisions suppress retransmission when the
-/// reader expands or reconnects; they do not change which rows belong to the page.
-/// AdditionalTransferIds keeps explicitly fetched folder members observed even
-/// when newer arrivals move them outside the prefix. No selection is stored.
+/// A moving timeline extent: the newest Limit transfers, extended to whole
+/// folders within a fixed budget. With IncludeGroupSummaries, a folder that has
+/// a transfer among those newest ones also brings its older members when that
+/// makes it whole, newest folder first, until FolderCompletionLimit extra rows
+/// are used. A folder that does not fit stays partial. The extent therefore
+/// holds at most Limit + FolderCompletionLimit rows, plus what ExpandedGroups
+/// asks for explicitly: each names a folder and how many of its members to
+/// show. Known revisions suppress retransmission when the reader expands or
+/// reconnects; they do not change which rows belong to the extent. No selection
+/// is stored.
 /// </summary>
 public sealed record TransferTimelineScopeDto(
     TransferCommandDirection Direction,
@@ -138,15 +144,19 @@ public sealed record TransferTimelineScopeDto(
     IReadOnlyDictionary<Guid, long>? KnownRevisions = null,
     string? Username = null,
     string? GroupRef = null,
-    IReadOnlyList<Guid>? AdditionalTransferIds = null,
-    bool IncludeGroupSummaries = false);
+    bool IncludeGroupSummaries = false,
+    int FolderCompletionLimit = ServerProtocol.DefaultNestedPageSize,
+    IReadOnlyList<TransferGroupExtentDto>? ExpandedGroups = null);
+
+/// <summary>How many members of one folder a timeline extent shows.</summary>
+public sealed record TransferGroupExtentDto(string? Username, string GroupRef, int MemberLimit);
 
 /// <summary>
 /// Changed rows within the requested timeline extent. Removed IDs leave that
 /// extent; they need not be deleted from history. WindowTransferIds supplies its
 /// initial membership; later membership follows row additions/removals. NextCursor
-/// and BoundaryTransferId end the moving prefix, independently of
-/// additional members. Changes carries coalesced patches to those same rows;
+/// and BoundaryTransferId end the newest-transfers prefix; older folder members
+/// lie beyond it. Changes carries coalesced patches to those same rows;
 /// runtime retirement after persistence does not remove a row from the extent.
 /// GroupSummaries, when present, replaces totals for all groups in this extent.
 /// It is supplied with the initial rows and when relevant group facts change;

@@ -62,7 +62,7 @@ public class EventTrafficProfilingTests
                 "peer",
                 $"Artist\\Album\\{job.Display.QueryText}.flac",
                 Guid.NewGuid().ToString("N")),
-            new TransferStatusFieldsDto("InProgress", $"C:\\music\\{job.Display.QueryText}.flac", 1, false),
+            new TransferStatusFieldsDto(Sockseek.Api.TransferPhase.InProgress, $"C:\\music\\{job.Display.QueryText}.flac", 1, false),
             new TransferProgressFieldsDto(500_000, 1_000_000))).ToList();
         var fullTransfers = Batch(
             workflowId,

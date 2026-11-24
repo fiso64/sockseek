@@ -1588,6 +1588,7 @@ test('reorders one 100k-file Track View without projection writes and downloads 
   await page.getByRole('button', { name: 'Download 1', exact: true }).click();
   expect(Number((await (await receipt).json() as Schema<'CommitSearchViewSelectionResponseDto'>).submittedCount)).toBe(1);
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Downloads', exact: true }).click();
+  await page.getByRole('tab', { name: 'Files', exact: true }).click();
   await expect(page.locator('.file-item-card').getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   const history = await page.request.get('/api/transfers?direction=download&limit=500');
   const transfers = (await history.json() as Schema<'TransferTimelinePageDto'>).items;
@@ -1773,6 +1774,7 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   await page.screenshot({ path: screenshot, animations: 'disabled' });
   await testInfo.attach('One selected child retained through live growth to 100k files', { path: screenshot, contentType: 'image/png' });
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Downloads', exact: true }).click();
+  await page.getByRole('tab', { name: 'Files', exact: true }).click();
   await expect(page.locator('.file-item-card').getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   const transfers = await page.request.get('/api/transfers?direction=download&limit=500');
   expect(transfers.ok(), await transfers.text()).toBe(true);

@@ -139,7 +139,7 @@ public class RemoteCliBackendTests
         var client = new SockseekApiClient(http);
 
         var page = await client.GetTransfersPageAsync(
-            new TransferHistoryFilter(Username: "peer name", State: "Active"),
+            new TransferHistoryFilter(Username: "peer name", Phase: "Active"),
             cursor: "previous-page",
             limit: 25);
 

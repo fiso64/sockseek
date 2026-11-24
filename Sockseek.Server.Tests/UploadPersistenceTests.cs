@@ -53,7 +53,8 @@ public sealed class UploadPersistenceTests
         Assert.AreEqual(daemonPosition, state.GetReadPosition(), "Queued uploads are absent from the compact daemon stream.");
         Assert.IsTrue(afterQueue.ReadPosition!.Sequence > beforeQueue.ReadPosition!.Sequence,
             "Read freshness must still advance for transfer facts outside that stream.");
-        var rows = Enumerable.Range(1, 4).Select(Row).ToArray();
+        // The oldest and third rows are one folder; the others stand alone.
+        var rows = Enumerable.Range(1, 4).Select(ordinal => ordinal is 1 or 3 ? Row(ordinal) with { GroupRef = "folder" } : Row(ordinal)).ToArray();
         foreach (var row in rows.Take(3)) state.UpdateUploadTransfer(row);
         var full = state.GetDaemonSnapshot();
         var summaryOnly = state.GetDaemonSnapshot(detail: DaemonStateDetail.Overview);
@@ -67,7 +68,7 @@ public sealed class UploadPersistenceTests
         await using var updates = queries.ObserveTransferTimelineAsync(new(
             TransferCommandDirection.Upload, 2,
             new Dictionary<Guid, long> { [rows[0].TransferId] = 1, [rows[1].TransferId] = 1, [rows[2].TransferId] = 1 },
-            AdditionalTransferIds: [rows[0].TransferId]),
+            IncludeGroupSummaries: true),
             broadcaster, cancellation.Token).GetAsyncEnumerator();
         async ValueTask<bool> Next(string phase)
         {
@@ -88,7 +89,8 @@ public sealed class UploadPersistenceTests
 
         Assert.IsTrue(await Next("initial"));
         CollectionAssert.AreEqual(new[] { rows[2].TransferId, rows[1].TransferId, rows[0].TransferId },
-            updates.Current.WindowTransferIds!.ToArray());
+            updates.Current.WindowTransferIds!.ToArray(),
+            "A folder among the newest transfers brings its older member beyond the limit.");
         Assert.AreEqual(0, updates.Current.Items.Count, "Known revisions must not be sent again.");
         Assert.IsTrue(updates.Current.Changes is null or { Count: 0 },
             "A known canonical row needs no separate live seed.");
@@ -117,22 +119,23 @@ public sealed class UploadPersistenceTests
             continuation.Items.Select(row => row.TransferId).ToArray());
 
         // A member moving behind the boundary needs an older successor, which
-        // may no longer belong to this reader's cached prefix.
-        state.UpdateUploadTransfer(rows[2] with { Revision = 3, RequestedAtUtc = started.AddSeconds(-1) });
+        // may no longer belong to this reader's cached prefix. The folder is
+        // still among the newest transfers, so its older member stays.
+        state.UpdateUploadTransfer(rows[3] with { Revision = 3, RequestedAtUtc = started.AddSeconds(-1) });
         Assert.IsTrue(await Next("moved-boundary"));
-        Assert.AreEqual(rows[2].TransferId, updates.Current.RemovedTransferIds.Single());
+        Assert.AreEqual(rows[3].TransferId, updates.Current.RemovedTransferIds.Single());
         Assert.IsTrue(updates.Current.Items.Any(row => row.TransferId == rows[1].TransferId));
         Assert.AreEqual(rows[1].TransferId, updates.Current.BoundaryTransferId);
         Assert.AreEqual(2, pageReads, "A changed boundary must backfill from the canonical sources.");
 
-        // Explicitly fetched older members retain their final facts even if a
-        // slow reader misses several newer completions and history is disabled.
+        // Older folder members retain their final facts even if a slow reader
+        // misses several newer completions in that folder and history is disabled.
         state.UpdateUploadTransfer(rows[0] with { Revision = 2, State = UploadTransferState.Completed,
             BytesTransferred = 100, FinishedAtUtc = started.AddSeconds(8) });
         state.RemoveTerminalTransfer(rows[0].TransferId);
         foreach (int ordinal in Enumerable.Range(5, 3))
         {
-            var completed = Row(ordinal) with { State = UploadTransferState.Completed,
+            var completed = Row(ordinal) with { GroupRef = "folder", State = UploadTransferState.Completed,
                 BytesTransferred = 100, FinishedAtUtc = started.AddSeconds(8) };
             state.UpdateUploadTransfer(completed);
             state.RemoveTerminalTransfer(completed.TransferId);
@@ -206,7 +209,7 @@ public sealed class UploadPersistenceTests
         state.UpdateUploadTransfer(active);
         state.FlushStateUpdates();
         Assert.IsTrue(await updates.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.AreEqual("InProgress", updates.Current.Items.Single().Status.State);
+        Assert.AreEqual(Sockseek.Api.TransferPhase.InProgress, updates.Current.Items.Single().Status.Phase);
         var next = updates.MoveNextAsync().AsTask();
         state.UpdateUploadTransfer(active with { Revision = 2, BytesTransferred = 50 });
         state.UpdateUploadTransfer(active with { Revision = 3, State = UploadTransferState.Completed,
@@ -351,7 +354,7 @@ public sealed class UploadPersistenceTests
             await protocol.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
             var queued = await uploads.AdmitAsync("Peer", null, @"Public\Two.bin");
             Guid queuedId = queued.TransferId!.Value;
-            await WaitForStored(queuedId, "Queued");
+            await WaitForStored(queuedId, "QueuedLocally");
             Assert.IsFalse(client.GetTransfers().Any(row => row.TransferId == queuedId),
                 "Ordinary queued entries must stay out of the compact daemon stream.");
             var queries = new TransferReadService(state, runtime: null!, persistence);
@@ -372,16 +375,16 @@ public sealed class UploadPersistenceTests
                 cancelled = await terminalPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.IsNull(cancelled.Attempt);
                 Assert.AreEqual(UploadTransferState.InProgress, uploads.Snapshot().Single(row => row.TransferId == active.TransferId).State);
-                Assert.AreEqual("Queued", (await persistence.TransferHistory!.GetTransferAsync(queuedId))!.Transfer.State);
+                Assert.AreEqual("QueuedLocally", (await persistence.TransferHistory!.GetTransferAsync(queuedId))!.Transfer.State);
                 var exact = await queries.LookupTransfersAsync(new([queuedId], "Upload"));
                 var groups = await queries.GetTransferGroupSummariesAsync([
                     new(TransferCommandDirection.Upload, "Peer", cancelled.GroupRef!),
                 ]);
                 Assert.AreEqual(1L, groups.Items.Single().CancelledCount);
-                Assert.AreEqual("Cancelled", exact.Items.Single().Status.State);
+                Assert.AreEqual(Sockseek.Api.TransferPhase.Ended, exact.Items.Single().Status.Phase);
                 var timeline = await Timeline();
                 var row = timeline.Items.Single(item => item.TransferId == queuedId);
-                Assert.AreEqual("Cancelled", row.Status.State, "The timeline must agree with exact lookup and group counts before commit.");
+                Assert.AreEqual(Sockseek.Api.TransferPhase.Ended, row.Status.Phase, "The timeline must agree with exact lookup and group counts before commit.");
                 Assert.AreEqual(0, row.Status.AttemptCount);
                 Assert.AreEqual(cancelled.Revision, row.Revision);
                 Assert.AreEqual(cancelled.FinishedAtUtc!.Value.ToUnixTimeMilliseconds(), row.Status.CompletedAtUtc!.Value.ToUnixTimeMilliseconds());
@@ -402,7 +405,7 @@ public sealed class UploadPersistenceTests
                 Assert.IsFalse(removal.IsCompleted, "Removal must wait for the terminal handoff, without blocking reads.");
                 held.Rollback();
             }
-            await WaitForStored(queuedId, "Cancelled");
+            await WaitForStored(queuedId, "Ended");
             var receipt = await removal.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(1, receipt.SucceededCount);
             Assert.AreEqual(0, (await Timeline("Cancelled")).Items.Count);
@@ -423,10 +426,10 @@ public sealed class UploadPersistenceTests
                 persistence.Runtime!.RuntimeId, 100, DateTimeOffset.UtcNow,
                 active.TransferId!.Value, 100, PersistenceMutationPriority.Terminal,
                 null, null, "Upload", "SoulseekPeer", "Peer", stale.RemotePath, null,
-                "Completed", "Succeeded", stale.SizeBytes, stale.SizeBytes, 1, "None", null,
+                "Ended", "Succeeded", stale.SizeBytes, stale.SizeBytes, 1, "None", null,
                 GroupRef: stale.GroupRef, GroupDisplayPath: stale.GroupDisplayPath)));
-            await WaitForStored(active.TransferId.Value, "Completed");
-            Assert.AreEqual("InProgress", state.GetLiveTransfer(active.TransferId.Value)!.Status.State);
+            await WaitForStored(active.TransferId.Value, "Ended");
+            Assert.AreEqual(Sockseek.Api.TransferPhase.InProgress, state.GetLiveTransfer(active.TransferId.Value)!.Status.Phase);
             var newer = await Timeline("Succeeded");
             Assert.AreEqual(1, newer.Items.Count, "A newer durable completion must survive the old status filter.");
             Assert.AreEqual(active.TransferId.Value, newer.Items.Single().TransferId,

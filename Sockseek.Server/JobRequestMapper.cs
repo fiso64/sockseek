@@ -141,6 +141,23 @@ public static class JobRequestMapper
     public static JobSettingsContext CreateSettingsContext(JobDraftDto item, bool allowMissingInput = true)
         => JobSettingsContext.FromCommand(CreateCommand(item, includeChildren: false, allowMissingInput), Guid.Empty);
 
+    /// <summary>
+    /// The draft a user would enter to ask for this job again, or null when
+    /// it was not entered as one source or query (a list, a picked result, an
+    /// uploaded file).
+    /// </summary>
+    public static JobDraftDto? CreateEditableDraft(NormalizedJobCommand command)
+        => !command.CanRunAgain ? null : command switch
+        {
+            { HasReadableInput: true }
+                => new ExtractJobDraftDto(command.Input, (command.InputType ?? command.SourceInputType)?.ToInputName()),
+            { Kind: JobSnapshotKind.Song, SongQuery: { } song }
+                => new SongJobDraftDto(ServerSnapshotMapper.ToSongQueryDto(song)),
+            { Kind: JobSnapshotKind.Album, AlbumQuery: { } album }
+                => new AlbumJobDraftDto(ServerSnapshotMapper.ToAlbumQueryDto(album)),
+            _ => null,
+        };
+
     internal static NormalizedJobCommand CreateCommand(
         JobDraftDto item, bool includeChildren = true, bool allowMissingInput = false)
     {

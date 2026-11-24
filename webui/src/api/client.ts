@@ -242,8 +242,14 @@ export class DaemonApiClient {
     return this.http.delete(`/submissions/${encodeURIComponent(submissionId)}`, signal);
   }
 
-  runAgain(jobId: string): Promise<JobSummaryDto> {
-    return this.http.post(`/jobs/${encodeURIComponent(jobId)}/rerun`);
+  /** Run a job again; extractAgain reads its source afresh instead of replaying its saved items. */
+  runAgain(jobId: string, extractAgain = false): Promise<JobSummaryDto> {
+    return this.http.post(`/jobs/${encodeURIComponent(jobId)}/rerun${queryString({ extractAgain: extractAgain || undefined })}`);
+  }
+
+  /** A job's request read back as a draft for the New job dialog. */
+  getRerunDraft(jobId: string): Promise<Schema<'JobRerunDraftDto'>> {
+    return this.http.get(`/jobs/${encodeURIComponent(jobId)}/rerun-draft`);
   }
 
   retryDirectory(jobId: string, memberJobId?: string): Promise<JobSummaryDto> {
@@ -260,20 +266,6 @@ export class DaemonApiClient {
 
   getTransferTimeline(scope: Schema<'TransferTimelineScopeDto'>, signal?: AbortSignal): Promise<Schema<'TransferTimelineUpdateDto'>> {
     return this.http.post('/transfers/timeline', scope, signal);
-  }
-
-  getTransferGroupMembers(
-    direction: 'download' | 'upload',
-    username: string | null,
-    groupRef: string,
-    cursor?: string | null,
-    limit = defaultPageSize,
-    signal?: AbortSignal,
-  ): Promise<TransferTimelinePageDto> {
-    return this.http.get(
-      `/transfers${queryString({ direction, username, groupRef, cursor, limit })}`,
-      signal,
-    );
   }
 
   cancelTransfers(direction: 'Download' | 'Upload', scope: Schema<'TransferCancellationScope'>, group?: { username: string | null; groupRef: string }, signal?: AbortSignal): Promise<TransferCommandReceiptDto> {

@@ -60,6 +60,14 @@ for (const mode of ['song', 'album'] as const) {
       await expect(existingPath).toHaveText(firstPath!);
       await page.reload();
       await expect(existingPath).toHaveText(firstPath!);
+      // Editing the job again starts from what was asked for, settings included.
+      await page.getByTestId('run-again-menu').click();
+      await page.getByTestId('run-again-options').click();
+      const composer = page.getByRole('dialog', { name: 'New job' });
+      if (mode === 'song') await expect(composer.getByPlaceholder('Song title…')).toHaveValue('Fixture song');
+      await expect(composer.getByLabel('Output directory', { exact: true })).toHaveValue(testInfo.outputPath(mode));
+      await page.keyboard.press('Escape');
+      await expect(composer).toHaveCount(0);
       await page.getByTestId('job-info-card').getByRole('button').click();
       await expect(page.getByRole('dialog').locator('dd').filter({ hasText: firstPath! })).toHaveCount(1);
     }
@@ -97,25 +105,25 @@ test('removes a terminal user root from detail, preserving rejected actions and 
   await expect(remove).toHaveCount(0);
   const childRoute = page.url();
   const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
+  await navigation.getByRole('button', { name: 'Uploads', exact: true }).click();
   await navigation.getByRole('button', { name: 'Downloads', exact: true }).click();
-  await navigation.getByRole('button', { name: 'Jobs', exact: true }).click();
   await expect(page).toHaveURL(childRoute);
   await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
 
   // Browser-history navigation away must preserve the same remembered job too.
   await page.goBack();
-  await expect(page).toHaveURL(/\/downloads$/);
-  await navigation.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await expect(page).toHaveURL(/\/uploads$/);
+  await navigation.getByRole('button', { name: 'Downloads', exact: true }).click();
   await expect(page).toHaveURL(childRoute);
   await expect(page.locator('.job-content-section .job-source-summary')).toContainText('From: fixture-peer');
   await page.getByRole('button', { name: 'Back to Deletion detail fixture', exact: true }).click();
   await navigation.getByRole('button', { name: 'Dashboard', exact: true }).click();
-  await navigation.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await navigation.getByRole('button', { name: 'Downloads', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/jobs/${root.jobId}$`));
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Deletion detail fixture');
 
-  // Clicking the already-selected Jobs tab still returns to its downloads list.
-  await navigation.getByRole('button', { name: 'Jobs', exact: true }).click();
+  // Clicking the already-selected Downloads entry still returns to its request list.
+  await navigation.getByRole('button', { name: 'Downloads', exact: true }).click();
   await expect(page).toHaveURL(/\/jobs\?tab=downloads$/);
   await page.locator('.search-history-open').filter({ hasText: 'Deletion detail fixture' }).click();
   await expect(remove).toBeVisible();
@@ -180,7 +188,7 @@ test('does not navigate away from a new page when an earlier detail deletion fin
   const receipt = await (await deletiond).json() as Schema<'DeleteSubmissionResponseDto'>;
   expect(receipt.affectedSubmissionCount).toBe(1);
   await expect(page).toHaveURL(/\/dashboard$/);
-  await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await page.getByRole('button', { name: 'Downloads', exact: true }).click();
   await expect(page.locator('.search-history-row').filter({ hasText: 'Background deletion fixture' })).toHaveCount(0);
 });
 
@@ -429,7 +437,7 @@ test('shows the accepted remote-directory files and keeps them after completion'
       else {
         const navigation = page.getByRole('navigation', { name: 'Primary navigation' });
         await navigation.getByRole('button', { name: 'Dashboard', exact: true }).click();
-        await navigation.getByRole('button', { name: 'Jobs', exact: true }).click();
+        await navigation.getByRole('button', { name: 'Downloads', exact: true }).click();
       }
       await started;
       await expect(folder.locator('.item-data-state')).toHaveCount(0);

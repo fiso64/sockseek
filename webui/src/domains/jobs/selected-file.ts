@@ -5,13 +5,11 @@ import type { TransferPresentation } from '../presentation/items';
 
 export function selectedJobFileTransfer(live: TransferStateDto): TransferPresentation {
   const transfer = liveTransferPresentation(live);
-  if (transfer.tone !== 'active' || live.identity.source === 'Fallback'
-    || live.status.state === 'AttemptCompleted') return transfer;
+  if (transfer.phase !== 'InProgress' || live.identity.source === 'Fallback') return transfer;
   // The selected-file detail shows only the determinate percentage, while the
   // shared transfer timeline also includes transferred bytes.
   return {
     ...transfer,
-    state: 'Downloading',
     progressText: transfer.progressPercent == null
       ? transfer.progressText
       : `${Math.round(transfer.progressPercent)}%`,
@@ -38,15 +36,17 @@ export function jobFileTransfer(job: Schema<'JobSummaryDto'> | null | undefined,
   if (terminal && file?.reused) state = 'Reused';
   else if (showTransfer) state = current.state;
   else state = job ? jobStatusLabel(job) : 'Pending';
+  // Start from the transfer only while it owns the state. Otherwise keep just
+  // its identity facts, so a new transfer-only field never leaks onto a job.
+  const base: Partial<TransferPresentation> = showTransfer ? current : {
+    record: current?.record, cancellable: current?.cancellable,
+    createdAt: current?.createdAt, completedAt: current?.completedAt, tone: jobTransferTone(job),
+  };
   return {
-    ...current, job: job ?? undefined, file: file ?? undefined, target: target ?? undefined,
+    ...base, job: job ?? undefined, file: file ?? undefined, target: target ?? undefined,
     fallback: source ?? live?.identity.fallback ?? undefined,
     state,
-    tone: showTransfer ? current.tone : jobTransferTone(job),
-    progressText: showTransfer ? current.progressText : undefined,
     direction: 'download',
-    speed: showTransfer ? current.speed : undefined,
-    eta: showTransfer ? current.eta : undefined,
     detail: job?.lifecycle.failureMessage ?? (terminal ? undefined : current?.detail),
     progressPercent: !showProgress || job?.lifecycle.terminalOutcome === 'Skipped' || file?.reused ? undefined
       : current?.progressPercent ?? fileProgress,

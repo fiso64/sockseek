@@ -10,7 +10,7 @@ const row = (id: string, groupRef: string | null = null) => ({
     revision: 1,
     createdAtUtc: `2026-10-26T00:00:0${id}Z`,
     identity: { source: 'SoulseekPeer', direction: 'Download', username: 'Peer', groupRef: groupRef },
-    status: { attemptCount: 0, isTerminal: false, terminalOutcome: 'None', state: 'Queued', availableActions: [] },
+    status: { attemptCount: 0, isTerminal: false, terminalOutcome: 'None', phase: 'QueuedLocally', availableActions: [] },
     progress: { totalBytes: -1, bytesTransferred: 0 }
   }) as Schema<'TransferTimelineUpdateDto'>['items'][number];
 const totals = (groupRef: string, fileCount = 200) => ({
@@ -160,7 +160,7 @@ it('patches the canonical row without rebuilding membership and preserves it acr
   const live = {
     transferId: '2', revision: 1, createdAtUtc: row('2').createdAtUtc,
     identity: { direction: 'Download', source: 'RemoteFile' },
-    status: { state: 'InProgress', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
+    status: { phase: 'InProgress', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
     progress: { bytesTransferred: 10, totalBytes: 100 },
   } satisfies Schema<'TransferStateDto'>;
   f.update({ windowTransferIds: ['2', '1'], changes: [{ transferId: '2', revision: 1, added: live }] });
@@ -211,7 +211,7 @@ it('renders complete HTTP snapshot rows through the same keyed reader as observa
   const f = fixture();
   const live = {
     transferId: '2', revision: 2, createdAtUtc: row('2').createdAtUtc, identity: { direction: 'Download', source: 'RemoteFile' },
-    status: { state: 'InProgress', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
+    status: { phase: 'InProgress', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
     progress: { bytesTransferred: 50, totalBytes: 100 },
   } satisfies Schema<'TransferStateDto'>;
   f.getTransferTimeline.mockResolvedValueOnce({ items: [live], windowTransferIds: ['2'], removedTransferIds: [],
@@ -230,7 +230,7 @@ it('keeps the visible upload observation intact when a hidden download refresh f
   f.controller.observe('upload');
   const live = {
     transferId: '7', revision: 1, createdAtUtc: row('7').createdAtUtc, identity: { direction: 'Upload', source: 'RemoteFile' },
-    status: { state: 'InProgress', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
+    status: { phase: 'InProgress', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
     progress: { bytesTransferred: 50, totalBytes: 100 },
   } satisfies Schema<'TransferStateDto'>;
   f.update({ windowTransferIds: ['7'], items: [{ ...live, revision: 2 }] });
@@ -242,19 +242,22 @@ it('keeps the visible upload observation intact when a hidden download refresh f
   f.controller.stop();
 });
 
-it('retains newly fetched folder members when an older scoped snapshot finishes', async () => {
+it('shows more of a large folder by widening the observed extent, not by fetching its members', async () => {
   const f = fixture([row('2', 'Folder'), row('1', 'Folder')]);
   await f.controller.load('download', true);
-  let resolve!: (page: unknown) => void;
-  f.getTransferTimeline.mockReturnValueOnce(new Promise(done => { resolve = done; }));
-  const reset = f.controller.load('download', true);
-  f.controller.registerMembers('download', [row('0', 'Folder')]);
-  resolve({ items: [row('2', 'Folder')], windowTransferIds: ['2'], removedTransferIds: [], retainedCoverage: coverage,
-    groupSummaries: groups([totals('Folder')]) });
-  await reset;
-  expect(f.controller.timeline.download.items.map(row => row.transferId)).toEqual(['2', '0']);
-  expect(f.controller.missingMembers.download).toEqual([]);
+  f.controller.connected = true;
   f.controller.observe('download');
-  expect(f.observe.mock.lastCall?.[0].additionalTransferIds).toEqual(['0']);
+  f.update({ windowTransferIds: ['2', '1'], groupSummaries: groups([totals('Folder')]) });
+  f.controller.expandGroup('download', 'Peer', 'Folder', 2);
+  f.controller.expandGroup('download', 'Peer', 'Folder', 2);
+  expect(f.controller.expandingGroups.download).toHaveLength(1);
+  f.controller.observe('download');
+  const limit = f.observe.mock.lastCall?.[0].expandedGroups?.[0]?.memberLimit;
+  expect(f.observe.mock.lastCall?.[0].expandedGroups).toEqual([{ username: 'Peer', groupRef: 'Folder', memberLimit: limit }]);
+  expect(Number(limit)).toBeGreaterThan(2);
+  f.update({ items: [row('0', 'Folder')], windowTransferIds: ['2', '1', '0'] });
+  expect(f.controller.timeline.download.items.map(row => row.transferId)).toEqual(['2', '1', '0']);
+  expect(f.controller.expandingGroups.download).toEqual([]);
+  expect(f.getTransferTimeline).toHaveBeenCalledOnce();
   f.controller.stop();
 });

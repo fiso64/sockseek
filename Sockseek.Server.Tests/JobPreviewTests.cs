@@ -591,6 +591,14 @@ public sealed class JobPreviewTests
                 Assert.AreEqual("Original Artist", executableSong.Query.Artist);
                 Assert.AreEqual("Original Title", executableSong.Query.Title);
                 Assert.IsNotNull(executableSong.PlannedSettings);
+                // Running again from the source drops the captured items so the
+                // changed file is read; the saved plan itself is untouched.
+                Assert.IsTrue(specification.CanExtractAgain());
+                var fresh = (ExtractJob)specification.WithFreshExtraction().MaterializeJob();
+                Assert.IsFalse(fresh.HasPlannedExtraction);
+                Assert.IsNull(fresh.Result);
+                Assert.AreEqual(executable.Input, fresh.Input);
+                Assert.IsNotNull(((ExtractJob)specification.MaterializeJob()).Result);
 
                 Assert.IsNull(await coordinator.GetAsync(
                     preview.PreviewId,

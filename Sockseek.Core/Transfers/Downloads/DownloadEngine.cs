@@ -35,7 +35,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
     private readonly SoulseekClientManager _clientManager;
     private readonly IJobSettingsResolver _jobSettingsResolver;
     private readonly ISongDownloadFallback _songDownloadFallback;
-    private readonly StaleDownloadCoordinator _staleDownloadCoordinator;
+    private readonly PeerTransferMonitor _peerTransfers;
     private readonly ILoggerFactory loggerFactory;
     private readonly ILogger<DownloadEngine> logger;
     private readonly string engineId = Guid.NewGuid().ToString("N")[..12];
@@ -357,10 +357,10 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         _clientManager = clientManager;
         _jobSettingsResolver = jobSettingsResolver ?? DefaultJobSettingsResolver.Instance;
         _songDownloadFallback = songDownloadFallback ?? SongDownloadFallback.Default;
-        _staleDownloadCoordinator = new StaleDownloadCoordinator(
+        _peerTransfers = new PeerTransferMonitor(
             _activeDownloads,
             timeProvider,
-            this.loggerFactory.CreateLogger<StaleDownloadCoordinator>());
+            this.loggerFactory.CreateLogger<PeerTransferMonitor>());
         _jobs = new DownloadJobTracker(Events);
         _commandTargets = new DownloadCommandTargetResolver(_jobs, _activeDownloads);
         _autoProfiles = new AutoProfileWorkflowReporter(Events);
@@ -378,7 +378,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             _peerFailures,
             Events,
             SearchEvents,
-            _staleDownloadCoordinator,
+            _peerTransfers,
             timeProvider,
             directorySource,
             this.loggerFactory);
@@ -391,7 +391,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
             _clientManager,
             _jobSettingsResolver,
             _songDownloadFallback,
-            _staleDownloadCoordinator,
+            _peerTransfers,
             Events,
             Queue,
             _peerFailures,
@@ -479,7 +479,7 @@ public class DownloadEngine : IDisposable, IAsyncDisposable
         }
     }
 
-    internal int RunStaleDownloadCheckForTesting() => _staleDownloadCoordinator.CancelStaleDownloads();
+    internal int RunStaleDownloadCheckForTesting() => _peerTransfers.CancelStaleDownloads();
 
     internal DownloadEngineRetainedStateCounts RetainedStateCounts
     {

@@ -186,7 +186,7 @@ public sealed record DownloadStateChangedChange(
     public string CoalescingKey => $"transfer:{Transfer.Id}:state";
     public long Revision => Transfer.Revision;
     public Guid TransferId => Transfer.Id;
-    public string State => Transfer.State ?? "";
+    public TransferPhase Phase => Transfer.Phase;
 }
 
 public sealed record ExceptionSnapshot(string Type, string Message);
@@ -228,7 +228,10 @@ public enum TransferFailureReason
 
 public enum TransferCancellationReason
 {
+    /// <summary>The user cancelled this transfer, its job, or all jobs.</summary>
     Requested,
+    /// <summary>The owning job stopped it, for example after a sibling file failed.</summary>
+    OwningJob,
     ManualSkip,
     Stale,
     DaemonShutdown,

@@ -233,6 +233,9 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
         var downloadStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource? artDownloadGate = null;
         var directoryComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // TODO [TESTS]: The fixture peer cannot act like a real one for downloads: it has
+        // no upload queue to report a position from and cannot break a transfer
+        // partway. Queue positions and resumed attempts are untested end to end.
         var uploadGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         bool failNextUpload = false;
         peer.UploadHandler = async arguments =>
@@ -941,7 +944,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                         SELECT upper(printf('60000000-0000-0000-0000-%012x', x)), $runtime, x,
                             'Download', 'SoulseekPeer', 'history-peer',
                             printf('Library\Folder%03d\Track%06d.flac', (x - 1) / 2000, x),
-                            printf('/fixture/history/Track%06d.flac', x), 'Completed', 'Succeeded',
+                            printf('/fixture/history/Track%06d.flac', x), 'Ended', 'Succeeded',
                             5000000, 5000000, 1, $created + x, $created + x, $created + x,
                             'None', 'None', printf('Track%06d.flac', x), 5000000, '.flac',
                             printf('70000000-0000-0000-0000-%012x', (x - 1) / 2000),

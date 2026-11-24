@@ -19,13 +19,50 @@ export function createNewJobDraft(): NewJobDraft {
   return { choice: 'song', artist: '', title: '', album: '', source: '', spotifyInput: 'url', fileInput: 'upload', artifactId: null };
 }
 
-export function newJobDraftFromSearch(search: SearchDraft): NewJobDraft {
+/** What the New job dialog opens with: an input, and settings that are
+ * treated as its starting point rather than as edits. */
+export interface NewJobStart {
+  draft: NewJobDraft;
+  profileNames: string[];
+  settings?: Schema<'DownloadSettingsPatchDto'>;
+}
+
+export function newJobStartFromSearch(search: SearchDraft): NewJobStart {
   const album = searchModeFamily(search.resultMode) === 'album';
   const subject = (search.mode === 'split' ? search.title : search.query).trim();
-  return { ...createNewJobDraft(), choice: album ? 'album' : 'song',
-    artist: search.mode === 'split' ? search.artist.trim() : '',
-    title: album ? '' : subject, album: album ? subject : search.albumContext ?? '',
-    expectedLength: search.expectedLength };
+  return {
+    draft: { ...createNewJobDraft(), choice: album ? 'album' : 'song',
+      artist: search.mode === 'split' ? search.artist.trim() : '',
+      title: album ? '' : subject, album: album ? subject : search.albumContext ?? '',
+      expectedLength: search.expectedLength },
+    profileNames: [...(search.profileNames ?? [])],
+    settings: search.searchSettings ? { search: search.searchSettings } : undefined,
+  };
+}
+
+const sourceChoices: readonly NewJobChoice[] = ['spotify', 'youtube', 'bandcamp', 'soundcloud', 'musicbrainz', 'soulseek-link', 'csv', 'list', 'string'];
+
+/** The request of an earlier job, as the daemon reads it back. */
+export function newJobStartFromRerun(rerun: Schema<'JobRerunDraftDto'>): NewJobStart {
+  const job = rerun.job;
+  const draft = createNewJobDraft();
+  if (job.kind === 'song') {
+    Object.assign(draft, { choice: 'song', artist: job.songQuery.artist ?? '', title: job.songQuery.title ?? '',
+      album: job.songQuery.album ?? '', expectedLength: job.songQuery.length == null ? undefined : Number(job.songQuery.length) });
+  } else if (job.kind === 'album') {
+    Object.assign(draft, { choice: 'album', artist: job.albumQuery.artist ?? '', album: job.albumQuery.album ?? '' });
+  } else if (job.kind === 'extract') {
+    const input = job.input ?? '';
+    const type = job.inputType?.toLowerCase() as NewJobChoice | undefined;
+    draft.choice = type && sourceChoices.includes(type) ? type : 'string';
+    draft.fileInput = 'path';
+    const saved = draft.choice === 'spotify' ? /^spotify-(likes|albums)$/.exec(input)?.[1] as 'likes' | 'albums' | undefined : undefined;
+    if (saved) draft.spotifyInput = saved;
+    else draft.source = input;
+  } else {
+    throw new Error('This job cannot be edited in the New job dialog.');
+  }
+  return { draft, profileNames: [...rerun.profileNames], settings: rerun.downloadSettings ?? undefined };
 }
 
 export function profileInputDefaults(names: string[], catalog: Schema<'ProfileSummaryDto'>[]) {

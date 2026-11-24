@@ -48,9 +48,9 @@ public class CliProgressReporterTests
             ServerJobLifecycleState.Running,
             ServerJobActivityPhase.Downloading,
             ServerJobTerminalOutcome.None,
-            transferState: "Queued");
+            transferPhase: Sockseek.Api.TransferPhase.QueuedLocally);
 
-        Assert.AreEqual("Queued", status.Label);
+        Assert.AreEqual("queued (L)", status.Label);
         Assert.IsTrue(status.IsActive);
     }
 

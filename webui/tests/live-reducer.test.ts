@@ -162,7 +162,7 @@ describe('DaemonStateReducer', () => {
   function transfer(id: string, direction = 'Download', owner = jobId, workflow = workflowId): NonNullable<StateUpdateBatchDto['state']['transfers'][number]['added']> {
     return { transferId: id, revision: 1, createdAtUtc: new Date(0).toISOString(),
       identity: { direction, source: 'Download', jobId: owner, workflowId: workflow, groupKind: 'Directory' },
-      status: { state: 'Queued', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
+      status: { phase: 'QueuedLocally', isTerminal: false, attemptCount: 1, terminalOutcome: 'None', failureReason: 'None', cancellationSource: 'None' },
       progress: { bytesTransferred: 0, totalBytes: 100, bytesPerSecond: null },
     };
   }
@@ -184,7 +184,7 @@ describe('DaemonStateReducer', () => {
       activitySummary: { active: 12, downloads: 10, uploads: 2,
         queued: 1, failed: 0, downloadRate: 12, uploadRate: 0, runningJobCount: 3, pendingJobCount: 6 }, transfers: [{
       transferId: download.transferId, revision: 2, progress,
-      status: { ...download.status, state: 'InProgress' },
+      status: { ...download.status, phase: 'InProgress' },
     }] } }));
     expect(state.transfers.get('download')?.progress).toEqual(progress);
     expect(state.jobs.get(jobId)).toBe(originalJob);
@@ -208,7 +208,7 @@ describe('DaemonStateReducer', () => {
       activitySummary: { active: 11, downloads: 9, uploads: 2,
         queued: 1, failed: 1, downloadRate: 0, uploadRate: 0, runningJobCount: 0, pendingJobCount: 0 }, transfers: [{
       transferId: 'download', revision: 3,
-      status: { ...download.status, state: 'Failed', isTerminal: true, terminalOutcome: 'Failed' },
+      status: { ...download.status, phase: 'Ended', isTerminal: true, terminalOutcome: 'Failed' },
     }] } }));
     expect(state.activitySummary).toEqual({ active: 11, downloads: 9, uploads: 2,
       queued: 1, failed: 1, downloadRate: 0, uploadRate: 0, runningJobCount: 0, pendingJobCount: 0 });

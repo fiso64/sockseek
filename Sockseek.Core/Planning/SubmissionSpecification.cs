@@ -192,6 +192,56 @@ public sealed record SubmissionSpecification(
 
     public bool CanRunAgain(Guid jobId) => FindCommand(jobId)?.CanRunAgain == true;
 
+    /// <summary>
+    /// The specification of what was asked for when <paramref name="jobId"/>
+    /// is asked for again. A source is presented as the list it produced, so
+    /// that list stands for its source; every other job stands for itself.
+    /// </summary>
+    public SubmissionSpecification? ForRequest(Guid jobId)
+    {
+        Guid? Source(NormalizedJobCommand node)
+        {
+            if (node is { Kind: JobSnapshotKind.Extract, AcceptedJobId: Guid source, ExtractedResult: { } result })
+                return result.AcceptedJobId == jobId ? source : Source(result);
+            foreach (var child in node.Children ?? [])
+                if (Source(child) is { } found) return found;
+            return null;
+        }
+        return ForJob(Source(Command) ?? jobId);
+    }
+
+    /// <summary>
+    /// The request holds items captured from a source that can be read again,
+    /// so reading it now may give different items.
+    /// </summary>
+    public bool CanExtractAgain() => HasReadableSource(Command);
+
+    /// <summary>
+    /// The same request without its captured items, so running it reads each
+    /// source as it is now. An uploaded source keeps its captured items.
+    /// </summary>
+    public SubmissionSpecification WithFreshExtraction()
+        => this with { Command = WithoutCapturedItems(Command), SourceRevision = null };
+
+    private static bool IsReadableSource(NormalizedJobCommand command)
+        => command is { HasReadableInput: true, HasPlannedExtraction: true };
+
+    private static bool HasReadableSource(NormalizedJobCommand command)
+        => IsReadableSource(command)
+            || command.ExtractedResult is { } result && HasReadableSource(result)
+            || command.Children?.Any(HasReadableSource) == true;
+
+    private static NormalizedJobCommand WithoutCapturedItems(NormalizedJobCommand command)
+    {
+        if (IsReadableSource(command))
+            return command with { HasPlannedExtraction = false, PlannedExtractionFailure = null, ExtractedResult = null };
+        if (command.ExtractedResult is { } result)
+            return command with { ExtractedResult = WithoutCapturedItems(result) };
+        return command.Children is { } children
+            ? command with { Children = children.Select(WithoutCapturedItems).ToArray() }
+            : command;
+    }
+
     public SubmissionSpecification? ForJob(Guid acceptedJobId)
     {
         Validate();
@@ -314,6 +364,7 @@ public sealed record SubmissionSpecification(
                 RequestedMode = extract.RequestedModeOverride,
                 ResultDownloadBehavior = extract.ResultDownloadBehaviorPolicy,
                 HasPlannedExtraction = includeDescendants && extract.HasPlannedExtraction,
+                UploadedInput = extract.UploadedFilePath != null,
                 PlannedExtractionFailure = includeDescendants ? extract.PlannedExtractionFailure : null,
                 ExtractedResult = includeDescendants && extract.HasPlannedExtraction && extract.Result != null
                     ? CommandFrom(extract.Result, writer: writer)

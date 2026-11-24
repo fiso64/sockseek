@@ -12,6 +12,7 @@
   import { JobListController, jobsTabQuery, type JobsTab } from './domains/jobs/job-list.svelte';
   import { JobRouteReader } from './domains/jobs/route-reader';
   import { createChatDrafts } from './domains/chat/messages';
+  import { newJobStartFromSearch, type NewJobStart } from './domains/jobs/submission';
   import NewJobComposer from './domains/jobs/NewJobComposer.svelte';
   import TransfersPage from './domains/transfers/TransfersPage.svelte';
   import { TransferTimelineController } from './domains/transfers/controller.svelte';
@@ -27,7 +28,7 @@
   import { selectedSearchCount as countSearchSelection } from './domains/search/selection';
   import { emptySearchDraft, parseSearchResultMode, searchJobPath, type SearchDraft, type SearchResultMode } from './domains/search/model';
   import { canReplaySearch } from './domains/search/replay';
-  import type { PageId, UserLinkActions } from './app/navigation';
+  import type { DownloadsView, PageId, UserLinkActions, ViewId } from './app/navigation';
 
   const automaticDetail = new ViewLoader(() => import('./domains/jobs/AutomaticJobDetail.svelte'));
   const searchResults = new ViewLoader(() => import('./domains/search/SearchResults.svelte'));
@@ -47,11 +48,6 @@
   const jobsListPath = () => jobsTab === 'downloads'
     ? `/jobs?tab=downloads${jobLists.downloads.submissionId ? `&submission=${encodeURIComponent(jobLists.downloads.submissionId)}` : ''}` : '/jobs';
 
-  function changeJobsTab(tab: JobsTab): void {
-    jobsTab = tab;
-    mutationError = null;
-    setPath(jobsListPath());
-  }
   const jobRoutes = new JobRouteReader(daemonApi, liveClient);
   const transferTimeline = new TransferTimelineController(daemonApi,
     (scope, next, error) => liveClient.observeTransferTimeline(scope, next, error));
@@ -59,10 +55,33 @@
     (id, next, error, complete) => liveClient.observeSearchView(id, next, error, complete));
   let documentVisible = $state(true);
 
-  let activePage = $state<PageId>('dashboard');
+  let activePage = $state<ViewId>('dashboard');
+  // Searches and download requests are both job views; the navigation names
+  // the one being shown.
+  let navigationPage = $derived<PageId>(activePage === 'jobs' ? jobsTab : activePage);
+  // The Downloads entry returns to whichever of its views was used last.
+  let downloadsView = $state<DownloadsView>('requests');
+  $effect(() => {
+    if (activePage === 'downloads') downloadsView = 'files';
+    else if (activePage === 'jobs' && jobsTab === 'downloads') downloadsView = 'requests';
+  });
+
+  function showDownloadsView(view: DownloadsView): void {
+    mutationError = null;
+    if (view === 'files') {
+      activePage = 'downloads';
+      if (transferTimeline.timeline.download.items.length) renderCachedAfterPaint('transfers');
+      setPath('/downloads');
+      void transferTimeline.load('download', true);
+      return;
+    }
+    jobsTab = 'downloads';
+    activePage = 'jobs';
+    backToJobs();
+  }
   // The Jobs subview survives a visit to another top-level page.
   let showingSearch = $state(false);
-  let composer = $state<{ initialSearch: SearchDraft | null } | null>(null);
+  let composer = $state<{ start: NewJobStart | null } | null>(null);
   let composingJobCommitPending = $state(false);
   let automaticJobId = $state<string | null>(null);
   let automaticInitialDetail = $state<Schema<'JobDetailDto'> | null>(null);
@@ -91,23 +110,27 @@
   // The controller publishes replacement snapshots; result DTOs need no deep proxies.
   let searchState = $state.raw<SearchViewState>(searchController.current());
   let deletingSubmissionIds = $state(new Set<string>());
-  let deferSearchRender = $state(false);
-  let searchRenderFrame: number | null = null;
+  // A view with many cached cards is expensive to mount. Holding its content
+  // back lets the click that opened it paint first.
+  let deferredRender = $state<'search' | 'transfers' | null>(null);
+  let deferredRenderFrame: number | null = null;
 
-  function cancelDeferredSearchRender(): void {
-    if (searchRenderFrame !== null) cancelAnimationFrame(searchRenderFrame);
-    searchRenderFrame = null;
-    deferSearchRender = false;
+  function cancelDeferredRender(): void {
+    if (deferredRenderFrame !== null) cancelAnimationFrame(deferredRenderFrame);
+    deferredRenderFrame = null;
+    deferredRender = null;
   }
 
-  function renderCachedSearchAfterPaint(): void {
-    deferSearchRender = true;
-    // The first frame paints the selected navigation item before mounting the
-    // cached result cards in the next frame. Do not delay direct job opens.
-    searchRenderFrame = requestAnimationFrame(() => {
-      searchRenderFrame = requestAnimationFrame(() => {
-        searchRenderFrame = null;
-        deferSearchRender = false;
+  function renderCachedAfterPaint(view: 'search' | 'transfers'): void {
+    cancelDeferredRender();
+    deferredRender = view;
+    // The first frame paints the selected navigation item and the page frame
+    // before the cached cards mount in the next one. Do not delay a first load
+    // or a direct open, which have nothing cached to mount.
+    deferredRenderFrame = requestAnimationFrame(() => {
+      deferredRenderFrame = requestAnimationFrame(() => {
+        deferredRenderFrame = null;
+        deferredRender = null;
       });
     });
   }
@@ -167,9 +190,12 @@
     catch { return value; }
   }
 
+  // TODO [ARCHITECTURE]: Navigation is a hand-written state machine over activePage, jobsTab,
+  // showingSearch, pendingJobId and automaticJobId, and still calls Searches
+  // and Downloads "jobs". Derive the view from one parsed route value.
   function applyPath(pathname: string): void {
     composer = null;
-    cancelDeferredSearchRender();
+    cancelDeferredRender();
     routeRequest?.abort();
     const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
     const root = parts[0];
@@ -273,7 +299,7 @@
     if (activePage === 'downloads' || activePage === 'uploads')
       void transferTimeline.load(activePage === 'downloads' ? 'download' : 'upload', true);
     return () => {
-      cancelDeferredSearchRender();
+      cancelDeferredRender();
       transferTimeline.stop();
       for (const list of Object.values(jobLists)) list.stop();
       statusSubscription();
@@ -291,14 +317,19 @@
   function navigate(page: PageId): void {
     if (page === 'system') systemTab = 'status';
     if (composer && composingJobCommitPending) return;
-    cancelDeferredSearchRender();
-    const wasOnJobs = activePage === 'jobs';
+    cancelDeferredRender();
     routeRequest?.abort();
     jobRouteError = null;
     composer = null;
-    if (page === 'jobs') {
+    if (page === 'searches' || page === 'downloads' && activePage !== 'downloads' && downloadsView === 'requests') {
+      // A job view remembered from this entry is restored; one that belongs
+      // to the other entry is not shown under this name.
+      const remembered = jobsTab === page;
+      const alreadyHere = activePage === 'jobs' && remembered;
+      jobsTab = page;
       activePage = 'jobs';
-      if (wasOnJobs) {
+      mutationError = null;
+      if (alreadyHere || !remembered) {
         backToJobs();
         return;
       }
@@ -308,7 +339,7 @@
       }
       if (showingSearch && searchState.job?.jobId === pendingJobId && searchState.draft) {
         pendingJobId = searchState.job.jobId;
-        renderCachedSearchAfterPaint();
+        renderCachedAfterPaint('search');
         setPath(searchJobPath(pendingJobId, searchState.draft.resultMode));
         return;
       }
@@ -325,17 +356,20 @@
     if (page === 'users' || page === 'shares') userBrowse = { query: activeUsername || userBrowse.query, mode: userView };
     setPath((page === 'users' || page === 'shares') && activeUsername
       ? `/${page}/${encodeURIComponent(activeUsername)}` : `/${page}`);
-    if (page === 'downloads') void transferTimeline.load('download', true);
-    if (page === 'uploads') void transferTimeline.load('upload', true);
+    if (page === 'downloads' || page === 'uploads') {
+      const direction = page === 'downloads' ? 'download' : 'upload';
+      if (transferTimeline.timeline[direction].items.length) renderCachedAfterPaint('transfers');
+      void transferTimeline.load(direction, true);
+    }
   }
 
   function openJobDraft(): void {
-    composer = { initialSearch: null };
+    composer = { start: null };
   }
 
   function composeSearchDownload(draft: SearchDraft): void {
     if (composingJobCommitPending) return;
-    composer = { initialSearch: $state.snapshot(draft) };
+    composer = { start: newJobStartFromSearch($state.snapshot(draft)) };
   }
 
   async function submit(next: SearchDraft): Promise<void> {
@@ -593,7 +627,7 @@
   applyPath(routePathname());
 </script>
 
-<AppShell {activePage} {liveStatus} {liveState} {search} {userBrowse} {searchBusy} onnavigate={navigate} onsearchchange={(value) => (search = value)} onsearchsubmit={(value) => void submit(value)} ondownloadrequest={composeSearchDownload} onuserbrowsechange={changeUserBrowse} onuserbrowsesubmit={submitUserBrowse}>
+<AppShell activePage={navigationPage} {liveStatus} {liveState} {search} {userBrowse} {searchBusy} onnavigate={navigate} onsearchchange={(value) => (search = value)} onsearchsubmit={(value) => void submit(value)} ondownloadrequest={composeSearchDownload} onuserbrowsechange={changeUserBrowse} onuserbrowsesubmit={submitUserBrowse}>
   {#if activePage === 'jobs' && pendingJobId && jobRouteError}
     <section class="page page-search redesigned-search-page">
       <div class={`resource-state-notice ${liveStatus === 'offline' ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Job unavailable'}</strong><small>{liveStatus === 'offline' ? 'This can’t be loaded while the daemon is offline.' : jobRouteError.message}</small></span>{#if liveStatus !== 'offline'}<button class="button" type="button" onclick={() => void openJobFromPath(pendingJobId!, routeLocation())}>Retry</button>{/if}<button class="button" type="button" onclick={backToJobs}>Back to jobs</button></div>
@@ -603,7 +637,7 @@
       <LoadingIndicator label="Opening job" blocking />
     </section>
   {:else if activePage === 'jobs' && showingSearch && searchState.draft}
-    {#if !deferSearchRender}
+    {#if deferredRender !== 'search'}
     <LazyView view={searchResults}>
       {#snippet children(SearchResults)}
         <SearchResults
@@ -653,6 +687,7 @@
           onchooseoption={(ref, option) => searchController.chooseGroupOption(ref, option)}
           ontogglealbumfile={(groupRef, fileRefs, selected) => searchController.toggleAlbumGroupFile(groupRef, fileRefs, selected)}
           onviewdownloads={(id) => { jobLists.downloads.filterSubmission(id); jobsTab = 'downloads'; backToJobs(); }}
+          onopendownload={(id) => { jobLists.downloads.filterSubmission(null); void openJob(id); }}
           onback={backToJobs}
           onsearchagain={() => void rerunActiveSearch()}
         />
@@ -667,17 +702,17 @@
             connected={liveStatus === 'connected' && documentVisible}
             {liveStatus} visible={documentVisible}
             {observeJobs} observeJobList={(scope, next, error) => liveClient.observeJobList(scope, next, error)}
-            onback={backToJobs} onopenjob={(job, detail) => void openJob(job, detail)} ondelete={(job) => void deleteOpenedSubmission(job)}
+            onback={backToJobs} oneditagain={(start) => { if (!composingJobCommitPending) composer = { start }; }} onopenjob={(job, detail) => void openJob(job, detail)} ondelete={(job) => void deleteOpenedSubmission(job)}
             deletingSubmissions={deletingSubmissionIds} deleteError={mutationError} />
         {/snippet}
       </LazyView>
     {:else}
     {#key jobsTab}
     <JobsList
-      tab={jobsTab} ontabchange={changeJobsTab} position={jobList}
+      tab={jobsTab} ondownloadsview={showDownloadsView} position={jobList}
       submissionId={jobList.submissionId} onclearfilter={() => { jobList.filterSubmission(null); setPath(jobsListPath()); }}
       connected={liveStatus === 'connected' && documentVisible}
-      {observeJobs}
+      {observeJobs} readJobTransfer={liveState.readJobTransfer}
       onnew={openJobDraft}
       jobs={jobList.items}
       linkedResults={jobList.linkedResults}
@@ -700,9 +735,10 @@
   {:else if activePage === 'downloads'}
     <TransfersPage
       direction="download"
+      deferred={deferredRender === 'transfers'}
+      ondownloadsview={showDownloadsView}
       readTransfer={transferTimeline.rows.download.read}
       items={transferTimeline.timeline.download.items}
-      globalBoundary={transferTimeline.timeline.download.boundary}
       coverage={transferTimeline.timeline.download.coverage}
       summaries={transferTimeline.timeline.download.summaries}
       summaryCoverage={transferTimeline.timeline.download.summaryCoverage}
@@ -711,8 +747,8 @@
       loading={transferTimeline.timeline.download.loading}
       daemonOffline={liveStatus === 'offline'}
       error={transferTimeline.timeline.download.error}
-      onfetchedmembers={(rows) => transferTimeline.registerMembers('download', rows)}
-      missingMembers={transferTimeline.missingMembers.download}
+      onexpandgroup={(username, groupRef, shown) => transferTimeline.expandGroup('download', username, groupRef, shown)}
+      expandingGroups={transferTimeline.expandingGroups.download}
       onloadmore={() => void transferTimeline.load('download')}
       onchanged={() => transferTimeline.afterMutation('download')}
       onretrysummaries={() => transferTimeline.load('download', true)}
@@ -721,9 +757,9 @@
   {:else if activePage === 'uploads'}
     <TransfersPage
       direction="upload"
+      deferred={deferredRender === 'transfers'}
       readTransfer={transferTimeline.rows.upload.read}
       items={transferTimeline.timeline.upload.items}
-      globalBoundary={transferTimeline.timeline.upload.boundary}
       coverage={transferTimeline.timeline.upload.coverage}
       summaries={transferTimeline.timeline.upload.summaries}
       summaryCoverage={transferTimeline.timeline.upload.summaryCoverage}
@@ -732,8 +768,8 @@
       loading={transferTimeline.timeline.upload.loading}
       daemonOffline={liveStatus === 'offline'}
       error={transferTimeline.timeline.upload.error}
-      onfetchedmembers={(rows) => transferTimeline.registerMembers('upload', rows)}
-      missingMembers={transferTimeline.missingMembers.upload}
+      onexpandgroup={(username, groupRef, shown) => transferTimeline.expandGroup('upload', username, groupRef, shown)}
+      expandingGroups={transferTimeline.expandingGroups.upload}
       onloadmore={() => void transferTimeline.load('upload')}
       onchanged={() => transferTimeline.afterMutation('upload')}
       onretrysummaries={() => transferTimeline.load('upload', true)}
@@ -775,7 +811,7 @@
 
 {#if composer}
   {#key composer}
-    <NewJobComposer connected={liveStatus === 'connected' && documentVisible} initialSearch={composer.initialSearch}
+    <NewJobComposer connected={liveStatus === 'connected' && documentVisible} start={composer.start}
       onclose={() => composer = null}
       oncommittingchange={(pending) => (composingJobCommitPending = pending)}
       onstarted={(rootJobId) => { composingJobCommitPending = false; composer = null; openAutomaticJob(rootJobId); }} />

@@ -27,6 +27,14 @@
   const connection = $derived(status?.connection);
   const client = $derived(daemon?.soulseekClient ?? status?.soulseekClient);
   const profile = $derived(status?.profile);
+  // Where the daemon's resident memory comes from, largest concern first.
+  // Mapped files are reclaimable, so they are painted as the quiet part.
+  const memory = $derived(status?.memory);
+  const memoryParts = $derived(memory?.heapBytes == null ? [] : [
+    { id: 'heap', label: 'Heap', bytes: Number(memory.heapBytes) },
+    { id: 'runtime', label: 'Runtime', bytes: Number(memory.runtimeBytes ?? 0) },
+    { id: 'files', label: 'Mapped files', bytes: Number(memory.mappedFileBytes ?? 0) },
+  ]);
   // Status is operational context: show the first lines of a long description
   // and let the reader expand it, rather than pushing the other cards away.
   let descriptionElement = $state<HTMLParagraphElement | null>(null);
@@ -134,6 +142,17 @@
       <div><dt>Browser connection</dt><dd class:healthy={liveStatus === 'connected'}>{humanizeStateValue(liveStatus)}</dd></div>
       <div><dt>Authentication</dt><dd>{browserSession.data?.authenticationEnabled ? 'Enabled' : 'Disabled'}</dd></div>
       <div><dt>Configuration</dt><dd>{!daemon?.configuration ? '—' : daemon.configuration.reloadFailed ? 'Reload failed' : daemon?.configuration?.restartRequired ? 'Restart required' : daemon?.configuration?.watching ? 'Watching for changes' : 'Automatic reload disabled'}</dd></div>
+      <div data-testid="daemon-memory"><dt>Memory</dt><dd>
+        {#if memory}
+          {formatBytes(memory.residentBytes)}<span class="memory-note">{" "}· peak {formatBytes(memory.peakResidentBytes)}{Number(memory.swappedBytes) > 0 ? ` · ${formatBytes(memory.swappedBytes)} swapped` : ''}</span>
+          {#if memoryParts.length}
+            <span class="progress-track memory-line" role="img" aria-label={memoryParts.map(part => `${part.label} ${formatBytes(part.bytes)}`).join(', ')}>
+              {#each memoryParts as part (part.id)}<i class={part.id} style={`width:${part.bytes / Number(memory.residentBytes) * 100}%`} title={`${part.label}: ${formatBytes(part.bytes)}`}></i>{/each}
+            </span>
+            <span class="memory-legend">{#each memoryParts as part (part.id)}<span class={part.id}>{part.label} {formatBytes(part.bytes)}</span>{/each}</span>
+          {/if}
+        {:else}—{/if}
+      </dd></div>
     </dl>
   </section>
   <section class="panel status-card" aria-labelledby="storage-heading">
@@ -158,6 +177,14 @@
   dt { color: var(--muted); }
   dd { margin: 0; overflow-wrap: anywhere; }
   .healthy { color: var(--success); }
+  .memory-note { color: var(--muted); }
+  .memory-line { display: flex; height: 5px; margin-top: 7px; }
+  .memory-line > i { border-radius: 0; transition: none; background-color: var(--part); }
+  .memory-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 6px; color: var(--muted); font-size: .72rem; }
+  .memory-legend > span::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 2px; background-color: var(--part); }
+  .heap { --part: var(--status-active); }
+  .runtime { --part: var(--status-partial); }
+  .files { --part: var(--faint); }
   .profile-body { --profile-picture-size: 112px; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 16px; }
   .profile-copy { min-width: 0; }
   .profile-copy strong { font-size: 1.05rem; font-weight: 650; overflow-wrap: anywhere; }

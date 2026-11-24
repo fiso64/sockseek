@@ -160,6 +160,34 @@ public sealed record TransferFileMetadataSnapshot(
 // collect independent transfers and may be presented as a single file.
 public enum TransferGroupKind { Directory, Files }
 
+/// <summary>
+/// Where one transfer is in its lifecycle. The queue and connection phases
+/// are Soulseek.NET's transfer states; the rest are owned by Sockseek. An
+/// ended transfer describes its result through its terminal outcome.
+/// </summary>
+public enum TransferPhase
+{
+    /// <summary>Accepted here; the transport has not reported a state yet.</summary>
+    Starting,
+    /// <summary>Waiting for a local slot. For uploads, our own upload queue.</summary>
+    QueuedLocally,
+    Requested,
+    /// <summary>Waiting in the remote peer's upload queue.</summary>
+    QueuedRemotely,
+    /// <summary>
+    /// The peer cannot serve the file now (offline, unreachable or over its
+    /// queue limit). The download is kept and asked for again later.
+    /// </summary>
+    QueuedForPeer,
+    Initializing,
+    InProgress,
+    /// <summary>The bytes arrived; the output is being verified and placed.</summary>
+    Finalizing,
+    /// <summary>An attempt failed and the transfer has not ended.</summary>
+    Retrying,
+    Ended,
+}
+
 public sealed record TransferSnapshot(
     Guid Id,
     TransferSnapshotDirection Direction,
@@ -171,7 +199,7 @@ public sealed record TransferSnapshot(
     string? RemotePath,
     string? LocalPath,
     string? CandidateKey,
-    string? State,
+    TransferPhase Phase,
     long BytesTransferred,
     long TotalBytes,
     int AttemptCount,
@@ -190,7 +218,9 @@ public sealed record TransferSnapshot(
     string? GroupRelativePath = null,
     DateTimeOffset? CompletedAtUtc = null,
     TransferGroupKind GroupKind = TransferGroupKind.Directory,
-    FallbackSource? Fallback = null);
+    FallbackSource? Fallback = null,
+    // The peer's last answer while the transfer waits in its queue.
+    int? QueuePosition = null);
 
 public sealed record FileSearchProjectionSnapshot(SongQuerySnapshot Query, bool IncludeFullResults);
 

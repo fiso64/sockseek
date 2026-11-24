@@ -31,7 +31,7 @@ internal sealed class DownloadExecutionContext
         SoulseekClientManager clientManager,
         IJobSettingsResolver jobSettingsResolver,
         ISongDownloadFallback songDownloadFallback,
-        StaleDownloadCoordinator staleDownloadCoordinator,
+        PeerTransferMonitor peerTransfers,
         DownloadEvents events,
         JobList queue,
         PeerFailureTracker peerFailures,
@@ -49,7 +49,7 @@ internal sealed class DownloadExecutionContext
         ClientManager = clientManager;
         JobSettingsResolver = jobSettingsResolver;
         SongDownloadFallback = songDownloadFallback;
-        StaleDownloadCoordinator = staleDownloadCoordinator;
+        PeerTransferMonitor = peerTransfers;
         Events = events;
         Queue = queue;
         PeerFailures = peerFailures;
@@ -68,7 +68,7 @@ internal sealed class DownloadExecutionContext
     public SoulseekClientManager ClientManager { get; }
     public IJobSettingsResolver JobSettingsResolver { get; }
     public ISongDownloadFallback SongDownloadFallback { get; }
-    public StaleDownloadCoordinator StaleDownloadCoordinator { get; }
+    public PeerTransferMonitor PeerTransferMonitor { get; }
     public DownloadEvents Events { get; }
     public JobList Queue { get; }
     public PeerFailureTracker PeerFailures { get; }

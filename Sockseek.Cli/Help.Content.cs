@@ -258,6 +258,8 @@ Album Download Options
                                   output dir}/failed (default), 'move:<path>' to move to a
                                   custom path, 'delete' to delete them, or 'keep' to leave
                                   them where they are.
+                                  A folder downloaded from search results or a peer's
+                                  shares defaults to 'keep'; --interactive picks do not.
 
 Group Download Options
 
@@ -1158,7 +1160,7 @@ Shares
         ["transfers"] = @"
   sockseek transfers                  List transfers
     --direction upload|download       Filter by transfer direction
-    --state <state>                   Filter by transfer state
+    --phase <phase>                   Filter by transfer phase
     --outcome <outcome>               Filter by terminal outcome
     --username <name>                 Filter by peer
     --include-removed                 Include transfers removed from history
@@ -1173,7 +1175,9 @@ Shares
     --group-ref <ref>                 Limit either bulk action to a group (requires --username and --direction)",
         ["transfer"] = @"
   sockseek transfer cancel|retry|remove <id>
-  sockseek job rerun|retry-directory <id>
-                                      Cancel one transfer or remove it from history",
+                                      Cancel one transfer or remove it from history
+  sockseek job rerun <id>             Run a job again, reading its source (link, file path) as it is now
+    --exact                           Run the items saved with the job instead of reading the source
+  sockseek job retry-directory <id>   Download the files a folder job is still missing",
     };
 }

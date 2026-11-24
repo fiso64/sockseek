@@ -87,6 +87,8 @@ public sealed record UploadCoordinatorAdmission(
 public enum UploadProtocolOutcome
 {
     Completed,
+    /// <summary>The peer declined the transfer because it already holds the complete file.</summary>
+    PeerHasFile,
     Cancelled,
     Failed,
 }
@@ -122,6 +124,8 @@ public sealed class SoulseekUploadProtocolInvoker(
         // the final read: a peer keeping the connection open can retain this slot
         // until transfer inactivity timeout or cancellation. Do not force an early
         // socket close here or infer receiver success merely from bytes written.
+        // After upgrading, verify that a receiver holding its socket open no longer
+        // keeps an upload slot beyond MaximumLingerTime.
         var options = new TransferOptions(
             stateChanged: change =>
             {
@@ -134,13 +138,25 @@ public sealed class SoulseekUploadProtocolInvoker(
             seekInputStreamAutomatically: false,
             disposeInputStreamOnCompletion: true);
 
-        Transfer transfer = await client.UploadAsync(
-            username,
-            remotePath,
-            sizeBytes,
-            streamFactory,
-            options: options,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+        Transfer transfer;
+        try
+        {
+            transfer = await client.UploadAsync(
+                username,
+                remotePath,
+                sizeBytes,
+                streamFactory,
+                options: options,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (TransferRejectedException rejected) when (rejected.Message.EndsWith("Complete", StringComparison.Ordinal))
+        {
+            // The official client answers "Complete" for a file it has in full.
+            // TODO [V4]: Soulseek.NET 10.0.2 still tells the peer the upload
+            // failed after any rejection, which makes some clients ask again.
+            // That message cannot be suppressed from here.
+            return UploadProtocolOutcome.PeerHasFile;
+        }
         if (transfer.State.HasFlag(TransferStates.Succeeded))
         {
             // The final average is calculated at terminal transition, after the
@@ -178,6 +194,7 @@ public sealed class SoulseekUploadProtocolInvoker(
 public sealed class UploadCoordinator : IAsyncDisposable
 {
     public static readonly TimeSpan AdmissionDeadline = TimeSpan.FromSeconds(5);
+    public const string PeerAlreadyHasFile = "The peer already had the whole file, so nothing was sent.";
 
     private readonly object sync = new();
     private readonly IShareCatalogProvider catalogs;
@@ -595,7 +612,24 @@ public sealed class UploadCoordinator : IAsyncDisposable
                 (bytes, speed) => SetProgress(item, bytes, speed),
                 item.Cancellation.Token).ConfigureAwait(false);
 
-            if (outcome == UploadProtocolOutcome.Completed)
+            bool peerHasFile;
+            lock (sync)
+            {
+                bool resumedAtEnd = item.Request.SizeBytes > 0
+                    && item.Attempt is { BytesTransferred: 0 } attempt && attempt.StartOffset >= item.Request.SizeBytes;
+                peerHasFile = outcome == UploadProtocolOutcome.PeerHasFile
+                    || outcome == UploadProtocolOutcome.Completed && resumedAtEnd;
+                if (peerHasFile)
+                    item.CancellationSource = UploadCancellationSource.Peer;
+            }
+            if (peerHasFile)
+            {
+                // A client that holds every byte declines the transfer, or asks
+                // to resume at its end, often again and again. Nothing is
+                // uploaded, so this is neither a completed upload nor a failure.
+                Terminalize(item, UploadTransferState.Cancelled, UploadFailureReason.None, PeerAlreadyHasFile);
+            }
+            else if (outcome == UploadProtocolOutcome.Completed)
             {
                 Terminalize(item, UploadTransferState.Completed, UploadFailureReason.None);
             }

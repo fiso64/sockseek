@@ -30,6 +30,7 @@ export interface ReplicatedDaemonState {
   readonly searches: ReadonlyMap<string, SearchStateDto>;
   readonly transfers: ReadonlyMap<string, TransferStateDto>;
   readonly readTransfer: (id: string) => TransferStateDto | undefined;
+  readonly readJobTransfer: (jobId: string) => TransferStateDto | undefined;
   readonly activitySummary: Readonly<LiveActivitySummary>;
   readonly epoch: string | null;
   readonly sequence: WireInteger;
@@ -137,6 +138,17 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
   private searchRows = new SvelteMap<string, SearchStateDto>();
   private transferRows = new TransferRows();
   readonly readTransfer = this.transferRows.read;
+  // Membership changes are rare; each row is still read by its own key.
+  private jobTransferMembership = $state(0);
+  /** The transfer currently running for a single-file job, if any. */
+  readonly readJobTransfer = (jobId: string): TransferStateDto | undefined => {
+    void this.jobTransferMembership;
+    for (const id of this.transfersByJob.get(jobId) ?? []) {
+      const row = this.transferRows.read(id);
+      if (row && !row.status.isTerminal) return row;
+    }
+    return undefined;
+  };
   private counts = $state.raw<LiveActivitySummary>(activitySummary());
   private jobsByWorkflow: Membership = new Map();
   private searchesByWorkflow: Membership = new Map();
@@ -282,6 +294,7 @@ export class DaemonStateReducer implements ReplicatedDaemonState {
     if (previous === row) return;
     move(this.transfersByWorkflow, id, previous?.identity.workflowId, row?.identity.workflowId);
     move(this.transfersByJob, id, previous?.identity.jobId, row?.identity.jobId);
+    if (previous?.identity.jobId !== row?.identity.jobId) this.jobTransferMembership++;
     this.changedTransfers.set(id, { previous: this.changedTransfers.has(id) ? this.changedTransfers.get(id)!.previous : previous, current: row });
     if (row) this.transferRows.set(id, row); else this.transferRows.delete(id);
   }

@@ -207,7 +207,9 @@ input[type="checkbox"]:indeterminate {
 .status-label.complete { --status-color: var(--status-complete); }
 .status-label.failed { --status-color: var(--status-failed); }
 .status-label:is(.partial, .interrupted) { --status-color: var(--status-partial); }
-.status-label:is(.active, .searching, .receiving):not(.status-label-icon)::before {
+/* An icon label spins only while its transfer works without moving bytes. */
+.status-label:is(.active, .searching, .receiving):not(.status-label-icon)::before,
+.status-label-icon.busy::before {
   content: "";
   flex: 0 0 auto;
   border-radius: 50%;
@@ -219,12 +221,16 @@ input[type="checkbox"]:indeterminate {
 }
 .status-label-icon { width: 18px; height: 18px; min-height: 18px; padding: 0; }
 .status-label-icon .app-icon { --app-icon-size: 11px; }
+/* An icon badge that also carries a number grows into a pill. */
+.status-label-icon.with-count { width: auto; min-width: 18px; padding: 0 6px 0 4px; gap: 3px; }
+.status-label-count { font-variant-numeric: tabular-nums; }
 .status-details-icon { --app-icon-size: 14px; }
 button.status-label { cursor: pointer; }
 button.status-label:hover { background-color: light-dark(color-mix(in srgb, currentColor 14%, var(--surface)), color-mix(in srgb, currentColor 25%, var(--surface))); box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent); }
 button.status-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (prefers-reduced-motion: no-preference) {
-  .status-label:is(.active, .searching, .receiving):not(.status-label-icon)::before { animation: search-job-spin 700ms linear infinite; }
+  .status-label:is(.active, .searching, .receiving):not(.status-label-icon)::before,
+  .status-label-icon.busy::before { animation: search-job-spin 700ms linear infinite; }
 }
 @keyframes search-job-spin { to { transform: rotate(360deg); } }
 
@@ -234,3 +240,37 @@ mark.filter-match {
   border-radius: 2px;
   box-shadow: inset 0 -1px color-mix(in srgb, currentColor 25%, transparent);
 }
+
+/* A default action joined to an arrow that opens its alternatives. */
+.split-button { position: relative; display: inline-flex; }
+.split-button-main { border-radius: 8px 0 0 8px; }
+.split-button-toggle {
+  width: 31px;
+  display: grid;
+  place-items: center;
+  height: 36px;
+  margin-left: -1px;
+  padding: 0;
+  border-radius: 0 8px 8px 0;
+}
+.split-button-toggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.split-button-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 150px;
+  width: max-content;
+  padding: 5px;
+  border-radius: 9px;
+}
+.split-button-menu button {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 0.74rem;
+}
+.split-button-menu .split-button-check { flex: 0 0 16px; color: var(--accent); }

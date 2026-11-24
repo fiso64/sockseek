@@ -103,11 +103,13 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
     expect(Number(receipt.submittedCount)).toBe(1);
     expect(Number(receipt.rejectedCount)).toBe(0);
     await page.locator('.floating-download-options-popover').getByRole('button', { name: 'Close download options', exact: true }).click();
-    await page.getByRole('button', { name: 'View download jobs', exact: true }).click();
-    await expect(page.getByRole('tab', { name: 'Download jobs', exact: true })).toHaveAttribute('aria-selected', 'true');
-    await expect(page).toHaveURL(new RegExp(`submission=${receipt.submissionId}`));
-    await expect(page.locator('.search-history-row')).toHaveCount(1);
-    await page.locator('.search-history-open').click();
+    // One job opens directly; returning to the list must not filter it.
+    await page.getByTestId('open-download-job').click();
+    await expect(page).toHaveURL(new RegExp(`/jobs/${receipt.jobId}`));
+    await page.getByRole('button', { name: 'Back to jobs', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Requests', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page).not.toHaveURL(/submission=/);
+    await page.goBack();
     const sourceRow = page.locator('.job-related-section').getByTestId('job-row');
     await expect(sourceRow).toHaveAttribute('data-job-kind', 'search');
     await expect(sourceRow.getByTestId('job-stats')).toContainText('file');
@@ -462,6 +464,11 @@ test('applies projection-only sort and live track conditions through an all-exce
   await page.keyboard.press('Space');
   await expect(page.getByRole('button', { name: 'Select all', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
+  // A plain click on a selected row deselects it; clicking again recounts it.
+  await page.locator('.file-item-card .item-size-detail').click();
+  await expect(page.locator('.floating-download-action')).toHaveCount(0);
+  await page.locator('.file-item-card .item-size-detail').click();
+  await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
 
   await daemon.command('next-search-batch');
   await expect(page.locator('.file-item-card')).toHaveCount(3);
@@ -717,8 +724,8 @@ test('keeps a grouped track choice and all-except plan through live group reorde
   const dialog = page.getByRole('dialog');
   const filter = dialog.getByRole('textbox', { name: 'Filter group options' });
   await expect(dialog.locator('.group-option')).toHaveCount(2);
-  await expect(alpha.locator('.peer-queue-stat')).toHaveText('Queue: 0');
-  await expect(dialog.locator('.peer-queue-stat')).toHaveText(['Queue: 0', 'Queue: 0']);
+  await expect(alpha.locator('.peer-queue-stat')).toHaveText('0 queued');
+  await expect(dialog.locator('.peer-queue-stat')).toHaveText(['0 queued', '0 queued']);
   const dialogBounds = await dialog.boundingBox();
   const expandFilter = dialog.locator('header').getByTestId('expand-result-filter');
   await expect(filter).toHaveCount(0);
@@ -846,11 +853,11 @@ test('downloads only checked public files from a mixed chosen group album folder
   await dialog.getByRole('textbox', { name: 'Filter group options' }).fill('INTRO.');
   await expect(dialog.locator('.folder-file-row mark')).toHaveText(['Intro.', 'Intro.']);
   const secondPeer = dialog.locator('.group-option').filter({ hasText: 'second-peer' });
-  await expect(secondPeer.locator('.peer-queue-stat')).toHaveText('Queue: 7');
+  await expect(secondPeer.locator('.peer-queue-stat')).toHaveText('7 queued');
   await secondPeer.locator('.group-option-card-picker').click();
   await expect(dialog).toHaveCount(0);
   const album = page.locator('.group-result-group');
-  await expect(album.locator('.peer-queue-stat')).toHaveText('Queue: 7');
+  await expect(album.locator('.peer-queue-stat')).toHaveText('7 queued');
   await expect(album.locator('.folder-file-row')).toHaveCount(3);
   await album.focus();
   await page.keyboard.press('Space');
@@ -1029,7 +1036,7 @@ test('preserves an independent global draft when opening a retained search', asy
   await expect(page.locator('.search-results-title h1')).toHaveText(title);
   await expect(page.locator('.group-results-list > .group-result-group')).not.toHaveCount(0);
   await expect(page.locator('.search-results-summary')).toContainText(/\d+ groups?/);
-  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Jobs' }).click();
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Searches' }).click();
   await expect(page.locator('.search-history-row').filter({ hasText: title }).getByText(title, { exact: true })).toBeVisible();
 });
 
@@ -1554,7 +1561,7 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   await expect(page.locator('.page')).toContainText('Fixture song.txt');
   await expect(page.getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await page.getByRole('navigation', { name: 'Primary navigation' })
-    .getByRole('button', { name: 'Jobs' }).click();
+    .getByRole('button', { name: 'Searches' }).click();
   const reopened = page.waitForResponse(response => response.request().method() === 'POST'
     && new URL(response.url()).pathname === `/api/jobs/${sourceId}/search-views`);
   await page.locator('.search-history-row:not(.automatic-history-row)').filter({ hasText: 'Fixture' })
@@ -1915,8 +1922,8 @@ test('paints the Jobs tab before remounting cached search results and cancels on
   }, label);
   const advance = () => page.evaluate(() => (window as unknown as { advanceSearchFrame: () => void }).advanceSearchFrame());
   try {
-    await clickNav('Jobs');
-    await expect(navigation.getByRole('button', { name: 'Jobs', exact: true })).toHaveAttribute('aria-current', 'page');
+    await clickNav('Searches');
+    await expect(navigation.getByRole('button', { name: 'Searches', exact: true })).toHaveAttribute('aria-current', 'page');
     await expect(page.locator('.folder-item-card')).toHaveCount(0);
     await advance();
     await expect(page.locator('.folder-item-card')).toHaveCount(0);
@@ -1924,7 +1931,7 @@ test('paints the Jobs tab before remounting cached search results and cancels on
     await advance();
     await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
     await expect(page.locator('.folder-item-card')).toHaveCount(0);
-    await clickNav('Jobs');
+    await clickNav('Searches');
     await advance();
     await expect(page.locator('.folder-item-card')).toHaveCount(0);
     await advance();
@@ -1950,10 +1957,10 @@ test('navigates result pages by keyboard without stealing editing or modal contr
   await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   await input.blur();
   await page.keyboard.press('2');
-  await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Searches', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'New job', exact: false }).click();
   await page.keyboard.press('1');
-  await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Searches', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
   await page.getByRole('menuitemradio', { name: 'Song Groups', exact: true }).click();
@@ -2006,11 +2013,6 @@ test('navigates result pages by keyboard without stealing editing or modal contr
   await expect(page.locator('.search-history-open')).toHaveCSS('outline-style', 'none');
   await page.keyboard.press('Escape');
   await expect(page.locator('.search-history-row.keyboard-current')).toHaveCount(0);
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('tab', { name: 'Download jobs', exact: true })).toBeFocused();
-  await page.keyboard.press('ArrowLeft');
-  await expect(page.getByRole('tab', { name: 'Searches', exact: true })).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   await expect(groups.first()).toBeVisible();
@@ -2079,6 +2081,6 @@ test('retrieves selected folders with R and downloads only with Ctrl+Enter', asy
   await page.getByRole('button', { name: 'Download 5', exact: true }).focus();
   await page.keyboard.press('Control+Enter');
   expect((await accepted).ok()).toBe(true);
-  await expect(page.getByRole('button', { name: 'View download jobs', exact: true })).toBeVisible();
+  await expect(page.getByTestId('open-download-job').or(page.getByTestId('view-download-jobs'))).toBeVisible();
   expect(commits).toBe(1);
 });

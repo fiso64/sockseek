@@ -35,12 +35,12 @@ test('serves the WebUI at the daemon root without replacing API routes', async (
   });
   expect(jobReads).toBe(0);
   expect(observations).toBe(0);
-  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Jobs', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Searches', exact: true }).click();
   await expect(page.getByText('No searches yet', { exact: true })).toBeVisible();
   expect(observations).toBe(1);
   expect(jobReads).toBe(0);
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Searches', exact: true })).toBeVisible();
   await expect(page.locator('.resource-state-notice.empty.blocking')).toContainText('No searches yet');
   expect(analyticsReads, 'A cold Jobs route must not mount and immediately discard Dashboard.').toBe(0);
 });

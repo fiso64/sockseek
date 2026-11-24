@@ -14,7 +14,7 @@ public class CliJobStatusPresenterTests
             ServerJobLifecycleState.Terminal,
             ServerJobActivityPhase.Downloading,
             ServerJobTerminalOutcome.PartialSuccess,
-            transferState: "InProgress");
+            transferPhase: Sockseek.Api.TransferPhase.InProgress);
 
         Assert.AreEqual("partial", status.Label);
         Assert.AreEqual(ConsoleColor.Yellow, status.Color);
@@ -28,7 +28,7 @@ public class CliJobStatusPresenterTests
             ServerJobLifecycleState.Running,
             ServerJobActivityPhase.Downloading,
             ServerJobTerminalOutcome.None,
-            transferState: "Queued, Remotely");
+            transferPhase: Sockseek.Api.TransferPhase.QueuedRemotely);
 
         Assert.AreEqual("queued (R)", status.Label);
         Assert.IsTrue(status.IsActive);
@@ -54,7 +54,7 @@ public class CliJobStatusPresenterTests
     {
         var expected = CliJobStatusPresenter.ForSplit(ServerJobLifecycleState.Running, phase, ServerJobTerminalOutcome.None);
         var actual = CliJobStatusPresenter.ForSplit(ServerJobLifecycleState.Running, phase, ServerJobTerminalOutcome.None,
-            transferState: "InProgress");
+            transferPhase: Sockseek.Api.TransferPhase.InProgress);
         Assert.AreEqual(expected, actual);
     }
 

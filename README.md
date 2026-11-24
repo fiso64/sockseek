@@ -4,6 +4,8 @@ Sockseek is a self-hosted Soulseek client. Run the daemon to search, download, s
 
 The [getting started guide](docs/pages/index.md) covers both the local CLI and the daemon. The [release archive](docs/pages/installation/release-archive.md) includes both. You can also run the daemon on [Debian](docs/pages/installation/debian.md), on [NixOS](docs/pages/installation/nixos.md) or with [Docker Compose](docs/pages/installation/docker.md). The manual for your installed version is also available at `/docs/` on your daemon, with built-in search.
 
+Want a desktop client, or a graphical interface for the download tool? Run `sockseek daemon --no-auth` in a terminal on your own computer and open the WebUI in your browser. The [desktop UI section](docs/pages/index.md#desktop-ui) has the steps. Sockseek will soon be packaged as a proper desktop app.
+
 For a one-shot download, configure your Soulseek credentials and run:
 
 ```sh

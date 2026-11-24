@@ -171,10 +171,10 @@ namespace Tests.ClientTests
             throw new NotImplementedException();
         }
 
+        public Func<string, UserPresence>? Presence;
+
         public Task<UserStatus> GetUserStatusAsync(string username, CancellationToken? cancellationToken = null)
-        {
-            throw new NotImplementedException();
-        }
+            => Task.FromResult(new UserStatus(username, (Presence ?? throw new NotImplementedException())(username), isPrivileged: false));
 
         public Task GrantUserPrivilegesAsync(string username, int days, CancellationToken? cancellationToken = null)
         {

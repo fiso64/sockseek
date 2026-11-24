@@ -601,17 +601,49 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
              """;
         command.Parameters.AddWithValue("$comparison_path", remotePath.ToArray());
 
+        ShareCatalogResolvedFile? exact = await ReadResolvedAsync(command, remotePath, cancellationToken).ConfigureAwait(false);
+        if (exact is not null) return exact;
+
+        // Soulseek NS requests the paths it was given in lower case. Find the
+        // one file whose path differs only by case, through the word index so
+        // that a miss never scans the catalog.
+        string requested = Encoding.UTF8.GetString(remotePath.ToArray());
+        if (requested.Any(char.IsUpper)) return null;
+        // Every word of the path narrows the candidates to this file's folder.
+        string words = string.Join(" AND ", SearchTermRegex().Matches(requested)
+            .Take(32).Select(term => $"\"{term.Value}\""));
+        if (words.Length == 0) return null;
+        command.CommandText =
+            $"""
+             SELECT {FileColumns("f")},
+                    r.alias, r.local_path, r.comparison_alias
+             FROM file_search s
+             INNER JOIN files f ON f.file_id = s.rowid
+             INNER JOIN roots r ON r.root_id = f.root_id
+             WHERE file_search MATCH $words AND f.remote_path = $requested COLLATE NOCASE
+             LIMIT 2;
+             """;
+        command.Parameters.Clear();
+        command.Parameters.AddWithValue("$words", words);
+        command.Parameters.AddWithValue("$requested", requested);
+        return await ReadResolvedAsync(command, null, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The single file a lookup found; none when it found no file or more than one.</summary>
+    private static async ValueTask<ShareCatalogResolvedFile?> ReadResolvedAsync(
+        SqliteCommand command, RemotePathKey? comparisonPath, CancellationToken cancellationToken)
+    {
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             return null;
 
-        ShareCatalogFile file = ReadFile(reader, 0, remotePath);
+        ShareCatalogFile file = ReadFile(reader, 0, comparisonPath);
         var root = new ShareCatalogRoot(
             file.RootId,
             reader.GetString(12),
             reader.GetString(13),
             RemotePathKey.CreateAlias(reader.GetString(12)));
-        return new ShareCatalogResolvedFile(root, file);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? null : new ShareCatalogResolvedFile(root, file);
     }
 
     public async ValueTask<IReadOnlyList<Soulseek.File>> SearchAsync(
@@ -621,8 +653,22 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
-        string match = string.Join(" AND ", SearchTermRegex().Matches(query)
-            .Select(term => $"\"{term.Value}\""));
+        // "*ello" asks for words ending in "ello". The index holds whole words,
+        // so complete words select the candidates and endings filter them. Like
+        // other clients, a search needs at least one complete word.
+        var complete = new List<string>();
+        var endings = new List<string>();
+        foreach (string word in query.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            bool partial = word.Length > 1 && word[0] == '*';
+            foreach (Match term in SearchTermRegex().Matches(word))
+            {
+                if (partial) endings.Add(FoldTerm(term.Value));
+                else complete.Add(term.Value);
+                partial = false;
+            }
+        }
+        string match = string.Join(" AND ", complete.Select(term => $"\"{term}\""));
         if (match.Length == 0) return [];
         var excludedTokens = exclusions.Where(term => term.Length > 0 && term.All(char.IsAsciiLetterOrDigit))
             .Select(term => $"\"{term}\"");
@@ -639,7 +685,7 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         command ??= await OpenSearchCommandAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return ReadMatches(command, match, limit, exclusions, cancellationToken);
+            return ReadMatches(command, match, limit, exclusions, endings, cancellationToken);
         }
         finally
         {
@@ -678,7 +724,7 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
     }
 
     private static IReadOnlyList<Soulseek.File> ReadMatches(SqliteCommand command, string match, int limit,
-        IReadOnlyList<string> exclusions, CancellationToken cancellationToken)
+        IReadOnlyList<string> exclusions, IReadOnlyList<string> endings, CancellationToken cancellationToken)
     {
         command.Parameters["$match"].Value = match;
         var files = new List<Soulseek.File>();
@@ -692,7 +738,7 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 string path = reader.GetString(0);
-                if (IsExcluded(path, exclusions)) continue;
+                if (IsExcluded(path, exclusions) || !HasWordEndings(path, endings)) continue;
                 string attributes = reader.GetString(4);
                 files.Add(new Soulseek.File(reader.GetInt32(1), path, reader.GetInt64(2), reader.GetString(3),
                     attributes == "[]" ? null : JsonSerializer.Deserialize<ShareFileAttribute[]>(attributes)?
@@ -704,6 +750,30 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         {
             throw new OperationCanceledException("Share search cancelled.", e, cancellationToken);
         }
+    }
+
+    private static bool HasWordEndings(string path, IReadOnlyList<string> endings)
+    {
+        if (endings.Count == 0) return true;
+        string folded = FoldTerm(path);
+        foreach (string ending in endings)
+        {
+            bool found = false;
+            foreach (ValueMatch word in SearchTermRegex().EnumerateMatches(folded))
+                if (found = folded.AsSpan(word.Index, word.Length).EndsWith(ending, StringComparison.Ordinal)) break;
+            if (!found) return false;
+        }
+        return true;
+    }
+
+    // Case and accents as the search index folds them.
+    private static string FoldTerm(string value)
+    {
+        if (Ascii.IsValid(value)) return value.ToLowerInvariant();
+        var folded = new StringBuilder(value.Length);
+        foreach (char c in value.Normalize(NormalizationForm.FormD))
+            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark) folded.Append(c);
+        return folded.ToString().ToLowerInvariant();
     }
 
     private static bool IsExcluded(string path, IReadOnlyList<string> exclusions)

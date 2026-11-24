@@ -203,8 +203,8 @@ public sealed class TransferHistoryReader(
             direction = nameof(TransferSnapshotDirection.Upload);
         Filter("t.direction = $direction", "$direction", direction);
         Filter("t.source COLLATE NOCASE = $source", "$source", query.Source);
-        // Keep the exact source label (including local/remote queue flags),
-        // while the Queued filter covers the same family as live counters.
+        // Stored phases are enum names. The Queued filter covers both queue
+        // phases, the same family as live counters.
         if (string.Equals(query.State, "Queued", StringComparison.OrdinalIgnoreCase))
             Filter("t.state LIKE $state", "$state", "Queued%");
         else Filter("t.state COLLATE NOCASE = $state", "$state", query.State);

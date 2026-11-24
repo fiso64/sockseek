@@ -213,6 +213,16 @@ namespace Sockseek.Core.Jobs;
         // parent settings object being reused for every descendant.
         public InputType?               SourceInputType { get; set; }
         public JobSelectionSource?     SelectionSource { get; set; }
+        /// <summary>
+        /// The user chose this exact file or folder from search results or a
+        /// peer's shares, so there is no alternative source to fall back to. It
+        /// therefore waits in its peer's queue instead of going stale, keeps
+        /// downloading a folder's other files after one fails, leaves an
+        /// incomplete folder in place by default, and uses the selection layout.
+        /// </summary>
+        // TODO [BEHAVIOUR]: Decide whether an --interactive pick is hand-picked. Today it is
+        // not (see ManualMusicExecution_CancellationRetiresButFailedAlbumCanRetry).
+        public bool IsHandPicked => SelectionSource is not null;
         // Outermost List provenance for presentation. Keep this separate from
         // SourceInputType: that immediate extractor identity selects auto-profiles.
         public InputType?               SourceCollectionInputType { get; set; }

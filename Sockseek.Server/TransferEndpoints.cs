@@ -15,7 +15,7 @@ internal static class TransferEndpoints
             Guid? workflowId,
             string? direction,
             string? source,
-            string? state,
+            string? phase,
             string? terminalOutcome,
             string? username,
             string? groupRef,
@@ -31,7 +31,7 @@ internal static class TransferEndpoints
                 var page = await transfers.GetTransfersAsync(new(
                     Cursor: cursor, Limit: limit ?? ServerProtocol.DefaultPageSize,
                     JobId: jobId, WorkflowId: workflowId, Direction: direction, Source: source,
-                    State: state, TerminalOutcome: terminalOutcome, Username: username,
+                    State: phase, TerminalOutcome: terminalOutcome, Username: username,
                     FromUtc: fromUtc, ToUtc: toUtc, IncludeRemoved: includeRemoved ?? false, GroupRef: groupRef),
                     cancellationToken);
                 if (page.NextCursor != null)

@@ -143,10 +143,14 @@ public sealed class UploadCoordinatorTests
             "alice",
             new IPEndPoint(IPAddress.Loopback, 1),
             @"Public\Track.bin");
+        // A peer that resumes at the end receives nothing: not a completed upload.
         UploadTransferSnapshot completed = await WaitForStateAsync(
             coordinator,
             admission.TransferId!.Value,
-            UploadTransferState.Completed);
+            startOffset < 6 ? UploadTransferState.Completed : UploadTransferState.Cancelled);
+        Assert.AreEqual(startOffset < 6 ? UploadCancellationSource.None : UploadCancellationSource.Peer,
+            completed.CancellationSource);
+        Assert.AreEqual(startOffset < 6 ? null : UploadCoordinator.PeerAlreadyHasFile, completed.FailureMessage);
 
         CollectionAssert.AreEqual("abcdef"u8.ToArray()[startOffset..], protocol.Bytes);
         Assert.AreEqual(@"Public\Track.bin", protocol.RemotePath);

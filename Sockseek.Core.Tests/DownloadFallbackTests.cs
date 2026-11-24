@@ -1346,6 +1346,50 @@ namespace Tests.Core
         }
 
         [TestMethod]
+        public async Task ManuallyChosenAlbumFolder_KeepsDownloadingAfterOneTrackFails()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-manual-album-track-failed-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+
+            const string failing = @"Music\Album\01. Artist - First.mp3";
+            var files = new[] { failing, @"Music\Album\02. Artist - Second.mp3" }
+                .Select(path => TestHelpers.CreateSlFile(path, length: 180)).ToList();
+            var response = new SearchResponse("peer", 1, true, 10000000, 0, files);
+            var testClient = new ClientTests.MockSoulseekClient([response], failingFiles: [failing]);
+
+            try
+            {
+                // One slot: the failing first file ends before the second starts.
+                var eng = new EngineSettings { Username = "u", Password = "p", ConcurrentJobs = 1 };
+                var dl = new DownloadSettings();
+                dl.Search.NoBrowseFolder = true;
+                dl.Output.ParentDir = outputDir;
+                dl.Transfer.MaxDownloadRetries = 1;
+                var folder = new AlbumFolder("peer", @"Music\Album", files.Select(file => new AlbumFile(
+                    new SongQuery { Title = file.Filename }, SoulseekSearchAdapter.ToFileCandidate(response, file))).ToList());
+                var album = new AlbumJob(new AlbumQuery { Album = "Album" })
+                {
+                    Results = [folder], ResolvedTarget = folder, SelectionSource = JobSelectionSource.ManualSearch,
+                };
+
+                var app = new DownloadEngine(eng, TestHelpers.CreateMockClientManager(testClient, eng));
+                app.Enqueue(album, dl);
+                app.CompleteEnqueue();
+                await app.RunAsync(CancellationToken.None);
+
+                var tracks = album.EnsureTrackJobs(folder);
+                Assert.AreEqual(JobTerminalOutcome.Failed, tracks[0].TerminalOutcome);
+                Assert.IsTrue(tracks[1].IsSuccessfulTerminal, "A failed file must not cancel the rest of a folder the user chose.");
+                Assert.IsTrue(System.IO.File.Exists(tracks[1].DownloadPath) && !Directory.Exists(Path.Combine(outputDir, "failed")),
+                    "Completed files of a chosen folder stay in place by default.");
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
+            }
+        }
+
+        [TestMethod]
         public async Task SongJob_FailsWhenNameFormatOrganizationCannotReplaceBlockedPath()
         {
             var outputDir = Path.Combine(Path.GetTempPath(), "Sockseek-name-format-blocked-song-" + Guid.NewGuid());

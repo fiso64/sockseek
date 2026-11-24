@@ -1,5 +1,4 @@
 using Sockseek.Api;
-using Soulseek;
 
 namespace Sockseek.Cli;
 
@@ -25,8 +24,8 @@ internal sealed record CliJobStatus(
 
 internal static class CliJobStatusPresenter
 {
-    public static CliJobStatus ForSummary(JobSummaryDto summary, string? transferState = null)
-        => ForSplit(summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason, summary.Lifecycle.FailureReason, transferState);
+    public static CliJobStatus ForSummary(JobSummaryDto summary, TransferStatusFieldsDto? transfer = null)
+        => ForSplit(summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason, summary.Lifecycle.FailureReason, transfer?.Phase, transfer?.QueuePosition);
 
     public static CliJobStatus ForSplit(
         ServerJobLifecycleState lifecycle,
@@ -34,12 +33,13 @@ internal static class CliJobStatusPresenter
         ServerJobTerminalOutcome outcome,
         ServerJobSkipReason skipReason = ServerJobSkipReason.None,
         ServerJobFailureReason? failureReason = null,
-        string? transferState = null)
+        TransferPhase? transferPhase = null,
+        int? queuePosition = null)
     {
         if (lifecycle == ServerJobLifecycleState.Terminal)
             return Terminal(outcome, skipReason, failureReason);
 
-        if (activity == ServerJobActivityPhase.Downloading && TryTransferState(transferState, out var transfer))
+        if (activity == ServerJobActivityPhase.Downloading && TryTransferPhase(transferPhase, queuePosition, out var transfer))
             return transfer;
 
         return activity switch
@@ -91,21 +91,20 @@ internal static class CliJobStatusPresenter
         return ServerFailureReasonDisplay.FailedLabel(reason);
     }
 
-    private static bool TryTransferState(string? raw, out CliJobStatus status)
+    /// <summary>A transfer describes its job only while the job is downloading.</summary>
+    private static bool TryTransferPhase(TransferPhase? phase, int? queuePosition, out CliJobStatus status)
     {
-        status = default!;
-        if (raw == null || !Enum.TryParse<TransferStates>(raw, out var state) || state == TransferStates.None)
-            return false;
-
-        status = state switch
+        status = phase switch
         {
-            var s when s.HasFlag(TransferStates.InProgress) => Active("downloading"),
-            var s when s.HasFlag(TransferStates.Queued) && s.HasFlag(TransferStates.Remotely) => Active("queued (R)"),
-            var s when s.HasFlag(TransferStates.Queued) && s.HasFlag(TransferStates.Locally) => Active("queued (L)"),
-            var s when s.HasFlag(TransferStates.Initializing) => Active("initialising"),
-            var s when s.HasFlag(TransferStates.TimedOut) => new("timed out", ConsoleColor.Red, CliJobStatusCategory.Failed),
-            _ => Active(state.ToString()),
+            TransferPhase.QueuedRemotely => Active(queuePosition > 0 ? $"queued (R) #{queuePosition}" : "queued (R)"),
+            TransferPhase.QueuedLocally => Active("queued (L)"),
+            TransferPhase.QueuedForPeer => Active("waiting for peer"),
+            TransferPhase.Starting or TransferPhase.Requested or TransferPhase.Initializing => Active("connecting"),
+            TransferPhase.InProgress => Active("downloading"),
+            TransferPhase.Finalizing => Active("finalizing"),
+            TransferPhase.Retrying => Active("retrying"),
+            _ => null!,
         };
-        return true;
+        return status is not null;
     }
 }

@@ -66,7 +66,6 @@ internal sealed class JobState
     private readonly Dictionary<Guid, Guid> extractJobIdsByResult = [];
     private readonly Dictionary<Guid, Guid> sourceJobIds = [];
     private readonly HashSet<Guid> executionCompletedJobs = [];
-    private readonly Dictionary<Guid, string> songTransferStates = [];
     private readonly Dictionary<Guid, SearchStateDto> searchStates = [];
 
     private readonly Dictionary<Guid, WorkflowStateDto> projectedWorkflows = [];
@@ -115,9 +114,8 @@ internal sealed class JobState
     }
 
     internal JobReadState? UpdateFileProgress(JobReferenceSnapshot reference, FileDownloadStateSnapshot file,
-        DateTimeOffset occurredAtUtc, string? transferState = null)
+        DateTimeOffset occurredAtUtc)
     {
-        if (transferState is not null) songTransferStates[reference.Id] = transferState;
         if (!jobs.TryGetValue(reference.Id, out var previous) || previous.Revision > reference.Revision)
             return null;
         FileDownloadStateSnapshot? oldFile = previous.Payload switch
@@ -288,7 +286,7 @@ internal sealed class JobState
         // Detail rendering belongs to the read. Routine updates retain only
         // compact summaries, never query/target/attribute DTOs nobody asked for.
         JobPayloadDto payload = ServerSnapshotMapper.ToJobPayload(
-            RefreshNestedSnapshots(job), GetTransferState,
+            RefreshNestedSnapshots(job),
             listProjections.GetValueOrDefault(jobId)?.Summary,
             groupProjections.GetValueOrDefault(jobId)?.Summary,
             albumGroupsProjections.GetValueOrDefault(jobId)?.Summary);
@@ -490,7 +488,6 @@ internal sealed class JobState
                 resultJobIds.Count,
                 sourceJobIds.Count,
                 executionCompletedJobs.Count,
-                songTransferStates.Count,
                 0,
                 0,
                 searchStates.Count,
@@ -1167,9 +1164,6 @@ internal sealed class JobState
                 ? JobTerminalOutcome.Succeeded
                 : job.TerminalOutcome;
 
-    private string? GetTransferState(Guid jobId)
-        => songTransferStates.TryGetValue(jobId, out var state) ? state : null;
-
     private static bool IsActiveRecord(JobReadState record)
         => record.LifecycleState != ServerJobLifecycleState.Terminal;
 
@@ -1334,7 +1328,6 @@ internal sealed class JobState
             RemoveSubmissionMember(removed.Current.SubmissionId, jobId);
         }
         executionCompletedJobs.Remove(jobId);
-        songTransferStates.Remove(jobId);
         searchStates.Remove(jobId);
         parentJobIds.Remove(jobId);
         if (resultJobIds.Remove(jobId, out Guid resultJobId))

@@ -441,6 +441,47 @@ public sealed class ExactFileTransferRunnerTests
     }
 
     [TestMethod]
+    public async Task HandPickedDownload_WaitsForAnOfflinePeerInsteadOfFailing()
+    {
+        const string username = "Peer";
+        const string filename = @"Share\File.bin";
+        var client = new MockSoulseekClient([Response(username, filename)]);
+        int presenceChecks = 0;
+        client.Presence = _ => { presenceChecks++; return UserPresence.Online; };
+        client.BeforeDownloadStartsAsync = (_, _, _) => client.DownloadCallCount == 1
+            ? throw new UserOfflineException("User Peer appears to be offline") : Task.CompletedTask;
+        var (runner, _, events) = CreateRunner(client);
+        var phases = new List<Sockseek.Core.Snapshots.TransferPhase>();
+        events.DownloadStateChanged += change => { lock (phases) phases.Add(change.Transfer.Phase); };
+        var target = Target(username, filename);
+        string root = CreateTempDirectory();
+        // No ordinary retries: only the wait can explain the second attempt.
+        var settings = new TransferSettings { UnknownErrorRetries = 0, NoIncompleteExt = true };
+
+        try
+        {
+            var outcome = await runner.DownloadFile(target, Path.Combine(root, "file.bin"),
+                new RemoteFileJob(target) { SelectionSource = JobSelectionSource.PeerShares }, settings, root,
+                30_000, publishToDuplicateCache: false);
+
+            Assert.AreEqual(ExactFileTransferStatus.Completed, outcome.Status);
+            Assert.AreEqual(2, client.DownloadCallCount);
+            Assert.AreEqual(1, presenceChecks);
+            lock (phases) CollectionAssert.Contains(phases, Sockseek.Core.Snapshots.TransferPhase.QueuedForPeer);
+
+            // The same failure ends a download that was not chosen from this peer.
+            client.DownloadCallCount = 0;
+            await Assert.ThrowsAsync<Exception>(() => runner.DownloadFile(target, Path.Combine(root, "other.bin"),
+                new RemoteFileJob(target), settings, root, 30_000, publishToDuplicateCache: false));
+            Assert.AreEqual(1, client.DownloadCallCount);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task MissingPeer_IsNotRetriedAndLeavesNoLiveTransfer()
     {
         var client = new MockSoulseekClient([]);
@@ -556,7 +597,8 @@ public sealed class ExactFileTransferRunnerTests
                 publishToDuplicateCache: false));
 
             Assert.IsNotNull(cancelled);
-            Assert.AreEqual(TransferCancellationReason.Requested, cancelled.Reason);
+            Assert.AreEqual(TransferCancellationReason.OwningJob, cancelled.Reason,
+                "A cancelled token without a user request is not attributed to the user.");
             Assert.IsNull(failed);
             Assert.AreEqual(0, active.ActiveDownloads.Count());
             if (owner is SongJob song)
@@ -823,7 +865,7 @@ public sealed class ExactFileTransferRunnerTests
                 TestHelpers.CreateMockClientManager(client, engineSettings),
                 active,
                 events,
-                new StaleDownloadCoordinator(active), closer),
+                new PeerTransferMonitor(active), closer),
             active,
             events);
     }

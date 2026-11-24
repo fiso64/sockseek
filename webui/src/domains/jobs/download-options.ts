@@ -1,4 +1,5 @@
 import type { Schema } from '../../api/types';
+import { mergeSearchSettings } from '../search/config-mapping';
 
 export interface DownloadOptions {
   skipExisting: boolean;
@@ -47,6 +48,28 @@ export function buildDownloadOptionsPatch(value: DownloadOptions, baseline: Down
 }
 
 /** Move untouched fields to a new resolved baseline, retaining explicit edits. */
+/** Later edits win over an earlier patch, field by field within each section. */
+export function mergeSettingsPatch(base: Schema<'DownloadSettingsPatchDto'> | undefined,
+  edits: Schema<'DownloadSettingsPatchDto'>): Schema<'DownloadSettingsPatchDto'> {
+  const result: Record<string, unknown> = { ...base };
+  for (const [section, value] of Object.entries(edits)) {
+    if (value == null) continue;
+    const earlier = (base as Record<string, unknown> | undefined)?.[section];
+    if (section === 'search') result.search = mergeSearchSettings(base?.search ?? undefined, value as Schema<'SearchSettingsPatchDto'>);
+    else if (typeof value !== 'object' || typeof earlier !== 'object' || earlier === null) result[section] = value;
+    else {
+      const merged: Record<string, unknown> = { ...earlier, ...value };
+      // A field cannot be both set and cleared; the later instruction stands.
+      for (const [key, edit] of Object.entries(value)) {
+        if (key.startsWith('clear')) { if (edit === true) delete merged[key.charAt(5).toLowerCase() + key.slice(6)]; }
+        else delete merged[`clear${key.charAt(0).toUpperCase()}${key.slice(1)}`];
+      }
+      result[section] = merged;
+    }
+  }
+  return result;
+}
+
 export function rebaseOptions<T extends object>(previous: T | null, value: T, baseline: T, explicitFields?: ReadonlySet<keyof T>): T {
   if (!previous) return { ...baseline };
   const next = { ...baseline };

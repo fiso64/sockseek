@@ -29,6 +29,7 @@ namespace Tests.ClientTests
 
         private List<Soulseek.SearchResponse> index;
         private readonly HashSet<string> failingUsers;
+        private readonly HashSet<string> failingFiles;
         private readonly HashSet<string> disconnectingUsers = new(StringComparer.Ordinal);
         private int disconnectingSearches;
         private int failingSearches;
@@ -90,8 +91,10 @@ namespace Tests.ClientTests
         public MockSoulseekClient(
             List<Soulseek.SearchResponse> index,
             IEnumerable<string>? failingUsers = null,
-            SoulseekClientStates initialState = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn)
+            SoulseekClientStates initialState = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn,
+            IEnumerable<string>? failingFiles = null)
         {
+            this.failingFiles  = new HashSet<string>(failingFiles ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
             this.index         = index;
             this.failingUsers  = new HashSet<string>(failingUsers ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
             State = initialState;
@@ -388,7 +391,7 @@ namespace Tests.ClientTests
             if (!State.HasFlag(SoulseekClientStates.Connected) || !State.HasFlag(SoulseekClientStates.LoggedIn))
                 throw new SoulseekClientException($"Mock client is disconnected while downloading from user {username}");
 
-            if (failingUsers.Contains(username))
+            if (failingUsers.Contains(username) || failingFiles.Contains(remoteFilename))
                 throw new SoulseekClientException($"Simulated download failure for user {username}");
 
             if (disconnectingUsers.Remove(username))

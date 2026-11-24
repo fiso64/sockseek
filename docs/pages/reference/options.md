@@ -280,6 +280,8 @@ Most common flags:
                                 output dir}/failed (default), 'move:<path>' to move to a
                                 custom path, 'delete' to delete them, or 'keep' to leave
                                 them where they are.
+                                A folder downloaded from search results or a peer's
+                                shares defaults to 'keep'; --interactive picks do not.
 ```
 
 ## Group Download Options

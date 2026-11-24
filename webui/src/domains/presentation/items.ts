@@ -66,6 +66,12 @@ export interface TransferPresentation {
   fallback?: Readonly<Schema<'FallbackSourceDto'>>;
   group?: Readonly<Schema<'TransferGroupSummaryDto'>>;
   state: string;
+  /** The live transfer phase while the transfer, not its job, owns the state. */
+  phase?: Schema<'TransferPhase'>;
+  /** Place in the peer's upload queue, when the peer has reported one. */
+  queuePosition?: number;
+  /** The running attempt number, from the second attempt on. */
+  attempt?: number;
   tone?: 'active' | 'queued' | 'complete' | 'partial' | 'failed' | 'cancelled';
   cancellable?: boolean;
   progressPercent?: number;
@@ -110,4 +116,24 @@ export function folderSources(files: readonly FolderItemFile[], filesComplete: b
     folders.add(separator < 0 ? '(peer root)' : remote.slice(0, separator) || remote.slice(0, 1));
   }
   return { folders: [...folders], peer, complete };
+}
+
+/** Active without moving bytes: connecting to the peer, finalizing the output, or retrying. */
+export function isBusyTransfer(transfer?: TransferPresentation): boolean {
+  return transfer?.phase != null && transfer.tone === 'active' && transfer.phase !== 'InProgress';
+}
+
+/** The one web label per transfer phase. An upload waits only in our own queue. */
+export function transferPhaseLabel(phase: Schema<'TransferPhase'>, direction: 'download' | 'upload', fallback = false): string {
+  switch (phase) {
+    case 'QueuedRemotely': return 'Queued remotely';
+    case 'QueuedForPeer': return 'Waiting for peer';
+    case 'QueuedLocally': return direction === 'upload' ? 'Queued' : 'Queued locally';
+    // An upload is finished by the peer: it closes the connection once it has every byte.
+    case 'Finalizing': return direction === 'upload' ? 'Finishing' : 'Finalizing';
+    case 'Retrying': return 'Retrying';
+  }
+  if (fallback) return 'Running fallback';
+  if (phase !== 'InProgress') return 'Connecting';
+  return direction === 'upload' ? 'Uploading' : 'Downloading';
 }

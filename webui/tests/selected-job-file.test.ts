@@ -59,7 +59,7 @@ it('uses live size evidence for an exact remote file without changing its identi
     transferId: 'transfer', revision: 1, createdAtUtc: new Date(0).toISOString(),
     identity: { jobId: 'child', workflowId: null, direction: 'Download', source: 'RemoteFile',
       username: target.username, remotePath: target.filename, candidateKey: null },
-    status: { state: 'InProgress', localPath: null, attemptCount: 1, isTerminal: false },
+    status: { phase: 'InProgress', localPath: null, attemptCount: 1, isTerminal: false },
     progress: { bytesTransferred: 64, totalBytes: 128 },
   };
   expect(selectedJobFile(payload)?.target).toBe(target);
@@ -74,7 +74,7 @@ it('uses available live identity and progress while the child payload is not que
     transferId: 'transfer', revision: 1, createdAtUtc: new Date(0).toISOString(),
     identity: { jobId: 'child', workflowId: null, direction: 'Download', source: 'RemoteFile',
       username: 'Exact Peer', remotePath: 'Other\\Mix CASE.jpg', candidateKey: null },
-    status: { state: 'InProgress', localPath: '/downloads/cover.jpg', attemptCount: 1, isTerminal: false },
+    status: { phase: 'InProgress', localPath: '/downloads/cover.jpg', attemptCount: 1, isTerminal: false },
     progress: { bytesTransferred: 64, totalBytes: 128 },
   };
   const selected = selectedJobFile(null, live);
@@ -85,8 +85,8 @@ it('uses available live identity and progress while the child payload is not que
   expect(selectedJobFileTransfer(live)).toMatchObject({ state: 'Downloading', progressPercent: 50, progressText: '50%' });
   expect(selectedJobFileTransfer({ ...live, progress: { ...live.progress, bytesPerSecond: 32 } }))
     .toMatchObject({ speed: '32 B/s', eta: '2s' });
-  expect(selectedJobFileTransfer({ ...live, status: { ...live.status, state: 'Queued' },
-    progress: { bytesTransferred: 0, totalBytes: 128 } })).toMatchObject({ state: 'Queued', progressText: 'Waiting for peer' });
+  expect(selectedJobFileTransfer({ ...live, status: { ...live.status, phase: 'QueuedRemotely' },
+    progress: { bytesTransferred: 0, totalBytes: 128 } })).toMatchObject({ state: 'Queued remotely', tone: 'queued' });
 });
 
 
@@ -94,7 +94,7 @@ it('keeps processing phases authoritative over an open transport and hides stale
   const live: TransferStateDto = {
     transferId: 'transfer', revision: 1, createdAtUtc: new Date(0).toISOString(),
     identity: { jobId: 'song', direction: 'Download', source: 'Song', username: 'peer', remotePath: 'old.flac' },
-    status: { state: 'AttemptCompleted', attemptCount: 1, isTerminal: false },
+    status: { phase: 'Finalizing', attemptCount: 1, isTerminal: false },
     scheduling: { requestedAtUtc: new Date(0).toISOString(), startedAtUtc: new Date(0).toISOString() },
     progress: { bytesTransferred: 128, totalBytes: 128, bytesPerSecond: 32 },
   };

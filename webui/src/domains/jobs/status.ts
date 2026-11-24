@@ -1,5 +1,5 @@
-import type { JobSummaryDto, Schema } from '../../api/types';
-import type { TransferPresentation } from '../presentation/items';
+import type { JobSummaryDto, Schema, TransferStateDto } from '../../api/types';
+import { transferPhaseLabel, type TransferPresentation } from '../presentation/items';
 
 const resumeTimeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -16,7 +16,8 @@ export function jobTransferTone(job: JobSummaryDto | null | undefined): Transfer
   }
 }
 
-export function jobStatusLabel(job: JobSummaryDto): string {
+/** A single-file job's own transfer names what its download is doing. */
+export function jobStatusLabel(job: JobSummaryDto, transfer?: TransferStateDto): string {
   if (job.lifecycle.lifecycleState === 'Terminal') {
     switch (job.lifecycle.terminalOutcome) {
       case 'Succeeded': return 'Complete';
@@ -37,7 +38,8 @@ export function jobStatusLabel(job: JobSummaryDto): string {
     case 'Searching': return 'Searching';
     case 'ProcessingSearchResults': return job.display.kind === 'search' ? 'Preparing results' : 'Choosing results';
     case 'Extracting': return 'Importing';
-    case 'Downloading': return 'Downloading';
+    case 'Downloading': return transfer && !transfer.status.isTerminal
+      ? transferPhaseLabel(transfer.status.phase, 'download', transfer.identity.source === 'Fallback') : 'Downloading';
     case 'RetrievingFolder': return 'Reading folder';
     case 'RunningChildren': return 'Running';
     case 'Organizing': return 'Organizing files';
@@ -88,9 +90,11 @@ export function jobOutcomeDetail(job: JobSummaryDto): string {
     : job.lifecycle.failureReason === 'ExtractionFailed' ? 'Import failed' : '');
 }
 
-export function jobStatusClass(job: JobSummaryDto): string {
+export function jobStatusClass(job: JobSummaryDto, transfer?: TransferStateDto): string {
   if (job.lifecycle.lifecycleState !== 'Terminal') {
     if (job.lifecycle.lifecycleState === 'Pending') return 'pending';
+    if (job.lifecycle.activityPhase === 'Downloading' && !transfer?.status.isTerminal
+      && transfer?.status.phase.startsWith('Queued')) return 'pending';
     return job.display.kind === 'search' ? 'searching' : 'receiving';
   }
   switch (job.lifecycle.terminalOutcome) {

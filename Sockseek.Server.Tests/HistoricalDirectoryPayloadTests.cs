@@ -52,7 +52,7 @@ public sealed class HistoricalDirectoryPayloadTests
         owner.MaterializeDirectoryChildren([existing, pending]);
         JobOutcomeCommitter.Commit(existing, JobOutcome.AlreadyExists("/kept/file.bin"));
         JobSnapshot snapshot = CoreSnapshotFactory.CreateJob(owner, 1);
-        var live = (RemoteDirectoryJobPayloadDto)ServerSnapshotMapper.ToJobPayload(snapshot, _ => null);
+        var live = (RemoteDirectoryJobPayloadDto)ServerSnapshotMapper.ToJobPayload(snapshot);
         var retainedJob = Job(snapshot.Payload);
         var retained = (RemoteDirectoryJobPayloadDto)HistoricalJobDtoMapper.ToPayload(retainedJob);
         foreach (var directory in new[] { live.Directory, retained.Directory })

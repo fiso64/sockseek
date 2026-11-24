@@ -71,6 +71,7 @@ test('uses filtering and output settings for a direct Start download', async ({ 
   expect(started.options?.downloadSettings?.output?.nameFormat).toBe('direct/{stitle}');
   await expect(page.locator('.automatic-job-detail h1')).toHaveText('Fixture song');
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Downloads', exact: true }).click();
+  await page.getByRole('tab', { name: 'Files', exact: true }).click();
   await expect(page.locator('.folder-item-card').getByRole('button', { name: 'Complete', exact: true })).toHaveClass(/folder-file-state/);
   const transfersResponse = await page.request.get('/api/transfers?direction=download&limit=500');
   expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
@@ -589,6 +590,26 @@ test('reviews and starts daemon CSV and list paths without uploading', async ({ 
     expect(accepted.status()).toBe(202);
     expect(Number((await accepted.json()).submittedCount)).toBe(1);
     await expect(page.locator('.new-job-composer')).toHaveCount(0);
+    if (choice !== 'csv') continue;
+    // Running again reads the file as it is now; the saved list stays available.
+    await writeFile(path, 'artist,title\nFixture Artist,Fixture Song\nFixture Artist,Added Later\n');
+    const rerun = (testId: string) => Promise.all([
+      page.waitForResponse(reply => reply.request().method() === 'POST' && new URL(reply.url()).pathname.endsWith('/rerun')),
+      page.getByTestId(testId).click(),
+    ]).then(([reply]) => reply);
+    const fresh = await rerun('run-again');
+    expect(fresh.status(), await fresh.text()).toBe(202);
+    expect(new URL(fresh.url()).searchParams.get('extractAgain')).toBe('true');
+    await expect(page.getByText('Added Later')).toBeVisible();
+    await writeFile(path, 'artist,title\nFixture Artist,Changed Again\n');
+    await page.getByTestId('run-again-menu').click();
+    const exact = await rerun('run-again-exact');
+    expect(exact.status(), await exact.text()).toBe(202);
+    expect(new URL(exact.url()).searchParams.get('extractAgain')).toBeNull();
+    const exactJob = await exact.json();
+    await page.waitForURL(url => url.pathname.includes((exactJob as Schema<'JobSummaryDto'>).jobId));
+    await expect(page.getByText('Added Later')).toBeVisible();
+    await expect(page.getByText('Changed Again')).toHaveCount(0);
   }
   expect(uploads).toBe(0);
 });

@@ -324,7 +324,7 @@ public class CliProgressReporter
         IReadOnlyDictionary<Guid, TransferMetric> transferMetrics)
     {
         transfersByJob.TryGetValue(job.JobId, out var transfer);
-        var status = CliJobStatusPresenter.ForSummary(job, transfer?.Status.State);
+        var status = CliJobStatusPresenter.ForSummary(job, transfer?.Status);
         string state = transfer == null
             && job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal
             && activityStatuses.TryGetValue(job.JobId, out var activityStatus)
@@ -385,7 +385,7 @@ public class CliProgressReporter
         IReadOnlyDictionary<Guid, TransferMetric> transferMetrics)
     {
         transfersByJob.TryGetValue(job.JobId, out var transfer);
-        var status = CliJobStatusPresenter.ForSummary(job, transfer?.Status.State);
+        var status = CliJobStatusPresenter.ForSummary(job, transfer?.Status);
         string state = transfer == null
             && activityStatuses.TryGetValue(job.JobId, out var activityStatus)
                 ? activityStatus

@@ -50,7 +50,7 @@ test('a cancelled list snapshot cannot resurrect a deleted submission', async ({
   const row = page.locator('.search-history-row').filter({ hasText: 'Deletion history race fixture' });
   await expect(row).toBeVisible();
   await row.locator('.search-history-open').click();
-  await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await page.getByRole('button', { name: 'Downloads', exact: true }).click();
   await oldReady;
   await row.locator('.search-history-open').click();
   await remove.click();

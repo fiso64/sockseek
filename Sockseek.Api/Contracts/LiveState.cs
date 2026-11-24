@@ -362,6 +362,34 @@ public sealed record TransferIdentityFieldsDto(
     TransferGroupKind GroupKind = TransferGroupKind.Directory,
     FallbackSourceDto? Fallback = null);
 
+/// <summary>
+/// Where one transfer is in its lifecycle. An ended transfer describes its
+/// result through <see cref="TransferTerminalOutcome"/>.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<TransferPhase>))]
+public enum TransferPhase
+{
+    /// <summary>Accepted by the daemon; the transport has not reported a state yet.</summary>
+    Starting,
+    /// <summary>Waiting for a local slot. For uploads, the daemon's own upload queue.</summary>
+    QueuedLocally,
+    Requested,
+    /// <summary>Waiting in the remote peer's upload queue.</summary>
+    QueuedRemotely,
+    /// <summary>
+    /// The peer cannot serve the file now (offline, unreachable or over its
+    /// queue limit). The download is kept and asked for again later.
+    /// </summary>
+    QueuedForPeer,
+    Initializing,
+    InProgress,
+    /// <summary>The bytes arrived; the output is being verified and placed.</summary>
+    Finalizing,
+    /// <summary>An attempt failed and the transfer has not ended.</summary>
+    Retrying,
+    Ended,
+}
+
 [JsonConverter(typeof(JsonStringEnumConverter<TransferTerminalOutcome>))]
 public enum TransferTerminalOutcome
 {
@@ -394,6 +422,8 @@ public enum TransferCancellationSource
 {
     None,
     User,
+    /// <summary>The owning job stopped the transfer; the user did not cancel it.</summary>
+    OwningJob,
     Peer,
     DaemonShutdown,
     CatalogInvalidation,
@@ -401,7 +431,7 @@ public enum TransferCancellationSource
 
 /// <summary>A cohesive replacement for the current transfer state.</summary>
 public sealed record TransferStatusFieldsDto(
-    string State,
+    TransferPhase Phase,
     string? LocalPath,
     int AttemptCount,
     bool IsTerminal,
@@ -411,7 +441,10 @@ public sealed record TransferStatusFieldsDto(
     IReadOnlyList<ResourceActionDto>? AvailableActions = null,
     DateTimeOffset? CompletedAtUtc = null,
     string? FailureMessage = null,
-    DateTimeOffset? RemovedAtUtc = null)
+    DateTimeOffset? RemovedAtUtc = null,
+    // A download's place in the peer's upload queue, as the peer last reported
+    // it. Present only while the phase is QueuedRemotely and the peer answered.
+    int? QueuePosition = null)
 {
     public IReadOnlyList<ResourceActionDto> AvailableActions { get; init; } =
         AvailableActions ?? [];

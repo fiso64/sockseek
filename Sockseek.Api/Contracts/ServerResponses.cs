@@ -24,7 +24,27 @@ public sealed record ServerStatusDto(
     PersistenceStatusDto? Persistence = null,
     ConfigurationStatusDto? Configuration = null,
     SoulseekConnectionDto? Connection = null,
-    LocalUserProfileDto? Profile = null);
+    LocalUserProfileDto? Profile = null,
+    ProcessMemoryDto? Memory = null);
+
+/// <summary>
+/// Memory held by the daemon process. The three parts add up to
+/// <see cref="ResidentBytes"/> and are reported on Linux only. A service
+/// manager's figure differs: it also counts file cache.
+/// </summary>
+/// <param name="ResidentBytes">Memory currently in RAM.</param>
+/// <param name="PeakResidentBytes">The highest resident size since the process started.</param>
+/// <param name="HeapBytes">The daemon's own objects and native allocations.</param>
+/// <param name="RuntimeBytes">The runtime's type data and compiled code.</param>
+/// <param name="MappedFileBytes">Libraries and databases mapped from disk, which the system can reclaim.</param>
+/// <param name="SwappedBytes">Memory the system moved to swap.</param>
+public sealed record ProcessMemoryDto(
+    long ResidentBytes,
+    long PeakResidentBytes,
+    long? HeapBytes = null,
+    long? RuntimeBytes = null,
+    long? MappedFileBytes = null,
+    long? SwappedBytes = null);
 
 /// <summary>
 /// The profile this daemon shows to Soulseek peers. PictureUrl changes with the
@@ -202,4 +222,22 @@ public sealed record JobLookupRequestDto(IReadOnlyList<Guid> JobIds);
 /// <summary>Current network session; contains no credentials.</summary>
 public sealed record SoulseekConnectionDto(string? Username, string? ServerAddress, int? ServerPort, string? ServerEndpoint, int? ListenPort);
 
-public sealed record JobRepeatOptionsDto(bool CanRunAgain, int MissingFiles, Guid? RetryTransferId = null);
+/// <param name="CanRunAgain">The job can be run again from its saved command.</param>
+/// <param name="CanExtractAgain">
+/// Running it again can also read its source afresh, which may give different
+/// items. False when there is no source to read, or it was an uploaded file.
+/// </param>
+/// <param name="CanEditAgain">The job's request can be read back as a draft to change and submit again.</param>
+public sealed record JobRepeatOptionsDto(bool CanRunAgain, int MissingFiles, Guid? RetryTransferId = null,
+    bool CanExtractAgain = false, bool CanEditAgain = false);
+
+/// <summary>
+/// What was asked for when a job was submitted, in the form a new submission
+/// takes. Edits made to individual items during review are not part of it.
+/// </summary>
+/// <param name="ProfileNames">Profiles that were selected for the job and still exist.</param>
+/// <param name="DownloadSettings">Where the job's settings differ from what those profiles give now.</param>
+public sealed record JobRerunDraftDto(
+    JobDraftDto Job,
+    IReadOnlyList<string> ProfileNames,
+    DownloadSettingsPatchDto? DownloadSettings = null);

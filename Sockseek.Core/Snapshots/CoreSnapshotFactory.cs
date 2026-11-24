@@ -67,7 +67,7 @@ public static class CoreSnapshotFactory
         FileCandidate candidate,
         string outputPath,
         long revision,
-        string? state,
+        TransferPhase phase,
         long bytesTransferred,
         long totalBytes,
         int attemptCount)
@@ -84,7 +84,7 @@ public static class CoreSnapshotFactory
             candidate.Filename,
             outputPath,
             CandidateKey(candidateSnapshot),
-            State: state,
+            Phase: phase,
             BytesTransferred: bytesTransferred,
             TotalBytes: totalBytes,
             AttemptCount: attemptCount,
@@ -99,13 +99,13 @@ public static class CoreSnapshotFactory
         PeerFileTarget target,
         string outputPath,
         long revision,
-        string? state,
+        TransferPhase phase,
         long bytesTransferred,
         long totalBytes,
         int attemptCount)
     {
         return CreateDownloadTransfer(transferId, owner, target, outputPath, revision,
-            state, bytesTransferred, totalBytes, attemptCount, DownloadCandidate(owner, target));
+            phase, bytesTransferred, totalBytes, attemptCount, DownloadCandidate(owner, target));
     }
 
     internal static TransferSnapshot CreateDownloadTransfer(
@@ -114,7 +114,7 @@ public static class CoreSnapshotFactory
         PeerFileTarget target,
         string outputPath,
         long revision,
-        string? state,
+        TransferPhase phase,
         long bytesTransferred,
         long totalBytes,
         int attemptCount,
@@ -122,7 +122,7 @@ public static class CoreSnapshotFactory
     {
         if (candidate is not null && owner is SongJob candidateSong)
             return CreateDownloadTransfer(
-                transferId, candidateSong, candidate, outputPath, revision, state,
+                transferId, candidateSong, candidate, outputPath, revision, phase,
                 bytesTransferred, totalBytes, attemptCount);
 
         return new TransferSnapshot(
@@ -136,7 +136,7 @@ public static class CoreSnapshotFactory
             target.Filename,
             outputPath,
             CandidateKey(target.Identity),
-            State: state,
+            Phase: phase,
             BytesTransferred: bytesTransferred,
             TotalBytes: totalBytes,
             AttemptCount: attemptCount,
@@ -159,7 +159,7 @@ public static class CoreSnapshotFactory
         string? sourceReference,
         string? outputPath,
         long revision,
-        string? state,
+        TransferPhase phase,
         long bytesTransferred,
         long totalBytes,
         int attemptCount)
@@ -174,7 +174,7 @@ public static class CoreSnapshotFactory
             RemotePath: sourceReference,
             LocalPath: outputPath,
             CandidateKey: null,
-            state,
+            phase,
             bytesTransferred,
             totalBytes,
             attemptCount,

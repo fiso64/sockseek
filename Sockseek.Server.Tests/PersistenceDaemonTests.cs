@@ -298,7 +298,7 @@ public sealed class PersistenceDaemonTests
                     INSERT INTO transfers (id, last_runtime_id, last_sequence, direction, source,
                         state, terminal_outcome, total_bytes, transferred_bytes, attempt_count, created_at_utc,
                         completed_at_utc, failure_reason, cancellation_source, revision)
-                    VALUES ($id, $runtime, 1, 'Upload', 'SoulseekPeer', 'Completed', 'Succeeded',
+                    VALUES ($id, $runtime, 1, 'Upload', 'SoulseekPeer', 'Ended', 'Succeeded',
                         10, 10, 1, $at, $at, 'None', 'None', 1);
                     """;
                 seed.Parameters.AddWithValue("$id", Guid.NewGuid());
@@ -497,7 +497,7 @@ public sealed class PersistenceDaemonTests
                             attempt_count, created_at_utc, completed_at_utc, failure_reason,
                             cancellation_source, revision, group_ref, group_display_path)
                         VALUES ($id, $runtime, 1, 'Download', 'SoulseekPeer', 'peer', $path,
-                            'Completed', 'Succeeded', 10, 10, 1, $at, $at, 'None', 'None', 1,
+                            'Ended', 'Succeeded', 10, 10, 1, $at, $at, 'None', 'None', 1,
                             'retained-folder', 'Share');
                         """;
                     foreach (var (id, age, path) in new[]

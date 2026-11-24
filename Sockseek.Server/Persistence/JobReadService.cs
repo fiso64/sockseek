@@ -61,11 +61,17 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         var job = detail.Summary;
         if (job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal || job.Display.SubmissionId is not Guid submission ||
             persistence.JobHistory == null || persistence.Submissions == null) return detail;
-        bool canRun = false;
+        bool canRun = false, canExtract = false, canEdit = false;
         if (job.Display.Kind is not (ServerJobKind.RemoteFile or ServerJobKind.RemoteDirectory))
         {
             var json = await persistence.Submissions.GetSpecificationJsonAsync(submission, ct);
-            canRun = json != null && SubmissionSpecificationCodec.Deserialize(json).CanRunAgain(job.JobId);
+            var specification = json == null ? null : SubmissionSpecificationCodec.Deserialize(json);
+            canRun = specification?.CanRunAgain(job.JobId) == true;
+            if (canRun && specification!.ForRequest(job.JobId) is { } request)
+            {
+                canExtract = request.CanExtractAgain();
+                canEdit = JobRequestMapper.CreateEditableDraft(request.Command) != null;
+            }
         }
         int missing = 0;
         Guid? file = null;
@@ -86,7 +92,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
                 if (page.Items.FirstOrDefault() is { CanRetry: true } candidate) file = candidate.Id;
             }
         }
-        return detail with { RepeatOptions = new(canRun, missing, file) };
+        return detail with { RepeatOptions = new(canRun, missing, file, canExtract, canEdit) };
     }
 
     public async Task<DeleteCompletedJobsResponseDto> DeleteCompletedAsync(

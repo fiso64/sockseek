@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// TODO [TESTS]: Only `npm run test:e2e` rebuilds the web UI and the test host
+// (its pretest script). `npx playwright test <file>` runs whatever was built
+// last, so a journey can fail or pass against stale code without saying so.
+// Rebuild in a globalSetup, or fail there when sources are newer than the builds.
 export default defineConfig({
   testDir: './e2e',
   // Manual timing checks: SOCKSEEK_RUN_LOAD=1 npx playwright test --grep '@Performance'.

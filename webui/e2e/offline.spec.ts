@@ -97,7 +97,7 @@ test('shows offline states and recovers history after daemon startup returns', a
   await expect(offline.getByRole('button', { name: 'Retry' })).toHaveCount(0);
   await expect(page.getByText('No downloads', { exact: true })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Jobs', exact: true }).click();
+  await page.getByRole('button', { name: 'Searches', exact: true }).click();
   await expect(offline).toContainText('This can’t be loaded while the daemon is offline.');
   await expect(page.getByText('No searches yet', { exact: true })).toHaveCount(0);
 

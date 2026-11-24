@@ -311,7 +311,7 @@ public class EngineStateStoreTests
             new Sockseek.Server.Persistence.PersistenceCoordinator(options));
         var first = new SongJob(new SongQuery { Title = "First" }) { FileSize = 100 };
         var other = new SongJob(new SongQuery { Title = "Other" }) { FileSize = 100 };
-        var transfers = new[] { Transfer(first, TransferStates.InProgress), Transfer(other, TransferStates.InProgress) };
+        var transfers = new[] { Transfer(first), Transfer(other) };
         void Publish(SongJob song, TransferSnapshot transfer)
             => InvokePrivate(store, "OnDownloadStateChanged", new DownloadStateChangedChange(
                 1, DateTimeOffset.UnixEpoch, Reference(song), CoreSnapshotFactory.CreateFileDownloadState(song), transfer));
@@ -363,7 +363,7 @@ public class EngineStateStoreTests
         var current = store.GetLiveTransfer(queued.TransferId)!;
         Assert.AreEqual(2L, current.Revision);
         Assert.AreEqual(12L, current.Progress.BytesPerSecond);
-        Assert.AreEqual("Queued", earlier.Status.State);
+        Assert.AreEqual(Sockseek.Api.TransferPhase.QueuedLocally, earlier.Status.Phase);
     }
 
     [TestMethod]
@@ -374,7 +374,7 @@ public class EngineStateStoreTests
         Guid job = Guid.NewGuid();
         var download = new TransferSnapshot(Guid.NewGuid(), TransferSnapshotDirection.Download,
             TransferSnapshotSource.SoulseekPeer, job, workflow, 1, "Peer", "Track.flac", null, null,
-            "InProgress", 0, 100, 1, null, BytesPerSecond: 10);
+            Sockseek.Core.Snapshots.TransferPhase.InProgress, 0, 100, 1, null, BytesPerSecond: 10);
         var upload = new UploadTransferSnapshot(Guid.NewGuid(), 1, "Peer", "Track.flac", 100,
             DateTimeOffset.UnixEpoch, UploadTransferState.Queued, UploadFailureReason.None,
             UploadCancellationSource.None, 0, 0, null, null, null);
@@ -399,12 +399,12 @@ public class EngineStateStoreTests
         Assert.AreEqual(new TransferSummary(1, 0, 1, 0, 0, 0, 7), state.Summary);
         Assert.AreEqual(2, state.Active.Count, "Visibility must not retire the underlying transfer facts.");
         state.SetWorkflowVisible(workflow, true);
-        download = download with { Revision = 3, State = "Queued, Remotely", BytesPerSecond = 0 };
+        download = download with { Revision = 3, Phase = Sockseek.Core.Snapshots.TransferPhase.QueuedRemotely, BytesPerSecond = 0 };
         state.ApplyDownload(download, terminal: false);
         Assert.AreEqual(new TransferSummary(2, 1, 1, 1, 0, 0, 7), state.Summary);
-        Assert.AreEqual("Queued, Remotely", state.Active[download.Id].State);
+        Assert.AreEqual("QueuedRemotely", state.Active[download.Id].State);
         download = download with { Revision = 4,
-            State = "Failed", TerminalOutcome = TransferSnapshotTerminalOutcome.Failed };
+            Phase = Sockseek.Core.Snapshots.TransferPhase.Ended, TerminalOutcome = TransferSnapshotTerminalOutcome.Failed };
         state.ApplyDownload(download, terminal: false);
         Assert.AreEqual(new TransferSummary(1, 0, 1, 0, 1, 0, 7), state.Summary);
         state.SetWorkflowVisible(workflow, false);
@@ -535,7 +535,7 @@ public class EngineStateStoreTests
         UpdateState(server, song);
         AssertClientMatchesProjection(server, client, song.WorkflowId);
 
-        DownloadStateChanged(server, song, TransferStates.InProgress);
+        DownloadStateChanged(server, song);
         AssertClientMatchesProjection(server, client, song.WorkflowId);
 
         song.SetDone("C:/music/track.mp3");
@@ -555,8 +555,8 @@ public class EngineStateStoreTests
         foreach (var job in jobs) Register(store, job);
         DiscoveryChanged(store, search);
         DiscoveryChanged(store, otherSearch);
-        DownloadStateChanged(store, first, TransferStates.InProgress);
-        DownloadStateChanged(store, second, TransferStates.InProgress);
+        DownloadStateChanged(store, first);
+        DownloadStateChanged(store, second);
         Guid[] transfers = store.GetActiveTransferSnapshot().Select(transfer => transfer.TransferId).ToArray();
         var daemon = new DaemonClientStore();
         daemon.ApplySnapshot(store.GetDaemonSnapshot());
@@ -636,7 +636,7 @@ public class EngineStateStoreTests
             Register(store, song, directory);
             return directory;
         }).ToArray();
-        var transfers = songs.Select(song => Transfer(song, TransferStates.InProgress)).ToArray();
+        var transfers = songs.Select(song => Transfer(song)).ToArray();
         for (int i = 0; i < songs.Length; i++)
             InvokePrivate(store, "OnDownloadStateChanged", new DownloadStateChangedChange(
                 i, DateTimeOffset.UnixEpoch, Reference(songs[i]), CoreSnapshotFactory.CreateFileDownloadState(songs[i]), transfers[i]));
@@ -861,7 +861,7 @@ public class EngineStateStoreTests
             progress(new(revision, DateTimeOffset.UnixEpoch, Reference(job),
                 CoreSnapshotFactory.CreateFileDownloadState(job),
                 CoreSnapshotFactory.CreateDownloadTransfer(transferId, job, job.Target, "attempt.part",
-                    revision, "InProgress", bytes, size ?? -1, 1)));
+                    revision, Sockseek.Core.Snapshots.TransferPhase.InProgress, bytes, size ?? -1, 1)));
         }
         Progress(1, 32, 128);
         var earlier = store.GetWorkflowSnapshot(job.WorkflowId);
@@ -943,7 +943,7 @@ public class EngineStateStoreTests
                 ++revision, DateTimeOffset.UnixEpoch, Reference(job),
                 CoreSnapshotFactory.CreateFileDownloadState(job),
                 CoreSnapshotFactory.CreateDownloadTransfer(transferId, job, job.Target, "attempt.part",
-                    revision, "InProgress", 16, 256, 1)));
+                    revision, Sockseek.Core.Snapshots.TransferPhase.InProgress, 16, 256, 1)));
         }
         Progress(128);
         var captured = client.GetJob(job.Id)!;
@@ -1001,7 +1001,7 @@ public class EngineStateStoreTests
     {
         var store = new EngineStateStore();
         var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" });
-        var transfer = Transfer(song, TransferStates.InProgress) with
+        var transfer = Transfer(song) with
         {
             Id = Guid.NewGuid(),
             AttemptCount = 1,
@@ -1140,7 +1140,7 @@ public class EngineStateStoreTests
         var store = new EngineStateStore();
         var song = new SongJob(new SongQuery { Title = "Track" });
         Register(store, song);
-        var first = Transfer(song, TransferStates.InProgress);
+        var first = Transfer(song);
         var batches = new List<StateUpdateBatchDto>();
         store.StateBatchPublished += batch => batches.Add(batch.ToDto());
         InvokePrivate(store, "OnDownloadStateChanged", new DownloadStateChangedChange(
@@ -1284,10 +1284,10 @@ public class EngineStateStoreTests
         var store = new EngineStateStore();
         var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" });
         Guid transferId = Guid.NewGuid();
-        var terminal = Transfer(song, (TransferStates)0) with
+        var terminal = Transfer(song) with
         {
             Id = transferId,
-            State = "Completed",
+            Phase = Sockseek.Core.Snapshots.TransferPhase.Ended,
             TerminalOutcome = TransferSnapshotTerminalOutcome.Succeeded,
         };
         var batches = new List<StateUpdateBatchDto>();
@@ -1343,7 +1343,7 @@ public class EngineStateStoreTests
             3,
             DateTimeOffset.UtcNow,
             Reference(song), CoreSnapshotFactory.CreateFileDownloadState(song),
-            Transfer(song, TransferStates.InProgress) with { Id = transferId }));
+            Transfer(song) with { Id = transferId }));
         Guid priorEpoch = store.GetWorkflowSnapshot(song.WorkflowId).Position.Epoch;
         var beforeRetirement = store.GetDaemonSnapshot().JobHistoryPosition!;
 
@@ -1363,7 +1363,7 @@ public class EngineStateStoreTests
             Guid successorTransferId = Guid.NewGuid();
             InvokePrivate(store, "OnDownloadStateChanged", new DownloadStateChangedChange(
                 5, DateTimeOffset.UtcNow, Reference(pendingSuccessor), CoreSnapshotFactory.CreateFileDownloadState(pendingSuccessor),
-                Transfer(pendingSuccessor, TransferStates.InProgress) with { Id = successorTransferId }));
+                Transfer(pendingSuccessor) with { Id = successorTransferId }));
             var client = new DaemonClientStore();
             client.ApplySnapshot(store.GetWorkflowSnapshot(song.WorkflowId));
             var daemonClient = new DaemonClientStore();
@@ -1591,7 +1591,7 @@ public class EngineStateStoreTests
             .CreateDelegate<Action<DownloadProgressedChange>>(store);
         reportProgress(new DownloadProgressedChange(
             2, DateTimeOffset.UtcNow, Reference(child), CoreSnapshotFactory.CreateFileDownloadState(child), CoreSnapshotFactory.CreateDownloadTransfer(
-                progressTransferId, child, target, "/staging/File.part", 1, "InProgress", 32, 256, 1)));
+                progressTransferId, child, target, "/staging/File.part", 1, Sockseek.Core.Snapshots.TransferPhase.InProgress, 32, 256, 1)));
         // Progress alone must update the containing job; a long transfer need
         // not emit another state edge or trigger a detail read before the tick.
         ApplyUpdates();
@@ -1622,7 +1622,7 @@ public class EngineStateStoreTests
         Assert.AreEqual(50, payload.Directory.ProgressPercent);
         var transferId = Guid.NewGuid();
         long transferRevision = 0;
-        foreach (string state in new[] { "Queued", "InProgress", "InProgress" })
+        foreach (var state in new[] { Sockseek.Core.Snapshots.TransferPhase.QueuedRemotely, Sockseek.Core.Snapshots.TransferPhase.InProgress, Sockseek.Core.Snapshots.TransferPhase.InProgress })
             InvokePrivate(store, "OnDownloadStateChanged", new DownloadStateChangedChange(
                 3, DateTimeOffset.UtcNow, Reference(child), CoreSnapshotFactory.CreateFileDownloadState(child), CoreSnapshotFactory.CreateDownloadTransfer(
                     transferId, child, target, "/output/File.bin", ++transferRevision,
@@ -1634,7 +1634,7 @@ public class EngineStateStoreTests
         reportProgress(new DownloadProgressedChange(
             4, DateTimeOffset.UtcNow, Reference(child), CoreSnapshotFactory.CreateFileDownloadState(child),
             CoreSnapshotFactory.CreateDownloadTransfer(progressTransferId, child, target,
-                "/staging/File.part", 2, "InProgress", 48, 256, 1)));
+                "/staging/File.part", 2, Sockseek.Core.Snapshots.TransferPhase.InProgress, 48, 256, 1)));
         // An HTTP/scoped read between ticks sees the same counters and keeps
         // its captured revision immutable when completion arrives later.
         var readBeforeFlush = store.GetJobSummary(directory.Id)!;
@@ -2367,11 +2367,11 @@ public class EngineStateStoreTests
         store.FlushStateUpdates();
     }
 
-    private static void DownloadStateChanged(EngineStateStore store, SongJob song, TransferStates state)
+    private static void DownloadStateChanged(EngineStateStore store, SongJob song)
     {
         typeof(EngineStateStore)
             .GetMethod("OnDownloadStateChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(store, [new DownloadStateChangedChange(1, DateTimeOffset.UtcNow, Reference(song), CoreSnapshotFactory.CreateFileDownloadState(song), Transfer(song, state))]);
+            .Invoke(store, [new DownloadStateChangedChange(1, DateTimeOffset.UtcNow, Reference(song), CoreSnapshotFactory.CreateFileDownloadState(song), Transfer(song))]);
         store.FlushStateUpdates();
     }
 
@@ -2393,7 +2393,7 @@ public class EngineStateStoreTests
     private static JobSnapshot Snapshot(Job job)
         => CoreSnapshotFactory.CreateJob(job, revision: 1);
 
-    private static TransferSnapshot Transfer(SongJob song, TransferStates state)
+    private static TransferSnapshot Transfer(SongJob song)
     {
         var response = new SearchResponse("user", 1, true, 100_000, 0, []);
         var file = new Soulseek.File(1, $"{song.Query.Title}.mp3", song.FileSize is > 0 ? song.FileSize.Value : 100, ".mp3");
@@ -2404,7 +2404,7 @@ public class EngineStateStoreTests
             candidate,
             $"C:/downloads/{song.Query.Title}.mp3",
             revision: 1,
-            state: state.ToString(),
+            phase: Sockseek.Core.Snapshots.TransferPhase.InProgress,
             bytesTransferred: song.BytesTransferred,
             totalBytes: song.FileSize is > 0 ? song.FileSize.Value : file.Size,
             attemptCount: 0);

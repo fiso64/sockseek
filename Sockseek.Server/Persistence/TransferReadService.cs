@@ -339,7 +339,7 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
     private static bool CanIncludeQueuedUploads(TransferQuery query)
         => (query.Direction == null || EqualsFilter(query.Direction, "Upload"))
             && (query.Source == null || EqualsFilter(query.Source, "SoulseekPeer"))
-            && (query.State == null || EqualsFilter(query.State, "Queued"))
+            && (query.State == null || EqualsFilter(query.State, "Queued") || EqualsFilter(query.State, "QueuedLocally"))
             && (query.TerminalOutcome == null || EqualsFilter(query.TerminalOutcome, "None"));
 
     private static bool MatchesTransferFilter(
@@ -393,7 +393,7 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
 
         TransferQueueEstimateDto? estimate = null;
         if (liveDetail is not null
-            && liveDetail.Transfer.Status.State.Equals("Queued", StringComparison.OrdinalIgnoreCase)
+            && liveDetail.Transfer.Status.Phase == Api.TransferPhase.QueuedLocally
             && runtime?.Sharing is { } sharing)
         {
             var value = sharing.Uploads.GetQueueEstimate(transferId);

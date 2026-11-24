@@ -1,6 +1,6 @@
 import { wireInteger, type TransferStateDto, type Schema, type WireInteger } from '../../api/types';
 import type { AudioAttributes, FolderItemFile, TransferPresentation } from '../presentation/items';
-import { audioAttributes as audio, isTerminalTransfer } from '../presentation/items';
+import { audioAttributes as audio, isTerminalTransfer, transferPhaseLabel } from '../presentation/items';
 import { formatBytes } from '../../app/format';
 import { compareTransferPosition } from './history';
 
@@ -253,7 +253,7 @@ export function presentTransferEntry(
     files: projection.folderOrder(entry.rows).map(index => projection.folderFile(run[index]!, folderPath)),
     totalFileCount, filesComplete: ungrouped || Boolean(summary) && run.length === totalFileCount,
     totalsKnown: ungrouped || Boolean(summary), sourceTransferIds: run.map(item => item.id),
-    transfer: summary ? combineGroupSummary(summary, direction, row.createdAt)
+    transfer: summary ? combineGroupSummary(summary, direction, row.createdAt, run)
       : ungrouped ? row.transfer : combineFolderPresentation(run, direction, row.createdAt),
   };
   projection.rememberEntry(cacheKey, run, result);
@@ -304,21 +304,24 @@ export function liveTransferPresentation(value: TransferStateDto, createdAt?: st
   const total = number(value.progress.totalBytes);
   const transferred = number(value.progress.bytesTransferred);
   const speed = number(value.progress.bytesPerSecond);
-  const transferTone = tone(value.status.isTerminal, value.status.terminalOutcome ?? 'None',
-    value.status.state, transferred, value.scheduling?.startedAtUtc);
+  const phase = value.status.phase;
+  const transferTone = tone(value.status.isTerminal, value.status.terminalOutcome ?? 'None', phase);
   const direction = value.identity.direction.toLowerCase() === 'upload' ? 'upload' : 'download';
   const percent = total > 0 ? clamp(transferred / total * 100) : undefined;
-  const finalizing = transferTone === 'active' && value.status.state === 'AttemptCompleted';
-  const transferring = transferTone === 'active' && !finalizing;
+  const transferring = phase === 'InProgress';
   let state: string;
-  if (finalizing) state = 'Finalizing';
-  else if (transferring) state = value.identity.source === 'Fallback' ? 'Running fallback' : activeTransferState(direction);
+  if (!value.status.isTerminal) state = transferPhaseLabel(phase, direction, value.identity.source === 'Fallback');
   else if (direction === 'download' && value.status.terminalOutcome === 'Failed')
     state = downloadFailureLabels[value.status.failureReason ?? 'Unknown'] ?? 'Failed';
-  else state = transferState(value.status.state, value.status.terminalOutcome ?? 'None');
+  else state = value.status.terminalOutcome === 'Succeeded' ? 'Complete' : value.status.terminalOutcome ?? 'Finished';
   return {
     record: value,
     state,
+    phase: value.status.isTerminal ? undefined : phase,
+    queuePosition: phase === 'QueuedRemotely' && Number(value.status.queuePosition) > 0
+      ? Number(value.status.queuePosition) : undefined,
+    attempt: !value.status.isTerminal && Number(value.status.attemptCount) > 1
+      ? Number(value.status.attemptCount) : undefined,
     tone: transferTone,
     cancellable: value.status.availableActions?.some((action) => action.kind === 'cancel') ?? false,
     progressPercent: percent,
@@ -333,10 +336,6 @@ export function liveTransferPresentation(value: TransferStateDto, createdAt?: st
   };
 }
 
-function activeTransferState(direction: 'download' | 'upload'): string {
-  return direction === 'upload' ? 'Uploading' : 'Downloading';
-}
-
 function fileProgressText(
   direction: 'download' | 'upload',
   transferTone: TransferPresentation['tone'],
@@ -348,11 +347,23 @@ function fileProgressText(
     if (transferTone === 'cancelled') return 'Cancelled';
     return percent === undefined ? undefined : `${Math.round(percent)}%`;
   }
-  if (transferTone === 'queued') return 'Waiting for peer';
+  // The state label names the queue; there is no progress to add.
+  if (transferTone === 'queued') return undefined;
   if (transferTone === 'cancelled') return 'Cancelled';
   if (transferTone === 'complete') return undefined;
   if (percent !== undefined) return `${formatBytes(transferred)} · ${Math.round(percent)}%`;
   return transferred > 0 ? formatBytes(transferred) : undefined;
+}
+
+/** A folder names its queue only when every loaded queued file waits in the same one. */
+function sharedQueuePhase(rows: readonly UnifiedTransfer[]): Schema<'TransferPhase'> | undefined {
+  let shared: Schema<'TransferPhase'> | undefined;
+  for (const { transfer } of rows) {
+    if (transfer.tone !== 'queued') continue;
+    if (shared && transfer.phase !== shared) return undefined;
+    shared = transfer.phase;
+  }
+  return shared;
 }
 
 function combineFolderPresentation(rows: UnifiedTransfer[], direction: 'download' | 'upload', createdAt: string | null): TransferPresentation {
@@ -367,9 +378,12 @@ function combineFolderPresentation(rows: UnifiedTransfer[], direction: 'download
   const totalsKnown = rows.every((row) => row.totalBytes !== null && row.bytesTransferred !== null);
   const totalBytes = rows.reduce((total, row) => total + (row.totalBytes ?? 0), 0);
   const transferred = rows.reduce((total, row) => total + (row.bytesTransferred ?? 0), 0);
+  const queuePhase = toneValue === 'queued' ? sharedQueuePhase(rows) : undefined;
   return {
     state: terminal ? failed ? 'Failed' : cancelled ? 'Cancelled' : 'Complete'
-      : active ? direction === 'upload' ? 'Uploading' : 'Downloading' : 'Queued',
+      : active ? direction === 'upload' ? 'Uploading' : 'Downloading'
+      : queuePhase ? transferPhaseLabel(queuePhase, direction) : 'Queued',
+    phase: queuePhase,
     tone: toneValue,
     detail: failed ? [...new Set(values.filter(item => item.tone === 'failed').map(item => item.detail).filter(Boolean))].join('\n') || undefined : undefined,
     cancellable: values.some((item) => item.cancellable),
@@ -383,6 +397,7 @@ function combineGroupSummary(
   summary: Schema<'TransferGroupSummaryDto'>,
   direction: 'download' | 'upload',
   createdAt: string | null,
+  rows: readonly UnifiedTransfer[] = [],
 ): TransferPresentation {
   const queued = Number(summary.queuedCount);
   const active = Number(summary.inProgressCount);
@@ -412,12 +427,15 @@ function combineGroupSummary(
   if (!statusParts.length && percent !== undefined) statusParts.push(`${Math.round(percent)}%`);
   const eta = toneValue === 'active' && Number(summary.unknownActiveTotalCount) === 0
     ? remainingEta(Number(summary.knownRemainingActiveBytes), speedBytes) : undefined;
+  const queuePhase = toneValue === 'queued' ? sharedQueuePhase(rows) : undefined;
   return {
     group: summary,
     state: toneValue === 'active' ? direction === 'upload' ? 'Uploading' : 'Downloading'
       : toneValue === 'complete' ? 'Complete'
       : toneValue === 'failed' ? 'Failed'
-      : toneValue === 'cancelled' ? 'Cancelled' : 'Queued',
+      : toneValue === 'cancelled' ? 'Cancelled'
+      : queuePhase ? transferPhaseLabel(queuePhase, direction) : 'Queued',
+    phase: queuePhase,
     tone: toneValue,
     detail: failed ? `${failed} ${failed === 1 ? 'file failed' : 'files failed'}. Select a failed file’s status for details.` : undefined,
     cancellable: active + queued > 0,
@@ -450,22 +468,15 @@ const downloadFailureLabels: Partial<Record<Schema<'TransferFailureReason'>, str
   ConnectionFailed: 'Connection failed',
 };
 
-function transferState(state: string, outcome: string): string {
-  if (outcome && outcome.toLowerCase() !== 'none') return outcome === 'Succeeded' ? 'Complete' : outcome;
-  return state.replace(/([a-z])([A-Z])/g, '$1 $2');
-}
-
-function tone(terminal: boolean, outcome: string, state: string, transferred: number, startedAt?: string | null): TransferPresentation['tone'] {
+function tone(terminal: boolean, outcome: string, phase: Schema<'TransferPhase'>): TransferPresentation['tone'] {
   if (terminal) {
     if (outcome.toLowerCase() === 'succeeded') return 'complete';
     if (outcome.toLowerCase() === 'cancelled' || outcome.toLowerCase() === 'interrupted') return 'cancelled';
     return 'failed';
   }
   // A resumed transfer can re-enter the peer queue with bytes and a previous
-  // start timestamp. Its current owner state, not that history, decides tone.
-  if (state.toLowerCase().startsWith('queued')) return 'queued';
-  if (state.toLowerCase() === 'inprogress') return 'active';
-  return transferred > 0 || startedAt ? 'active' : 'queued';
+  // start timestamp. Its current phase, not that history, decides tone.
+  return phase.startsWith('Queued') ? 'queued' : 'active';
 }
 
 function number(value: number | string | null | undefined): number {

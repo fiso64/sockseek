@@ -1,4 +1,11 @@
 <script lang="ts">
+  // TODO [ARCHITECTURE]: This dialog keeps five separate baseline/value pairs
+  // (download, import, CSV and one per condition family), each rebased by hand
+  // when settings resolve, and then reassembles a settings patch from them in
+  // plan(). Settings it is opened with (`carriedSettings`) need a client-side
+  // merge that repeats the daemon's patch rules (mergeSettingsPatch). Hold one
+  // settings patch plus the resolved settings instead, and have every panel
+  // read and write that patch; do this before adding more options here.
   import ProfilePicker from '../../components/ProfilePicker.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onMount, tick, untrack } from 'svelte';
@@ -7,10 +14,9 @@
   import PageTabs from '../../components/PageTabs.svelte';
   import DownloadOptionsPanel from '../../components/DownloadOptionsPanel.svelte';
   import SearchConfigPanel from '../../components/SearchConfigPanel.svelte';
-  import type { SearchDraft } from '../search/model';
   import type { SearchConditions } from '../search/config-state';
   import { readSearchConditions, rebaseSearchConditions, searchConditionsPatchForFamily, searchExpectedLength, mergeSearchSettings } from '../search/config-mapping';
-  import { buildDownloadOptionsPatch, downloadOptionsFromResolved, profileSettingsSections, rebaseOptions, changedOptions, type DownloadOptions } from './download-options';
+  import { buildDownloadOptionsPatch, downloadOptionsFromResolved, mergeSettingsPatch, profileSettingsSections, rebaseOptions, changedOptions, type DownloadOptions } from './download-options';
   import JobTypeNav, { jobChoiceMetadata } from './JobTypeNav.svelte';
   import JobInputs from './JobInputs.svelte';
   import CsvMapping from './CsvMapping.svelte';
@@ -20,15 +26,17 @@
   import { daemonApi } from '../../api/client';
   import { PreviewController, previewNeedsReview, type PreviewState } from './preview-controller';
   import { projectPreviewSelection, toggleSubtree, type SubtreeRule } from './preview-selection';
-  import { applyProfileInput, profileInputDefaults, buildJobPreviewRequest, buildJobSettingsRequest, createNewJobDraft, newJobDraftFromSearch, type NewJobChoice, type NewJobDraft } from './submission';
+  import { applyProfileInput, profileInputDefaults, buildJobPreviewRequest, buildJobSettingsRequest, createNewJobDraft, type NewJobChoice, type NewJobDraft, type NewJobStart } from './submission';
   import { jobKindIcon, jobKindLabel } from './kind';
   import { basename } from '../presentation/items';
 
-  let { connected, initialSearch = null, onclose, onstarted, oncommittingchange }: { connected: boolean; onclose: () => void; initialSearch?: SearchDraft | null; onstarted: (rootJobId: string) => void; oncommittingchange: (committing: boolean) => void } = $props();
-  const initial = untrack(() => initialSearch);
-  let draft = $state(initial ? newJobDraftFromSearch(initial) : createNewJobDraft());
+  let { connected, start = null, onclose, onstarted, oncommittingchange }: { connected: boolean; onclose: () => void; start?: NewJobStart | null; onstarted: (rootJobId: string) => void; oncommittingchange: (committing: boolean) => void } = $props();
+  const initial = untrack(() => start);
+  let draft = $state(initial ? { ...initial.draft } : createNewJobDraft());
   const initialChoice = untrack(() => draft.choice);
-  let carriedSearchSettings = $derived(draft.choice === initialChoice ? initial?.searchSettings : undefined);
+  // Settings the dialog was opened with belong to that kind of job. They are
+  // its starting point: the panels show them, and edits are made on top.
+  let carriedSettings = $derived(draft.choice === initialChoice ? initial?.settings : undefined);
   let choiceMetadata = $derived(jobChoiceMetadata(draft.choice));
   let profileNames = $state<string[]>([...(initial?.profileNames ?? [])]);
   let appliedProfiles = $state<Schema<'AppliedProfileDto'>[]>([]);
@@ -134,7 +142,7 @@
     settingsRetry;
     const requestDraft = { ...draft };
     const requestedProfiles = [...profileNames];
-    const carriedSettings = carriedSearchSettings;
+    const carried = carriedSettings;
     const requestFamily: ConditionFamily = requestDraft.choice === 'song' ? 'track' : requestDraft.choice === 'album' ? 'album' : 'mixed';
     const abort = new AbortController();
     let settled!: () => void;
@@ -146,7 +154,7 @@
       return setTimeout(async () => {
         try {
           const resolved = await daemonApi.resolveEffectiveSettings({ ...buildJobSettingsRequest(requestDraft),
-            options: { profileNames: requestedProfiles, ...(carriedSettings ? { downloadSettings: { search: carriedSettings } } : {}) } }, abort.signal);
+            options: { profileNames: requestedProfiles, ...(carried ? { downloadSettings: carried } : {}) } }, abort.signal);
           if (abort.signal.aborted) return;
           appliedProfiles = resolved.appliedProfiles;
           profileSections = profileSettingsSections(resolved.provenance);
@@ -301,16 +309,17 @@
       await tick();
       await settingsReady;
       if (stopped || settingsError || !valid) return;
-      const settings: Schema<'DownloadSettingsPatchDto'> = { ...downloadPatch.downloadSettings, search: carriedSearchSettings };
+      const edits: Schema<'DownloadSettingsPatchDto'> = { ...downloadPatch.downloadSettings };
       if (conditionSession && draft.choice !== 'soulseek-link') {
         const searchEdits = searchConditionsPatchForFamily(family, conditionSession.baseline, conditionSession.values);
-        if (Object.keys(searchEdits).length) settings.search = mergeSearchSettings(settings.search ?? undefined, searchEdits);
+        if (Object.keys(searchEdits).length) edits.search = mergeSearchSettings(edits.search ?? undefined, searchEdits);
         if (family === 'mixed' && conditionSession.values.track.expectedLength !== conditionSession.baseline.track.expectedLength) {
           throw new Error('Expected length belongs to each extracted song; it cannot be applied to every item in a mixed source.');
         }
       }
-      if (draft.choice === 'csv') settings.csv = changedOptions(csvMapping, csvBaseline ?? {});
-      if (hasImportOptions) settings.extraction = buildImportPatch(importOptions, importBaseline ?? createImportOptions());
+      if (draft.choice === 'csv') edits.csv = changedOptions(csvMapping, csvBaseline ?? {});
+      if (hasImportOptions) edits.extraction = buildImportPatch(importOptions, importBaseline ?? createImportOptions());
+      const settings = mergeSettingsPatch(carriedSettings, edits);
       error = null;
       const request = buildJobPreviewRequest(draft, { ...downloadPatch, profileNames: [...profileNames], downloadSettings: settings });
       if (request.job.kind === 'song' && conditionSession) {

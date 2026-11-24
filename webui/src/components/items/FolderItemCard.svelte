@@ -9,7 +9,7 @@
   import RelativeTime from '../RelativeTime.svelte';
   import { folderItemIconPaths, type AppIconName } from '../../app/icons';
   import type { FolderItemFile, TransferPresentation } from '../../domains/presentation/items';
-  import { audioSummary, basename, formatBytes, formatLength, isTerminalTransfer, parentPath } from '../../domains/presentation/items';
+  import { audioSummary, basename, formatBytes, formatLength, isBusyTransfer, isTerminalTransfer, parentPath } from '../../domains/presentation/items';
   import { buildFolderTreeRows, type FolderTreeNode } from '../../domains/presentation/folder-tree';
   import { fileTypeIcon } from '../../domains/presentation/file-types';
 
@@ -47,7 +47,6 @@
     onloadfullcontents?: () => void;
     onloadmorefiles?: () => void;
     loadingMoreFiles?: boolean;
-    fileLoadError?: string | null;
   }
 
   let {
@@ -82,7 +81,6 @@
     onloadfullcontents,
     onloadmorefiles,
     loadingMoreFiles = false,
-    fileLoadError = null,
   }: Props = $props();
 
   let transferDirectionClass = $derived(transfer?.direction ? `transfer-${transfer.direction}` : '');
@@ -99,7 +97,9 @@
   }
 
   function showsInlineTransferProgress(value: TransferPresentation): boolean {
-    return value.progressPercent !== undefined && !isTerminalTransfer(value) && value.tone !== 'queued';
+    // A file re-queued after an interrupted attempt keeps its bytes: show them.
+    return value.progressPercent !== undefined && !isTerminalTransfer(value)
+      && (value.tone !== 'queued' || value.progressPercent > 0);
   }
 
   function fileTransferProgressText(value: TransferPresentation): string {
@@ -108,7 +108,9 @@
 
   function fileTransferSecondary(value: TransferPresentation): string {
     // Explanations belong to the state label's details dialog, not beside it.
-    return [value.speed, value.eta].filter(Boolean).join(' · ');
+    const moving = [value.speed, value.eta].filter(Boolean).join(' · ');
+    // The slot is free while nothing moves: say which attempt is waiting.
+    return moving || (value.attempt ? `attempt ${value.attempt}` : '');
   }
 
   // Without path-level selection, a subfolder selects its loaded files at once.
@@ -316,7 +318,7 @@
           {/if}
           <span class="folder-file-path" title={file.sourcePath ?? file.relativePath} style:--folder-tree-depth={row.depth || undefined}>
             {#if icon && (selectable || file.locked)}{@render rowIcon(icon)}{/if}
-            <strong>{#if highlight}{@render matchedText(matchPath, highlight, matchPath.length - row.displayName.length)}{:else}{row.displayName}{/if}</strong>
+            <strong><bdi dir="ltr">{#if highlight}{@render matchedText(matchPath, highlight, matchPath.length - row.displayName.length)}{:else}{row.displayName}{/if}</bdi></strong>
           </span>
           {#if file.audio}
             <span class="folder-file-audio">{audioSummary(file.audio)}</span>
@@ -339,12 +341,12 @@
                 </span>
               {/if}
               {#if secondaryTransferText}
-                <small class="folder-file-transfer-detail" title={secondaryTransferText}>{secondaryTransferText}</small>
+                <small class="folder-file-transfer-detail" class:attempt={!file.transfer.speed && !file.transfer.eta} title={secondaryTransferText}>{secondaryTransferText}</small>
               {/if}
               {#if usesCircularTransferState(file.transfer)}
                 <TransferStateLabel transfer={file.transfer} path={file.sourcePath ?? file.relativePath}
                   sizeBytes={file.sizeUnknown ? null : file.sizeBytes} circular>
-                  <Icon name={transferIcon(file.transfer)} />
+                  {#if !isBusyTransfer(file.transfer)}<Icon name={transferIcon(file.transfer)} />{/if}
                 </TransferStateLabel>
               {:else}
                 <span class="folder-file-transfer-label">
@@ -364,8 +366,7 @@
       {/if}
     {/each}
   </div>
-  {#if fileLoadError}<div class="item-data-state" role="alert">{fileLoadError}</div>{/if}
-  {#if onloadmorefiles && (!filesComplete || fileLoadError)}
-    <LoadMoreButton label={fileLoadError ? 'Retry loading folder files' : 'Load more'} loading={loadingMoreFiles} onclick={onloadmorefiles} />
+  {#if onloadmorefiles && !filesComplete}
+    <LoadMoreButton label="Load more" loading={loadingMoreFiles} onclick={onloadmorefiles} />
   {/if}
 </article>

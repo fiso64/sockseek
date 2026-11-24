@@ -11,6 +11,12 @@ using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
 using Sockseek.Core.Transfers.Uploads;
 
+// TODO [ARCHITECTURE]: Core and the API declare enums under the same names (TransferPhase,
+// TransferFailureReason, TransferGroupKind), so server code qualifies every
+// use. Prefix the API ones or map them at one boundary type.
+// TODO [ARCHITECTURE]: Cancellation has four vocabularies (job, download transfer, upload,
+// API), and a user's cancel is marked on the cancelled job only, so a transfer
+// two levels below reports OwningJob. Mark the subtree, and reduce the enums.
 namespace Sockseek.Server;
 
 /// <summary>Owns enum translation between the public wire contract and Core.</summary>
@@ -29,6 +35,9 @@ public static class ApiEnumMapper
             _ => TransferFailureReason.None,
         };
 
+    public static Api.TransferPhase ToServer(this Sockseek.Core.Snapshots.TransferPhase phase)
+        => EnumMap<Sockseek.Core.Snapshots.TransferPhase, Api.TransferPhase>.Get(phase);
+
     public static TransferFailureReason ToServer(this UploadFailureReason reason)
         => reason switch
         {
@@ -43,9 +52,14 @@ public static class ApiEnumMapper
         };
 
     public static TransferCancellationSource ToServer(this Sockseek.Core.Events.TransferCancellationReason? reason)
-        => reason is Sockseek.Core.Events.TransferCancellationReason.Requested or Sockseek.Core.Events.TransferCancellationReason.ManualSkip
-            ? TransferCancellationSource.User : reason == Sockseek.Core.Events.TransferCancellationReason.DaemonShutdown
-                ? TransferCancellationSource.DaemonShutdown : TransferCancellationSource.None;
+        => reason switch
+        {
+            Sockseek.Core.Events.TransferCancellationReason.Requested or Sockseek.Core.Events.TransferCancellationReason.ManualSkip
+                => TransferCancellationSource.User,
+            Sockseek.Core.Events.TransferCancellationReason.OwningJob => TransferCancellationSource.OwningJob,
+            Sockseek.Core.Events.TransferCancellationReason.DaemonShutdown => TransferCancellationSource.DaemonShutdown,
+            _ => TransferCancellationSource.None,
+        };
 
     public static TransferCancellationSource ToServer(this UploadCancellationSource reason)
         => reason switch

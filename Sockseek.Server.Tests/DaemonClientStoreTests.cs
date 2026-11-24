@@ -288,7 +288,7 @@ public class DaemonClientStoreTests
         var terminal = transfer with
         {
             Revision = 2,
-            Status = transfer.Status with { State = "Completed", IsTerminal = true },
+            Status = transfer.Status with { Phase = Sockseek.Api.TransferPhase.Ended, IsTerminal = true },
             Progress = transfer.Progress with { BytesTransferred = 100 },
         };
 
@@ -374,6 +374,6 @@ public class DaemonClientStoreTests
                 "user",
                 "music\\track.mp3",
                 "candidate"),
-            new TransferStatusFieldsDto("InProgress", "track.mp3", 1, false),
+            new TransferStatusFieldsDto(Sockseek.Api.TransferPhase.InProgress, "track.mp3", 1, false),
             new TransferProgressFieldsDto(bytes, 100));
 }

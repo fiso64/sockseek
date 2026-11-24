@@ -49,7 +49,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
         && folder.querySelectorAll('.folder-file-state.complete').length === rows
         && !folder.querySelector('.folder-transfer-footer')) report('initial');
       if (reported.has('moreStarted') && rows === 1000 && count.includes('1000/2000')) report('more');
-      const arrival = [...document.querySelectorAll('.file-item-card')]
+      const arrival = [...document.querySelectorAll('.folder-item-card')]
         .find(card => card.textContent?.includes('New arrival.txt'));
       if (rows === 1000 && count.includes('1000/2000')
         && arrival?.querySelector('button[aria-label="Complete"]')) report('arrival');
@@ -133,21 +133,16 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   expect(requests.filter(item => item.method === 'POST' && item.path.endsWith('/group-summaries'))).toHaveLength(0);
 
   const moreStarted = performance.now();
-  const membersResponse = page.waitForResponse(response => response.ok()
-    && new URL(response.url()).pathname === '/api/transfers'
-    && new URL(response.url()).searchParams.has('groupRef'));
+  // More of a folder widens the observed extent; no member request is made.
   await folder.getByRole('button', { name: 'Load more', exact: true }).click();
-  const members = await (await membersResponse).json() as Schema<'TransferTimelinePageDto'>;
-  const bulkLookupIds = new Set(members.items.map(item => item.transferId));
   await waitForDomMark('more');
   await expect(folder.locator('.folder-file-row')).toHaveCount(1000);
   await expect(folder.locator('.folder-transfer-file-count')).toContainText('1000/2000');
   await expect(folder.locator('.folder-heading-size')).toHaveText('10.00 GB');
   const moreUiMs = Math.round(performance.now() - moreStarted);
-  expect(members.items).toHaveLength(500);
-  expect(members.items[0]!.identity.remotePath).toBe('Library\\Folder049\\Track099500.flac');
+  await expect(folder.locator('.folder-file-path').filter({ hasText: 'Track099001.flac' })).toHaveCount(1);
   expect(new Set(await folder.locator('.folder-file-path').allTextContents()).size).toBe(1000);
-  expect(requests.filter(item => item.method === 'GET')).toHaveLength(1);
+  expect(requests.filter(item => item.method === 'GET')).toHaveLength(0);
   expect(requests.filter(item => item.method === 'POST' && item.path.endsWith('/group-summaries'))).toHaveLength(0);
 
   // A continuation wholly inside an already-known retained folder adds no
@@ -167,7 +162,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   } satisfies Schema<'SubmitJobListRequestDto'>) });
   expect(accepted.status, accepted.body).toBe(202);
   await waitForDomMark('arrival');
-  await expect(page.locator('.file-item-card').filter({ hasText: 'New arrival.txt' })
+  await expect(page.locator('.folder-item-card').filter({ hasText: 'New arrival.txt' })
     .getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await retainedArrival;
   await expect(folder.getByRole('button', { name: 'Load more', exact: true })).toBeEnabled();
@@ -186,34 +181,21 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   const settledSummaries = summaryRequests.length;
   await page.clock.fastForward(1_000);
   expect(summaryRequests, JSON.stringify(summaryRequests)).toHaveLength(settledSummaries);
-  // Global and folder cursors cover overlapping slices of the same moving
-  // timeline. Alternate them after displacement by the unrelated completion;
-  // loading more globally must not restart the folder's already-loaded prefix.
-  let folderContinuations = 2;
-  const interleavedPaging: { globalObservationMs: number; folderApiMs: number; uiMs: number; files: number }[] = [];
+  // The newest transfers and a folder's own extent cover overlapping slices of
+  // the same moving timeline. Alternate them after displacement by the unrelated
+  // completion; loading more globally must not shrink the folder already shown.
+  const interleavedPaging: { globalObservationMs: number; folderUiMs: number; uiMs: number; files: number }[] = [];
   {
     const pagingStarted = performance.now();
     const globalResponse = await expandTimeline(1500);
     // The moving prefix now contains the unrelated file plus 1499 members.
     await expect(folder.locator('.folder-file-row')).toHaveCount(1499);
-    const nextMembers = page.waitForResponse(response => response.ok()
-      && new URL(response.url()).pathname === '/api/transfers'
-      && new URL(response.url()).searchParams.has('groupRef'));
+    const folderStarted = performance.now();
     await folder.getByRole('button', { name: 'Load more', exact: true }).click();
-    const memberResponse = await nextMembers;
-    const memberPage = await memberResponse.json() as Schema<'TransferTimelinePageDto'>;
-    for (const item of memberPage.items) bulkLookupIds.add(item.transferId);
     await expect(folder.locator('.folder-file-row')).toHaveCount(1999);
-    expect(memberPage.items).toHaveLength(500);
-    expect(memberPage.items[0]!.identity.remotePath).toBe('Library\\Folder049\\Track098501.flac');
-    // Displacement leaves one final member; continue from its real cursor.
-    const finalMember = page.waitForResponse(response => response.ok()
-      && new URL(response.url()).pathname === '/api/transfers'
-      && new URL(response.url()).searchParams.has('groupRef'));
+    const folderUiMs = Math.round(performance.now() - folderStarted);
+    // Displacement leaves one final member.
     await folder.getByRole('button', { name: 'Load more', exact: true }).click();
-    const finalPage = await (await finalMember).json() as Schema<'TransferTimelinePageDto'>;
-    expect(finalPage.items).toHaveLength(1);
-    folderContinuations++;
     const expectedFiles = 2000;
     await expect(folder.locator('.folder-file-row')).toHaveCount(expectedFiles);
     await expect(folder.locator('.folder-transfer-file-count')).toHaveText(/2000\s*files/);
@@ -222,7 +204,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
     await expect(folder.locator('.folder-heading-size')).toHaveText('10.00 GB');
     interleavedPaging.push({
       globalObservationMs: globalResponse.milliseconds,
-      folderApiMs: Math.round(memberResponse.request().timing().responseEnd),
+      folderUiMs,
       uiMs: Math.round(performance.now() - pagingStarted), files: expectedFiles,
     });
   }
@@ -258,12 +240,12 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   await testInfo.attach('100k retained timeline at narrow width', { path: narrowScreenshot, contentType: 'image/png' });
   expect(requests.filter(item => item.method === 'GET'
     && new URL(item.path, daemon.url).searchParams.has('groupRef')),
-  'Only explicit folder continuations should read members.').toHaveLength(folderContinuations);
+  'The extent brings folder members; the page never reads them separately.').toHaveLength(0);
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.evaluate(() => {
     const reported = new Set<string>();
     const observer = new MutationObserver(() => {
-      for (const card of document.querySelectorAll('.file-item-card')) {
+      for (const card of document.querySelectorAll('.folder-item-card')) {
         const match = card.textContent?.match(/Burst ([123])\.txt/);
         if (!match || !card.querySelector('button[aria-label="Complete"]')) continue;
         const name = `burst-${match[1]}`;
@@ -325,7 +307,7 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
       - beforeRenderer.metrics.find(metric => metric.name === name)!.value))]));
   await profiling.detach();
   for (let index = 1; index <= 3; index++)
-    await expect(page.locator('.file-item-card').filter({ hasText: `Burst ${index}.txt` })
+    await expect(page.locator('.folder-item-card').filter({ hasText: `Burst ${index}.txt` })
       .getByRole('button', { name: 'Complete', exact: true })).toBeVisible();
   await expect(timelineMore).toBeEnabled();
   await expect(folder.locator('.folder-file-row')).toHaveCount(2000);
@@ -334,12 +316,17 @@ test('pages a 100k-transfer retained timeline and preserves expanded folders thr
   expect(new Set(await folder.locator('.folder-file-path').allTextContents()).size).toBe(2000);
   expect(requests.filter(item => item.method === 'GET'
     && new URL(item.path, daemon.url).searchParams.has('groupRef')),
-  'Unrelated same-direction completions must retain the expanded folder prefix.').toHaveLength(folderContinuations);
+  'Unrelated same-direction completions must retain the expanded folder.').toHaveLength(0);
   const burstUiMs = Math.round(performance.now() - burstStarted);
   const burstRequests = requests.slice(burstRequestStart);
   expect(burstRequests.filter(item => item.method === 'GET')).toHaveLength(0);
   expect(burstRequests.filter(item => item.path.endsWith('/group-summaries'))).toHaveLength(0);
   expect(burstRequests.filter(item => item.path.endsWith('/lookup'))).toHaveLength(0);
+  // Look up a thousand identities at once: the folder's older half.
+  const folderKey = summary[0]!.key;
+  const olderHalf = await measureApi(daemon.url, `/api/transfers?direction=download&limit=2000&username=${encodeURIComponent(folderKey.username!)}&groupRef=${encodeURIComponent(folderKey.groupRef)}`, { method: 'GET' });
+  expect(olderHalf.ok, olderHalf.body).toBe(true);
+  const bulkLookupIds = new Set((JSON.parse(olderHalf.body) as Schema<'TransferTimelinePageDto'>).items.slice(1000).map(item => item.transferId));
   expect(bulkLookupIds.size).toBe(1000);
 
   const bulkResponse = await measureApi(daemon.url, '/api/transfers/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
@@ -405,8 +392,9 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
         for (const id of update.item.removedTransferIds) ids.delete(id);
         for (const row of update.item.changes ?? []) if (!ids.has(row.transferId)) unrequestedLiveRows++;
         scope.ids = ids;
-        if (ids.size > scope.limit) unrequestedLiveRows += ids.size - scope.limit;
-        if (scope.limit === ids.size) observations.emit(`extent-${scope.limit}`);
+        // The extent may add a bounded number of older members to make folders
+        // whole, so it may hold slightly more rows than its limit.
+        if (ids.size >= scope.limit) observations.emit(`extent-${scope.limit}`);
       }
     });
   });
@@ -462,13 +450,12 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
       // mutation itself. Dispatching this verification can be delayed by the
       // test driver; that delay must not become apparent rendering latency.
       // Unrelated DOM changes make this a conservative readiness bound.
-      if (!backendDone || reported || rows !== requestedRows
-        || document.querySelectorAll('.folder-file-state.complete').length !== requestedRows) return;
+      if (!backendDone || reported || rows < requestedRows
+        || document.querySelectorAll('.folder-file-state.complete').length !== rows) return;
       rowsAt ??= lastDomUpdate;
       const folders = [...document.querySelectorAll('.folder-item-card')];
       if (!folders.length || folders.some(card =>
         card.querySelector('.folder-transfer-file-count')?.textContent?.includes('?')
-        || card.querySelector('.item-data-state')?.textContent?.includes('cover loaded files only')
         || ![...card.querySelectorAll('.folder-transfer-file-count strong')].every(count =>
           countPattern.test(count.textContent ?? ''))
         || card.querySelector('.folder-transfer-footer'))) return;
@@ -504,13 +491,17 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
     ]);
   };
   const [backendCompletionMs] = await Promise.all([completed, expandDuringDownload()]);
-  await expect(folder.locator('.folder-file-row')).toHaveCount(requestedRows);
-  await expect(folder.locator('.folder-file-state.complete')).toHaveCount(requestedRows);
+  // The extent may add a bounded number of rows to make folders whole, so the
+  // page holds the requested rows and at most one nested page more.
+  const folderCompletionLimit = 80;
+  const rowCount = () => folder.locator('.folder-file-row').count();
+  await expect.poll(rowCount).toBeGreaterThanOrEqual(requestedRows);
+  expect(await rowCount()).toBeLessThanOrEqual(requestedRows + folderCompletionLimit);
+  await expect.poll(async () => await folder.locator('.folder-file-state.complete').count() === await rowCount(), { timeout: 15_000 }).toBe(true);
   const completedRowsMs = Math.round(performance.now() - started);
   // Completed rows alone are not a complete screen: every visible directory
   // must also have exact totals, even if it entered during an earlier read.
   await expect(folder.locator('.folder-transfer-file-count').filter({ hasText: '?' })).toHaveCount(0);
-  await expect(folder.locator('.item-data-state').filter({ hasText: 'cover loaded files only' })).toHaveCount(0);
   // The moving prefix can change how many directories contain those rows.
   // Check every current label without freezing a separately sampled card count.
   await expect(folder.locator('.folder-transfer-file-count strong')
@@ -524,7 +515,8 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
   const displayedMs = Math.round(performance.now() - started);
   await displayRecorded;
   const maximumRows = await page.evaluate(() => (window as typeof window & { __maximumTransferRows: number }).__maximumTransferRows);
-  expect(maximumRows, 'Live arrivals must preserve the requested extent.').toBeLessThanOrEqual(requestedRows);
+  expect(maximumRows, 'Live arrivals must stay within the requested extent and its completion budget.')
+    .toBeLessThanOrEqual(requestedRows + folderCompletionLimit);
   expect(globalTransferRows, 'Downloads progress comes from the fetched scope.').toBe(0);
   expect(scopedLiveRows).toBeGreaterThan(0);
   expect(unrequestedLiveRows, 'Progress must stay within the fetched observation membership.').toBe(0);
@@ -548,14 +540,15 @@ for (const requestedRows of [500, 1000]) test(`downloads 50 folders of 200 tiny 
   await page.screenshot({ path: testInfo.outputPath('paged-active-download.png') });
   const expanded = once(observations, `extent-${requestedRows + 500}`, { signal: AbortSignal.timeout(5_000) });
   await timelineMore.click();
-  await expect(folder.locator('.folder-file-row')).toHaveCount(requestedRows + 500);
+  await expect.poll(rowCount).toBeGreaterThanOrEqual(requestedRows + 500);
   expect(await folder.count()).toBeLessThanOrEqual(folderCount);
-  expect(new Set(await folder.locator('.folder-file-path').allTextContents()).size).toBe(requestedRows + 500);
   await expanded;
+  const paths = await folder.locator('.folder-file-path').allTextContents();
+  expect(new Set(paths).size, 'A file belongs to the extent once.').toBe(paths.length);
   await page.reload();
-  await expect(folder.locator('.folder-file-row')).toHaveCount(500);
+  await expect.poll(rowCount).toBeGreaterThanOrEqual(500);
   expect(await folder.count()).toBeLessThanOrEqual(folderCount);
-  await expect(folder.locator('.folder-file-state.complete')).toHaveCount(500);
+  await expect.poll(async () => await folder.locator('.folder-file-state.complete').count() === await rowCount()).toBe(true);
   await cdp.detach();
   const rootResponse = await page.request.get(`/api/jobs/${root.jobId}`);
   expect(rootResponse.ok(), await rootResponse.text()).toBe(true);

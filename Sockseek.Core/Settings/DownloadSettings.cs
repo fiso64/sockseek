@@ -89,9 +89,14 @@ public class DownloadSettings
     public SearchSettings ResolveSearchSettings(SearchSettings? search = null)
         => (search ?? Search).Resolve(Output.AlbumArtOnly, DefaultMinGroupShares);
 
-    public ResolvedIncompleteAlbumAction ResolveIncompleteAlbumAction()
+    /// <summary>
+    /// A hand-picked folder (<see cref="Sockseek.Core.Jobs.Job.IsHandPicked"/>) stays in
+    /// place unless an action is configured: a folder retry completes it where it is.
+    /// </summary>
+    public ResolvedIncompleteAlbumAction ResolveIncompleteAlbumAction(bool handPicked = false)
     {
-        var kind = Output.IncompleteAlbumAction.Kind ?? IncompleteAlbumActionKind.Move;
+        var kind = Output.IncompleteAlbumAction.Kind
+            ?? (handPicked ? IncompleteAlbumActionKind.Keep : IncompleteAlbumActionKind.Move);
         var path = kind == IncompleteAlbumActionKind.Move
             ? Output.IncompleteAlbumAction.Path ?? Path.Join(Output.ParentDir ?? Directory.GetCurrentDirectory(), "failed")
             : null;

@@ -906,7 +906,7 @@ public sealed class EngineStateStore
         {
             var transferDelta = UpsertTransfer(change.Transfer, isTerminal: false, context: change);
             if (transferDelta is null) return;
-            var fileSummary = jobState.UpdateFileProgress(change.Job, change.File, change.OccurredAtUtc, change.State);
+            var fileSummary = jobState.UpdateFileProgress(change.Job, change.File, change.OccurredAtUtc);
             ProjectStateChanges(
                 fileSummary is null ? [] : [fileSummary],
                 [],
@@ -1361,7 +1361,6 @@ internal sealed record EngineStateStoreRetainedWorkflowCounts(
     int ResultLinks,
     int SourceLinks,
     int ExecutionMarkers,
-    int SongTransferStates,
     int Transfers,
     int Attempts,
     int Searches,

@@ -4,6 +4,8 @@ import { createInterface } from 'node:readline';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
+// TODO [TESTS]: Most journeys select controls by visible text, so renaming a label
+// touches dozens of tests. Move actions to stable test IDs.
 const probeKeys = new Map<string, string>();
 
 export function fixtureApiHeaders(target: URL, init?: HeadersInit): Headers {

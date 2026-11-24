@@ -50,7 +50,7 @@ public sealed record TransferHistoryFilter(
     Guid? WorkflowId = null,
     string? Direction = null,
     string? Source = null,
-    string? State = null,
+    string? Phase = null,
     string? TerminalOutcome = null,
     string? Username = null,
     DateTimeOffset? FromUtc = null,
@@ -589,9 +589,10 @@ public sealed class SockseekApiClient
 
     public async Task<JobSummaryDto?> RerunSubmissionAsync(
         Guid submissionId,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool extractAgain = false)
     {
-        using var response = await http.PostAsync($"api/submissions/{submissionId}/rerun", null, ct);
+        using var response = await http.PostAsync($"api/submissions/{submissionId}/rerun{(extractAgain ? "?extractAgain=true" : "")}", null, ct);
         if (response.StatusCode == HttpStatusCode.NotFound)
             return null;
         await EnsureSuccessAsync(response, ct);
@@ -635,7 +636,7 @@ public sealed class SockseekApiClient
             + QueryPart("workflowId", query.WorkflowId?.ToString())
             + QueryPart("direction", query.Direction)
             + QueryPart("source", query.Source)
-            + QueryPart("state", query.State)
+            + QueryPart("phase", query.Phase)
             + QueryPart("terminalOutcome", query.TerminalOutcome)
             + QueryPart("username", query.Username)
             + QueryPart("groupRef", query.GroupRef)
@@ -740,8 +741,9 @@ public sealed class SockseekApiClient
             $"api/sharing/scans/{scanId}/cancel",
             ct);
 
-    public Task<JobSummaryDto> RunJobAgainAsync(Guid jobId, CancellationToken ct = default)
-        => PostWithoutBodyAsync<JobSummaryDto>($"api/jobs/{jobId}/rerun", ct);
+    /// <param name="extractAgain">Read the job's source as it is now instead of replaying its saved items.</param>
+    public Task<JobSummaryDto> RunJobAgainAsync(Guid jobId, CancellationToken ct = default, bool extractAgain = false)
+        => PostWithoutBodyAsync<JobSummaryDto>($"api/jobs/{jobId}/rerun{(extractAgain ? "?extractAgain=true" : "")}", ct);
 
     public Task<JobSummaryDto> RetryDirectoryAsync(Guid jobId, CancellationToken ct = default)
         => PostWithoutBodyAsync<JobSummaryDto>($"api/jobs/{jobId}/retry-directory", ct);

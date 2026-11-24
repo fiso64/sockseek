@@ -93,7 +93,11 @@ internal static partial class Program
         // TODO [ARCHITECTURE]: Replace scattered CLI/server validation exception handling
         // with typed diagnostics carrying severity, exit-code class, output stream, and
         // optional debug detail. Parser, daemon startup, remote startup, and extractor
-        // validation currently encode that policy in several catch/log branches.
+        // validation currently encode that policy in several catch/log branches, and
+        // a usage error is recognised by its message starting with "Input error:".
+        // That text is thrown as plain Exception, FormatException and
+        // ArgumentException, including from Core (SharePath), so Core carries CLI
+        // wording and any reworded message silently becomes an internal error.
         try
         {
             invocation = ConfigManager.ParseInvocation(bindArgs);
@@ -751,7 +755,8 @@ internal static partial class Program
                         new JobQuery(null, null, null, detail.Summary.Display.WorkflowId, IncludeAll: true,
                             ParentJobId: detail.Summary.JobId),
                         cts.Token);
-                    JobInfoPrinter.Print(detail, children);
+                    JobInfoPrinter.Print(detail, children, backend.ClientStore
+                        .GetJobTransfers(detail.Summary.JobId).LastOrDefault(transfer => !transfer.Status.IsTerminal)?.Status);
                 }
 
                 lock (Printing.ConsoleLock)

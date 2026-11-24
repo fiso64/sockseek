@@ -3,10 +3,11 @@
   import PageTabs from '../../components/PageTabs.svelte';
   import { keyboardList } from '../../lib/keyboard';
   import type { JobsTab } from './job-list.svelte';
+  import { downloadsViews, type DownloadsView } from '../../app/navigation';
   import EmptyState from '../../components/EmptyState.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import { onMount, untrack, tick } from 'svelte';
-  import type { JobSummaryDto, Schema } from '../../api/types';
+  import type { JobSummaryDto, Schema, TransferStateDto } from '../../api/types';
   import type { DaemonLiveClient } from '../../api/live';
   import { updatedJob } from '../../api/state.svelte';
     import LoadMoreButton from '../../components/LoadMoreButton.svelte';
@@ -19,10 +20,11 @@
     tab: JobsTab;
     submissionId: string | null;
     onclearfilter: () => void;
-    ontabchange: (tab: JobsTab) => void;
+    ondownloadsview: (view: DownloadsView) => void;
     position: { scrollTop: number };
     connected: boolean;
     observeJobs: DaemonLiveClient['observeJobs'];
+    readJobTransfer: (jobId: string) => TransferStateDto | undefined;
     loading?: boolean;
     daemonOffline?: boolean;
     hasMore?: boolean;
@@ -37,7 +39,7 @@
     onnew: () => void;
   }
 
-  let { jobs, linkedResults, tab, submissionId, onclearfilter, ontabchange, position, connected, observeJobs, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, ondelete, deletingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
+  let { jobs, linkedResults, tab, submissionId, onclearfilter, ondownloadsview, position, connected, observeJobs, readJobTransfer, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, ondelete, deletingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
   let section: HTMLElement;
   onMount(() => {
     const scroller = section.closest('main')!;
@@ -90,25 +92,26 @@
 <section bind:this={section} class="page page-search redesigned-search-page" use:keyboardList={{
   scope: `${tab}:${submissionId}`, revision: [ordered, loading],
   horizontal: direction => {
-    const next = direction > 0 ? 'downloads' : 'searches';
-    if (next !== tab) ontabchange(next);
-    void tick().then(() => document.getElementById(`jobs-tab-${next}`)?.focus());
+    if (tab !== 'downloads') return;
+    if (direction > 0) ondownloadsview('files');
+    void tick().then(() => document.getElementById(`downloads-view-${direction > 0 ? 'files' : 'requests'}`)?.focus());
   },
   loadPage: onloadmore,
 }}>
   <header class="page-heading search-list-heading jobs-list-heading">
     <div class="page-heading-title">
-      <h1>Jobs</h1>
-      <div class="page-heading-tabs">
-        <PageTabs variant="segmented" id="jobs-tab" label="Jobs" value={tab} onchange={ontabchange}
-          items={[{ id: 'searches', label: 'Searches' }, { id: 'downloads', label: 'Download jobs' }]} />
-      </div>
+      <h1>{tab === 'downloads' ? 'Downloads' : 'Searches'}</h1>
+      {#if tab === 'downloads'}
+        <div class="page-heading-tabs">
+          <PageTabs variant="segmented" id="downloads-view" label="Downloads" value="requests" onchange={ondownloadsview} items={downloadsViews} />
+        </div>
+      {/if}
     </div>
     <button type="button" data-testid="new-job" class="button action-button new-job-button" onclick={onnew}><span>+</span> New job</button>
   </header>
 
-  {#if submissionId}<div class="jobs-filter">Showing one download request <button type="button" onclick={onclearfilter}>Show all download jobs</button></div>{/if}
-  <div role="tabpanel" id="jobs-tab-panel" aria-labelledby={`jobs-tab-${tab}`}>
+  {#if submissionId}<div class="jobs-filter">Showing one download request <button type="button" onclick={onclearfilter}>Show all requests</button></div>{/if}
+  <div role={tab === 'downloads' ? 'tabpanel' : undefined} id="jobs-tab-panel" aria-labelledby={tab === 'downloads' ? 'downloads-view-requests' : undefined}>
   {#if error && ordered.length}
     <div class="resource-state-notice unavailable" role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Jobs unavailable</strong><small>{error.message}</small></span><button class="button" type="button" disabled={loading} onclick={onretry}>Retry</button></div>
   {/if}
@@ -124,7 +127,7 @@
       {#each ordered as entry (entry.root.jobId)}
         {@const job = entry.job}
         {@const entryError = presentationError(entry)}
-        <JobRow {job} root={entry.root}
+        <JobRow {job} root={entry.root} transfer={job.jobId ? readJobTransfer(job.jobId) : undefined}
           resultState={entryError ? 'unavailable' : undefined}
           deleting={deletingSubmissions.has(job.display.submissionId!)}
           {onopen} {oncancel} {ondelete} />
