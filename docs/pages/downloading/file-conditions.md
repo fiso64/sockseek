@@ -22,7 +22,7 @@ pref-strict-title = true
 pref-strict-album = true
 
 # Prefer results that aren't locked. This is only relevant for
-# interactive searches in the webui. Automated downloads always
+# interactive searches in the WebUI. Automated downloads always
 # ignore locked items.
 pref-exclude-locked = true
 ```
@@ -52,6 +52,6 @@ To reject all files where one or more of the checked properties is null (unknown
 
 This flag should be used with care: It's easy to accidentally exclude all files from users with
 certain clients. For example, because the standard Soulseek client does not broadcast the bitrate,
-enabling `--strict-conditions` and setting a `--min-bitrate` will effectively exclude all files shared by users with the standard client(!). Even if you don't add a required min-bitrate, this option will still result in all those shares getting ranked at the bottom due to the default pref- bitrate checks above.
+enabling `--strict-conditions` and setting a `--min-bitrate` will effectively exclude all files shared by users with the standard client(!).
 
 <!-- sockseek-help:end -->

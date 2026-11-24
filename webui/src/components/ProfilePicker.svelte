@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ManualLink, { manualAvailable } from './ManualLink.svelte';
   import { onMount } from 'svelte';
   import { daemonApi } from '../api/client';
   import type { Schema } from '../api/types';
@@ -60,12 +61,14 @@
         </label>
       {/each}
       {#if error}<p role="alert">{error} <button class="button" type="button" disabled={loading} onclick={() => void load()}>Retry</button></p>{/if}
+      {#if manualAvailable()}<p class="profile-help"><ManualLink topic="profiles">About profiles</ManualLink></p>{/if}
     </div>
   </div>
 {/if}
 
 <style>
   .profile-picker { flex-shrink: 0; }
+  .profile-help { margin: 4px 0 0; padding: 6px 8px 3px; border-top: 1px solid var(--line); font-size: .72rem; }
   .profile-trigger { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 5px 8px; border-radius: 7px; font-size: .72rem; }
   .profile-trigger :global(svg) { width: 14px; height: 14px; }
   .profile-popout { position: fixed; inset: auto; width: min(250px, calc(100vw - 24px)); box-sizing: border-box; margin: 0; padding: 5px; overflow-y: auto; border-radius: 9px; color: var(--text); }

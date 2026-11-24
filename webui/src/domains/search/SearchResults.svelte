@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ManualLink from '../../components/ManualLink.svelte';
   import HelpPopover from '../../components/HelpPopover.svelte';
   import { tick, untrack } from 'svelte';
   import { keyboardList } from '../../lib/keyboard';
@@ -1063,8 +1064,8 @@
               <HelpPopover title="Preferred matches" testId="preferred-matches-help">
                 {#snippet children(close, anchor)}
                   <span>These results satisfy all your ranking conditions when using "Relevance" sorting. Other matches remain available below.</span>
-                  <span>Edit your preferences in your config, e.g. set <code>pref-format = flac</code> to prefer FLAC files.</span>
-                  <span><button type="button" class="edit-preferences-button" data-testid="edit-search-preferences" disabled={configurationLoading || !baseline}
+                  <span>Edit your preferences in your config, e.g. set <code>pref-format = flac</code> to prefer FLAC files. <ManualLink topic="fileConditions">How ranking works</ManualLink></span>
+                  <span><button type="button" class="text-link" data-testid="edit-search-preferences" disabled={configurationLoading || !baseline}
                     onclick={async () => {
                       conditionsAnchor = anchor;
                       conditionsInitialTab = 'ranking';

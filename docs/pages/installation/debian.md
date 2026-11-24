@@ -14,6 +14,9 @@ The CLI is ready to use. To start the server:
 2. Run `sudoedit /etc/sockseek/sockseek.conf`. Set `username` and `password` for Soulseek and paste the hash into `web-password-hash`.
 3. Run `sudo systemctl enable --now sockseek`. Open <http://127.0.0.1:5030> on the server and sign in as `admin` with your WebUI password.
 
-The database and job history live in the private `/var/lib/sockseek/data` directory. Downloads go to `/var/lib/sockseek/downloads` and are readable by other local users, for example a media server. For an existing media library, set `output-dir` to its path and give the `sockseek` service user write access. For example, if a library uses a shared `media` group, add `sockseek` to that group and set the directory's setgid bit so downloads inherit the media group. For group-writable downloads, run `sudo systemctl edit sockseek` and add `UMask=0002` under `[Service]`. Restart the service after changing group membership.
-
-Use `journalctl -u sockseek` for logs. To upgrade, install the newer file with the same `apt install ./…deb` command. An active service restarts, and its configuration, history and downloads are preserved.
+- **Logs** — Run `journalctl -u sockseek` to read the service log.
+- **Storage** — Sockseek keeps its database and history in the private `/var/lib/sockseek/data`. Downloads go in `/var/lib/sockseek/downloads` by default and are readable by other local users, for example a media server.
+- **Other folders** — To download into an existing media library, set `output-dir` to its path and give the `sockseek` service user write access.
+- **Shared write access** — To let a group such as `media` write downloads too, add `sockseek` to that group and set the directory's setgid bit so downloads inherit the group. Then run `sudo systemctl edit sockseek`, add `UMask=0002` under `[Service]`, and restart the service.
+- **Incoming connections** — See [ports and connectivity](../using-sockseek/daemon.md#ports-and-connectivity) to let Soulseek peers reach you.
+- **Upgrades** — Install the newer file with the same `apt install ./…deb` command. An active service restarts, and its configuration, history and downloads are preserved.

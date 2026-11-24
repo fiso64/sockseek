@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ManualLink from '../../components/ManualLink.svelte';
   import HelpPopover from '../../components/HelpPopover.svelte';
   import type { Schema } from '../../api/types';
   let { value, onchange }: { value: Schema<'CsvSettingsPatchDto'>; onchange: (value: Schema<'CsvSettingsPatchDto'>) => void } = $props();
@@ -9,7 +10,7 @@
 </script>
 
 <div class="new-job-csv-mapping">
-  <h3>Column mapping <HelpPopover title="Column mapping" testId="csv-mapping-help">You only need to override column names when the CSV does not use common ones.</HelpPopover></h3>
+  <h3>Column mapping <HelpPopover title="Column mapping" testId="csv-mapping-help">You only need to override column names when the CSV does not use common ones. <ManualLink topic="csvInput">CSV files in the manual</ManualLink></HelpPopover></h3>
   <div class="new-job-csv-grid">
     {#each fields as [field, label] (field)}
       <label><span>{label}</span><input class="field" placeholder="Auto" value={value[field] ?? ''} oninput={(event) => onchange({ ...value, [field]: event.currentTarget.value })} /></label>

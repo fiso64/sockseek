@@ -23,11 +23,18 @@ Open [http://127.0.0.1:5030](http://127.0.0.1:5030) and sign in as `admin` with 
 
 Use the main search bar to inspect results and choose the files or folder you want. For an album, try `Artist - Album Title`. Group modes collect related songs or albums so you can compare the versions offered by different peers. Filtering a results page works on the responses already received. You can change the filter after the search finishes.
 
-For an automatic download, create a download job. Sockseek can take a search string, a playlist, a CSV, or a list and pick matches using your [file conditions](../search-and-download/file-conditions.md). Required conditions decide which results qualify. Preferred conditions help choose among the qualifying results. For CSV and list inputs, upload the file from your browser or enter a path on the daemon machine. Downloads are saved on that machine in either case. See [download modes](../automated-and-bulk-downloads/download-modes.md) and [supported inputs](../automated-and-bulk-downloads/inputs.md) for examples.
+For an automatic download, create a download job. Sockseek can take a search string, a playlist, a CSV, or a list and pick matches using your [file conditions](../downloading/file-conditions.md). Required conditions decide which results qualify. Preferred conditions help choose among the qualifying results. For CSV and list inputs, upload the file from your browser or enter a path on the daemon machine. Downloads are saved on that machine in either case. See [download modes](../downloading/download-modes.md) and [supported inputs](../downloading/inputs.md) for examples.
 
 ## Share a folder
 
-Add a directory on the daemon machine to your config, for example `share = /path/to/Music`. Use **System → Rescan shares** to update the catalog, then check **System → Shares** to see what peers can browse. [Sharing and upload options](../reference/daemon-options.md#sharing-uploads-and-chat)
+Add a directory on the daemon machine to your config, for example `share = /path/to/Music`. Use **System → Rescan shares** to update the catalog, then check **System → Shares** to see what peers can browse. See the [sharing and upload options](../reference/daemon-options.md#sharing-uploads-and-chat).
+
+## Ports and connectivity
+
+The daemon uses two ports:
+
+- **5030, the WebUI and API.** It accepts connections from the same computer only. To reach it from other devices, set `server-ip` to the address to listen on, and put it behind HTTPS: sign-in over plain HTTP is refused unless you set `allow-http-auth`. See [WebUI and access options](../reference/daemon-options.md#webui-and-access).
+- **49998/TCP, the Soulseek peer listener** (`listen-port`). Other Soulseek users connect to it to download from you and to send you files. Sockseek works without it being reachable, but transfers with peers who are also unreachable will fail. If you are behind a router, forward this port to the machine running the daemon, and allow it through that machine's firewall.
 
 ## Remote CLI
 

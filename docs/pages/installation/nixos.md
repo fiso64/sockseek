@@ -34,7 +34,7 @@ Apply the configuration with `sudo nixos-rebuild switch`. On the NixOS host, ope
 - **Storage** — Sockseek keeps its database and history in the private `/var/lib/sockseek/data`. Downloads go in `/var/lib/sockseek/downloads` by default and are readable by other local users, for example a media server.
 - **Shared write access** — To let a group such as `media` write downloads too, add `sockseek` to that group, set the download folder's group and setgid bit, and set `systemd.services.sockseek.serviceConfig.UMask = "0002";`.
 - **Other folders** — Set `output-dir` to download elsewhere or `share` to share an existing library. Give the `sockseek` user write access to the download folder and read access to shared folders.
-- **Incoming connections** — To accept connections from Soulseek peers, add your listener port (default `49998`) to `networking.firewall.allowedTCPPorts`.
+- **Incoming connections** — To accept connections from Soulseek peers, add your listener port (default `49998`) to `networking.firewall.allowedTCPPorts`. See [ports and connectivity](../using-sockseek/daemon.md#ports-and-connectivity).
 
 ## Settings and profiles
 

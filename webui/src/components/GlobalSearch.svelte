@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ManualLink from './ManualLink.svelte';
   import { tick } from 'svelte';
   import type { SearchDraft } from '../domains/search/model';
   import { editableSearchDraft, isGroupSearchMode, searchDelimiter, searchModeOptions as modes, parseSearchResultMode, searchModeFamily as family } from '../domains/search/model';
@@ -298,6 +299,7 @@
       <ul>
         <li>For better ranking and grouping, separate the artist from the album/song title with a hyphen, like <code>Artist - Title</code>. Without a separator, your query will be implicitly treated as a title in track and album modes, and as artist in group modes.</li>
         <li>To change the default search mode, set <code>web-default-search-mode</code> in the config.</li>
+        <li><ManualLink topic="downloadModes">How each mode downloads</ManualLink></li>
       </ul>
     </section>
   </Modal>

@@ -1,0 +1,56 @@
+name: Docs
+
+# Publishes the manual to GitHub Pages. Doc fixes go live from the branch
+# without a release. Point `branches` at master once 4.0 is merged there.
+on:
+  workflow_dispatch:
+  push:
+    branches: [v4]
+    paths:
+      - 'docs/**'
+      - 'webui/public/**'
+      - '.github/workflows/docs.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Page "last updated" times come from history.
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - id: pages
+        uses: actions/configure-pages@v5
+      - run: npm ci
+        working-directory: docs
+      - run: npm run build
+        working-directory: docs
+        env:
+          SOCKSEEK_DOCS_SITE_URL: ${{ steps.pages.outputs.base_url }}/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

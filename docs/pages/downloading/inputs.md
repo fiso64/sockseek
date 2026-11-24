@@ -31,7 +31,7 @@ Spotify inputs support:
 - Liked songs, with `sockseek spotify-likes`
 - Liked albums, with `sockseek spotify-albums`
 
-Spotify API access now requires your own Spotify developer application for all Spotify inputs,
+Spotify API access requires your own Spotify developer application for all Spotify inputs,
 including public playlists. Spotify also requires the owner of that application to have an
 active Spotify Premium subscription. If you do not have Premium, you can export the Spotify playlist
 with a Spotify-to-CSV converter and pass the CSV file to Sockseek instead.
@@ -121,6 +121,7 @@ soundcloud-token = <your-token>
 </details>
 
 ## Soulseek Link
+
 A direct path starting with `slsk://`. By default, a path ending in `/` is an ordinary
 folder download and a path without it is an ordinary exact-file download. Use `--song`
 or `--album` to request music-specific handling. `--song` rejects directory links;
@@ -142,7 +143,7 @@ A string input is a name of the track, album, or artist to search for. They come
    - `sockseek "Artist - Album"` downloads an album
    - `sockseek "Artist - Song" -s` downloads a song
 
-   It's always better to split the artist from song/album like this when you want to provide an artist due to [ranking and filtering](../search-and-download/file-conditions.md).
+   It's always better to split the artist from song/album like this when you want to provide an artist due to [ranking and filtering](./file-conditions.md).
 
    _This is equivalent to `sockseek "artist=Artist, album=Album"` in the first case, and to `sockseek "artist=Artist, title=Song"` in the second case._
 

@@ -18,7 +18,6 @@ When passing an on-complete action on the command line, quote the whole value so
 
 ## Options
 
-- `when=` omitted - Same as `when=completed`
 - `when=completed` - Execute on success or fail, if the item wasn't skipped
 - `when=success` - Execute only for successful downloads
 - `when=failure` - Execute for failed or partially successful downloads

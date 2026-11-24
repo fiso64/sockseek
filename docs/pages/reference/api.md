@@ -3,14 +3,15 @@
 # API and Client integration
 
 > [!WARNING]
-> The API is not stable. Breaking changes common!
+> The API is not stable. Breaking changes are common.
 
 <!--
 Maintainers: keep this file deliberately small while the API is in flux. It
 should provide stable integration entry points, OpenAPI/mock-daemon pointers,
-and a source map. Do not duplicate endpoint inventories, DTO fields, feature
-semantics, or operational guidance here; use the generated OpenAPI and source
-for contracts and the manual for operator-facing behavior.
+and the few source files a client author should read. Do not duplicate endpoint
+inventories, DTO fields, feature semantics, or operational guidance here; use
+the generated OpenAPI and source for contracts and the manual for
+operator-facing behavior.
 -->
 
 The daemon exposes HTTP snapshots and durable history queries plus a SignalR hub
@@ -41,18 +42,15 @@ sockseek daemon --web-password-file /path/to/test-password --allow-http-auth \
   -o /tmp/sockseek-out
 ```
 
-## Source map
+## Client source to read
 
-- `Sockseek.Api/Client/SockseekApiClient.cs` — .NET client wrapper and the most convenient reference for supported client flows.
-- `Sockseek.Api/Client/SockseekLiveClient.cs` — reusable SignalR subscription,
-  buffering, and recovery coordinator.
-- `Sockseek.Api/Client/DaemonClientStore.cs` — shared reducer and query store.
-- `Sockseek.Api/Contracts/` — request/response DTOs shared by the server, CLI, and .NET clients.
-- `Sockseek.Api/Contracts/Chats.cs` — chat, room, and notification contracts.
-- `Sockseek.Api/Contracts/LiveState.cs` — versioned snapshot, typed delta,
-  transfer, stream-position, and compact activity DTOs.
-- `Sockseek.Server/ServerHost.cs` — endpoint registration and OpenAPI metadata.
-- `Sockseek.Cli/Backends/RemoteCliBackend.cs` — real remote client usage, including SignalR subscription behavior.
-- `Sockseek.Cli/Commands/ChatCommands.cs` — scriptable remote chat client usage.
-- `Sockseek.Cli.Tests/RemoteCliBackendTests.cs` — executable examples of remote API flows.
-- `Sockseek.Server.Tests/ChatApiTests.cs` — executable chat API client flows.
+<!-- Maintainers: list only files that help someone build a client against the
+API: the reusable clients, the contracts, and working examples of client flows.
+Do not list every file related to the API, such as server internals. -->
+
+- [`Sockseek.Api/Client/SockseekApiClient.cs`](https://github.com/fiso64/sockseek/blob/v4/Sockseek.Api/Client/SockseekApiClient.cs): the .NET client, and the most convenient reference for supported request flows.
+- [`Sockseek.Api/Client/SockseekLiveClient.cs`](https://github.com/fiso64/sockseek/blob/v4/Sockseek.Api/Client/SockseekLiveClient.cs): the SignalR subscription, with buffering and recovery.
+- [`Sockseek.Api/Client/DaemonClientStore.cs`](https://github.com/fiso64/sockseek/blob/v4/Sockseek.Api/Client/DaemonClientStore.cs): a store that applies snapshots and live deltas, for clients that keep state.
+- [`Sockseek.Api/Contracts/`](https://github.com/fiso64/sockseek/tree/v4/Sockseek.Api/Contracts): every request and response type.
+- [`Sockseek.Cli/Backends/RemoteCliBackend.cs`](https://github.com/fiso64/sockseek/blob/v4/Sockseek.Cli/Backends/RemoteCliBackend.cs): a real client, including how it subscribes to live updates.
+- [`Sockseek.Cli.Tests/RemoteCliBackendTests.cs`](https://github.com/fiso64/sockseek/blob/v4/Sockseek.Cli.Tests/RemoteCliBackendTests.cs): runnable examples of remote API flows.

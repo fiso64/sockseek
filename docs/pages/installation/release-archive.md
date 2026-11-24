@@ -13,4 +13,4 @@ The same executable runs both the local CLI and the daemon.
 
    If another Soulseek client is signed in, use a separate Soulseek account to keep both connected.
 
-For **local CLI** use, you're ready to [download a song or album](../using-sockseek/one-shot.md#download-a-song). For the **daemon and WebUI**, [set a WebUI password and start the daemon](../using-sockseek/daemon.md#start-the-daemon).
+For **local CLI** use, you're ready to [download a song or album](../using-sockseek/one-shot.md#download-a-song). For the **daemon and WebUI**, [set a WebUI password and start the daemon](../using-sockseek/daemon.md#start-the-daemon), then check [ports and connectivity](../using-sockseek/daemon.md#ports-and-connectivity).

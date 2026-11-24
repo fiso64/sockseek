@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ManualLink from '../../components/ManualLink.svelte';
   import HelpPopover from '../../components/HelpPopover.svelte';
   import Icon from '../../components/Icon.svelte';
   import type { NewJobDraft } from './submission';
@@ -61,7 +62,7 @@
 {:else}
   {#if draft.choice === 'spotify'}
     <div class="new-job-source-mode">
-      <span>Input <HelpPopover title="Spotify input" testId="spotify-input-help">Liked songs and albums use the Spotify account configured for the daemon.</HelpPopover></span>
+      <span>Input <HelpPopover title="Spotify input" testId="spotify-input-help">Liked songs and albums use the Spotify account configured for the daemon. <ManualLink topic="spotifyInput">Setting up Spotify</ManualLink></HelpPopover></span>
       <div class="segmented-control new-job-segmented" role="group" aria-label="Spotify input">
         <button type="button" class:active={draft.spotifyInput === 'url'} onclick={() => onchange({ ...draft, spotifyInput: 'url' })}>Playlist / album URL</button>
         <button type="button" class:active={draft.spotifyInput === 'likes'} onclick={() => onchange({ ...draft, spotifyInput: 'likes' })}>Liked songs</button>

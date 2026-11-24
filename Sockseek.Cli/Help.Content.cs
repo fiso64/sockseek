@@ -366,7 +366,7 @@ Input types
     - Album URLs
     - Liked songs, with sockseek spotify-likes
     - Liked albums, with sockseek spotify-albums
-    Spotify API access now requires your own Spotify developer application for all Spotify inputs,
+    Spotify API access requires your own Spotify developer application for all Spotify inputs,
     including public playlists. Spotify also requires the owner of that application to have an
     active Spotify Premium subscription. If you do not have Premium, you can export the Spotify
     playlist with a Spotify-to-CSV converter and pass the CSV file to Sockseek instead.
@@ -557,7 +557,7 @@ File conditions
   pref-strict-album = true
 
   # Prefer results that aren't locked. This is only relevant for
-  # interactive searches in the webui. Automated downloads always
+  # interactive searches in the WebUI. Automated downloads always
   # ignore locked items.
   pref-exclude-locked = true
 
@@ -586,9 +586,7 @@ File conditions
     This flag should be used with care: It's easy to accidentally exclude all files from users with
     certain clients. For example, because the standard Soulseek client does not broadcast the
     bitrate, enabling --strict-conditions and setting a --min-bitrate will effectively exclude all
-    files shared by users with the standard client(!). Even if you don't add a required min-bitrate,
-    this option will still result in all those shares getting ranked at the bottom due to the
-    default pref- bitrate checks above.";
+    files shared by users with the standard client(!).";
 
     const string nameFormatHelp = @"
 Name format
@@ -738,7 +736,7 @@ Configuration
     no-progress       bool
 
   Lists
-    Lists can be either be written as comma-separated single lines:
+    Lists can be written on a single line, separated by commas:
 
     banned-users = Alice,Bob
 
@@ -757,14 +755,14 @@ Configuration
         - Bob
         - + Friends
 
-    Multiline text
-      For a string setting, put | after the equals sign and indent the text below it.
+  Multiline text
+    For a string setting, put | after the equals sign and indent the text below it.
 
-      user-description = |
-        Blah
-        Blah blah blah
+    user-description = |
+      Blah
+      Blah blah blah
 
-        music!
+      music!
 
   WebUI search defaults
     Use input-type == ""manual-search"" in an auto-profile to set defaults for the WebUI search bar.
@@ -793,7 +791,6 @@ On-Complete Actions
   --on-complete ""when=success scope=folder -- notify-send \""Downloaded\"" \""{path}\""""
 
   Options
-    - when= omitted - Same as when=completed
     - when=completed - Execute on success or fail, if the item wasn't skipped
     - when=success - Execute only for successful downloads
     - when=failure - Execute for failed or partially successful downloads
@@ -944,8 +941,8 @@ Tips
     It says no results for a song or album!
       Sockseek passes your input (i.e. artist + song name in case of songs, and artist + album name
       in case of albums) directly to Soulseek. It doesn't do any hard filtering by default, which
-      means that no results found almost always implies that your inputs itself have no matches on
-      Soulseek. Some things to try:
+      means that no results almost always implies that your input itself has no matches on Soulseek.
+      Some things to try:
       - Clean up your inputs when they contain uncommon names or artist spellings, for example, with
         options like --regex and --remove-ft. See also the next section.
       - Set --fallback-level 3. This will make Sockseek launch additional searches (e.g. without the
@@ -1010,7 +1007,17 @@ Daemon and remote access
   Share a folder
     Add a directory on the daemon machine to your config, for example share = /path/to/Music. Use
     System → Rescan shares to update the catalog, then check System → Shares to see what peers can
-    browse. Sharing and upload options
+    browse. See the sharing and upload options.
+
+  Ports and connectivity
+    The daemon uses two ports:
+    - 5030, the WebUI and API. It accepts connections from the same computer only. To reach it from
+      other devices, set server-ip to the address to listen on, and put it behind HTTPS: sign-in
+      over plain HTTP is refused unless you set allow-http-auth. See WebUI and access options.
+    - 49998/TCP, the Soulseek peer listener (listen-port). Other Soulseek users connect to it to
+      download from you and to send you files. Sockseek works without it being reachable, but
+      transfers with peers who are also unreachable will fail. If you are behind a router, forward
+      this port to the machine running the daemon, and allow it through that machine's firewall.
 
   Remote CLI
     Create a named API key in System → API. Copy the secret when it is shown and save it in a file

@@ -32,7 +32,7 @@ sockseek "Artist - Album" --album-track-count 10
 Use an inequality like `10+` when an expanded edition is acceptable. You can also add `--strict-album` to require the album name in the folder path, or `--strict-artist` as in the song case.
 
 ### **It says no results for a song or album!**
-Sockseek passes your input (i.e. artist + song name in case of songs, and artist + album name in case of albums) directly to Soulseek. It doesn't do any hard filtering by default, which means that no results found almost always implies that your inputs itself have no matches on Soulseek. Some things to try:
+Sockseek passes your input (i.e. artist + song name in case of songs, and artist + album name in case of albums) directly to Soulseek. It doesn't do any hard filtering by default, which means that no results almost always implies that your input itself has no matches on Soulseek. Some things to try:
 
 - Clean up your inputs when they contain uncommon names or artist spellings, for example, with options like `--regex` and `--remove-ft`. See also the next section.
 - Set `--fallback-level 3`. This will make Sockseek launch additional searches (e.g. without the artist name) whenever it receives no results. Note that this can make searches slower and sometimes results in more incorrect files getting downloaded.

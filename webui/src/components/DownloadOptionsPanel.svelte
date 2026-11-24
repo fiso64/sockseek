@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ManualLink from './ManualLink.svelte';
   import HelpPopover from './HelpPopover.svelte';
   import type { DownloadOptionCapabilities, DownloadOptions } from '../domains/jobs/download-options';
 
@@ -12,6 +13,7 @@
   }
 
   let { value = $bindable(), capabilities, compact = false, separators = true, mixedFields = new Set(), onfieldchange }: Props = $props();
+  const nameFormatId = $props.id();
 </script>
 
 <div class:compact class:seamless={!separators} class="download-options-panel">
@@ -23,10 +25,11 @@
         <input class="field" type="text" bind:value={value.outputParentDir} placeholder={mixedFields.has('outputParentDir') ? 'Mixed defaults' : 'Default'} oninput={() => onfieldchange?.('outputParentDir')} />
       </label>
       {#if capabilities.nameFormat ?? true}
-        <label>
-          <span>Name format</span>
-          <input class="field" type="text" bind:value={value.nameFormat} placeholder={mixedFields.has('nameFormat') ? 'Mixed defaults' : 'Default'} oninput={() => onfieldchange?.('nameFormat')} />
-        </label>
+        <!-- The help button sits beside the label, not inside it, so the field keeps its plain name. -->
+        <div>
+          <span><label for={nameFormatId}>Name format</label> <HelpPopover title="Name format" testId="name-format-help">A template for file names and folders, for example <code>{'{artist}/{album}/{title}'}</code>Leave it empty to keep the names peers use. <ManualLink topic="nameFormat">Name format in the manual</ManualLink></HelpPopover></span>
+          <input id={nameFormatId} class="field" type="text" bind:value={value.nameFormat} placeholder={mixedFields.has('nameFormat') ? 'Mixed defaults' : 'Default'} oninput={() => onfieldchange?.('nameFormat')} />
+        </div>
       {/if}
     </div>
   </section>

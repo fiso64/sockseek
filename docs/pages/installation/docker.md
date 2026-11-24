@@ -50,7 +50,7 @@ Download and extract the source archive for your [Sockseek release](https://gith
 
 Paths in `sockseek.conf` refer to the container. To share an existing library, change the host side of the `/shares` mount to its location, add `share = /shares` to the config, and rescan from the WebUI.
 
-The example permits HTTP login on port **5030** and publishes that port only on the host's loopback interface. For access from other machines, see [WebUI and access options](../reference/daemon-options.md#webui-and-access). Port **49998/TCP** is the Soulseek peer listener. To accept incoming peer connections behind a router, forward that port to the Docker host. If you change it, use the same port in `listen-port`, the Compose mapping, and the router.
+The example permits HTTP login on port **5030** and publishes that port only on the host's loopback interface. For access from other machines, see [WebUI and access options](../reference/daemon-options.md#webui-and-access). Port **49998/TCP** is the Soulseek peer listener. To accept incoming peer connections behind a router, forward that port to the Docker host (see [ports and connectivity](../using-sockseek/daemon.md#ports-and-connectivity)). If you change it, use the same port in `listen-port`, the Compose mapping, and the router.
 
 ## Updates and CLI use
 

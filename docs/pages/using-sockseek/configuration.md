@@ -4,7 +4,7 @@
 
 ## Config Location
 
-Sockseek will look for a file named sockseek.conf in the following locations:
+Sockseek will look for a file named `sockseek.conf` in the following locations:
 
 - `~/.config/sockseek/sockseek.conf` (Any platform)
 - `%APPDATA%\sockseek\sockseek.conf` (Windows only)
@@ -83,7 +83,7 @@ no-progress       bool
 
 ## Lists
 
-Lists can be either be written as comma-separated single lines:
+Lists can be written on a single line, separated by commas:
 
 ```ini
 banned-users = Alice,Bob
@@ -105,7 +105,7 @@ allowed-users = +
     - + Friends
 ```
 
-### Multiline text
+## Multiline text
 
 For a string setting, put `|` after the equals sign and indent the text below it.
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ManualLink from '../../components/ManualLink.svelte';
+  import HelpPopover from '../../components/HelpPopover.svelte';
   import type { Schema } from '../../api/types';
   import type { DaemonLiveClient, LiveConnectionStatus } from '../../api/live';
   import { DaemonHttpClient } from '../../api/http';
@@ -107,7 +109,7 @@
       <div><dt>Connection</dt><dd class:healthy={liveStatus === 'connected' && client?.isReady}>{soulseekStatusLabel(client, liveStatus)}</dd></div>
       <div><dt>Server</dt><dd>{connection?.serverAddress ? `${connection.serverAddress}:${connection.serverPort}` : '—'}</dd></div>
       <div><dt>Server address</dt><dd>{connection?.serverEndpoint ?? '—'}</dd></div>
-      <div><dt>Incoming port</dt><dd>{connection ? connection.listenPort ?? 'Disabled' : '—'}</dd></div>
+      <div><dt>Incoming port <HelpPopover title="Incoming port" testId="incoming-port-help">Other Soulseek users connect to this port to download from you and to send you files. If it cannot be reached from the internet, transfers with peers who are also unreachable fail. <ManualLink topic="connectivity">Ports and connectivity</ManualLink></HelpPopover></dt><dd>{connection ? connection.listenPort ?? 'Disabled' : '—'}</dd></div>
     </dl>
   </section>
   <section class="panel status-card" aria-labelledby="sharing-heading">
@@ -117,7 +119,7 @@
       <div><dt>Shared files</dt><dd>{sharing ? formatCount(sharing.catalog.fileCount) : '—'}</dd></div>
       <div><dt>Folders</dt><dd>{sharing ? formatCount(sharing.catalog.directoryCount) : '—'}</dd></div>
       <div><dt>Total size</dt><dd>{sharing ? formatBytes(sharing.catalog.totalBytes) : '—'}</dd></div>
-      <div><dt>Shared roots</dt><dd>{sharing ? sharing.aliases.join(', ') || 'None' : '—'}</dd></div>
+      <div><dt>Shared roots <HelpPopover title="Shared roots" testId="shared-roots-help">The folders other users can browse and download from. Add one with <code>share = /path/to/Music</code> in the config, then rescan. <ManualLink topic="sharing">Sharing a folder</ManualLink></HelpPopover></dt><dd>{sharing ? sharing.aliases.join(', ') || 'None' : '—'}</dd></div>
       <div><dt>Published</dt><dd>{date(sharing?.catalog.publishedAtUtc)}</dd></div>
       {#if sharing?.lastScan}<div><dt>Last scan</dt><dd>{humanizeStateValue(sharing.lastScan.phase)}{sharing.lastScan.errorCount ? ` · ${formatCount(sharing.lastScan.errorCount)} errors` : ''}</dd></div>{/if}
     </dl>

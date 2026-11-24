@@ -1216,9 +1216,6 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   font-weight: 600;
 }
 .result-tier-heading.preferred { color: var(--accent); }
-.edit-preferences-button { padding: 2px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--accent-text); font: inherit; font-weight: 400; letter-spacing: normal; text-transform: none; cursor: pointer; }
-.edit-preferences-button:hover:not(:disabled), .edit-preferences-button:focus-visible { background: var(--accent-soft); color: var(--accent-text); }
-.edit-preferences-button:disabled { opacity: .5; cursor: default; }
 
 
 .result-tier { display: grid; gap: 10px; }
@@ -3027,7 +3024,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 }
 .download-options-section h3 { margin: 0 0 14px; font-size: .875rem; font-weight: 650; }
 .download-options-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 10px 24px; }
-.download-options-fields label { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: .75rem; }
+.download-options-fields > * { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: .75rem; }
 .download-options-fields input {
   width: 100%; min-width: 0; min-height: 34px; padding: 7px 8px; border-radius: 8px;
   font-size: .8125rem;
