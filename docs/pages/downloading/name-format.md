@@ -22,13 +22,15 @@ Saves the file as `North Yard - Opening.flac`.
 
 Saves it as `North Yard/Opening.flac`, with a folder for the artist.
 
+These two forms are simple, but they assume every file has the tags. A missing tag is left blank, so a file with no artist tag is saved as ` - Opening.flac`. In almost every case you should use the form below, which falls back to the original filename.
+
 ---
 
 ```text
 {artist( - )title|filename}
 ```
 
-Tries the part before `|` first. If both tags are present, it inserts the text inside `( - )` between them, giving `North Yard - Opening.flac`. If either tag is missing, it uses `filename` and keeps `01.flac`. Note that you can chain `|` more than once.
+**Prefer this form.** It tries the part before `|` first. If both tags are present, it inserts the text inside `( - )` between them, giving `North Yard - Opening.flac`. If either tag is missing, it uses `filename` and keeps `01.flac`. Note that you can chain `|` more than once.
 
 ---
 

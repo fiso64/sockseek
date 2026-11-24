@@ -26,6 +26,8 @@ pref-format = flac
 fast-search = true
 ```
 
+Every command-line option is also a config setting: drop the leading `--` and write it as `name = value`. For example `--pref-format flac` becomes `pref-format = flac`, and a flag such as `--fast-search` becomes `fast-search = true`. See [options](../reference/options.md) for everything you can set, and [daemon options](../reference/daemon-options.md#daemon-options) for the daemon, WebUI and sharing settings.
+
 Lines starting with `#` will be treated as comments. Tildes in paths are expanded as the user
 directory (even on Windows). Path settings also support `{bindir}` for the Sockseek binary directory
 and `{configdir}` for the directory containing the active config file.

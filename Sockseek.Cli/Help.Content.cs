@@ -603,12 +603,15 @@ Name format
   {artist}/{title}
 
   Saves it as North Yard/Opening.flac, with a folder for the artist.
+  These two forms are simple, but they assume every file has the tags. A missing tag is left blank,
+  so a file with no artist tag is saved as - Opening.flac. In almost every case you should use the
+  form below, which falls back to the original filename.
 
   {artist( - )title|filename}
 
-  Tries the part before | first. If both tags are present, it inserts the text inside ( - ) between
-  them, giving North Yard - Opening.flac. If either tag is missing, it uses filename and keeps
-  01.flac. Note that you can chain | more than once.
+  Prefer this form. It tries the part before | first. If both tags are present, it inserts the text
+  inside ( - ) between them, giving North Yard - Opening.flac. If either tag is missing, it uses
+  filename and keeps 01.flac. Note that you can chain | more than once.
 
   {albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename}
 
@@ -686,6 +689,10 @@ Configuration
     pref-format = flac
     fast-search = true
 
+    Every command-line option is also a config setting: drop the leading -- and write it as name =
+    value. For example --pref-format flac becomes pref-format = flac, and a flag such as
+    --fast-search becomes fast-search = true. See options for everything you can set, and daemon
+    options for the daemon, WebUI and sharing settings.
     Lines starting with # will be treated as comments. Tildes in paths are expanded as the user
     directory (even on Windows). Path settings also support {bindir} for the Sockseek binary
     directory and {configdir} for the directory containing the active config file.
