@@ -1039,7 +1039,8 @@
         <LoadingIndicator label={searching ? 'Searching' : 'Loading search results'} blocking />
       {/if}
     {:else}
-      <EmptyState class="search-results-empty" icon="search" title={emptyResultsHeading()}
+      <!-- The same compact card as the searching notice it replaces, so it does not change shape. -->
+      <EmptyState class="resource-state-notice empty blocking search-results-empty" icon="search" title={emptyResultsHeading()}
         detail={retentionNotice || searching || (viewState.summary?.isComplete && !viewState.refining) ? emptyResultsDetail() : undefined} />
     {/if}
   {:else if viewState.draft?.resultMode === 'song-groups' || viewState.draft?.resultMode === 'album-groups'}
