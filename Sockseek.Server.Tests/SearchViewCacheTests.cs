@@ -918,7 +918,7 @@ public sealed class SearchViewCacheTests
             CollectionAssert.AreEqual(
                 new[] { "slow" },
                 revisionOne.Items.Select(item => item.Input.Username).ToArray());
-            Assert.IsFalse(revisionOne.Items.Single().NecessaryConditionsSatisfied);
+            Assert.AreNotEqual(ResultRejection.None, revisionOne.Items.Single().NecessaryRejection);
 
             SearchViewFilePage firstPage = (store.GetSnapshot(view.Id, 2, default)?.GetFiles(null, 1))!;
             Assert.AreEqual(1, firstPage.Items.Count);
@@ -948,10 +948,10 @@ public sealed class SearchViewCacheTests
             Assert.AreEqual(3L, view.Counters.ProjectedFileCount);
             SearchViewFilePage revisionTwo = (store.GetSnapshot(viewId, 2, default)?.GetFiles(null, 10))!;
             Assert.AreEqual(2, revisionTwo.Items.Count);
-            Assert.IsFalse(revisionTwo.Items.Single(item => item.Input.Username == "slow")
-                .NecessaryConditionsSatisfied);
-            Assert.IsTrue(revisionTwo.Items.Single(item => item.Input.Username == "fast")
-                .NecessaryConditionsSatisfied);
+            Assert.AreNotEqual(ResultRejection.None, revisionTwo.Items.Single(item => item.Input.Username == "slow")
+                .NecessaryRejection);
+            Assert.AreEqual(ResultRejection.None, revisionTwo.Items.Single(item => item.Input.Username == "fast")
+                .NecessaryRejection);
             SearchViewFilePage current = (store.GetSnapshot(viewId, 3, default)?.GetFiles(null, 10))!;
             Assert.AreEqual(3, current.Items.Count);
             var later = new HashSet<string>(StringComparer.Ordinal)

@@ -160,21 +160,33 @@ namespace Sockseek.Core.Models;
             string? username,
             bool filenameChecks = true,
             bool checkUser = true)
+            => Rejection(file, query, username, filenameChecks, checkUser) == ResultRejection.None;
+
+        /// <summary>
+        /// The first condition the file fails, cheapest checks first. This is
+        /// the only implementation of the file conditions: passing means None.
+        /// </summary>
+        internal ResultRejection Rejection(
+            ConditionFile file,
+            SongQuery? query,
+            string? username,
+            bool filenameChecks = true,
+            bool checkUser = true)
         {
             int length = query?.Length ?? -1;
             string title = query?.Title ?? "";
             string artist = query?.Artist ?? "";
             string album = query?.Album ?? "";
-            return FormatSatisfies(file.Path)
-                && LengthToleranceSatisfies(file.Length, length)
-                && BitrateSatisfies(file.Bitrate)
-                && SampleRateSatisfies(file.SampleRate)
-                && BitDepthSatisfies(file.BitDepth)
-                && (!filenameChecks
-                    || StrictTitleSatisfies(file.Path, title)
-                    && StrictArtistSatisfies(file.Path, artist)
-                    && StrictAlbumSatisfies(file.Path, album))
-                && (!checkUser || UsernameSatisfies(username));
+            return !FormatSatisfies(file.Path) ? ResultRejection.Format
+                : !LengthToleranceSatisfies(file.Length, length) ? ResultRejection.Length
+                : !BitrateSatisfies(file.Bitrate) ? ResultRejection.Bitrate
+                : !SampleRateSatisfies(file.SampleRate) ? ResultRejection.SampleRate
+                : !BitDepthSatisfies(file.BitDepth) ? ResultRejection.BitDepth
+                : filenameChecks && !StrictTitleSatisfies(file.Path, title) ? ResultRejection.StrictTitle
+                : filenameChecks && !StrictArtistSatisfies(file.Path, artist) ? ResultRejection.StrictArtist
+                : filenameChecks && !StrictAlbumSatisfies(file.Path, album) ? ResultRejection.StrictAlbum
+                : checkUser && !UsernameSatisfies(username) ? ResultRejection.User
+                : ResultRejection.None;
         }
 
         public bool StrictTitleSatisfies(string fname, string tname, bool noPath = true)

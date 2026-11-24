@@ -87,7 +87,8 @@ public static class ServerSnapshotMapper
                 album.ResultCount,
                 ToDirectoryDownloadStateDto(album.Directory),
                 album.ResolvedTarget?.Username,
-                album.ResolvedTarget?.FolderPath),
+                album.ResolvedTarget?.FolderPath,
+                album.Rejections),
             RemoteFileJobSnapshotPayload remoteFile => new RemoteFileJobPayloadDto(
                 ToPeerFileTargetDto(remoteFile.Target),
                 remoteFile.OutputPath.Components,
@@ -115,7 +116,7 @@ public static class ServerSnapshotMapper
                 retrieve.RetrievalCancelled),
             AlbumExecutionPayload album => new AlbumJobPayloadDto(
                 ToAlbumQueryDto(album.Query), album.ResultCount, ToDirectoryDownloadStateDto(album.Directory),
-                album.ResolvedTarget?.Username, album.ResolvedTarget?.FolderPath),
+                album.ResolvedTarget?.Username, album.ResolvedTarget?.FolderPath, album.Rejections),
             RemoteDirectoryExecutionPayload directory => new RemoteDirectoryJobPayloadDto(
                 directory.SourceKind == RemoteDirectorySourceSnapshotKind.PeerDirectory
                     ? RemoteDirectorySourceKindDto.PeerDirectory : RemoteDirectorySourceKindDto.Resolved,
@@ -266,7 +267,8 @@ public static class ServerSnapshotMapper
             song.DownloadSource,
             song.ExactTarget == null ? null : ToPeerFileTargetDto(song.ExactTarget),
             ToAttemptedSongFileDto(song.LastAttemptedCandidate),
-            ToFallbackSourceDto(song.Fallback));
+            ToFallbackSourceDto(song.Fallback),
+            song.Rejections);
     }
 
     internal static FallbackSourceDto? ToFallbackSourceDto(FallbackSource? source)

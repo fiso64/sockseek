@@ -253,7 +253,8 @@ public sealed record SongJobSnapshotPayload(
     FileDownloadStateSnapshot File,
     SearchDefinition? Definition,
     FileCandidateSnapshot? LastAttemptedCandidate = null,
-    FallbackSource? Fallback = null) : JobExecutionPayload;
+    FallbackSource? Fallback = null,
+    IReadOnlyList<ResultRejectionCount>? Rejections = null) : JobExecutionPayload;
 
 public sealed record AlbumJobSnapshotPayload(
     AlbumQuerySnapshot Query,
@@ -262,7 +263,8 @@ public sealed record AlbumJobSnapshotPayload(
     IReadOnlyList<JobSnapshot> TrackJobs,
     DirectoryDownloadStateSnapshot Directory,
     SearchDefinition? Definition,
-    DirectoryManifestSnapshot? Manifest = null) : JobSnapshotPayload;
+    DirectoryManifestSnapshot? Manifest = null,
+    IReadOnlyList<ResultRejectionCount>? Rejections = null) : JobSnapshotPayload;
 
 /// <summary>
 /// The exact accepted directory attempt, including entries without registered
@@ -451,7 +453,8 @@ public sealed record JobExecutionSnapshot : JobSnapshotHeader
 
 public sealed record AlbumExecutionPayload(
     AlbumQuerySnapshot Query, int ResultCount, AlbumFolderSummarySnapshot? ResolvedTarget,
-    DirectoryDownloadStateSnapshot Directory, SearchDefinition? Definition) : JobExecutionPayload;
+    DirectoryDownloadStateSnapshot Directory, SearchDefinition? Definition,
+    IReadOnlyList<ResultRejectionCount>? Rejections = null) : JobExecutionPayload;
 
 public sealed record RemoteDirectoryExecutionPayload(
     RemoteDirectorySourceSnapshotKind SourceKind, PeerDirectoryIdentitySnapshot? DirectorySource,

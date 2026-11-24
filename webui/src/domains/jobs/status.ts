@@ -1,5 +1,6 @@
 import type { JobSummaryDto, Schema, TransferStateDto } from '../../api/types';
 import { transferPhaseLabel, type TransferPresentation } from '../presentation/items';
+import { formatCountWithNoun } from '../../app/format';
 
 const resumeTimeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -88,6 +89,32 @@ export function jobOutcomeDetail(job: JobSummaryDto): string {
   }
   return job.lifecycle.failureMessage?.trim() || (job.lifecycle.failureReason === 'AllDownloadsFailed' ? 'All downloads failed'
     : job.lifecycle.failureReason === 'ExtractionFailed' ? 'Import failed' : '');
+}
+
+const rejectionReasons: Record<Schema<'ResultRejection'>, string> = {
+  None: '',
+  Format: 'wrong format',
+  Length: 'length outside tolerance',
+  Bitrate: 'bitrate outside range',
+  SampleRate: 'sample rate outside range',
+  BitDepth: 'bit depth outside range',
+  StrictTitle: 'title not in filename',
+  StrictArtist: 'artist not in path',
+  StrictAlbum: 'album not in folder name',
+  User: 'peer not allowed',
+  Locked: 'locked',
+  IgnoredPeer: 'peer ignored after failed downloads',
+  FolderBelowMinimumTracks: 'too few tracks',
+  FolderAboveMaximumTracks: 'too many tracks',
+  FolderMissingRequiredTracks: 'missing required tracks',
+  FolderQuality: 'tracks outside the format or quality conditions',
+};
+
+/** Why nothing matched, one line per condition: "41 files: wrong format". Empty unless the job failed for that reason. */
+export function rejectionLines(payload: Schema<'JobPayloadDto'> | null | undefined): string[] {
+  const rejections = payload?.kind === 'song' || payload?.kind === 'album' ? payload.rejections ?? [] : [];
+  return rejections.map(({ reason, count }) =>
+    `${formatCountWithNoun(count, reason.startsWith('Folder') ? 'folder' : 'file')}: ${rejectionReasons[reason]}`);
 }
 
 export function jobStatusClass(job: JobSummaryDto, transfer?: TransferStateDto): string {

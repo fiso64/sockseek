@@ -6747,6 +6747,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{jobId}/search-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reads the query and search settings a download job ran with, to submit as a search.
+         * @description Not found when the job never searched.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    jobId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["JobSearchDraftDto"];
+                    };
+                };
+                /** @description Authentication required or credential expired/revoked. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Access denied. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{jobId}/rerun-draft": {
         parameters: {
             query?: never;
@@ -12709,6 +12778,7 @@ export interface components {
             directory: components["schemas"]["DirectoryDownloadStateDto"];
             resolvedFolderUsername?: null | string;
             resolvedFolderPath?: null | string;
+            rejections?: null | components["schemas"]["ResultRejectionCount"][];
         };
         JobPayloadDtoExtractJobPayloadDto: {
             /** @enum {string} */
@@ -12868,6 +12938,7 @@ export interface components {
             };
             lastAttemptedFile?: null | components["schemas"]["AttemptedSongFileDto"];
             fallback?: null | components["schemas"]["FallbackSourceDto"];
+            rejections?: null | components["schemas"]["ResultRejectionCount"][];
         };
         JobPreviewNodeDto: {
             ref: string;
@@ -12977,6 +13048,11 @@ export interface components {
             job: components["schemas"]["JobDraftDto"];
             profileNames: string[];
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
+        };
+        JobSearchDraftDto: {
+            songQuery?: null | components["schemas"]["SongQueryDto"];
+            albumQuery?: null | components["schemas"]["AlbumQueryDto"];
+            searchSettings: components["schemas"]["SearchSettingsPatchDto"];
         };
         /** @enum {unknown} */
         JobSkipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
@@ -13405,6 +13481,13 @@ export interface components {
         };
         /** @enum {unknown} */
         ResourceSectionState: "available" | "unavailable" | "timed-out";
+        /** @enum {unknown} */
+        ResultRejection: "None" | "Format" | "Length" | "Bitrate" | "SampleRate" | "BitDepth" | "StrictTitle" | "StrictArtist" | "StrictAlbum" | "User" | "Locked" | "IgnoredPeer" | "FolderBelowMinimumTracks" | "FolderAboveMaximumTracks" | "FolderMissingRequiredTracks" | "FolderQuality";
+        ResultRejectionCount: {
+            reason: components["schemas"]["ResultRejection"];
+            /** Format: int32 */
+            count: number | string;
+        };
         RetrieveFolderRequestDto: {
             folder: components["schemas"]["AlbumFolderRefDto"];
             albumQuery?: null | components["schemas"]["AlbumQueryDto"];
@@ -13632,7 +13715,7 @@ export interface components {
             ref: string;
             visibility: components["schemas"]["SearchResultVisibility"];
             preferenceTier: components["schemas"]["SearchPreferenceTier"];
-            necessaryConditionsSatisfied: boolean;
+            necessaryRejection: components["schemas"]["ResultRejection"];
             satisfiedPreferredConditions: components["schemas"]["SearchPreferenceCondition"][];
             unsatisfiedPreferredConditions: components["schemas"]["SearchPreferenceCondition"][];
             remoteFilename: string;

@@ -1,3 +1,4 @@
+using Sockseek.Core.Services;
 using System.Runtime.CompilerServices;
 using Sockseek.Api;
 using Sockseek.Core.Jobs;
@@ -347,6 +348,25 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         if (live.TryGetJobFailureDetail(jobId, out var detail)) return detail;
         await persistence.WaitForJobHandoffAsync(jobId, ct, includeSearchResults: false);
         return persistence.JobHistory is { } history ? await history.GetFailureDetailAsync(jobId, ct) : null;
+    }
+
+    /// <summary>The query and settings a download job searched with, to run as an ordinary search.</summary>
+    public async Task<JobSearchDraftDto?> GetSearchDraftAsync(Guid jobId, CancellationToken ct)
+    {
+        JobSnapshotPayload? payload = live.GetJobPayload(jobId);
+        if (payload == null)
+        {
+            await persistence.WaitForJobHandoffAsync(jobId, ct, includeSearchResults: false).ConfigureAwait(false);
+            if (persistence.JobHistory is { } history && await history.GetJobAsync(jobId, ct).ConfigureAwait(false) is { } job)
+                payload = RetainedJobPayloadCodec.Read(job);
+        }
+        SearchDefinition? definition = RetainedJobPayloadCodec.Definition(payload);
+        if (definition == null || definition.FileQuery == null && definition.AlbumQuery == null)
+            return null;
+        return new(
+            definition.AlbumQuery == null ? ServerSnapshotMapper.ToSongQueryDto(definition.FileQuery!) : null,
+            definition.AlbumQuery == null ? null : ServerSnapshotMapper.ToAlbumQueryDto(definition.AlbumQuery),
+            EffectiveSettingsMapper.ToSearchSettings(definition.ProjectionSettings.ToSettings()));
     }
 
     public async Task<JobDetailDto?> GetJobAsync(Guid jobId, CancellationToken cancellationToken = default)

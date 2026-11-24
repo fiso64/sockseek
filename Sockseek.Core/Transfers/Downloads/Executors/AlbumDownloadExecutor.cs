@@ -419,6 +419,7 @@ internal sealed class AlbumDownloadExecutor
 
         if (trackCountCheck.Satisfied)
             return new(false, null);
+        job.Discovery?.Rejections.Add(trackCountCheck.Rejection);
 
         if (selection.WasPreselected)
         {
@@ -474,6 +475,7 @@ internal sealed class AlbumDownloadExecutor
             return new(false, null);
 
         Info(job, $"strict album quality failed ({qualityCoverage.MatchingFileCount}/{qualityCoverage.AudioFileCount} matching audio files); skipping folder");
+        job.Discovery?.Rejections.Add(ResultRejection.FolderQuality);
         if (selection.WasPreselected)
             return new(false, ReturnSelectedFolderToManualPicker(job, ctx, organizer, state, chosenFolder, JobOutcome.Failed(JobFailureReason.NoMatchingResults)));
 

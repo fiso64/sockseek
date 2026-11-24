@@ -102,6 +102,19 @@ export const emptySearchDraft: SearchDraft = {
   title: '',
 };
 
+/** A search for what a download job looked for, under the conditions it searched with. */
+export function searchDraftFromJob({ songQuery: song, albumQuery: album, searchSettings }: Schema<'JobSearchDraftDto'>): SearchDraft {
+  const query = album ?? song;
+  return {
+    mode: 'split', resultMode: album ? 'album' : 'track', query: '',
+    artist: query?.artist ?? '', title: (album ? album.album : song?.title) ?? '',
+    searchSettings,
+    expectedLength: song?.length == null ? undefined : Number(song.length),
+    albumContext: song?.album ?? undefined, albumSearchHint: album?.searchHint ?? undefined,
+    sourceUri: query?.uri ?? undefined, artistMaybeWrong: query?.artistMaybeWrong || undefined,
+  };
+}
+
 /** Retained query metadata belongs to the original input, not a newly edited search. */
 export function editableSearchDraft(draft: SearchDraft): SearchDraft {
   const { albumSearchHint, albumContext, sourceUri, artistMaybeWrong, ...editable } = draft;

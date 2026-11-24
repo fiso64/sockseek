@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
 using Soulseek;
@@ -17,7 +18,9 @@ internal static class ConditionSatisfactionPolicy
     {
         public bool FailedAboveMaximum => Maximum is { } maximum and > 0 && AudioFileCount > maximum;
         public bool FailedBelowMinimum => EnforceMinimum && Minimum is { } minimum and > 0 && AudioFileCount < minimum;
-        public bool Satisfied => !FailedAboveMaximum && !FailedBelowMinimum;
+        public bool Satisfied => Rejection == ResultRejection.None;
+        public ResultRejection Rejection => FailedAboveMaximum ? ResultRejection.FolderAboveMaximumTracks
+            : FailedBelowMinimum ? ResultRejection.FolderBelowMinimumTracks : ResultRejection.None;
     }
 
     internal static bool SearchFileSatisfies(
@@ -27,11 +30,21 @@ internal static class ConditionSatisfactionPolicy
         SongQuery? query)
         => conditions.FileSatisfies(ConditionFile.From(file), query, response, filenameChecks: true, checkUser: true);
 
+    /// <summary>Why a file offered for a track search is not admitted; the peer is judged separately.</summary>
+    internal static ResultRejection SearchFileRejection(FileConditions conditions, Soulseek.File file, SongQuery? query)
+        => conditions.Rejection(ConditionFile.From(file), query, username: null, filenameChecks: true, checkUser: false);
+
     internal static bool SearchFileSatisfies(
         FileConditions conditions,
         SearchProjectionInput input,
         SongQuery? query)
-        => conditions.VisibilitySatisfies(input.Visibility) && conditions.ProjectionFileSatisfies(
+        => SearchFileRejection(conditions, input, query) == ResultRejection.None;
+
+    internal static ResultRejection SearchFileRejection(
+        FileConditions conditions,
+        SearchProjectionInput input,
+        SongQuery? query)
+        => !conditions.VisibilitySatisfies(input.Visibility) ? ResultRejection.Locked : conditions.Rejection(
             new ConditionFile(input.Filename, input.Length, input.BitRate, input.SampleRate, input.BitDepth),
             query,
             input.Username,
@@ -69,7 +82,7 @@ internal static class ConditionSatisfactionPolicy
     internal static AlbumSearchFilter CreateAlbumSearchFilter(AlbumQuery query, SearchSettings search)
         => new(query, search);
 
-    internal static bool SearchAlbumFolderSatisfies(
+    internal static ResultRejection SearchAlbumFolderRejection(
         FolderConditions conditions,
         int visibleAudioFileCount,
         IEnumerable<string> visibleFilenames,
@@ -80,7 +93,7 @@ internal static class ConditionSatisfactionPolicy
         // User-facing filters describe the files observed so far. Automatic
         // discovery may defer a minimum until browsing the complete candidate.
         bool enforceMinimum = enforceMinimumTrackCount || SearchResultsLikelyContainCompleteAlbumFolders(query, search);
-        return AlbumFolderSatisfies(conditions, visibleAudioFileCount, visibleFilenames, enforceMinimum);
+        return AlbumFolderRejection(conditions, visibleAudioFileCount, visibleFilenames, enforceMinimum);
     }
 
     internal static bool LocalAlbumFolderSatisfies(
@@ -88,7 +101,7 @@ internal static class ConditionSatisfactionPolicy
         int audioFileCount,
         IEnumerable<string> filenames)
         => conditions == null
-            || AlbumFolderSatisfies(conditions, audioFileCount, filenames, enforceMinimum: true);
+            || AlbumFolderRejection(conditions, audioFileCount, filenames, enforceMinimum: true) == ResultRejection.None;
 
     internal static bool HasAlbumFolderConditions(FolderConditions conditions)
         => HasAlbumTrackCountConditions(conditions)
@@ -139,14 +152,16 @@ internal static class ConditionSatisfactionPolicy
                 || nonQualityFileConditions.StrictAlbum && SortQuery.Album.Length > 0;
         }
 
-        public bool Satisfies(SearchProjectionInput input)
+        public bool Satisfies(SearchProjectionInput input) => Rejection(input) == ResultRejection.None;
+
+        public ResultRejection Rejection(SearchProjectionInput input)
         {
-            if (!nonQualityFileConditions.VisibilitySatisfies(input.Visibility)) return false;
+            if (!nonQualityFileConditions.VisibilitySatisfies(input.Visibility)) return ResultRejection.Locked;
             if (checkUser && !nonQualityFileConditions.UsernameSatisfies(input.Username))
-                return false;
+                return ResultRejection.User;
             if (!checkFile || !Utils.IsMusicFile(input.Filename))
-                return true;
-            return nonQualityFileConditions.ProjectionFileSatisfies(
+                return ResultRejection.None;
+            return nonQualityFileConditions.Rejection(
                 new ConditionFile(input.Filename, input.Length, input.BitRate, input.SampleRate, input.BitDepth),
                 SortQuery,
                 input.Username,
@@ -209,15 +224,16 @@ internal static class ConditionSatisfactionPolicy
             conditions.MaxTrackCount,
             enforceMinimum);
 
-    private static bool AlbumFolderSatisfies(
+    private static ResultRejection AlbumFolderRejection(
         FolderConditions conditions,
         int audioFileCount,
         IEnumerable<string> filenames,
         bool enforceMinimum)
     {
-        var trackCountCheck = CheckAlbumTrackCount(conditions, audioFileCount, enforceMinimum);
-        return trackCountCheck.Satisfied
-            && RequiredTrackTitlesSatisfy(conditions.RequiredTrackTitles, filenames);
+        var trackCount = CheckAlbumTrackCount(conditions, audioFileCount, enforceMinimum).Rejection;
+        return trackCount != ResultRejection.None ? trackCount
+            : RequiredTrackTitlesSatisfy(conditions.RequiredTrackTitles, filenames) ? ResultRejection.None
+            : ResultRejection.FolderMissingRequiredTracks;
     }
 
     private static bool RequiredTrackTitlesSatisfy(

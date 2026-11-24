@@ -1202,7 +1202,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             row.Ref,
             row.Input.Visibility,
             row.PreferenceTier,
-            row.NecessaryConditionsSatisfied,
+            row.NecessaryRejection,
             row.SatisfiedPreferredConditions.Select(condition => condition).ToArray(),
             row.ConfiguredPreferredConditions
                 .Except(row.SatisfiedPreferredConditions)

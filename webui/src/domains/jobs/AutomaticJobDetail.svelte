@@ -27,12 +27,13 @@
   import RelativeTime from '../../components/RelativeTime.svelte';
   import { formatCount, humanizeStateValue } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
+  import { searchDraftFromJob, type SearchDraft } from '../search/model';
   import FileItemCard from '../../components/items/FileItemCard.svelte';
   import FolderItemCard from '../../components/items/FolderItemCard.svelte';
   import UsernameLink from '../../components/UsernameLink.svelte';
   import type { UserLinkActions } from '../../app/navigation';
 
-  let { jobId, initialDetail = null, userActions, connected, liveStatus, visible, observeJobs, observeJobList, onback, onopenjob, oneditagain, ondelete, deletingSubmissions = new Set<string>(), deleteError = null }: {
+  let { jobId, initialDetail = null, userActions, connected, liveStatus, visible, observeJobs, observeJobList, onback, onopenjob, oneditagain, onsearch, ondelete, deletingSubmissions = new Set<string>(), deleteError = null }: {
     jobId: string;
     initialDetail?: Schema<'JobDetailDto'> | null;
     userActions: UserLinkActions;
@@ -44,6 +45,7 @@
     onback: () => void;
     onopenjob: (job: JobSummaryDto | string, detail?: Schema<'JobDetailDto'>) => void;
     oneditagain: (start: NewJobStart) => void;
+    onsearch: (draft: SearchDraft) => void;
     ondelete: (job: JobSummaryDto) => void;
     deletingSubmissions?: ReadonlySet<string>;
     deleteError?: Error | null;
@@ -236,6 +238,21 @@
     } catch (cause) {
       if (jobId === owner) actionError = new Error(String(cause));
     } finally { retryBusy = false; }
+  }
+
+  // A job that found nothing usable can be looked into: the same search with
+  // the same conditions, which the search page shows and lets you remove.
+  let canSearchAgain = $derived(job?.lifecycle.failureReason === 'NoMatchingResults' || job?.lifecycle.failureReason === 'NoSearchResults');
+  let searchAgainBusy = $state(false);
+  async function searchAgain() {
+    const owner = jobId;
+    searchAgainBusy = true;
+    try {
+      const draft = searchDraftFromJob(await daemonApi.getSearchDraft(owner));
+      if (jobId === owner) onsearch(draft);
+    } catch (cause) {
+      if (jobId === owner) actionError = new Error(String(cause));
+    } finally { searchAgainBusy = false; }
   }
 
   async function repeat(submit: () => Promise<JobSummaryDto>) {
@@ -546,6 +563,15 @@
       {/if}
       {#if info.facts.length}
         <dl class="job-info-facts">{#each info.facts as fact}<div><dt>{fact.label}</dt><dd>{#if fact.peer}<UsernameLink username={fact.value} actions={userActions} />{:else}{fact.value}{/if}</dd></div>{/each}</dl>
+      {/if}
+      {#if info.rejections.length}<ul class="rejection-list" data-testid="job-rejections">{#each info.rejections as line}<li>{line}</li>{/each}</ul>{/if}
+      {#if canSearchAgain}
+        <div class="job-info-actions">
+          <button type="button" class="button action-button" data-testid="job-search-again" disabled={!connected || searchAgainBusy} onclick={searchAgain}
+            title="Run this job's search with its conditions, and remove conditions there to see what they rejected">
+            <Icon name="search" /><span>Search for this</span>
+          </button>
+        </div>
       {/if}
       {#if info.note}<p class="job-info-note">{info.note}</p>{/if}
     </section>

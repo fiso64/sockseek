@@ -7,11 +7,13 @@ using Sockseek.Core.Settings;
 namespace Sockseek.Core.Services;
 
 public readonly record struct SearchConditionFacts(
-    bool NecessaryConditionsSatisfied,
+    ResultRejection NecessaryRejection,
     bool PreferredConditionsSatisfied,
     IReadOnlyList<SearchPreferenceCondition>? SatisfiedPreferredConditions = null,
     IReadOnlyList<SearchPreferenceCondition>? ConfiguredPreferredConditions = null)
 {
+    public bool NecessaryConditionsSatisfied => NecessaryRejection == ResultRejection.None;
+
     public SearchPreferenceTier PreferenceTier => PreferredConditionsSatisfied
         ? SearchPreferenceTier.Preferred
         : SearchPreferenceTier.Other;
@@ -108,7 +110,7 @@ public sealed class IncrementalResultSorter
         bool ignoreStringSortConditions = false,
         bool retainProjectedRows = true,
         bool deduplicateInputs = true,
-        Func<SearchProjectionInput, bool>? necessaryConditionEvaluator = null)
+        Func<SearchProjectionInput, ResultRejection>? necessaryConditionEvaluator = null)
     {
         this.requireFileSatisfies = requireFileSatisfies;
         this.retainProjectedRows = retainProjectedRows;

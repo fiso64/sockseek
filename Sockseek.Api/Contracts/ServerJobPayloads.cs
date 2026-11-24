@@ -131,6 +131,37 @@ public sealed record SearchJobPayloadDto(
 public sealed record AttemptedSongFileDto(PeerFileTargetDto Target, PeerInfoDto Peer);
 
 /// <summary>
+/// The first required condition a search result fails, in this order. None
+/// means it satisfies them all.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ResultRejection>))]
+public enum ResultRejection : byte
+{
+    None,
+    // Files.
+    Format,
+    Length,
+    Bitrate,
+    SampleRate,
+    BitDepth,
+    StrictTitle,
+    StrictArtist,
+    StrictAlbum,
+    User,
+    Locked,
+    /// <summary>The peer is ignored after earlier failed downloads in this workflow.</summary>
+    IgnoredPeer,
+    // Album folders.
+    FolderBelowMinimumTracks,
+    FolderAboveMaximumTracks,
+    FolderMissingRequiredTracks,
+    FolderQuality,
+}
+
+/// <summary>How many results one condition rejected.</summary>
+public sealed record ResultRejectionCount(ResultRejection Reason, int Count);
+
+/// <summary>
 /// Payload for song jobs, including child song rows owned by album or group jobs.
 /// </summary>
 /// <param name="JobId">
@@ -138,6 +169,9 @@ public sealed record AttemptedSongFileDto(PeerFileTargetDto Target, PeerInfoDto 
 /// </param>
 /// <param name="AvailableActions">
 /// Actions currently valid for this song.
+/// </param>
+/// <param name="Rejections">
+/// Present only when the job failed because no result matched: how many results each condition rejected.
 /// </param>
 /// <param name="BytesTransferred">Current downloaded byte count for in-flight downloads.</param>
 /// <param name="TotalBytes">Expected total byte count for the selected file, when known.</param>
@@ -168,7 +202,8 @@ public sealed record SongJobPayloadDto(
     SongDownloadSource DownloadSource = SongDownloadSource.None,
     PeerFileTargetDto? ExactTarget = null,
     AttemptedSongFileDto? LastAttemptedFile = null,
-    FallbackSourceDto? Fallback = null) : JobPayloadDto;
+    FallbackSourceDto? Fallback = null,
+    IReadOnlyList<ResultRejectionCount>? Rejections = null) : JobPayloadDto;
 
 public sealed record FallbackSourceDto(string Provider, string? Title = null, string? Reference = null);
 
@@ -186,7 +221,8 @@ public sealed record AlbumJobPayloadDto(
     int ResultCount,
     DirectoryDownloadStateDto Directory,
     string? ResolvedFolderUsername,
-    string? ResolvedFolderPath) : JobPayloadDto;
+    string? ResolvedFolderPath,
+    IReadOnlyList<ResultRejectionCount>? Rejections = null) : JobPayloadDto;
 
 public sealed record RemoteFileJobPayloadDto(
     PeerFileTargetDto Target,

@@ -40,7 +40,7 @@ internal sealed record FileCandidateDto(
     FileMetadataDto File,
     SearchResultVisibility Visibility = SearchResultVisibility.Public,
     SearchPreferenceTier? PreferenceTier = null,
-    bool? NecessaryConditionsSatisfied = null,
+    ResultRejection? NecessaryRejection = null,
     IReadOnlyList<SearchPreferenceCondition>? SatisfiedPreferredConditions = null,
     IReadOnlyList<SearchPreferenceCondition>? UnsatisfiedPreferredConditions = null);
 
@@ -88,7 +88,7 @@ internal static class CliSearchProjectionMapper
                 candidate.Attributes?.Select(x => new FileAttributeDto(x.Type, x.Value)).ToList()),
             candidate.Visibility,
             candidate.ProjectionFacts?.PreferenceTier,
-            candidate.ProjectionFacts?.NecessaryConditionsSatisfied,
+            candidate.ProjectionFacts?.NecessaryRejection,
             candidate.ProjectionFacts?.SatisfiedPreferredConditions,
             candidate.ProjectionFacts?.UnsatisfiedPreferredConditions);
 
@@ -101,7 +101,7 @@ internal static class CliSearchProjectionMapper
             file.File,
             file.Visibility,
             file.PreferenceTier,
-            file.NecessaryConditionsSatisfied,
+            file.NecessaryRejection,
             file.SatisfiedPreferredConditions.Select(condition => condition).ToArray(),
             file.UnsatisfiedPreferredConditions.Select(condition => condition).ToArray());
 
@@ -151,7 +151,7 @@ internal static class CliSearchProjectionMapper
     {
         SearchConditionFacts? facts = candidate.PreferenceTier is { } tier
             ? new SearchConditionFacts(
-                candidate.NecessaryConditionsSatisfied ?? true,
+                candidate.NecessaryRejection ?? ResultRejection.None,
                 tier == SearchPreferenceTier.Preferred,
                 candidate.SatisfiedPreferredConditions ?? [],
                 (candidate.SatisfiedPreferredConditions ?? [])

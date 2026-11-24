@@ -1,3 +1,4 @@
+using Sockseek.Core.Snapshots;
 using Sockseek.Api;
 using System.Text;
 using Sockseek.Core.Services;
@@ -209,6 +210,46 @@ namespace Tests.EndToEnd
             {
                 if (Directory.Exists(tempRoot))
                     Directory.Delete(tempRoot, true);
+            }
+        }
+
+        [TestMethod]
+        public async Task Song_WhoseEveryResultIsRejected_ReportsWhichConditionsRejectedThem()
+        {
+            var outputDir = Path.Combine(Path.GetTempPath(), "slsk-rejections-" + Guid.NewGuid());
+            Directory.CreateDirectory(outputDir);
+            var settings = new DownloadSettings();
+            settings.Output.ParentDir = outputDir;
+            settings.Output.WriteIndex = false;
+            settings.Search.NecessaryCond.Formats = ["flac"];
+            settings.Search.NecessaryCond.MinBitrate = 900;
+            var response = new Soulseek.SearchResponse("user", 1, true, 100, 0, [
+                TestHelpers.CreateSlFile(@"Music\Test Artist - First Track.mp3", size: 10_000),
+                TestHelpers.CreateSlFile(@"Music\Test Artist - First Track (live).mp3", size: 10_000),
+                TestHelpers.CreateSlFile(@"Music\Test Artist - First Track.flac", bitrate: 500, size: 10_000),
+            ]);
+
+            try
+            {
+                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
+                var app = new DownloadEngine(engineSettings,
+                    TestHelpers.CreateMockClientManager(new ClientTests.MockSoulseekClient([response]), engineSettings));
+                var song = new SongJob(new SongQuery { Artist = "Test Artist", Title = "First Track" });
+                app.Enqueue(song, settings);
+                app.CompleteEnqueue();
+
+                await app.RunAsync(CancellationToken.None);
+
+                // Results existed, so this is not "no search results".
+                Assert.AreEqual(JobFailureReason.NoMatchingResults, song.FailureReason);
+                var payload = (SongJobSnapshotPayload)CoreSnapshotFactory.CreateJob(song, 0).Payload!;
+                CollectionAssert.AreEqual(
+                    new[] { new ResultRejectionCount(ResultRejection.Format, 2), new ResultRejectionCount(ResultRejection.Bitrate, 1) },
+                    payload.Rejections!.ToArray());
+            }
+            finally
+            {
+                if (Directory.Exists(outputDir)) Directory.Delete(outputDir, true);
             }
         }
 
@@ -547,6 +588,8 @@ namespace Tests.EndToEnd
                 Assert.AreEqual(autoOutDir, album.Config.Output.ParentDir);
                 Assert.IsTrue(album.IsUnsuccessfulTerminal, "The MP3-only folder must not download when an auto profile requires OGG.");
                 Assert.AreEqual(JobFailureReason.NoMatchingResults, album.FailureReason);
+                var rejections = ((AlbumJobSnapshotPayload)CoreSnapshotFactory.CreateJob(album, 0).Payload!).Rejections;
+                CollectionAssert.AreEqual(new[] { new ResultRejectionCount(ResultRejection.FolderQuality, 1) }, rejections!.ToArray());
                 Assert.AreEqual(0, Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories).Count(Utils.IsMusicFile));
             }
             finally

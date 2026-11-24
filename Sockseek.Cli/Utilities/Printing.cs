@@ -240,7 +240,7 @@ public static class Printing
             return " (conditions:unavailable)";
         string necessary = facts.Value.NecessaryConditionsSatisfied
             ? "Satisfied"
-            : "Unsatisfied";
+            : $"{facts.Value.NecessaryRejection} fails";
         string preferred = facts.Value.UnsatisfiedPreferredConditions.Count == 0
             ? "Satisfied"
             : string.Join(

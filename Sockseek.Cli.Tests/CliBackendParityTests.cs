@@ -148,7 +148,7 @@ public class CliBackendParityTests
         var printed = new ConcurrentBag<string[]>();
         var downloaded = new ConcurrentBag<string[]>();
         static string Files(IEnumerable<FileCandidateDto> files) => string.Join(";", files
-            .Select(file => $"{file.Username}|{file.Filename}|{file.Visibility}|{file.PreferenceTier}|{file.NecessaryConditionsSatisfied}")
+            .Select(file => $"{file.Username}|{file.Filename}|{file.Visibility}|{file.PreferenceTier}|{file.NecessaryRejection}")
             .Order(StringComparer.Ordinal));
         static string Folders(IEnumerable<AlbumFolderDto> folders) => string.Join(";", folders
             .Select(folder => $"{folder.Username}|{folder.FolderPath}|{folder.FileCount}|{folder.AudioFileCount}|{Files(folder.Files!)}")
@@ -364,7 +364,8 @@ public class CliBackendParityTests
                     new FileSearchProjectionRequestDto(IncludeFullResults: true), ctx.Token);
                 Assert.IsNotNull(full, ctx.Name);
                 CollectionAssert.AreEquivalent(expectedPaths, full.Items.Select(file => file.Filename).ToArray(), ctx.Name);
-                Assert.IsTrue(full.Items.All(file => file.NecessaryConditionsSatisfied == false), ctx.Name);
+                // Each rejected hit names the condition that rejected it.
+                Assert.IsTrue(full.Items.All(file => file.NecessaryRejection == ResultRejection.Format), ctx.Name);
                 var matchingAfterFull = await ctx.Backend.GetFileResultsAsync(filteredSearch.JobId, ctx.Token);
                 Assert.IsNotNull(matchingAfterFull, ctx.Name);
                 Assert.AreEqual(0, matchingAfterFull.Items.Count, ctx.Name);

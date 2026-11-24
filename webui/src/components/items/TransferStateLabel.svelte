@@ -4,7 +4,7 @@
   import AppliedProfiles from '../AppliedProfiles.svelte';
   import Icon from '../Icon.svelte';
   import Modal from '../Modal.svelte';
-  import { jobSkipExplanation } from '../../domains/jobs/status';
+  import { jobSkipExplanation, rejectionLines } from '../../domains/jobs/status';
   import { folderSources, isBusyTransfer, type FolderItemFile, type TransferPresentation } from '../../domains/presentation/items';
   import { formatBytes, formatCount, humanizeStateValue } from '../../app/format';
 
@@ -23,6 +23,9 @@
   let expanded = $state(false);
   let technicalDetails = $derived(open && expanded && transfer.job?.lifecycle.hasFailureDetail && transfer.job.jobId
     ? daemonApi.getJobFailureDetail(transfer.job.jobId) : undefined);
+  // The tally lives on the job's detail, read only when this dialog opens.
+  let rejections = $derived(open && transfer.job?.lifecycle.failureReason === 'NoMatchingResults' && transfer.job.jobId
+    ? daemonApi.getJob(transfer.job.jobId).then(detail => rejectionLines(detail.payload), () => []) : undefined);
   // A long queue is still one short badge.
   let queuePosition = $derived(transfer.queuePosition ? transfer.queuePosition > 999 ? '999+' : String(transfer.queuePosition) : '');
   let classes = $derived(`status-label ${circular ? 'status-label-icon folder-file-state' : 'transfer-state'} ${transfer.tone ?? ''} ${isBusyTransfer(transfer) ? 'busy' : ''} ${queuePosition ? 'with-count' : ''} transfer-${transfer.direction ?? 'download'} ${extraClass}`);
@@ -117,6 +120,7 @@
       <section class="transfer-details-message">
         <h3>{transfer.tone === 'failed' ? 'Failure' : 'Details'}</h3>
         {#if message}<p>{message}</p>{:else if !transfer.job?.lifecycle.hasFailureDetail}<p>No further failure details were recorded.</p>{/if}
+        {#if rejections}{#await rejections then lines}{#if lines.length}<ul class="rejection-list" data-testid="transfer-rejections">{#each lines as line}<li>{line}</li>{/each}</ul>{/if}{/await}{/if}
         {#if transfer.job?.lifecycle.hasFailureDetail}
           <details bind:open={expanded}>
             <summary>Technical details</summary>

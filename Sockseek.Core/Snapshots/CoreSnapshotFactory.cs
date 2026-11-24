@@ -311,7 +311,8 @@ public static class CoreSnapshotFactory
                 SnapshotCollections.Freeze(album.TrackJobs.Select(child => CreateJob(child, 0, visited))),
                 CreateDirectoryDownloadState(album),
                 album.ExecutedSearchDefinition,
-                CreateDirectoryManifest(album)),
+                CreateDirectoryManifest(album),
+                CreateRejections(album)),
             RemoteDirectoryJob remoteDirectory => CreateRemoteDirectoryPayload(remoteDirectory, visited),
             SongGroupsJob group => new SongGroupsJobSnapshotPayload(
                 CreateSongQuery(group.Query),
@@ -366,7 +367,8 @@ public static class CoreSnapshotFactory
                 CreateFileDownloadState(song),
                 song.ExecutedSearchDefinition,
                 song.LastAttemptedCandidate == null ? null : CreateFileCandidate(song.LastAttemptedCandidate),
-                song.Fallback),
+                song.Fallback,
+                CreateRejections(song)),
             RemoteFileJob remoteFile => new RemoteFileJobSnapshotPayload(
                 remoteFile.Target,
                 remoteFile.OutputPath,
@@ -374,7 +376,7 @@ public static class CoreSnapshotFactory
             AlbumJob album => new AlbumExecutionPayload(
                 CreateAlbumQuery(album.Query), album.Results.Count,
                 album.ResolvedTarget == null ? null : CreateAlbumFolderSummary(album.ResolvedTarget),
-                CreateDirectoryDownloadState(album), album.ExecutedSearchDefinition),
+                CreateDirectoryDownloadState(album), album.ExecutedSearchDefinition, CreateRejections(album)),
             RemoteDirectoryJob directory => CreateRemoteDirectoryExecution(directory),
             SongGroupsJob group => new SongGroupsExecutionPayload(
                 CreateSongQuery(group.Query), group.ExecutedSearchDefinition, group.MemberOutcomes),
@@ -498,6 +500,12 @@ public static class CoreSnapshotFactory
 
     private static AlbumFileSnapshot CreateAlbumFile(AlbumFile file)
         => new(CreateSongQuery(file.Query), CreateFileCandidate(file.Candidate));
+
+    // The tally explains one outcome only; a job that found something to
+    // download, or failed for another reason, does not carry it.
+    private static IReadOnlyList<ResultRejectionCount>? CreateRejections(Job job)
+        => job.FailureReason == JobFailureReason.NoMatchingResults
+            && job.Discovery?.Rejections.Snapshot() is { Count: > 0 } rejections ? rejections : null;
 
     private static DiscoverySnapshot? CreateDiscovery(DiscoverySummary? discovery)
         => discovery == null

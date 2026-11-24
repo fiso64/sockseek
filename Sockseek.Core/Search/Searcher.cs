@@ -74,7 +74,7 @@ public partial class Searcher : IDisposable
 
     private static void InitializeDiscoveryProgress(Job job)
     {
-        if (job.Discovery is { RawResultCount: 0, LockedFileCount: 0, ObservedPeerCount: 0 })
+        if (job.Discovery is { RawResultCount: 0, LockedFileCount: 0, ObservedPeerCount: 0, Rejections.Total: 0 })
             return;
 
         job.Discovery = new DiscoverySummary();
@@ -224,8 +224,9 @@ public partial class Searcher : IDisposable
             }
         }
 
+        RejectionTally rejections = song.Discovery!.Rejections;
         SearchOptions OptionsForAttempt(SearchAttempt attempt)
-            => TrackSearchOptions(search, attempt.Timeout, attempt.Conditions, song.Query, readOnly);
+            => TrackSearchOptions(search, attempt.Timeout, attempt.Conditions, song.Query, readOnly, rejections);
 
         song.UpdateActivity(JobActivityPhase.WaitingForSearchConcurrency);
         await concurrencySemaphore.WaitAsync(ct);
@@ -271,6 +272,17 @@ public partial class Searcher : IDisposable
             searchJob.DefaultFolderProjection! with { EnforceMinimumTrackCount = job.Config?.PrintResults == true },
             search, includeLocked: job.Config?.PrintResults == true,
             peerFailureCounts: peerFailures.GetCounts(job.WorkflowId)).Items.ToList();
+
+        // Explained only when nothing is usable: one more projection of the
+        // results still in hand, so a job that finds folders pays nothing.
+        if (job.Results.Count == 0 && job.Config?.PrintResults != true)
+        {
+            job.Discovery ??= new DiscoverySummary();
+            SearchResultProjector.AlbumFolders(
+                ProjectionInputs(searchJob.Session, includeLocked: false), job.Query, search,
+                peerFailures.GetCounts(job.WorkflowId), enforceMinimumTrackCount: false,
+                rejections: job.Discovery.Rejections);
+        }
     }
 
     // ── group search ─────────────────────────────────────────────────────
@@ -289,8 +301,9 @@ public partial class Searcher : IDisposable
         session.ChangePublished += downloadEvents.RaiseSearchChange;
         using var progress = new DiscoveryProgress(this, job, session);
 
+        RejectionTally rejections = job.Discovery!.Rejections;
         SearchOptions OptionsForAttempt(SearchAttempt attempt)
-            => TrackSearchOptions(search, attempt.Timeout, attempt.Conditions, job.Query, readOnly);
+            => TrackSearchOptions(search, attempt.Timeout, attempt.Conditions, job.Query, readOnly, rejections);
 
         job.UpdateActivity(JobActivityPhase.WaitingForSearchConcurrency);
         await concurrencySemaphore.WaitAsync(ct);
@@ -348,11 +361,19 @@ public partial class Searcher : IDisposable
     // It also avoids retaining/persisting unusable hits solely for automatic work.
     // Interactive searches and whole-folder album projections intentionally differ.
     // A new peer may advertise zero speed until its first completed upload.
+    // Rejected hits never reach the session, so this is the only place they
+    // can be counted. A rejected peer is counted with the files it still offered.
     private static SearchOptions TrackSearchOptions(
-        SearchSettings search, int timeout, FileConditions necessary, SongQuery query, bool readOnly)
+        SearchSettings search, int timeout, FileConditions necessary, SongQuery query, bool readOnly,
+        RejectionTally rejections)
         => CreateSearchOptions(search, timeout, requireDownloadablePeer: !readOnly,
-            responseFilter: response => necessary.UserSatisfies(response),
-            fileFilter: file => ConditionSatisfactionPolicy.SearchFileSatisfies(necessary, null, file, query));
+            responseFilter: response =>
+            {
+                if (necessary.UserSatisfies(response)) return true;
+                rejections.Add(ResultRejection.User, response.FileCount);
+                return false;
+            },
+            fileFilter: file => rejections.Admit(ConditionSatisfactionPolicy.SearchFileRejection(necessary, file, query)));
 
     private static SearchOptions CreateSearchOptions(SearchSettings search, int timeout, bool requireDownloadablePeer,
         Func<SearchResponse, bool> responseFilter, Func<SlFile, bool> fileFilter)

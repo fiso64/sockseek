@@ -99,7 +99,8 @@ public static partial class SearchResultProjector
         ConcurrentDictionary<string, int>? peerFailureCounts = null,
         bool ignoreStringSortConditions = false,
         FolderSortMode sortMode = FolderSortMode.AlbumRanked,
-        bool enforceMinimumTrackCount = true)
+        bool enforceMinimumTrackCount = true,
+        RejectionTally? rejections = null)
     {
         var plan = new AlbumFolderProjectionPlan(
             query,
@@ -108,8 +109,8 @@ public static partial class SearchResultProjector
             ignoreStringSortConditions,
             sortMode,
             enforceMinimumTrackCount);
-        List<EvaluatedAlbumProjectionInput> evaluated = plan.EvaluateToList(rawResults);
-        return plan.ProjectEvaluatedResults(evaluated);
+        List<EvaluatedAlbumProjectionInput> evaluated = plan.EvaluateToList(rawResults, rejections);
+        return plan.ProjectEvaluatedResults(evaluated, rejections);
     }
 
     // All callers supply admitted rows with their original condition/ranking
@@ -119,7 +120,8 @@ public static partial class SearchResultProjector
         AlbumQuery query,
         SearchSettings search,
         bool useAlbumFolderQualityRanking,
-        bool enforceMinimumTrackCount)
+        bool enforceMinimumTrackCount,
+        RejectionTally? rejections = null)
     {
         var dirStructure = new Dictionary<PeerPathKey, AlbumFolderBuilder>();
         foreach (var evaluated in results)
@@ -149,7 +151,9 @@ public static partial class SearchResultProjector
         IEnumerable<AlbumFolderBuilder> orderedFolders;
         IEnumerable<AlbumFolderBuilder> candidateFolders = dirStructure.Values;
         if (activeQuality.IsActive)
-            candidateFolders = candidateFolders.Where(folder => ConditionSatisfactionPolicy.AlbumQualityIsAcceptable(folder.QualityCoverage, search));
+            candidateFolders = candidateFolders.Where(folder =>
+                ConditionSatisfactionPolicy.AlbumQualityIsAcceptable(folder.QualityCoverage, search)
+                || rejections?.Admit(ResultRejection.FolderQuality) == true);
 
         if (useAlbumFolderQualityRanking)
         {
@@ -168,13 +172,18 @@ public static partial class SearchResultProjector
         foreach (var folder in orderedFolders)
         {
             if (folder.MusicCount == 0) continue;
-            if (!ConditionSatisfactionPolicy.SearchAlbumFolderSatisfies(
-                    search.NecessaryFolderCond,
-                    folder.MusicCount,
-                    folder.Files.Select(file => file.Input.Filename),
-                    query,
-                    search,
-                    enforceMinimumTrackCount)) continue;
+            ResultRejection folderRejection = ConditionSatisfactionPolicy.SearchAlbumFolderRejection(
+                search.NecessaryFolderCond,
+                folder.MusicCount,
+                folder.Files.Select(file => file.Input.Filename),
+                query,
+                search,
+                enforceMinimumTrackCount);
+            if (folderRejection != ResultRejection.None)
+            {
+                rejections?.Add(folderRejection);
+                continue;
+            }
 
             if (folder.Files.Count > 1)
                 folder.Files.Sort(AlbumFolderFileComparer.Instance);

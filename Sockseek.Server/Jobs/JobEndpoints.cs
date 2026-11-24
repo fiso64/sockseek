@@ -128,6 +128,15 @@ internal static class JobEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status503ServiceUnavailable);
 
+        app.MapGet("/api/jobs/{jobId:guid}/search-draft", async (Guid jobId, JobReadService jobs, CancellationToken ct) =>
+            await jobs.GetSearchDraftAsync(jobId, ct) is { } draft ? Results.Ok(draft) : Results.NotFound())
+            .WithTags("Jobs")
+            .WithSummary("Reads the query and search settings a download job ran with, to submit as a search.")
+            .WithDescription("Not found when the job never searched.")
+            .Produces<JobSearchDraftDto>()
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status503ServiceUnavailable);
+
         app.MapGet("/api/jobs/{jobId:guid}/rerun-draft", async (
             Guid jobId, JobSubmissions submissions, CancellationToken cancellationToken) =>
         {

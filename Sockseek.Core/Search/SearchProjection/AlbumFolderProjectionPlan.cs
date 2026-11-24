@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using System.Collections.Concurrent;
 using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
@@ -74,7 +75,7 @@ internal readonly struct AlbumFolderProjectionPlan
             peerFailureCounts ?? new ConcurrentDictionary<string, int>(),
             albumMode: true,
             ignoreStringSortConditions: ignoreStringSortConditions,
-            necessaryConditionEvaluator: projectionFilter.Satisfies);
+            necessaryConditionEvaluator: projectionFilter.Rejection);
     }
 
     public EvaluatedAlbumProjectionInput? Evaluate(
@@ -94,7 +95,8 @@ internal readonly struct AlbumFolderProjectionPlan
     }
 
     public List<EvaluatedAlbumProjectionInput> EvaluateToList(
-        IEnumerable<SearchProjectionInput> results)
+        IEnumerable<SearchProjectionInput> results,
+        RejectionTally? rejections = null)
     {
         var evaluated = new List<EvaluatedAlbumProjectionInput>();
         int index = 0;
@@ -102,14 +104,27 @@ internal readonly struct AlbumFolderProjectionPlan
         {
             if (Evaluate(input, index++) is { } admitted)
                 evaluated.Add(admitted);
+            else
+                rejections?.Add(Rejection(input));
         }
         return evaluated;
     }
 
+    // Names the reason Evaluate dropped a file, from the same two checks.
+    private ResultRejection Rejection(SearchProjectionInput input)
+    {
+        int failures = groupSortKeyContext.PeerFailureCounts.GetValueOrDefault(input.Username, 0);
+        if (groupSortKeyContext.AcceptsPeerAndVisibility(input, failures))
+            return projectionFilter.Rejection(input);
+        return failures >= search.EffectiveIgnoreOn ? ResultRejection.IgnoredPeer : ResultRejection.Locked;
+    }
+
     public List<AlbumFolder> ProjectEvaluatedResults(
-        IEnumerable<EvaluatedAlbumProjectionInput> evaluatedResults)
+        IEnumerable<EvaluatedAlbumProjectionInput> evaluatedResults,
+        RejectionTally? rejections = null)
         => SearchResultProjector.AlbumFoldersFromResults(
             evaluatedResults, query, search,
             useAlbumFolderQualityRanking: sortMode == FolderSortMode.AlbumRanked,
-            enforceMinimumTrackCount: enforceMinimumTrackCount);
+            enforceMinimumTrackCount: enforceMinimumTrackCount,
+            rejections: rejections);
 }

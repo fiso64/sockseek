@@ -7221,6 +7221,58 @@
         ]
       }
     },
+    "/api/jobs/{jobId}/search-draft": {
+      "get": {
+        "tags": [
+          "Jobs"
+        ],
+        "summary": "Reads the query and search settings a download job ran with, to submit as a search.",
+        "description": "Not found when the job never searched.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobSearchDraftDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          },
+          "401": {
+            "description": "Authentication required or credential expired/revoked."
+          },
+          "403": {
+            "description": "Access denied."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": [ ]
+          },
+          {
+            "Browser": [ ]
+          }
+        ]
+      }
+    },
     "/api/jobs/{jobId}/rerun-draft": {
       "get": {
         "tags": [
@@ -20491,6 +20543,15 @@
               "null",
               "string"
             ]
+          },
+          "rejections": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ResultRejectionCount"
+            }
           }
         }
       },
@@ -21205,6 +21266,15 @@
                 "$ref": "#/components/schemas/FallbackSourceDto"
               }
             ]
+          },
+          "rejections": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ResultRejectionCount"
+            }
           }
         }
       },
@@ -21656,6 +21726,37 @@
                 "$ref": "#/components/schemas/DownloadSettingsPatchDto"
               }
             ]
+          }
+        }
+      },
+      "JobSearchDraftDto": {
+        "required": [
+          "searchSettings"
+        ],
+        "type": "object",
+        "properties": {
+          "songQuery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SongQueryDto"
+              }
+            ]
+          },
+          "albumQuery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AlbumQueryDto"
+              }
+            ]
+          },
+          "searchSettings": {
+            "$ref": "#/components/schemas/SearchSettingsPatchDto"
           }
         }
       },
@@ -23359,6 +23460,46 @@
           "timed-out"
         ]
       },
+      "ResultRejection": {
+        "enum": [
+          "None",
+          "Format",
+          "Length",
+          "Bitrate",
+          "SampleRate",
+          "BitDepth",
+          "StrictTitle",
+          "StrictArtist",
+          "StrictAlbum",
+          "User",
+          "Locked",
+          "IgnoredPeer",
+          "FolderBelowMinimumTracks",
+          "FolderAboveMaximumTracks",
+          "FolderMissingRequiredTracks",
+          "FolderQuality"
+        ]
+      },
+      "ResultRejectionCount": {
+        "required": [
+          "reason",
+          "count"
+        ],
+        "type": "object",
+        "properties": {
+          "reason": {
+            "$ref": "#/components/schemas/ResultRejection"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "RetrieveFolderRequestDto": {
         "required": [
           "folder"
@@ -24376,7 +24517,7 @@
           "ref",
           "visibility",
           "preferenceTier",
-          "necessaryConditionsSatisfied",
+          "necessaryRejection",
           "satisfiedPreferredConditions",
           "unsatisfiedPreferredConditions",
           "remoteFilename",
@@ -24394,8 +24535,8 @@
           "preferenceTier": {
             "$ref": "#/components/schemas/SearchPreferenceTier"
           },
-          "necessaryConditionsSatisfied": {
-            "type": "boolean"
+          "necessaryRejection": {
+            "$ref": "#/components/schemas/ResultRejection"
           },
           "satisfiedPreferredConditions": {
             "type": "array",

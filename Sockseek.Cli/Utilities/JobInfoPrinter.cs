@@ -44,8 +44,42 @@ internal static class JobInfoPrinter
 
         if (s.Lifecycle.FailureMessage != null)
             Field("Error", s.Lifecycle.FailureMessage, ConsoleColor.Red);
+        var rejections = detail.Payload switch
+        {
+            SongJobPayloadDto song => song.Rejections,
+            AlbumJobPayloadDto album => album.Rejections,
+            _ => null,
+        };
+        if (rejections is { Count: > 0 })
+            Field("Rejected", string.Join("; ", rejections.Select(DescribeRejection)));
 
         Printing.WriteLine(force: true);
+    }
+
+    private static string DescribeRejection(ResultRejectionCount rejection)
+    {
+        bool folder = rejection.Reason >= ResultRejection.FolderBelowMinimumTracks;
+        string noun = (folder ? "folder" : "file") + (rejection.Count == 1 ? "" : "s");
+        string reason = rejection.Reason switch
+        {
+            ResultRejection.Format => "wrong format",
+            ResultRejection.Length => "length outside tolerance",
+            ResultRejection.Bitrate => "bitrate outside range",
+            ResultRejection.SampleRate => "sample rate outside range",
+            ResultRejection.BitDepth => "bit depth outside range",
+            ResultRejection.StrictTitle => "title not in filename",
+            ResultRejection.StrictArtist => "artist not in path",
+            ResultRejection.StrictAlbum => "album not in folder name",
+            ResultRejection.User => "peer not allowed",
+            ResultRejection.Locked => "locked",
+            ResultRejection.IgnoredPeer => "peer ignored after failed downloads",
+            ResultRejection.FolderBelowMinimumTracks => "too few tracks",
+            ResultRejection.FolderAboveMaximumTracks => "too many tracks",
+            ResultRejection.FolderMissingRequiredTracks => "missing required tracks",
+            ResultRejection.FolderQuality => "tracks outside the format or quality conditions",
+            _ => rejection.Reason.ToString(),
+        };
+        return $"{rejection.Count} {noun}: {reason}";
     }
 
     private static void PrintSong(SongJobPayloadDto p)

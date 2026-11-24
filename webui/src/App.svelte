@@ -702,7 +702,7 @@
             connected={liveStatus === 'connected' && documentVisible}
             {liveStatus} visible={documentVisible}
             {observeJobs} observeJobList={(scope, next, error) => liveClient.observeJobList(scope, next, error)}
-            onback={backToJobs} oneditagain={(start) => { if (!composingJobCommitPending) composer = { start }; }} onopenjob={(job, detail) => void openJob(job, detail)} ondelete={(job) => void deleteOpenedSubmission(job)}
+            onback={backToJobs} oneditagain={(start) => { if (!composingJobCommitPending) composer = { start }; }} onsearch={(draft) => void submit(draft)} onopenjob={(job, detail) => void openJob(job, detail)} ondelete={(job) => void deleteOpenedSubmission(job)}
             deletingSubmissions={deletingSubmissionIds} deleteError={mutationError} />
         {/snippet}
       </LazyView>

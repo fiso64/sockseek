@@ -244,7 +244,7 @@ public sealed class IncrementalTrackGroupProjector
                 ignoreStringSortConditions: true,
                 // The containing projector owns exact identity deduplication.
                 deduplicateInputs: false,
-                necessaryConditionEvaluator: static _ => true);
+                necessaryConditionEvaluator: static _ => ResultRejection.None);
             if (pending is null) return;
             foreach (var candidate in pending) AddRanked(candidate.Input, candidate.PeerFailureCount);
             pending = null;

@@ -447,7 +447,7 @@ test('applies projection-only sort and live track conditions through an all-exce
   const full = await fullResponse.json() as Schema<'SearchViewFilePageDto'>;
   expect(full.items).toHaveLength(1);
   expect(full.items.some(file => file.remoteFilename.endsWith('.mp3'))).toBe(false);
-  expect(full.items.find(file => file.remoteFilename.endsWith('.flac'))?.necessaryConditionsSatisfied).toBe(true);
+  expect(full.items.find(file => file.remoteFilename.endsWith('.flac'))?.necessaryRejection).toBe('None');
   const filtered = page.waitForResponse(response => response.ok()
     && response.request().method() === 'POST'
     && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname)

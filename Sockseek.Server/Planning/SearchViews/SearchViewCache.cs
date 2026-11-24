@@ -66,7 +66,7 @@ public sealed record SearchViewFile(
     long AdmittedRevision,
     SearchProjectionInput Input,
     SearchPreferenceTier PreferenceTier,
-    bool NecessaryConditionsSatisfied,
+    ResultRejection NecessaryRejection,
     IReadOnlyList<SearchPreferenceCondition> SatisfiedPreferredConditions,
     IReadOnlyList<SearchPreferenceCondition> ConfiguredPreferredConditions);
 
@@ -572,7 +572,7 @@ public sealed partial class SearchViewCache(TimeProvider? timeProvider = null)
     {
         var facts = file.ConditionFacts;
         return new(key, admittedRevision, file.Input, facts.PreferenceTier,
-            facts.NecessaryConditionsSatisfied, facts.SatisfiedPreferredConditions ?? [], facts.ConfiguredPreferredConditions ?? []);
+            facts.NecessaryRejection, facts.SatisfiedPreferredConditions ?? [], facts.ConfiguredPreferredConditions ?? []);
     }
 
     internal static FileRow RequireFile(SearchViewSnapshot snapshot, SearchViewInfo summary, SearchProjectionInput input)

@@ -2957,6 +2957,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .job-info-card.warning { border-color: color-mix(in srgb, var(--warning) 30%, var(--border)); }
 .job-info-card.failed { border-color: color-mix(in srgb, var(--danger) 30%, var(--border)); }
 .job-info-heading { display: flex; align-items: center; gap: 12px; }
+.job-info-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .job-info-copy { min-width: 0; flex: 1; display: grid; gap: 7px; }
 .job-info-copy strong { font-size: .8rem; font-weight: 580; overflow-wrap: anywhere; }
 .job-info-counts { display: flex; flex-wrap: wrap; gap: 5px 12px; color: var(--muted); font-size: .74rem; font-variant-numeric: tabular-nums; }
@@ -2967,6 +2968,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .job-info-facts dt { color: var(--muted); font-size: .7rem; }
 .job-info-facts dd { margin: 0; color: var(--text); font-size: .75rem; overflow-wrap: anywhere; white-space: pre-wrap; }
 .job-info-note { margin: 0; color: var(--muted); font-size: .73rem; }
+/* Why no result matched: one line per condition, in the job card and transfer details. */
+.rejection-list { margin: 0; padding-left: 18px; color: var(--muted); font-size: .76rem; line-height: 1.5; }
 .inline-empty-state { display: flex; align-items: center; gap: 10px; padding-block: 14px; }
 
 @media (max-width: 900px) {

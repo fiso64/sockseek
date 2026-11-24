@@ -38,7 +38,7 @@ public static partial class ResultSorter
         private readonly FileConditions preferredCond;
         private readonly bool queryTitleAllowsBrackets;
         private readonly bool ignoreStringSortConditions;
-        private readonly Func<SearchProjectionInput, bool>? necessaryConditionEvaluator;
+        private readonly Func<SearchProjectionInput, ResultRejection>? necessaryConditionEvaluator;
         private Dictionary<string, string>? strictDirectoryNames;
         private Dictionary<string, string>? fuzzyDirectoryNames;
 
@@ -46,7 +46,7 @@ public static partial class ResultSorter
             SongQuery query, SearchSettings search,
             ConcurrentDictionary<string, int> peerFailureCounts,
             bool albumMode, bool ignoreStringSortConditions = false,
-            Func<SearchProjectionInput, bool>? necessaryConditionEvaluator = null)
+            Func<SearchProjectionInput, ResultRejection>? necessaryConditionEvaluator = null)
         {
             Query = query;
             Search = search;
@@ -76,7 +76,10 @@ public static partial class ResultSorter
             => failureCount < Search.EffectiveIgnoreOn && Search.NecessaryCond.VisibilitySatisfies(input.Visibility);
 
         public bool NecessaryConditionsSatisfied(SearchProjectionInput input)
-            => necessaryConditionEvaluator?.Invoke(input) ?? ConditionSatisfactionPolicy.SearchFileSatisfies(necessaryCond, input, Query);
+            => NecessaryRejection(input) == ResultRejection.None;
+
+        public ResultRejection NecessaryRejection(SearchProjectionInput input)
+            => necessaryConditionEvaluator?.Invoke(input) ?? ConditionSatisfactionPolicy.SearchFileRejection(necessaryCond, input, Query);
 
         public SortKey CreateKey(SearchProjectionInput input, int? peerFailureCount = null)
         {
@@ -120,7 +123,7 @@ public static partial class ResultSorter
             bool bitDepthMatch = preferredCond.BitDepthSatisfies(input.BitDepth);
             bool preferredUserConditionsMet = preferredCond.UsernameSatisfies(input.Username);
 
-            bool necessaryConditionsMet = NecessaryConditionsSatisfied(input);
+            ResultRejection necessaryRejection = NecessaryRejection(input);
             bool qualityPreferencesMet = formatMatch && lengthToleranceMatch && bitrateMatch
                 && sampleRateMatch && preferredUserConditionsMet && bitDepthMatch;
             bool stringPreferencesMet = strictTitleMatch && strictArtistMatch && strictAlbumMatch;
@@ -151,7 +154,7 @@ public static partial class ResultSorter
 
             return new SortKey(
                 (peerFailureCount ?? PeerFailureCounts.GetValueOrDefault(input.Username, 0)) < Search.DownrankOn,
-                necessaryConditionsMet,
+                necessaryRejection == ResultRejection.None,
                 preferredUserConditionsMet,
                 Search.AudioConditionsIgnored || (input.Length != null && input.Length > 0) || Search.PreferredCond.AcceptNoLength,
                 AlbumMode || CheapBracketCheck(queryTitleAllowsBrackets, filename),
@@ -176,7 +179,7 @@ public static partial class ResultSorter
                 (input.UploadSpeed ?? -1) / 1024 / 350,
                 Search.AudioConditionsIgnored ? 0 : (input.BitRate ?? 0) / 80,
                 StableTieBreaker(input.Username, filename),
-                new SearchConditionFacts(necessaryConditionsMet, preferredConditionsMet,
+                new SearchConditionFacts(necessaryRejection, preferredConditionsMet,
                     satisfiedPreferredConditions, configuredPreferredConditions));
         }
 

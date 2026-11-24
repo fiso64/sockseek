@@ -78,7 +78,7 @@ public sealed record SearchViewFileDto(
     string Ref,
     SearchResultVisibility Visibility,
     SearchPreferenceTier PreferenceTier,
-    bool NecessaryConditionsSatisfied,
+    ResultRejection NecessaryRejection,
     IReadOnlyList<SearchPreferenceCondition> SatisfiedPreferredConditions,
     IReadOnlyList<SearchPreferenceCondition> UnsatisfiedPreferredConditions,
     string RemoteFilename,

@@ -240,3 +240,13 @@ public sealed record JobRerunDraftDto(
     JobDraftDto Job,
     IReadOnlyList<string> ProfileNames,
     DownloadSettingsPatchDto? DownloadSettings = null);
+
+/// <summary>
+/// What a download job searched for, to run as an ordinary search and look at
+/// the results it had to choose from. Exactly one query is set.
+/// </summary>
+/// <param name="SearchSettings">The settings the job searched with, complete.</param>
+public sealed record JobSearchDraftDto(
+    SongQueryDto? SongQuery,
+    AlbumQueryDto? AlbumQuery,
+    SearchSettingsPatchDto SearchSettings);

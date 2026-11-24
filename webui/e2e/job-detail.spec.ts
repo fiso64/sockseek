@@ -21,6 +21,32 @@ test('opens a CLI print-results run as searchable results on navigation and relo
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
 });
 
+test('explains a job whose results were all rejected and searches for it again under the same conditions', async ({ page, daemon }, testInfo) => {
+  await daemon.command('album-art-search');
+  const response = await page.request.post('/api/jobs/downloads/album', { data: {
+    albumQuery: { album: 'Fixture Album', artistMaybeWrong: false },
+    options: { outputParentDir: testInfo.outputPath('rejected'), downloadSettings: {
+      search: { noBrowseFolder: true, necessaryCond: { formats: { replace: ['xyz'] } } } } },
+  } });
+  expect(response.status(), await response.text()).toBe(202);
+  const job = await response.json() as Schema<'JobSummaryDto'>;
+  await daemon.command(`wait-job-complete:${job.jobId}`);
+  await page.goto(`/jobs/${job.jobId}`);
+  const card = page.getByTestId('job-info-card');
+  await expect(card.getByTestId('job-rejections').locator('li')).not.toHaveCount(0);
+  // The same query runs as an ordinary search under the job's conditions.
+  await card.getByTestId('job-search-again').click();
+  await expect(page).toHaveURL(/results=album/);
+  expect(page.url()).not.toContain(job.jobId!);
+  // Its conditions are shown, and removing the one that rejected everything
+  // brings back the folders the job could not use.
+  const condition = page.locator('.search-condition-pill');
+  await expect(condition).toHaveCount(1);
+  await expect(page.locator('.folder-heading-path')).toHaveCount(0);
+  await condition.getByRole('button').click();
+  await expect(page.locator('.folder-heading-path')).toHaveCount(2);
+});
+
 for (const mode of ['song', 'album'] as const) {
   test(`shows the existing path of a history-skipped ${mode} on reload`, async ({ page, daemon }, testInfo) => {
     await daemon.command(mode === 'song' ? 'music-search' : 'album-art-search');

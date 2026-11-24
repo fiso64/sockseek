@@ -15,6 +15,8 @@ namespace Sockseek.Core.Jobs;
         public int RawResultCount { get; set; }
         public int LockedFileCount { get; set; }
         public int ObservedPeerCount { get; set; }
+        /// <summary>Results this job could not use, by the first condition each failed.</summary>
+        public RejectionTally Rejections { get; } = new();
     }
 
     public readonly record struct JobStateSnapshot(

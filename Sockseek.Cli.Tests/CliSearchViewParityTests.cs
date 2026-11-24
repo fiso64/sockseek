@@ -79,7 +79,7 @@ public sealed class CliSearchViewParityTests
                 bitRate: 900),
             new SearchPeerSnapshot("peer", 1, 12_345, true),
             projectionFacts: new SearchConditionFacts(
-                NecessaryConditionsSatisfied: true,
+                NecessaryRejection: ResultRejection.None,
                 PreferredConditionsSatisfied: false,
                 SatisfiedPreferredConditions: [],
                 ConfiguredPreferredConditions: [SearchPreferenceCondition.Bitrate]));

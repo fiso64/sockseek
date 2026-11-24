@@ -248,6 +248,10 @@ export class DaemonApiClient {
   }
 
   /** A job's request read back as a draft for the New job dialog. */
+  getSearchDraft(jobId: string): Promise<Schema<'JobSearchDraftDto'>> {
+    return this.http.get(`/jobs/${encodeURIComponent(jobId)}/search-draft`);
+  }
+
   getRerunDraft(jobId: string): Promise<Schema<'JobRerunDraftDto'>> {
     return this.http.get(`/jobs/${encodeURIComponent(jobId)}/rerun-draft`);
   }

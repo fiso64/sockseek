@@ -38,6 +38,34 @@ public sealed class HistoricalDirectoryPayloadTests
     }
 
     [TestMethod]
+    public void RejectionTally_IsCarriedByLiveAndRetainedPayloadsOnlyForAJobThatMatchedNothing()
+    {
+        foreach (Job job in new Job[] { new SongJob(new SongQuery { Title = "Track" }), new AlbumJob(new AlbumQuery { Album = "Album" }) })
+        {
+            job.Discovery = new DiscoverySummary();
+            job.Discovery.Rejections.Add(ResultRejection.Format, 41);
+            job.Discovery.Rejections.Add(ResultRejection.FolderQuality, 2);
+            job.Fail(JobFailureReason.AllDownloadsFailed);
+            Assert.IsNull(Rejections(ServerSnapshotMapper.ToJobPayload(CoreSnapshotFactory.CreateJob(job, 1))));
+
+            job.Fail(JobFailureReason.NoMatchingResults);
+            JobSnapshot snapshot = CoreSnapshotFactory.CreateJob(job, 2);
+            var retained = HistoricalJobDtoMapper.ToPayload(RetainedJobFixture.Create(snapshot.Kind.ToString(), snapshot.Payload));
+            foreach (JobPayloadDto payload in new[] { ServerSnapshotMapper.ToJobPayload(snapshot), retained })
+                CollectionAssert.AreEqual(
+                    new ResultRejectionCount[] { new(ResultRejection.Format, 41), new(ResultRejection.FolderQuality, 2) },
+                    Rejections(payload)!.ToArray());
+        }
+
+        static IReadOnlyList<ResultRejectionCount>? Rejections(JobPayloadDto payload) => payload switch
+        {
+            SongJobPayloadDto song => song.Rejections,
+            AlbumJobPayloadDto album => album.Rejections,
+            _ => throw new AssertFailedException(payload.GetType().Name),
+        };
+    }
+
+    [TestMethod]
     public void PartlyExistingDirectory_PreservesCompletionAndExactBytesInLiveAndRetainedPayloads()
     {
         var first = new PeerFileTarget(new PeerFileIdentity("Peer", @"Root\Existing.bin"), 64, ".bin");

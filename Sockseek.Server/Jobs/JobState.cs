@@ -255,6 +255,8 @@ internal sealed class JobState
     public bool IsJobAvailable(Guid jobId)
         => records.ContainsKey(jobId);
 
+    public JobSnapshotPayload? GetJobPayload(Guid id) => jobs.GetValueOrDefault(id)?.Payload;
+
     public bool TryGetJobFailureDetail(Guid id, out string? detail)
     {
         bool found = jobs.TryGetValue(id, out var job);

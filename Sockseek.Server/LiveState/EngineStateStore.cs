@@ -386,6 +386,11 @@ public sealed class EngineStateStore
         lock (gate) return jobState.IsJobAvailable(jobId);
     }
 
+    internal JobSnapshotPayload? GetJobPayload(Guid id)
+    {
+        using (LockJobReads()) return jobState.GetJobPayload(id);
+    }
+
     internal bool TryGetJobFailureDetail(Guid id, out string? detail)
     {
         using (LockJobReads()) return jobState.TryGetJobFailureDetail(id, out detail);

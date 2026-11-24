@@ -28,7 +28,7 @@ internal static class RetainedJobPayloadCodec
             AlbumJobSnapshotPayload album => new AlbumExecutionPayload(album.Query, album.ResultCount,
                 album.ResolvedTarget is { } folder ? new(folder.Username, folder.FolderPath, folder.Peer,
                     folder.SearchFileCount, folder.SearchAudioFileCount, folder.IsFullyRetrieved) : null,
-                album.Directory, album.Definition),
+                album.Directory, album.Definition, album.Rejections),
             RemoteDirectoryJobSnapshotPayload directory => new RemoteDirectoryExecutionPayload(
                 directory.SourceKind, directory.DirectorySource,
                 ServerSnapshotMapper.RemoteDirectorySourceUsername(directory),
@@ -75,6 +75,7 @@ internal static class RetainedJobPayloadCodec
         SearchJobSnapshotPayload search => search.Definition,
         SongJobSnapshotPayload song => song.Definition,
         AlbumExecutionPayload album => album.Definition,
+        AlbumJobSnapshotPayload album => album.Definition,
         SongGroupsExecutionPayload group => group.Definition,
         AlbumGroupsJobSnapshotPayload group => group.Definition,
         _ => null,

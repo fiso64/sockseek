@@ -61,7 +61,7 @@ namespace Tests.ResultSorterTests
                 uploadSpeedMedium,
                 bitRate,
                 randomTiebreaker,
-                new SearchConditionFacts(necessaryConditionsMet, fileSatisfies));
+                new SearchConditionFacts(necessaryConditionsMet ? ResultRejection.None : ResultRejection.Format, fileSatisfies));
 
         [TestMethod]
         public void CompareTo_NecessaryConditions_TrumpLowerCriteria()

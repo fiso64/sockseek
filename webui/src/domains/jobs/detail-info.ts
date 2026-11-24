@@ -1,12 +1,14 @@
 import type { JobSummaryDto, Schema } from '../../api/types';
 import { formatCountWithNoun, humanizeStateValue } from '../../app/format';
 import { automaticJobCountStats } from './list-stats';
-import { jobOutcomeDetail, jobSkipExplanation, jobStatusLabel } from './status';
+import { jobOutcomeDetail, jobSkipExplanation, jobStatusLabel, rejectionLines } from './status';
 
 export interface JobDetailInfo {
   message: string;
   facts: { label: string; value: string; peer?: boolean }[];
   counts: string[];
+  /** Why no result matched, when that is how the job failed. */
+  rejections: string[];
   note?: string;
   progress?: { completed: number; total: number; percent: number };
 }
@@ -22,11 +24,14 @@ export function jobDetailInfo(job: JobSummaryDto, payload: Schema<'JobPayloadDto
   const stats = job.stats;
   const countsKnown = stats?.completedMemberCount != null && stats.failedMemberCount != null
     && stats.skippedMemberCount != null;
-  const info: JobDetailInfo = { message: '', facts: [], counts: [] };
+  const info: JobDetailInfo = { message: '', facts: [], counts: [], rejections: rejectionLines(payload) };
   const childFailuresCounted = job.lifecycle.failureReason === 'ChildJobsFailed' && Number(stats?.failedMemberCount) > 0;
   if (terminal && job.lifecycle.terminalOutcome !== 'Succeeded') {
-    info.message = childFailuresCounted && collection ? ''
-      : jobOutcomeDetail(job);
+    // Lists show the short reason; the card has room for the owner's full
+    // explanation when one was recorded.
+    const concise = childFailuresCounted && collection ? '' : jobOutcomeDetail(job);
+    const failed = job.lifecycle.terminalOutcome === 'Failed' || job.lifecycle.terminalOutcome === 'PartialSuccess';
+    info.message = concise && failed && job.lifecycle.failureMessage?.trim() || concise;
   }
 
   if (collection) {
@@ -69,5 +74,5 @@ export function jobDetailInfo(job: JobSummaryDto, payload: Schema<'JobPayloadDto
     info.message = `No ${job.display.kind === 'song-groups' ? 'songs' : job.display.kind === 'album-groups' ? 'albums' : 'jobs'} were produced.`;
   // The label already conveys the state; diagnostics remain in its modal.
   if (info.message === jobStatusLabel(job)) info.message = '';
-  return info.message || info.facts.length || info.counts.length || info.note || (!terminal && !hasContent) ? info : null;
+  return info.message || info.facts.length || info.counts.length || info.rejections.length || info.note || (!terminal && !hasContent) ? info : null;
 }

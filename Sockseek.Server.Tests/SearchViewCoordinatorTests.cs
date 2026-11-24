@@ -1979,7 +1979,7 @@ public sealed class SearchViewCoordinatorTests
             SearchViewFilePageDto firstPage = (views.GetFiles(view.ViewId, firstRevision, cursor: null, limit: 10, cancellationToken: CancellationToken.None))!;
             Assert.AreEqual(1, firstPage.Items.Count);
             Assert.AreEqual("first", firstPage.Items[0].Peer.Username);
-            Assert.IsTrue(firstPage.Items[0].NecessaryConditionsSatisfied);
+            Assert.AreEqual(ResultRejection.None, firstPage.Items[0].NecessaryRejection);
             SearchViewSummaryDto firstDirectorySummary = (views.Get(directoryView.ViewId, CancellationToken.None))!;
             Assert.AreEqual(1L, firstDirectorySummary.Counters.TopLevelItemCount);
             SearchViewDirectoryPageDto firstDirectories = (views.GetDirectories(directoryView.ViewId, firstDirectorySummary.Revision, null, 10, cancellationToken: CancellationToken.None))!;

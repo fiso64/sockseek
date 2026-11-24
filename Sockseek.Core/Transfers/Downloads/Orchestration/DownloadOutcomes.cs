@@ -26,7 +26,10 @@ internal static class DownloadOutcomes
 
     public static JobOutcome NoMatchingDiscovery(Job job, string candidatePlural)
     {
-        int files = job.Discovery?.RawResultCount ?? 0;
+        // A track search filters at admission, so its raw count holds only the
+        // files that passed; an album search keeps every file it was offered.
+        int files = (job.Discovery?.RawResultCount ?? 0)
+            + (job is SongJob or SongGroupsJob ? job.Discovery?.Rejections.Total ?? 0 : 0);
         if (files == 0)
             return JobOutcome.Failed(JobFailureReason.NoSearchResults, "No Soulseek file results found.");
 

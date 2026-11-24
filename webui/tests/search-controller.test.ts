@@ -30,7 +30,7 @@ function directorySummary(ref: string, folderPath = 'Music'): Schema<'SearchView
     publicMatchingBytes: 1, lockedMatchingBytes: 0, retrievedFileCount: null, retrievedBytes: null,
     retrievalState: 'SearchResultsOnly', peer: { username: 'peer' },
     bestChild: { ref: `${ref}-file`, visibility: 'Public', preferenceTier: 'Preferred',
-      necessaryConditionsSatisfied: true, satisfiedPreferredConditions: [], unsatisfiedPreferredConditions: [],
+      necessaryRejection: 'None', satisfiedPreferredConditions: [], unsatisfiedPreferredConditions: [],
       remoteFilename: `${folderPath}/file`, peer: { username: 'peer' },
       file: { name: 'file', size: 1, extension: null, bitRate: null, bitDepth: null, sampleRate: null, length: null } },
   };
@@ -1309,7 +1309,7 @@ describe('Search View request isolation', () => {
       publicMatchingBytes: 256, lockedMatchingBytes: 0, retrievedFileCount: null, retrievedBytes: null,
       retrievalState: 'SearchResultsOnly', peer: { username: ref },
       bestChild: { ref: `${ref}-intro`, visibility: 'Public', preferenceTier: 'Preferred',
-        necessaryConditionsSatisfied: true, satisfiedPreferredConditions: [], unsatisfiedPreferredConditions: [],
+        necessaryRejection: 'None', satisfiedPreferredConditions: [], unsatisfiedPreferredConditions: [],
         remoteFilename: `${ref}/album/Intro.flac`, peer: { username: ref },
         file: { name: 'Intro.flac', size: 128, extension: '.flac', bitRate: null, bitDepth: null,
           sampleRate: null, length: null } },
@@ -1426,7 +1426,7 @@ describe('Search View request isolation', () => {
   it('submits a locally chosen group source and keeps retries identical', async () => {
     const requests: Parameters<DaemonApiClient['commitSearchView']>[] = [];
     const file = (ref: string, username: string): Schema<'SearchViewFileDto'> => ({
-      ref, visibility: 'Public', preferenceTier: 'Preferred', necessaryConditionsSatisfied: true,
+      ref, visibility: 'Public', preferenceTier: 'Preferred', necessaryRejection: 'None',
       satisfiedPreferredConditions: [], unsatisfiedPreferredConditions: [], remoteFilename: `Music/${ref}.flac`,
       peer: { username }, file: { name: `${ref}.flac`, size: 128, extension: '.flac',
         bitRate: null, bitDepth: null, sampleRate: null, length: null },
@@ -1655,7 +1655,7 @@ describe('Search View request isolation', () => {
       publicMatchingBytes: 1, lockedMatchingBytes: 0, retrievedFileCount: null, retrievedBytes: null,
       retrievalState: 'SearchResultsOnly', peer: { username: 'peer' },
       bestChild: { ref: `${ref}-file`, visibility: 'Public', preferenceTier: 'Preferred',
-        necessaryConditionsSatisfied: true, satisfiedPreferredConditions: [], unsatisfiedPreferredConditions: [],
+        necessaryRejection: 'None', satisfiedPreferredConditions: [], unsatisfiedPreferredConditions: [],
         remoteFilename: `${ref}/file`, peer: { username: 'peer' },
         file: { name: 'file', size: 1, extension: null, bitRate: null, bitDepth: null, sampleRate: null, length: null } },
     }));

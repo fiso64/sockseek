@@ -2,7 +2,7 @@ import { jobSummary } from './job-fixture';
 import { expect, it } from 'vitest';
 import { jobDetailInfo } from '../src/domains/jobs/detail-info';
 import type { JobSummaryDto, Schema } from '../src/api/types';
-import { jobStatusClass, jobStatusLabel, jobTransferTone } from '../src/domains/jobs/status';
+import { jobOutcomeDetail, jobStatusClass, jobStatusLabel, jobTransferTone } from '../src/domains/jobs/status';
 import { searchJobStats } from '../src/domains/jobs/list-stats';
 
 it('keeps unknown search counts absent while preserving explicit zero and public counts', () => {
@@ -40,6 +40,19 @@ it('only adds information to successful results when context is missing', () => 
   const song = { kind: 'song', query: { artistMaybeWrong: false }, candidateCount: 0,
     file: { reused: false, bytesTransferred: 0 } } satisfies Schema<'JobPayloadDto'>;
   expect(jobDetailInfo(jobSummary({ display: { kind: 'song' }, lifecycle: { lifecycleState: 'Terminal', terminalOutcome: 'Succeeded' } }), song, false)).not.toBeNull();
+});
+
+it('explains a job that matched nothing with the recorded reason and what each condition rejected', () => {
+  const explanation = '58 results found, but none matched.';
+  const failed = jobSummary({ display: { kind: 'song' }, lifecycle: { lifecycleState: 'Terminal', terminalOutcome: 'Failed', failureReason: 'NoMatchingResults', failureMessage: explanation } });
+  const song = { kind: 'song', query: { artistMaybeWrong: false }, candidateCount: 0, file: { reused: false, bytesTransferred: 0 },
+    rejections: [{ reason: 'Format', count: 41 }, { reason: 'FolderBelowMinimumTracks', count: 1 }] } satisfies Schema<'JobPayloadDto'>;
+  const info = jobDetailInfo(failed, song, false)!;
+  expect(info.message).toBe(explanation);
+  expect(info.rejections).toHaveLength(2);
+  // The list entry keeps its short reason.
+  expect(jobOutcomeDetail(failed)).not.toBe(explanation);
+  expect(jobDetailInfo(failed, { ...song, rejections: null }, false)!.rejections).toEqual([]);
 });
 
 it('does not turn skipped children or missing totals into a warning for a successful collection', () => {
