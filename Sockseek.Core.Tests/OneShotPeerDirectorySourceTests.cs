@@ -1,5 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
 
 namespace Tests;

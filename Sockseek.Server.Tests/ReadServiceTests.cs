@@ -4,7 +4,6 @@ using System.Reflection;
 using System.Threading.Channels;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core.Events;
 using Sockseek.Core.Jobs;
@@ -37,7 +36,7 @@ public sealed class ReadServiceTests
         var started = DateTimeOffset.UnixEpoch;
         var transfer = new TransferSnapshot(Guid.NewGuid(), TransferSnapshotDirection.Download,
             TransferSnapshotSource.SoulseekPeer, Guid.NewGuid(), Guid.NewGuid(), 1,
-            "Peer", @"Share\File.bin", "local", null, Sockseek.Core.Snapshots.TransferPhase.InProgress, 0, 100, 1, null,
+            "Peer", @"Share\File.bin", "local", null, TransferPhase.InProgress, 0, 100, 1, null,
             RequestedAtUtc: started);
         lock (stateGate) apply.Invoke(state, [transfer, false, null, null, null]);
         var queries = new TransferReadService(state, supervisor.Runtime, persistence);
@@ -45,7 +44,7 @@ public sealed class ReadServiceTests
         await using var updates = queries.ObserveTransferTimelineAsync(
             new(TransferCommandDirection.Download, IncludeGroupSummaries: true), events, deadline.Token).GetAsyncEnumerator();
         Assert.IsTrue(await updates.MoveNextAsync());
-        Assert.AreEqual(Sockseek.Api.TransferPhase.InProgress, updates.Current.Items.Single().Status.Phase);
+        Assert.AreEqual(TransferPhase.InProgress, updates.Current.Items.Single().Status.Phase);
         Assert.AreEqual(TransferRetainedCoverageState.Unavailable, updates.Current.GroupSummaries!.RetainedCoverage.State);
         var jobs = new JobReadService(state, supervisor, persistence);
         await using var jobUpdates = jobs.ObserveJobsAsync(transfer.JobId!.Value,
@@ -57,7 +56,7 @@ public sealed class ReadServiceTests
 
         // This workflow is outside the compact daemon stream. Its final facts
         // and later runtime eviction must still reach an existing page reader.
-        var final = transfer with { Revision = 3, Phase = Sockseek.Core.Snapshots.TransferPhase.Ended, BytesTransferred = 100,
+        var final = transfer with { Revision = 3, Phase = TransferPhase.Ended, BytesTransferred = 100,
             TerminalOutcome = TransferSnapshotTerminalOutcome.Succeeded };
         lock (stateGate)
         {
@@ -645,15 +644,15 @@ public sealed class ReadServiceTests
         DateTimeOffset origin = DateTimeOffset.UnixEpoch;
 
         DateTimeOffset completedAt = origin.AddSeconds(5);
-        TransferStateDto retainedOverlap = TimelineRow(overlap, origin.AddSeconds(3), Api.TransferPhase.Ended) with
+        TransferStateDto retainedOverlap = TimelineRow(overlap, origin.AddSeconds(3), TransferPhase.Ended) with
         {
-            Status = TimelineRow(overlap, origin.AddSeconds(3), Api.TransferPhase.Ended).Status with
+            Status = TimelineRow(overlap, origin.AddSeconds(3), TransferPhase.Ended).Status with
             { CompletedAtUtc = completedAt, FailureMessage = "retained-detail" },
         };
         TransferTimelinePageDto page = TransferReadService.ComposeTransferTimeline(
-            [retainedOverlap, TimelineRow(older, origin.AddSeconds(2), Api.TransferPhase.Ended)],
-            [TimelineRow(overlap, origin.AddSeconds(3), Api.TransferPhase.InProgress)],
-            [TimelineRow(queued, origin.AddSeconds(4), Api.TransferPhase.QueuedLocally)],
+            [retainedOverlap, TimelineRow(older, origin.AddSeconds(2), TransferPhase.Ended)],
+            [TimelineRow(overlap, origin.AddSeconds(3), TransferPhase.InProgress)],
+            [TimelineRow(queued, origin.AddSeconds(4), TransferPhase.QueuedLocally)],
             limit: 2,
             retainedHasMore: false,
             queueHasMore: false,
@@ -662,7 +661,7 @@ public sealed class ReadServiceTests
         CollectionAssert.AreEqual(
             new[] { queued, overlap },
             page.Items.Select(item => item.TransferId).ToArray());
-        Assert.AreEqual(Sockseek.Api.TransferPhase.InProgress, page.Items.Single(item => item.TransferId == overlap).Status.Phase);
+        Assert.AreEqual(TransferPhase.InProgress, page.Items.Single(item => item.TransferId == overlap).Status.Phase);
         Assert.AreEqual(completedAt, page.Items.Single(item => item.TransferId == overlap).Status.CompletedAtUtc);
         Assert.AreEqual("retained-detail", page.Items.Single(item => item.TransferId == overlap).Status.FailureMessage);
         Assert.AreEqual(2, page.Items.Select(item => item.TransferId).Distinct().Count());
@@ -673,8 +672,8 @@ public sealed class ReadServiceTests
     public void TransferTimelineComposition_PrefersNewerRetainedStateAfterLiveCapture()
     {
         var id = Guid.NewGuid();
-        var retained = TimelineRow(id, DateTimeOffset.UnixEpoch, Api.TransferPhase.Ended) with { Revision = 8 };
-        var captured = retained with { Status = retained.Status with { Phase = Sockseek.Api.TransferPhase.InProgress }, Revision = 7 };
+        var retained = TimelineRow(id, DateTimeOffset.UnixEpoch, TransferPhase.Ended) with { Revision = 8 };
+        var captured = retained with { Status = retained.Status with { Phase = TransferPhase.InProgress }, Revision = 7 };
         var page = TransferReadService.ComposeTransferTimeline(
             [retained], [captured], [], 10, false, false,
             new TransferRetainedCoverageDto(TransferRetainedCoverageState.Available));
@@ -946,7 +945,7 @@ public sealed class ReadServiceTests
             Assert.AreEqual(6, combined.Select(job => job.JobId).Distinct().Count());
             Assert.AreEqual("CSV row 2", combined.Single(job => job.JobId == jobs[0].Id).Display.SourceDetail);
             Assert.AreEqual(
-                ServerJobLifecycleState.Pending,
+                JobLifecycleState.Pending,
                 combined.Single(job => job.JobId == jobs[1].Id).Lifecycle.LifecycleState,
                 "The live overlap must replace the persisted terminal row.");
 
@@ -965,7 +964,7 @@ public sealed class ReadServiceTests
             CollectionAssert.AreEqual(jobs.Reverse().Select(job => job.Id).ToArray(),
                 newest.Select(job => job.JobId).ToArray());
             Assert.AreEqual(6, newest.Select(job => job.JobId).Distinct().Count());
-            Assert.AreEqual(ServerJobLifecycleState.Pending,
+            Assert.AreEqual(JobLifecycleState.Pending,
                 newest.Single(job => job.JobId == jobs[1].Id).Lifecycle.LifecycleState);
             var descendingPage = await facade.GetJobsAsync(
                 new JobQuery(null, null, null, workflowId, IncludeAll: true, NewestFirst: true), null, limit: 2);
@@ -978,7 +977,7 @@ public sealed class ReadServiceTests
             // current live row no longer matches. Continue past rejected overlap
             // rows so both directions still fill every page without duplicates.
             foreach (bool descending in new[] { false, true })
-                foreach (var state in new[] { ServerJobLifecycleState.Pending, ServerJobLifecycleState.Terminal })
+                foreach (var state in new[] { JobLifecycleState.Pending, JobLifecycleState.Terminal })
                 {
                     var filtered = new List<JobSummaryDto>();
                     cursor = null;
@@ -989,7 +988,7 @@ public sealed class ReadServiceTests
                         filtered.AddRange(page.Items);
                         cursor = page.NextCursor;
                     } while (cursor is not null);
-                    int[] indexes = state == ServerJobLifecycleState.Pending ? [1, 2, 4] : [0, 3, 5];
+                    int[] indexes = state == JobLifecycleState.Pending ? [1, 2, 4] : [0, 3, 5];
                     var expected = indexes.Select(index => jobs[index].Id);
                     if (descending) expected = expected.Reverse();
                     CollectionAssert.AreEqual(expected.ToArray(), filtered.Select(job => job.JobId).ToArray());
@@ -1002,10 +1001,10 @@ public sealed class ReadServiceTests
                 { Sequence = ++sequence, Revision = 3 }));
             await WaitForVisibleAsync(persistence, async () =>
                 (await persistence.JobHistory!.GetJobAsync(jobs[1].Id))?.Revision == 3);
-            foreach (var state in new[] { ServerJobLifecycleState.Pending, ServerJobLifecycleState.Terminal })
+            foreach (var state in new[] { JobLifecycleState.Pending, JobLifecycleState.Terminal })
             {
                 var page = await facade.GetJobsAsync(new JobQuery(state, null, null, workflowId, IncludeAll: true), null, 100);
-                int[] expected = state == ServerJobLifecycleState.Pending ? [1, 2, 4] : [0, 3, 5];
+                int[] expected = state == JobLifecycleState.Pending ? [1, 2, 4] : [0, 3, 5];
                 CollectionAssert.AreEqual(expected.Select(index => jobs[index].Id).ToArray(), page.Items.Select(job => job.JobId).ToArray());
             }
 
@@ -1078,7 +1077,7 @@ public sealed class ReadServiceTests
             var lookedUp = await facade.LookupJobsAsync(new JobLookupRequestDto(
                 [retainedResult.Id, liveResult.Id, Guid.NewGuid(), jobs[0].Id, retainedResult.Id]));
             CollectionAssert.AreEqual(new[] { retainedResult.Id, liveResult.Id, jobs[0].Id }, lookedUp.Select(job => job.JobId).ToArray());
-            Assert.AreEqual(ServerJobLifecycleState.Pending, lookedUp.Single(job => job.JobId == liveResult.Id).Lifecycle.LifecycleState);
+            Assert.AreEqual(JobLifecycleState.Pending, lookedUp.Single(job => job.JobId == liveResult.Id).Lifecycle.LifecycleState);
             Assert.AreEqual("CSV row 2", lookedUp.Single(job => job.JobId == jobs[0].Id).Display.SourceDetail);
             var followup = new SongJob(new SongQuery { Title = "Independent follow-up" });
             followup.EnsureDisplayId();
@@ -1223,10 +1222,10 @@ public sealed class ReadServiceTests
                 await using var observation = facade.ObserveJobListAsync(new(
                     new(null, null, null, null, IncludeAll: false, NewestFirst: true), 2), events, deadline.Token).GetAsyncEnumerator();
                 Assert.IsTrue(await observation.MoveNextAsync());
-                Assert.AreEqual(ServerJobLifecycleState.Pending,
+                Assert.AreEqual(JobLifecycleState.Pending,
                     observation.Current.Jobs.Single(row => row.JobId == racing.Id).Added!.Lifecycle.LifecycleState);
                 Assert.IsTrue(await observation.MoveNextAsync());
-                Assert.AreEqual(ServerJobTerminalOutcome.Succeeded,
+                Assert.AreEqual(JobTerminalOutcome.Succeeded,
                     observation.Current.Jobs.Single(row => row.JobId == racing.Id).Lifecycle!.TerminalOutcome);
                 Assert.AreEqual(1, reads, "Buffered fact changes must not reread retained pages.");
             }
@@ -1261,7 +1260,7 @@ public sealed class ReadServiceTests
     private static TransferStateDto TimelineRow(
         Guid id,
         DateTimeOffset createdAtUtc,
-        Api.TransferPhase phase)
+        TransferPhase phase)
         => new(id, 1,
             new(null, null, "Upload", "SoulseekPeer", "peer", @"Share\File.bin", null),
             new(phase, null, 0, false, TransferTerminalOutcome.None, Api.TransferFailureReason.None,

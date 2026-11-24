@@ -1,14 +1,12 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Sockseek.Api;
+using TransferFailureReason = Sockseek.Core.Events.TransferFailureReason;
 using Soulseek;
-using Sockseek.Core.Extractors;
-using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Events;
 using Sockseek.Core.Snapshots;
-using Sockseek.Core.Transfers.Downloads.State;
 using Directory = System.IO.Directory;
 using System.Collections.Concurrent;
 

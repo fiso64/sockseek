@@ -1,6 +1,5 @@
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
-using Swan;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;

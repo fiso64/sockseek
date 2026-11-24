@@ -1,7 +1,5 @@
 using Sockseek.Api;
 using Sockseek.Core.Models;
-using Sockseek.Server;
-using Soulseek;
 
 namespace Sockseek.Cli;
 
@@ -27,7 +25,7 @@ internal static class JobInfoPrinter
         Action printPayload = detail.Payload switch
         {
             SongJobPayloadDto song => () => PrintSong(song),
-            AlbumJobPayloadDto album => () => PrintAlbum(album, children),
+            AlbumJobPayloadDto album => () => PrintAlbum(album),
             ExtractJobPayloadDto extract => () => PrintExtract(extract, children),
             SongGroupsJobPayloadDto group => () => PrintGroup(group, children),
             AlbumGroupsJobPayloadDto group => () => PrintAlbumGroups(group, children),
@@ -55,7 +53,7 @@ internal static class JobInfoPrinter
         var queryText = FormatSongQuery(p.Query);
         if (queryText != null) Field("Query", queryText);
 
-        var fallback = p.Fallback != null || p.DownloadSource == ServerSongDownloadSource.Fallback;
+        var fallback = p.Fallback != null || p.DownloadSource == SongDownloadSource.Fallback;
         if (fallback)
         {
             Field("From", p.Fallback?.Provider ?? "Fallback", ConsoleColor.DarkCyan);
@@ -88,7 +86,7 @@ internal static class JobInfoPrinter
             Field("Candidates", $"{c} found");
     }
 
-    private static void PrintAlbum(AlbumJobPayloadDto p, IReadOnlyList<JobSummaryDto> children)
+    private static void PrintAlbum(AlbumJobPayloadDto p)
     {
         var queryText = FormatAlbumQuery(p.Query);
         if (queryText != null) Field("Query", queryText);
@@ -227,17 +225,17 @@ internal static class JobInfoPrinter
     private static void PrintSplitState(JobSummaryDto s)
     {
         Field("Lifecycle", s.Lifecycle.LifecycleState.ToString(), ConsoleColor.Gray);
-        if (s.Lifecycle.ActivityPhase != ServerJobActivityPhase.None)
+        if (s.Lifecycle.ActivityPhase != JobActivityPhase.None)
             Field("Activity", s.Lifecycle.ActivityPhase.ToString(), ConsoleColor.Cyan);
         if (s.Lifecycle.ActivityUntilUtc is DateTimeOffset until)
             Field("Activity until", until.ToLocalTime().ToString("u"), ConsoleColor.DarkCyan);
-        if (s.Lifecycle.TerminalOutcome != ServerJobTerminalOutcome.None)
+        if (s.Lifecycle.TerminalOutcome != JobTerminalOutcome.None)
             Field("Outcome", s.Lifecycle.TerminalOutcome.ToString(),
-                s.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
-                    || (s.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Skipped && s.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists)
+                s.Lifecycle.TerminalOutcome == JobTerminalOutcome.Succeeded
+                    || (s.Lifecycle.TerminalOutcome == JobTerminalOutcome.Skipped && s.Lifecycle.SkipReason == JobSkipReason.AlreadyExists)
                     ? ConsoleColor.Green
                     : ConsoleColor.Yellow);
-        if (s.Lifecycle.SkipReason != ServerJobSkipReason.None)
+        if (s.Lifecycle.SkipReason != JobSkipReason.None)
             Field("Skip reason", s.Lifecycle.SkipReason.ToString(), ConsoleColor.DarkGray);
         if (s.Lifecycle.FailureReason is { } reason)
             Field("Failure reason", CliJobStatusPresenter.FailureReasonLabel(reason), ConsoleColor.Yellow);

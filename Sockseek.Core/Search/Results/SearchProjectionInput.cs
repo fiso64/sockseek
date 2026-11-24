@@ -1,17 +1,10 @@
+using Sockseek.Api;
 using Sockseek.Core.Snapshots;
 using Sockseek.Core.Services;
 using Soulseek;
 
-using System.Text.Json.Serialization;
 
 namespace Sockseek.Core.Models;
-
-[JsonConverter(typeof(JsonStringEnumConverter<SearchResultVisibility>))]
-public enum SearchResultVisibility
-{
-    Public,
-    Locked,
-}
 
 /// <summary>
 /// Immutable search observation shared by collection, events, projection and persistence.

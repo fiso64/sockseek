@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Diagnostics;
 using Sockseek.Core.Sharing;
 using Sockseek.Persistence.Sharing;

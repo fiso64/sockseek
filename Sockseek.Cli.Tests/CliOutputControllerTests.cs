@@ -1,5 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Microsoft.Extensions.Logging;
 using Sockseek.Cli;
 
 namespace Tests.Cli;

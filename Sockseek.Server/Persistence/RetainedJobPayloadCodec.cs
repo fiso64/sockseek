@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Snapshots;
 using Sockseek.Persistence.Read;

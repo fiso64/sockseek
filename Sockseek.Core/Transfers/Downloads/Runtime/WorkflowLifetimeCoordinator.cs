@@ -1,6 +1,6 @@
 using Sockseek.Core.Jobs;
 
-namespace Sockseek.Core.Transfers.Downloads.Runtime;
+namespace Sockseek.Core.Transfers.Downloads;
 
 /// <summary>
 /// Serializes root admission and terminal retirement for each logical workflow.

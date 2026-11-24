@@ -7,6 +7,7 @@ internal static class JobPreviewEndpoints
     public static void Map(WebApplication app)
     {
         app.MapPost("/api/job-previews", CreateAsync)
+            .MapErrors(Failure)
             .WithTags("Job Preview")
             .WithSummary("Creates an asynchronous preview from the shared Core planner.")
             .WithDescription("Returns the Planning resource immediately. Wait for completion through its summary, then page the reviewed nodes.")
@@ -15,6 +16,7 @@ internal static class JobPreviewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/job-previews/{previewId:guid}", GetAsync)
+            .MapErrors(Failure)
             .WithTags("Job Preview")
             .WithSummary("Gets the fixed-size preview summary and current revision.")
             .WithDescription("With waitForCompletion=true, waits up to 30 seconds while Planning. Returns immediately on completion; request cancellation stops waiting without cancelling planning.")
@@ -23,6 +25,7 @@ internal static class JobPreviewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/job-previews/{previewId:guid}/nodes", GetNodesAsync)
+            .MapErrors(Failure)
             .WithTags("Job Preview")
             .WithSummary("Pages preview roots or the direct children of one stable planner ref.")
             .Produces<IReadOnlyList<JobPreviewNodeDto>>()
@@ -31,6 +34,7 @@ internal static class JobPreviewEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/job-previews/{previewId:guid}/commit", CommitAsync)
+            .MapErrors(Failure)
             .WithTags("Job Preview")
             .WithSummary("Commits a client-owned revision-bound selection without replanning or rereading its source.")
             .Produces<CommitJobPreviewResponseDto>(StatusCodes.Status202Accepted)
@@ -44,18 +48,11 @@ internal static class JobPreviewEndpoints
         JobPreviewCoordinator coordinator,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            CreateJobPreviewResponseDto created = await coordinator.CreateAsync(
-                request, cancellationToken).ConfigureAwait(false);
-            return Results.Accepted(
-                $"/api/job-previews/{created.Preview.PreviewId}",
-                created);
-        }
-        catch (Exception exception)
-        {
-            return Failure(exception);
-        }
+        CreateJobPreviewResponseDto created = await coordinator.CreateAsync(
+            request, cancellationToken).ConfigureAwait(false);
+        return Results.Accepted(
+            $"/api/job-previews/{created.Preview.PreviewId}",
+            created);
     }
 
     private static async Task<IResult> GetAsync(
@@ -64,18 +61,11 @@ internal static class JobPreviewEndpoints
         CancellationToken cancellationToken,
         bool waitForCompletion = false)
     {
-        try
-        {
-            JobPreviewSummaryDto? preview = await coordinator.GetAsync(
-                previewId, cancellationToken, waitForCompletion).ConfigureAwait(false);
-            return preview == null
-                ? NotFound()
-                : Results.Ok(preview);
-        }
-        catch (Exception exception)
-        {
-            return Failure(exception);
-        }
+        JobPreviewSummaryDto? preview = await coordinator.GetAsync(
+            previewId, cancellationToken, waitForCompletion).ConfigureAwait(false);
+        return preview == null
+            ? NotFound()
+            : Results.Ok(preview);
     }
 
     private static async Task<IResult> GetNodesAsync(
@@ -87,24 +77,17 @@ internal static class JobPreviewEndpoints
         string? cursor = null,
         int limit = ServerProtocol.DefaultNestedPageSize)
     {
-        try
-        {
-            CursorPage<JobPreviewNodeDto>? page = await coordinator.GetNodesAsync(
-                previewId,
-                parentRef,
-                cursor,
-                limit,
-                cancellationToken).ConfigureAwait(false);
-            if (page == null)
-                return NotFound();
-            if (page.NextCursor != null)
-                response.Headers["X-Next-Cursor"] = page.NextCursor;
-            return Results.Ok(page.Items);
-        }
-        catch (Exception exception)
-        {
-            return Failure(exception);
-        }
+        CursorPage<JobPreviewNodeDto>? page = await coordinator.GetNodesAsync(
+            previewId,
+            parentRef,
+            cursor,
+            limit,
+            cancellationToken).ConfigureAwait(false);
+        if (page == null)
+            return NotFound();
+        if (page.NextCursor != null)
+            response.Headers["X-Next-Cursor"] = page.NextCursor;
+        return Results.Ok(page.Items);
     }
 
     private static async Task<IResult> CommitAsync(
@@ -113,24 +96,17 @@ internal static class JobPreviewEndpoints
         JobPreviewCoordinator coordinator,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            CommitJobPreviewResponseDto? receipt = await coordinator.CommitAsync(
-                previewId,
-                request,
-                cancellationToken).ConfigureAwait(false);
-            return receipt == null
-                ? NotFound()
-                : Results.Accepted(
-                    receipt.SubmissionId is Guid submissionId
-                        ? $"/api/submissions/{submissionId}"
-                        : $"/api/job-previews/{previewId}",
-                    receipt);
-        }
-        catch (Exception exception)
-        {
-            return Failure(exception);
-        }
+        CommitJobPreviewResponseDto? receipt = await coordinator.CommitAsync(
+            previewId,
+            request,
+            cancellationToken).ConfigureAwait(false);
+        return receipt == null
+            ? NotFound()
+            : Results.Accepted(
+                receipt.SubmissionId is Guid submissionId
+                    ? $"/api/submissions/{submissionId}"
+                    : $"/api/job-previews/{previewId}",
+                receipt);
     }
 
     private static IResult Failure(Exception exception)

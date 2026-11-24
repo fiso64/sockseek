@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using Sockseek.Core.Extractors;

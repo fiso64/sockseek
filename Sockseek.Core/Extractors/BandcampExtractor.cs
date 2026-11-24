@@ -3,7 +3,6 @@ using Sockseek.Core.Jobs;
 using HtmlAgilityPack;
 using System.Text.RegularExpressions;
 using System.Text.Json;
-using System.Diagnostics;
 using Sockseek.Core.Settings;
 
 namespace Sockseek.Core.Extractors;
@@ -41,18 +40,7 @@ namespace Sockseek.Core.Extractors;
             if (isWishlist)
             {
                 context.Log.Info("Retrieving wishlist..");
-                HtmlDocument doc;
-
-                if (!string.IsNullOrEmpty(_bandcamp.HtmlFromFile))
-                {
-                    doc = new HtmlDocument();
-                    doc.Load(_bandcamp.HtmlFromFile);
-                }
-                else
-                {
-                    var web = new HtmlWeb();
-                    doc = await web.LoadFromWebAsync(input);
-                }
+                HtmlDocument doc = await LoadPageAsync(input);
 
                 var items = doc.DocumentNode.SelectNodes("//li[contains(@class, 'collection-item-container')]");
 
@@ -132,18 +120,7 @@ namespace Sockseek.Core.Extractors;
             else
             {
                 context.Log.Info("Retrieving item..");
-                HtmlDocument doc;
-
-                if (!string.IsNullOrEmpty(_bandcamp.HtmlFromFile))
-                {
-                    doc = new HtmlDocument();
-                    doc.Load(_bandcamp.HtmlFromFile);
-                }
-                else
-                {
-                    var web = new HtmlWeb();
-                    doc = await web.LoadFromWebAsync(input);
-                }
+                HtmlDocument doc = await LoadPageAsync(input);
 
                 var nameSection = doc.DocumentNode.SelectSingleNode("//div[@id='name-section']")
                     ?? throw new InvalidOperationException("Could not find Bandcamp item details in page.");
@@ -184,6 +161,16 @@ namespace Sockseek.Core.Extractors;
             }
 
             return result;
+        }
+
+        /// <summary>The page to read: a saved copy when one is configured, otherwise the live page.</summary>
+        private async Task<HtmlDocument> LoadPageAsync(string url)
+        {
+            if (string.IsNullOrEmpty(_bandcamp.HtmlFromFile))
+                return await new HtmlWeb().LoadFromWebAsync(url);
+            var saved = new HtmlDocument();
+            saved.Load(_bandcamp.HtmlFromFile);
+            return saved;
         }
 
         private static string RequiredText(HtmlNode parent, string xpath, string field)

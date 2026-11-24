@@ -1,9 +1,7 @@
 using Sockseek.Api;
-using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Snapshots;
-using Sockseek.Core.Planning;
 using Sockseek.Core.Services;
 
 namespace Sockseek.Server;
@@ -35,12 +33,12 @@ public static class ServerSnapshotMapper
             new(job.DisplayId, job.WorkflowId, job.Kind.ToServer(), job.ItemName, job.QueryText,
                 job.AppliedProfiles.Select(profile => new AppliedProfileDto(profile.Name, profile.Source)).ToArray(),
                 job.PrintOption.ToServer(), job.SubmissionId, job.SemanticRole.ToServer(), job.CreatedAtUtc,
-                searchDefinition?.DefaultProjection.ToServer(), searchDefinition?.GroupResults, job.SourceDetail),
-            new(effectiveLifecycleState.ToServer(), effectiveActivityPhase.ToServer(),
+                searchDefinition?.DefaultProjection, searchDefinition?.GroupResults, job.SourceDetail),
+            new(effectiveLifecycleState, effectiveActivityPhase,
                 effectiveActivityPhase == JobActivityPhase.None ? null : activityUntilUtc ?? job.ActivityUntilUtc,
-                effectiveTerminalOutcome.ToServer(), job.SkipReason.ToServer(), job.FailureReason.ToServer(),
+                effectiveTerminalOutcome, job.SkipReason, job.FailureReason.ToServer(),
                 job.FailureMessage, hasFailureDetail ?? !string.IsNullOrEmpty(job.FailureDetail),
-                job.CancellationSource.ToServer(), includeActions ? BuildJobActions(job.Id, job.CanCancel) : []),
+                job.CancellationSource, includeActions ? BuildJobActions(job.Id, job.CanCancel) : []),
             new(counts.Public, counts.Locked, PublicFileCount: counts.Public, ObservedPeerCount: counts.Peers),
             new(parentJobId, resultJobId, sourceJobId), stats);
     }
@@ -68,10 +66,10 @@ public static class ServerSnapshotMapper
             SearchJobSnapshotPayload search => new SearchJobPayloadDto(
                 search.QueryText,
                 search.DefaultFolderProjection != null
-                    ? ServerSearchDefaultProjectionKind.Album
+                    ? SearchDefaultProjectionKind.Album
                     : search.DefaultFileProjection != null
-                        ? ServerSearchDefaultProjectionKind.Track
-                        : ServerSearchDefaultProjectionKind.GenericFile,
+                        ? SearchDefaultProjectionKind.Track
+                        : SearchDefaultProjectionKind.GenericFile,
                 search.DefaultFileProjection == null
                     ? null
                     : ToSongQueryDto(search.DefaultFileProjection.Query),
@@ -256,16 +254,16 @@ public static class ServerSnapshotMapper
             song.ResolvedTarget?.Attributes?.Select(ToFileAttributeDto).ToList(),
             job.Id,
             job.DisplayId,
-            job.LifecycleState.ToServer(),
-            job.ActivityPhase.ToServer(),
+            job.LifecycleState,
+            job.ActivityPhase,
             job.ActivityUntilUtc,
-            job.TerminalOutcome.ToServer(),
-            job.SkipReason.ToServer(),
+            job.TerminalOutcome,
+            job.SkipReason,
             job.FailureReason.ToServer(),
             job.FailureMessage,
             BuildJobActions(job.Id, job.CanCancel),
-            job.CancellationSource.ToServer(),
-            song.DownloadSource.ToServer(),
+            job.CancellationSource,
+            song.DownloadSource,
             song.ExactTarget == null ? null : ToPeerFileTargetDto(song.ExactTarget),
             ToAttemptedSongFileDto(song.LastAttemptedCandidate),
             ToFallbackSourceDto(song.Fallback));
@@ -362,7 +360,7 @@ public static class ServerSnapshotMapper
 
     public static SearchRawResultDto ToSearchRawResultDto(SearchProjectionInput input)
         => new(input.Sequence, input.Revision, input.Username, input.Filename, input.Size,
-            input.BitRate, input.SampleRate, input.Length, input.Visibility.ToServer(),
+            input.BitRate, input.SampleRate, input.Length, input.Visibility,
             input.QueueLength, input.ObservedAtUtc);
 
     private static FileAttributeDto ToFileAttributeDto(FileAttributeSnapshot attribute)

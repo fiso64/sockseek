@@ -8,6 +8,7 @@ internal static class UserProfileEndpoints
     public static void Map(WebApplication app)
     {
         app.MapGet("/api/users/{username}/profile", GetProfileAsync)
+            .MapErrors(Failure)
             .WithTags("User Browsing")
             .WithSummary("Gets a composite remote Soulseek user profile.")
             .Produces<UserProfileDto>()
@@ -15,6 +16,7 @@ internal static class UserProfileEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/users/{username}/presence", GetPresenceAsync)
+            .MapErrors(Failure)
             .WithTags("User Browsing")
             .WithSummary("Observes a peer's presence without fetching profile details.")
             .Produces<UserPresenceDto>()
@@ -32,6 +34,7 @@ internal static class UserProfileEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status404NotFound);
 
         app.MapGet("/api/users/{username}/picture", GetPictureAsync)
+            .MapErrors(Failure)
             .WithTags("User Browsing")
             .WithSummary("Gets a validated remote Soulseek user profile picture.")
             .Produces<byte[]>(
@@ -59,23 +62,16 @@ internal static class UserProfileEndpoints
                 "user profiles");
             return Unavailable();
         }
-        try
+        UserProfileDto profile = await service.GetAsync(
+            username,
+            refresh,
+            cancellationToken).ConfigureAwait(false);
+        var restrictions = runtime.SoulseekRuntime!.Restrictions;
+        return Results.Ok(profile with
         {
-            UserProfileDto profile = await service.GetAsync(
-                username,
-                refresh,
-                cancellationToken).ConfigureAwait(false);
-            var restrictions = runtime.SoulseekRuntime!.Restrictions;
-            return Results.Ok(profile with
-            {
-                UploadAccessBlocked = restrictions.IsUploadUsernameBlocked(profile.Username),
-                PrivateMessagesBlocked = restrictions.IsPrivateMessageBlocked(profile.Username),
-            });
-        }
-        catch (Exception exception)
-        {
-            return Failure(exception);
-        }
+            UploadAccessBlocked = restrictions.IsUploadUsernameBlocked(profile.Username),
+            PrivateMessagesBlocked = restrictions.IsPrivateMessageBlocked(profile.Username),
+        });
     }
 
     private static async Task<IResult> GetPictureAsync(
@@ -94,17 +90,10 @@ internal static class UserProfileEndpoints
                 "user profiles");
             return Unavailable();
         }
-        try
-        {
-            UserPicture? picture = await service.GetPictureAsync(
-                username,
-                cancellationToken).ConfigureAwait(false);
-            return PictureResult(picture, request, response);
-        }
-        catch (Exception exception)
-        {
-            return Failure(exception);
-        }
+        UserPicture? picture = await service.GetPictureAsync(
+            username,
+            cancellationToken).ConfigureAwait(false);
+        return PictureResult(picture, request, response);
     }
 
     private static async Task<IResult> GetPresenceAsync(
@@ -121,15 +110,8 @@ internal static class UserProfileEndpoints
                 "user presence");
             return Unavailable();
         }
-        try
-        {
-            return Results.Ok(await service.GetAsync(
-                username, cancellationToken).ConfigureAwait(false));
-        }
-        catch (Exception exception)
-        {
-            return Failure(exception);
-        }
+        return Results.Ok(await service.GetAsync(
+            username, cancellationToken).ConfigureAwait(false));
     }
 
     private static IResult GetLocalPicture(HttpRequest request, HttpResponse response, DaemonRuntime runtime)

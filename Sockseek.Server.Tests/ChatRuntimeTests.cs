@@ -1,7 +1,5 @@
-using System.Reflection;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core.Chat;
 using Sockseek.Core.Settings;
 using Sockseek.Api;
@@ -235,10 +233,10 @@ public sealed class ChatRuntimeTests
         await chat.StartAsync(CancellationToken.None);
 
         var joined = await chat.Rooms.JoinRoomAsync("secret", remember: true, CancellationToken.None);
-        Assert.AreEqual(ServerChatRoomKind.Private, joined.Kind);
+        Assert.AreEqual(ChatRoomKind.Private, joined.Kind);
         Assert.IsTrue(joined.Owned);
         Assert.IsTrue(joined.Moderated);
-        Assert.AreEqual(ServerChatRoomJoinPhase.Joined, joined.Phase);
+        Assert.AreEqual(ChatRoomJoinPhase.Joined, joined.Phase);
         Assert.IsTrue(fake.LastJoinWasPrivate);
         RoomMemberPageDto members = await chat.Rooms.GetRoomMembersAsync(
             joined.RoomId, null, 100, null, CancellationToken.None);
@@ -272,7 +270,7 @@ public sealed class ChatRuntimeTests
         fake.RaiseState(SoulseekClientStates.None);
         await WaitUntilAsync(() => roomChanges.Any(change =>
             change.TargetId == joined.RoomId
-            && change.Room?.Phase == ServerChatRoomJoinPhase.Disconnected
+            && change.Room?.Phase == ChatRoomJoinPhase.Disconnected
             && change.Room.MemberCount == 0));
     }
 
@@ -387,7 +385,7 @@ public sealed class ChatRuntimeTests
         fake.RaiseState(SoulseekClientStates.Connected);
         fake.RaiseState(SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn);
         await chat.StartAsync(CancellationToken.None);
-        Assert.AreEqual(ServerChatRoomJoinPhase.Joined,
+        Assert.AreEqual(ChatRoomJoinPhase.Joined,
             (await chat.Rooms.GetRoomSummaryAsync(room.RoomId, CancellationToken.None))?.Phase);
         Assert.AreEqual(1, fake.RoomJoinCount);
 
@@ -397,7 +395,7 @@ public sealed class ChatRuntimeTests
         await WaitUntilAsync(() => fake.RoomJoinCount == 2);
         await WaitUntilAsync(async () =>
             (await chat.Rooms.GetRoomSummaryAsync(room.RoomId, CancellationToken.None))?.Phase
-            == ServerChatRoomJoinPhase.Joined);
+            == ChatRoomJoinPhase.Joined);
 
         await chat.Rooms.LeaveRoomAsync(room.RoomId, CancellationToken.None);
         fake.RaiseState(SoulseekClientStates.None);
@@ -456,7 +454,7 @@ public sealed class ChatRuntimeTests
             "local", "broken") ?? throw new AssertFailedException();
         Assert.IsTrue(changes.Any(change =>
             change.TargetId == room.RoomId
-            && change.Room?.Phase == ServerChatRoomJoinPhase.Failed
+            && change.Room?.Phase == ChatRoomJoinPhase.Failed
             && change.Room.FailureReason?.Contains("join failed", StringComparison.Ordinal) == true));
     }
 

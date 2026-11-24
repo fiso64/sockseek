@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using Spectre.Console;
 
 namespace Sockseek.Cli;

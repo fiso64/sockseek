@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using Sockseek.Api;
 using Sockseek.Server;

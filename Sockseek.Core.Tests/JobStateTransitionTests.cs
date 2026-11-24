@@ -1,7 +1,7 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Sockseek.Api;
 using Sockseek.Core.Events;
 using Sockseek.Core.Snapshots;
-using Sockseek.Core.Transfers.Downloads.JobTracking;
+using Sockseek.Core.Transfers.Downloads;
 
 namespace Tests.Core;
 

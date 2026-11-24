@@ -1,16 +1,15 @@
+using Sockseek.Api;
+using TransferFailureReason = Sockseek.Core.Events.TransferFailureReason;
 using System.Net.Sockets;
 using Soulseek;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
-using Sockseek.Core;
 
 using File = System.IO.File;
-using Directory = System.IO.Directory;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Transfers;
-using Sockseek.Core.Transfers.Downloads.State;
+using Sockseek.Core.Transfers.Downloads;
 using Sockseek.Core.Events;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Sockseek.Core.Services;
@@ -228,6 +227,10 @@ public sealed class ExactPeerFileTransferRunner
             => events.RaiseTransferAttemptCancelled(transferId, currentAttemptId, Math.Max(attemptCount, 1),
                 owner, target, outputPath, reason);
 
+        void FailTransfer(TransferFailureReason reason, Exception exception)
+            => events.RaiseTransferFailed(transferId, owner, target, outputPath, owner.BytesTransferred,
+                totalBytes, Math.Max(attemptCount, 1), reason, exception);
+
         void CancelTransfer(TransferCancellationReason reason)
         {
             CancelAttempt(reason);
@@ -392,16 +395,7 @@ public sealed class ExactPeerFileTransferRunner
                 activeDownload.StaleMaxStaleTimeMs ?? maxStaleTimeMs);
             events.RaiseDownloadAttemptFailed(transferId, owner, target, outputPath, incompleteOutputPath, Math.Max(attemptCount, 1), Math.Max(attemptCount, 1), staleException);
             CancelAttempt(TransferCancellationReason.Stale);
-            events.RaiseTransferFailed(
-                transferId,
-                owner,
-                target,
-                outputPath,
-                owner.BytesTransferred,
-                totalBytes,
-                Math.Max(attemptCount, 1),
-                TransferFailureReason.Stale,
-                staleException);
+            FailTransfer(TransferFailureReason.Stale, staleException);
             throw staleException;
         }
         catch (Exception ex)
@@ -443,16 +437,7 @@ public sealed class ExactPeerFileTransferRunner
                         outputPath,
                         ex, FailureReason(ex));
                 }
-                events.RaiseTransferFailed(
-                    transferId,
-                    owner,
-                    target,
-                    outputPath,
-                    owner.BytesTransferred,
-                    totalBytes,
-                    Math.Max(attemptCount, 1),
-                    FailureReason(ex),
-                    ex);
+                FailTransfer(FailureReason(ex), ex);
             }
 
             throw;
@@ -500,16 +485,7 @@ public sealed class ExactPeerFileTransferRunner
             var finalizationException = new DownloadDestinationException(
                 $"Failed to rename incomplete file from '{incompleteOutputPath}' to '{outputPath}'.",
                 ex);
-            events.RaiseTransferFailed(
-                transferId,
-                owner,
-                target,
-                outputPath,
-                owner.BytesTransferred,
-                totalBytes,
-                Math.Max(attemptCount, 1),
-                TransferFailureReason.LocalStorageError,
-                finalizationException);
+            FailTransfer(TransferFailureReason.LocalStorageError, finalizationException);
             throw finalizationException;
         }
 

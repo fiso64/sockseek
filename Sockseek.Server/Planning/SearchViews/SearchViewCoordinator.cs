@@ -10,7 +10,6 @@ using Sockseek.Core.Models;
 using Sockseek.Core.Planning;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
-using Sockseek.Persistence.Planning;
 using Sockseek.Persistence.Read;
 using Sockseek.Server.Persistence;
 
@@ -317,13 +316,13 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             EffectiveSettingsMapper.ToSearchSettings(settings), baseline);
     }
 
-    public SearchViewFilePageDto? GetFiles(Guid viewId, long revision, string? cursor, int limit, ServerSearchViewSortOrder? sortOrder = null, CancellationToken cancellationToken = default)
+    public SearchViewFilePageDto? GetFiles(Guid viewId, long revision, string? cursor, int limit, SearchViewSortOrder? sortOrder = null, CancellationToken cancellationToken = default)
     {
         var snapshot = Cache.GetSnapshot(viewId, revision, cancellationToken);
         if (snapshot is null) return null;
         var paging = cursors.Files(viewId, revision, sortOrder);
         var after = paging.Decode(cursor);
-        SearchViewFilePage? page = snapshot.GetFiles(after, limit, sortOrder?.ToCore(), cancellationToken: cancellationToken);
+        SearchViewFilePage? page = snapshot.GetFiles(after, limit, sortOrder, cancellationToken: cancellationToken);
         if (page == null)
             return null;
         return new(
@@ -332,13 +331,13 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             paging.Encode(page.NextPosition));
     }
 
-    public SearchViewDirectoryPageDto? GetDirectories(Guid viewId, long revision, string? cursor, int limit, ServerSearchViewSortOrder? sortOrder = null, CancellationToken cancellationToken = default)
+    public SearchViewDirectoryPageDto? GetDirectories(Guid viewId, long revision, string? cursor, int limit, SearchViewSortOrder? sortOrder = null, CancellationToken cancellationToken = default)
     {
         var snapshot = Cache.GetSnapshot(viewId, revision, cancellationToken);
         if (snapshot is null) return null;
         var paging = cursors.Directories(viewId, revision, sortOrder);
         var after = paging.Decode(cursor);
-        SearchViewDirectoryPage? page = snapshot.GetDirectories(after, limit, InitialDirectoryFileLimit, sortOrder?.ToCore(), cancellationToken: cancellationToken);
+        SearchViewDirectoryPage? page = snapshot.GetDirectories(after, limit, InitialDirectoryFileLimit, sortOrder, cancellationToken: cancellationToken);
         if (page == null)
             return null;
         return new(
@@ -1073,7 +1072,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         SongQuery? defaultSongQuery = null,
         AlbumQuery? defaultAlbumQuery = null)
     {
-        SearchViewProjectionKind kind = request.Kind?.ToCore() ?? definition.DefaultProjection switch
+        SearchViewProjectionKind kind = request.Kind ?? definition.DefaultProjection switch
         {
             SearchDefaultProjectionKind.GenericFile => SearchViewProjectionKind.GenericDirectories,
             SearchDefaultProjectionKind.Track => definition.GroupResults
@@ -1098,7 +1097,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             album,
             request.IncludeFullResults,
             request.FilterText,
-            request.SortOrder?.ToCore() ?? SearchViewSortOrder.Relevance,
+            request.SortOrder ?? SearchViewSortOrder.Relevance,
             request.KeepVisibleFiles?.Select(file => new PeerFileIdentity(file.Username, file.Filename)).ToArray());
         resolved.Validate();
         return resolved;
@@ -1161,7 +1160,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         => new(
             view.Id,
             view.SourceJobId,
-            view.ProjectionKind.ToServer(),
+            view.ProjectionKind,
             view.CreatedAtUtc,
             view.ExpiresAtUtc,
             view.Revision,
@@ -1170,7 +1169,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             view.IsComplete,
             ParseRetention(view.RetentionState),
             ToDto(view.Counters),
-            view.SortOrder.ToServer(),
+            view.SortOrder,
             view.Definition.Projection.FilterText);
 
     private static SearchViewRevisionDto ToDto(SearchViewRevision revision)
@@ -1201,13 +1200,13 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
     private static SearchViewFileDto ToDto(SearchViewFile row)
         => new(
             row.Ref,
-            row.Input.Visibility.ToServer(),
-            row.PreferenceTier.ToServer(),
+            row.Input.Visibility,
+            row.PreferenceTier,
             row.NecessaryConditionsSatisfied,
-            row.SatisfiedPreferredConditions.Select(condition => condition.ToServer()).ToArray(),
+            row.SatisfiedPreferredConditions.Select(condition => condition).ToArray(),
             row.ConfiguredPreferredConditions
                 .Except(row.SatisfiedPreferredConditions)
-                .Select(condition => condition.ToServer())
+                .Select(condition => condition)
                 .ToArray(),
             row.Input.Filename,
             new PeerInfoDto(
@@ -1241,8 +1240,8 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         return new(
             new PeerDirectoryRefDto(row.Ref, row.Username, row.FolderPath),
             visibility,
-            row.BestChild.PreferenceTier.ToServer(),
-            row.BestChild.SatisfiedPreferredConditions.Select(condition => condition.ToServer()).ToArray(),
+            row.BestChild.PreferenceTier,
+            row.BestChild.SatisfiedPreferredConditions.Select(condition => condition).ToArray(),
             row.PublicMatchingFileCount,
             row.LockedMatchingFileCount,
             row.PublicMatchingBytes,
@@ -1310,7 +1309,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
     private static CreateSearchViewRequestDto ToDto(
         SearchViewProjectionDefinition projection)
         => new(
-            projection.Kind.ToServer(),
+            projection.Kind,
             projection.SongQuery == null
                 ? null
                 : ServerSnapshotMapper.ToSongQueryDto(projection.SongQuery),
@@ -1319,7 +1318,7 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
                 : ServerSnapshotMapper.ToAlbumQueryDto(projection.AlbumQuery),
             projection.IncludeFullResults,
             FilterText: projection.FilterText,
-            SortOrder: projection.SortOrder.ToServer(),
+            SortOrder: projection.SortOrder,
             KeepVisibleFiles: projection.KeepVisibleFiles?.Select(file => new FileCandidateRefDto(file.Username, file.Filename)).ToArray());
 
     private sealed class RuntimeView(

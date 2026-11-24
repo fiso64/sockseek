@@ -8,14 +8,14 @@ public static class ChatProtocol
 public sealed record ChatMessageDto(
     Guid MessageId,
     long Sequence,
-    ServerChatTargetKind TargetKind,
+    ChatTargetKind TargetKind,
     Guid TargetId,
     string Sender,
-    ServerChatMessageDirection Direction,
+    ChatMessageDirection Direction,
     string Text,
     DateTimeOffset OccurredAtUtc,
     DateTimeOffset RecordedAtUtc,
-    ServerChatMessageState State,
+    ChatMessageState State,
     string? FailureReason);
 
 public sealed record ConversationSummaryDto(
@@ -38,7 +38,7 @@ public sealed record ChatMessagePageDto(
 public sealed record AvailableRoomDto(
     string Name,
     int UserCount,
-    ServerChatRoomKind Kind,
+    ChatRoomKind Kind,
     bool Owned,
     bool Moderated);
 
@@ -54,10 +54,10 @@ public sealed record ChatRoomSummaryDto(
     bool Configured,
     bool Remembered,
     bool Desired,
-    ServerChatRoomKind Kind,
+    ChatRoomKind Kind,
     bool Owned,
     bool Moderated,
-    ServerChatRoomJoinPhase Phase,
+    ChatRoomJoinPhase Phase,
     string? FailureReason,
     int MemberCount,
     long MemberRevision,
@@ -92,11 +92,11 @@ public sealed record ChatRoomPageDto(
 public sealed record UserNotificationDto(
     Guid NotificationId,
     long Sequence,
-    ServerUserNotificationKind Kind,
+    UserNotificationKind Kind,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? ReadAtUtc,
     string Actor,
-    ServerChatTargetKind TargetKind,
+    ChatTargetKind TargetKind,
     Guid TargetId,
     string TargetName,
     Guid SourceMessageId,

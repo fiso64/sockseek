@@ -1,9 +1,7 @@
+using Sockseek.Api;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
-using Sockseek.Core.Settings;
-using Sockseek.Core;
 using Sockseek.Core.Events;
-using Sockseek.Core.Services;
 using Sockseek.Core.Planning;
 using Sockseek.Core.Extractors;
 

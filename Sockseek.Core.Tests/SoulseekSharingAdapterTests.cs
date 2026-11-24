@@ -1,8 +1,5 @@
 using System.Net;
-using Microsoft.Extensions.Logging;
 using Sockseek.Core.Diagnostics;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
 using Sockseek.Core.Transfers.Uploads;

@@ -209,11 +209,11 @@ public sealed record RemoteDirectoryJobDraftDto(
 /// Null per-kind values inherit Default.
 /// </summary>
 public sealed record DownloadBehaviorPolicyDto(
-    ServerDownloadBehavior Default = ServerDownloadBehavior.Automatic,
-    ServerDownloadBehavior? Song = null,
-    ServerDownloadBehavior? Album = null,
-    ServerDownloadBehavior? SongGroups = null,
-    ServerDownloadBehavior? AlbumGroups = null);
+    DownloadBehavior Default = DownloadBehavior.Automatic,
+    DownloadBehavior? Song = null,
+    DownloadBehavior? Album = null,
+    DownloadBehavior? SongGroups = null,
+    DownloadBehavior? AlbumGroups = null);
 
 /// <summary>
 /// Submission-time settings layered over the daemon defaults.
@@ -238,7 +238,7 @@ public sealed record RetrieveFolderRequestDto(
 public sealed record StartFileDownloadsRequestDto(
     IReadOnlyList<FileCandidateRefDto> Files,
     SubmissionOptionsDto? Options = null,
-    ServerExtractionMode? RequestedMode = null);
+    ExtractionMode? RequestedMode = null);
 
 /// <summary>
 /// Starts an album/folder download from a selected search result folder.
@@ -248,7 +248,7 @@ public sealed record StartFolderDownloadRequestDto(
     SubmissionOptionsDto? Options = null,
     AlbumQueryDto? AlbumQuery = null,
     AlbumFolderDownloadSelectionDto? Selection = null,
-    ServerExtractionMode? RequestedMode = null);
+    ExtractionMode? RequestedMode = null);
 
 /// <summary>
 /// Describes how a selected album/folder should be downloaded.

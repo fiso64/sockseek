@@ -1,5 +1,4 @@
 using Sockseek.Api;
-using Sockseek.Core;
 
 namespace Sockseek.Cli;
 
@@ -97,7 +96,7 @@ public class CliProgressReporter
         ActivityEventDto activity)
     {
         var summary = activity.JobId is Guid jobId ? store.GetJob(jobId) : null;
-        if (summary?.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal
+        if (summary?.Lifecycle.LifecycleState == JobLifecycleState.Terminal
             && activity.Payload is not DiagnosticActivityDto)
         {
             return;
@@ -188,10 +187,10 @@ public class CliProgressReporter
     {
         var retired = previousLiveJobs.Values
             .Where(job =>
-                job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal
+                job.Lifecycle.LifecycleState == JobLifecycleState.Terminal
                 && !currentJobs.ContainsKey(job.JobId))
             .Concat(changedJobs.Where(job =>
-                job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal
+                job.Lifecycle.LifecycleState == JobLifecycleState.Terminal
                 && !currentJobs.ContainsKey(job.JobId)))
             .DistinctBy(job => job.JobId);
 
@@ -326,7 +325,7 @@ public class CliProgressReporter
         transfersByJob.TryGetValue(job.JobId, out var transfer);
         var status = CliJobStatusPresenter.ForSummary(job, transfer?.Status);
         string state = transfer == null
-            && job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal
+            && job.Lifecycle.LifecycleState != JobLifecycleState.Terminal
             && activityStatuses.TryGetValue(job.JobId, out var activityStatus)
                 ? activityStatus
                 : status.Label;
@@ -348,11 +347,11 @@ public class CliProgressReporter
                 .OrderBy(child => child.Display.DisplayId)
                 .ToList();
             doneChildren = songs.Count(child =>
-                child.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal);
+                child.Lifecycle.LifecycleState == JobLifecycleState.Terminal);
             totalChildren = songs.Count;
             children = songs
                 .Where(child =>
-                    child.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal)
+                    child.Lifecycle.LifecycleState != JobLifecycleState.Terminal)
                 .Select(child => ProjectAlbumChild(
                     child,
                     transfersByJob,

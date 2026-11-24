@@ -1,9 +1,8 @@
+using Sockseek.Api;
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core.Chat;
-using Sockseek.Persistence;
 using Sockseek.Persistence.Chat;
 using Sockseek.Persistence.Sqlite;
 using Sockseek.Persistence.Write;

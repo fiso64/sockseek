@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Persistence.Read;
 using Sockseek.Persistence.Runtime;
 using Sockseek.Persistence.Sqlite;

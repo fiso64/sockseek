@@ -1,9 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core.Diagnostics;
-using Sockseek.Core.Extractors;
 
 namespace Tests.Core;
 

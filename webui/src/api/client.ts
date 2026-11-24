@@ -416,14 +416,14 @@ export class DaemonApiClient {
     );
   }
 
-  getSearchViewFiles(viewId: string, revision: number | string, cursor?: string | null, limit = searchFilePageSize, sortOrder?: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchViewFilePageDto> {
+  getSearchViewFiles(viewId: string, revision: number | string, cursor?: string | null, limit = searchFilePageSize, sortOrder?: Schema<'SearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchViewFilePageDto> {
     return this.http.get(
       `/search-views/${encodeURIComponent(viewId)}/files${queryString({ revision, cursor, limit, sortOrder })}`,
       signal,
     );
   }
 
-  getSearchViewDirectories(viewId: string, revision: number | string, cursor?: string | null, limit = searchDirectoryPageSize, sortOrder?: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchViewDirectoryPageDto> {
+  getSearchViewDirectories(viewId: string, revision: number | string, cursor?: string | null, limit = searchDirectoryPageSize, sortOrder?: Schema<'SearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchViewDirectoryPageDto> {
     return this.http.get(
       `/search-views/${encodeURIComponent(viewId)}/directories${queryString({ revision, cursor, limit, sortOrder })}`,
       signal,

@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Collections.Concurrent;
 using Sockseek.Api;
 using Sockseek.Core;
-using Sockseek.Core.Services;
 
 namespace Sockseek.Cli;
 
@@ -192,27 +191,17 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         SearchViewSummaryDto view = await CreateReadySearchViewAsync(
             jobId,
             new CreateSearchViewRequestDto(
-                ServerSearchViewProjectionKind.Files,
+                SearchViewProjectionKind.Files,
                 request.SongQuery,
                 IncludeFullResults: request.IncludeFullResults),
             ct).ConfigureAwait(false);
         var items = new List<FileCandidateDto>();
-        string? cursor = null;
         SearchViewRevisionDto? revision = null;
-        do
+        await foreach (SearchViewFilePageDto page in PagesAsync(cursor => api.GetSearchViewFilesAsync(view.ViewId, view.Revision, cursor, SearchViewPageSize, ct: ct)).ConfigureAwait(false))
         {
-            SearchViewFilePageDto page = await api.GetSearchViewFilesAsync(
-                view.ViewId,
-                view.Revision,
-                cursor,
-                SearchViewPageSize,
-                ct: ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             revision ??= page.Revision;
             items.AddRange(page.Items.Select(CliSearchProjectionMapper.ToDto));
-            cursor = page.NextCursor;
         }
-        while (cursor != null);
         return Snapshot(revision ?? Revision(view), items);
     }
 
@@ -241,21 +230,13 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         SearchViewSummaryDto view = await CreateReadySearchViewAsync(
             jobId,
             new CreateSearchViewRequestDto(
-                ServerSearchViewProjectionKind.TrackGroups,
+                SearchViewProjectionKind.TrackGroups,
                 request.SongQuery),
             ct).ConfigureAwait(false);
         var items = new List<TrackGroupCandidateDto>();
-        string? cursor = null;
         SearchViewRevisionDto? revision = null;
-        do
+        await foreach (SearchViewTrackGroupPageDto page in PagesAsync(cursor => api.GetSearchViewTrackGroupsAsync(view.ViewId, view.Revision, cursor, SearchViewPageSize, ct)).ConfigureAwait(false))
         {
-            SearchViewTrackGroupPageDto page = await api.GetSearchViewTrackGroupsAsync(
-                view.ViewId,
-                view.Revision,
-                cursor,
-                SearchViewPageSize,
-                ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             revision ??= page.Revision;
             foreach (SearchViewTrackGroupDto group in page.Items)
             {
@@ -264,9 +245,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                     : null;
                 items.Add(new TrackGroupCandidateDto(group.Query, null, candidates));
             }
-            cursor = page.NextCursor;
         }
-        while (cursor != null);
         return Snapshot(revision ?? Revision(view), items);
     }
 
@@ -283,21 +262,13 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         SearchViewSummaryDto view = await CreateReadySearchViewAsync(
             jobId,
             new CreateSearchViewRequestDto(
-                ServerSearchViewProjectionKind.AlbumGroups,
+                SearchViewProjectionKind.AlbumGroups,
                 AlbumQuery: request.AlbumQuery),
             ct).ConfigureAwait(false);
         var items = new List<AlbumGroupCandidateDto>();
-        string? cursor = null;
         SearchViewRevisionDto? revision = null;
-        do
+        await foreach (SearchViewAlbumGroupPageDto page in PagesAsync(cursor => api.GetSearchViewAlbumGroupsAsync(view.ViewId, view.Revision, cursor, SearchViewPageSize, ct)).ConfigureAwait(false))
         {
-            SearchViewAlbumGroupPageDto page = await api.GetSearchViewAlbumGroupsAsync(
-                view.ViewId,
-                view.Revision,
-                cursor,
-                SearchViewPageSize,
-                ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             revision ??= page.Revision;
             foreach (SearchViewAlbumGroupDto group in page.Items)
             {
@@ -306,9 +277,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
                     : null;
                 items.Add(new AlbumGroupCandidateDto(group.Query, null, folders));
             }
-            cursor = page.NextCursor;
         }
-        while (cursor != null);
         return Snapshot(revision ?? Revision(view), items);
     }
 
@@ -321,28 +290,33 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         SearchViewSummaryDto view = await CreateReadySearchViewAsync(
             jobId,
             new CreateSearchViewRequestDto(
-                ServerSearchViewProjectionKind.AlbumDirectories,
+                SearchViewProjectionKind.AlbumDirectories,
                 AlbumQuery: query),
             ct).ConfigureAwait(false);
         var items = new List<AlbumFolderDto>();
-        string? cursor = null;
         SearchViewRevisionDto? revision = null;
-        do
+        await foreach (SearchViewDirectoryPageDto page in PagesAsync(cursor => api.GetSearchViewDirectoriesAsync(view.ViewId, view.Revision, cursor, SearchViewPageSize, ct: ct)).ConfigureAwait(false))
         {
-            SearchViewDirectoryPageDto page = await api.GetSearchViewDirectoriesAsync(
-                view.ViewId,
-                view.Revision,
-                cursor,
-                SearchViewPageSize,
-                ct: ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             revision ??= page.Revision;
             foreach (SearchViewDirectoryDto directory in page.Items)
                 items.Add(await ToCliDirectoryAsync(view, directory, includeFiles, ct).ConfigureAwait(false));
+        }
+        return Snapshot(revision ?? Revision(view), items);
+    }
+
+    /// <summary>Every page of one search-view listing, in order; the view is gone when a page is.</summary>
+    private static async IAsyncEnumerable<TPage> PagesAsync<TPage>(Func<string?, Task<TPage?>> read)
+        where TPage : class, ISearchViewPage
+    {
+        string? cursor = null;
+        do
+        {
+            TPage page = await read(cursor).ConfigureAwait(false)
+                ?? throw new InvalidOperationException(ResultsExpiredMessage);
+            yield return page;
             cursor = page.NextCursor;
         }
         while (cursor != null);
-        return Snapshot(revision ?? Revision(view), items);
     }
 
     private async Task<SearchViewSummaryDto> CreateReadySearchViewAsync(
@@ -363,21 +337,10 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         CancellationToken ct)
     {
         var files = new List<FileCandidateDto>();
-        string? cursor = null;
-        do
+        await foreach (SearchViewDirectoryFilePageDto page in PagesAsync(cursor => api.GetSearchViewDirectoryFilesAsync(view.ViewId, directoryRef, view.Revision, cursor, SearchViewPageSize, ct)).ConfigureAwait(false))
         {
-            SearchViewDirectoryFilePageDto page = await api.GetSearchViewDirectoryFilesAsync(
-                view.ViewId,
-                directoryRef,
-                view.Revision,
-                cursor,
-                SearchViewPageSize,
-                ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             files.AddRange(page.Items.Select(item => CliSearchProjectionMapper.ToDto(item.File)));
-            cursor = page.NextCursor;
         }
-        while (cursor != null);
         return files;
     }
 
@@ -387,22 +350,10 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         CancellationToken ct)
     {
         var files = new List<FileCandidateDto>();
-        string? cursor = null;
-        do
+        await foreach (SearchViewTrackGroupOptionPageDto page in PagesAsync(cursor => api.GetSearchViewTrackGroupOptionsAsync(view.ViewId, groupRef, view.Revision, cursor, SearchViewPageSize, ct)).ConfigureAwait(false))
         {
-            SearchViewTrackGroupOptionPageDto page = await api
-                .GetSearchViewTrackGroupOptionsAsync(
-                    view.ViewId,
-                    groupRef,
-                    view.Revision,
-                    cursor,
-                    SearchViewPageSize,
-                    ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             files.AddRange(page.Items.Select(CliSearchProjectionMapper.ToDto));
-            cursor = page.NextCursor;
         }
-        while (cursor != null);
         return files;
     }
 
@@ -412,23 +363,11 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
         CancellationToken ct)
     {
         var folders = new List<AlbumFolderDto>();
-        string? cursor = null;
-        do
+        await foreach (SearchViewAlbumGroupOptionPageDto page in PagesAsync(cursor => api.GetSearchViewAlbumGroupOptionsAsync(view.ViewId, groupRef, view.Revision, cursor, SearchViewPageSize, ct)).ConfigureAwait(false))
         {
-            SearchViewAlbumGroupOptionPageDto page = await api
-                .GetSearchViewAlbumGroupOptionsAsync(
-                    view.ViewId,
-                    groupRef,
-                    view.Revision,
-                    cursor,
-                    SearchViewPageSize,
-                    ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(ResultsExpiredMessage);
             foreach (SearchViewDirectoryDto directory in page.Items)
                 folders.Add(await ToCliDirectoryAsync(view, directory, includeFiles: true, ct).ConfigureAwait(false));
-            cursor = page.NextCursor;
         }
-        while (cursor != null);
         return folders;
     }
 
@@ -517,7 +456,7 @@ internal sealed class RemoteCliBackend : ICliBackend, IAsyncDisposable
             JobDetailDto? detail = await api.GetJobDetailAsync(summary.JobId, ct)
                 .ConfigureAwait(false);
             if (detail != null && detail.Summary.Lifecycle.LifecycleState is not (
-                ServerJobLifecycleState.Pending or ServerJobLifecycleState.Running))
+                JobLifecycleState.Pending or JobLifecycleState.Running))
             {
                 return detail.Payload as RetrieveFolderJobPayloadDto;
             }

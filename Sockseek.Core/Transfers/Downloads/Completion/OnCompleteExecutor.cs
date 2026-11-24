@@ -1,9 +1,8 @@
+using Sockseek.Api;
 using System.Diagnostics;
 using System.Text;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
-using Sockseek.Core;
-using Sockseek.Core.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 

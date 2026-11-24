@@ -1,7 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Sockseek.Core.Settings;
 using Sockseek.Server;
-using Microsoft.Extensions.Logging;
 
 namespace Sockseek.Cli;
 

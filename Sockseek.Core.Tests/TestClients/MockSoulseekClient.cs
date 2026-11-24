@@ -1,5 +1,5 @@
-using System.Collections.Concurrent;
 using Sockseek.Core;
+using System.Collections.Concurrent;
 using Sockseek.Core.Services;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
@@ -9,23 +9,24 @@ using Soulseek.Diagnostics;
 
 namespace Tests.ClientTests
 {
-    public partial class MockSoulseekClient : ISoulseekClient, IPeerDirectorySource
+    public class MockSoulseekClient : UnsupportedSoulseekClient, IPeerDirectorySource
     {
-        public IReadOnlyCollection<Transfer> Downloads => throw new NotImplementedException();
+        public override IReadOnlyCollection<Transfer> Downloads => throw new NotImplementedException();
 
         // Soulseek.NET hard-codes the real client's major version; this test fake
         // mirrors v10's value only to satisfy ISoulseekClient.
-        public int MajorVersion => 170;
+        public override int MajorVersion => 170;
 
-        public int MinorVersion => SockseekSoulseekClientIdentity.MinorVersion;
+        public override int MinorVersion => SockseekSoulseekClientIdentity.MinorVersion;
 
-        public SoulseekClientStates State { get; private set; } = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
+        private SoulseekClientStates state = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
+        public override SoulseekClientStates State => state;
 
-        public SoulseekClientOptions Options { get; } = new(enableListener: false);
-        public string Address => "server.test";
-        public System.Net.IPAddress IPAddress => System.Net.IPAddress.Loopback;
-        public System.Net.IPEndPoint IPEndPoint => new(IPAddress, 2271);
-        public int? Port => 2271;
+        public override SoulseekClientOptions Options { get; } = new(enableListener: false);
+        public override string Address => "server.test";
+        public override System.Net.IPAddress IPAddress => System.Net.IPAddress.Loopback;
+        public override System.Net.IPEndPoint IPEndPoint => new(IPAddress, 2271);
+        public override int? Port => 2271;
 
         private List<Soulseek.SearchResponse> index;
         private readonly HashSet<string> failingUsers;
@@ -46,7 +47,7 @@ namespace Tests.ClientTests
         public Func<string, string, CancellationToken, Task>? BeforeDownloadCompletesAsync;
         public Func<string, string, TransferStates, CancellationToken, Task>? AfterDownloadStateChangedAsync;
         public Func<string, string, int>? QueuePosition;
-        public Task<int> GetDownloadPlaceInQueueAsync(string username, string filename, CancellationToken? cancellationToken = null)
+        public override Task<int> GetDownloadPlaceInQueueAsync(string username, string filename, CancellationToken? cancellationToken = null)
             => Task.FromResult(QueuePosition?.Invoke(username, filename) ?? -1);
 
         public Action<long, long>? AfterDownloadProgress;
@@ -72,7 +73,7 @@ namespace Tests.ClientTests
         public void RaiseKickedFromServer(bool disconnect = true)
         {
             if (disconnect)
-                State = SoulseekClientStates.None;
+                state = SoulseekClientStates.None;
             KickedFromServer?.Invoke(this, EventArgs.Empty);
         }
 
@@ -82,7 +83,7 @@ namespace Tests.ClientTests
         public void RaiseStateChanged(SoulseekClientStates state, Exception? exception = null)
         {
             SoulseekClientStates previous = State;
-            State = state;
+            this.state = state;
             StateChanged?.Invoke(
                 this,
                 new SoulseekClientStateChangedEventArgs(previous, state, exception?.Message ?? "test", exception));
@@ -97,7 +98,7 @@ namespace Tests.ClientTests
             this.failingFiles  = new HashSet<string>(failingFiles ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
             this.index         = index;
             this.failingUsers  = new HashSet<string>(failingUsers ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
-            State = initialState;
+            state = initialState;
         }
 
         public static MockSoulseekClient FromLocalPaths(bool useTags, params string[] localPaths)
@@ -161,12 +162,12 @@ namespace Tests.ClientTests
         }
 
 
-        public Task ConnectAsync(string username, string password, CancellationToken? cancellationToken = null)
+        public override Task ConnectAsync(string username, string password, CancellationToken? cancellationToken = null)
         {
             return ConnectAsync("", 0, username, password, cancellationToken);
         }
 
-        public Task ConnectAsync(string address, int port, string username, string password, CancellationToken? cancellationToken = null)
+        public override Task ConnectAsync(string address, int port, string username, string password, CancellationToken? cancellationToken = null)
         {
             Interlocked.Increment(ref ConnectCallCount);
             Connecting?.Invoke();
@@ -182,12 +183,12 @@ namespace Tests.ClientTests
             return Task.CompletedTask;
         }
 
-        public Task SetSharedCountsAsync(int directories, int files, CancellationToken? cancellationToken = null)
+        public override Task SetSharedCountsAsync(int directories, int files, CancellationToken? cancellationToken = null)
         {
             return Task.CompletedTask;
         }
 
-        public async Task<BrowseResponse> BrowseAsync(string username, BrowseOptions? options = null, CancellationToken? cancellationToken = null)
+        public override async Task<BrowseResponse> BrowseAsync(string username, BrowseOptions? options = null, CancellationToken? cancellationToken = null)
         {
             if (Interlocked.Increment(ref BrowseCallCount) == 1)
                 DownloadCallCountAtFirstBrowse = Volatile.Read(ref DownloadCallCount);
@@ -242,12 +243,12 @@ namespace Tests.ClientTests
             return PeerDirectorySnapshotFactory.FromBrowseResponse(directory, response);
         }
 
-        public Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsync(SearchQuery query, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
+        public override Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsync(SearchQuery query, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
             return SearchAsyncInternal(query, null, scope, token, options, cancellationToken);
         }
 
-        public async Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
+        public override async Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
             if (SearchHandler != null)
                 return await SearchHandler(query, responseHandler, options ?? new SearchOptions(), cancellationToken ?? CancellationToken.None);
@@ -363,7 +364,7 @@ namespace Tests.ClientTests
         SemaphoreSlim GetUserSemaphore(string username) =>
             _userSemaphores.GetOrAdd(username, _ => new SemaphoreSlim(1, 1));
 
-        public async Task<Transfer> DownloadAsync(string username, string remoteFilename, string localFilename, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
+        public override async Task<Transfer> DownloadAsync(string username, string remoteFilename, string localFilename, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             async Task<Stream> StreamFactory()
             {
@@ -377,7 +378,7 @@ namespace Tests.ClientTests
                 ownsOutputStream: true);
         }
 
-        public Task<Transfer> DownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
+        public override Task<Transfer> DownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken,
                 ownsOutputStream: options?.DisposeOutputStreamOnCompletion ?? false);
@@ -558,5 +559,29 @@ namespace Tests.ClientTests
             return transfer;
         }
 
+
+        // Events this mock raises itself.
+        public override event EventHandler<DiagnosticEventArgs>? DiagnosticGenerated;
+        public override event EventHandler? KickedFromServer;
+        public override event EventHandler<IReadOnlyCollection<string>>? ExcludedSearchPhrasesReceived;
+        public override event EventHandler<SoulseekClientStateChangedEventArgs>? StateChanged;
+
+        public Func<string, UserPresence>? Presence;
+
+        public override Task<UserStatus> GetUserStatusAsync(string username, CancellationToken? cancellationToken = null)
+            => Task.FromResult(new UserStatus(username, (Presence ?? throw new NotImplementedException())(username), isPrivileged: false));
+
+        public SoulseekClientOptionsPatch? LastOptionsPatch { get; private set; }
+
+        public override Task<bool> ReconfigureOptionsAsync(SoulseekClientOptionsPatch patch, CancellationToken? cancellationToken = null)
+        {
+            LastOptionsPatch = patch;
+            return Task.FromResult(false);
+        }
+
+        public override void Dispose()
+        {
+            IsDisposed = true;
+        }
     }
 }

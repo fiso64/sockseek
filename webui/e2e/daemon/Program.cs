@@ -694,7 +694,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             if (update.Scope.Kind != Sockseek.Api.StateStreamScopeKind.Daemon) return;
             foreach (var change in update.State.Jobs)
                 if ((change.Current.Kind is Sockseek.Api.ServerJobKind.Album or Sockseek.Api.ServerJobKind.RemoteDirectory)
-                    && change.Current.LifecycleState == Sockseek.Api.ServerJobLifecycleState.Terminal)
+                    && change.Current.LifecycleState == Sockseek.Api.JobLifecycleState.Terminal)
                     directoryComplete.TrySetResult();
         };
         if (scenario.Metrics)
@@ -1057,7 +1057,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     {
                         if (update.State.Jobs.Any(change => change.JobId == jobId
                             && (change.Lifecycle ?? change.Added?.Lifecycle)?.LifecycleState
-                                == Sockseek.Api.ServerJobLifecycleState.Terminal))
+                                == Sockseek.Api.JobLifecycleState.Terminal))
                             break;
                     }
                     break;

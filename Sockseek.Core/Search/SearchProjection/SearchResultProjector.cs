@@ -1,11 +1,10 @@
+using Sockseek.Api;
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Soulseek;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
-using SlFile = Soulseek.File;
-using SlResponse = Soulseek.SearchResponse;
 
 namespace Sockseek.Core.Services;
 
@@ -84,23 +83,14 @@ public static partial class SearchResultProjector
         bool ignoreStringSortConditions = false,
         FolderSortMode sortMode = FolderSortMode.AlbumRanked,
         bool enforceMinimumTrackCount = true)
-    {
-        var plan = new AlbumFolderProjectionPlan(
-            query,
-            search,
-            peerFailureCounts,
-            ignoreStringSortConditions,
-            sortMode,
-            enforceMinimumTrackCount);
-        var inputs = rawResults.Select((result, index) => SearchProjectionInput.FromLive(
-            index + 1L,
-            index + 1,
-            result.Response,
-            result.File,
-            DateTimeOffset.UnixEpoch));
-        List<EvaluatedAlbumProjectionInput> evaluated = plan.EvaluateToList(inputs);
-        return plan.ProjectEvaluatedResults(evaluated);
-    }
+        => AlbumFolders(
+            rawResults.Select((result, index) => SearchProjectionInput.FromLive(
+                index + 1L,
+                index + 1,
+                result.Response,
+                result.File,
+                DateTimeOffset.UnixEpoch)),
+            query, search, peerFailureCounts, ignoreStringSortConditions, sortMode, enforceMinimumTrackCount);
 
     public static List<AlbumFolder> AlbumFolders(
         IEnumerable<SearchProjectionInput> rawResults,

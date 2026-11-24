@@ -1,5 +1,4 @@
-using System.Collections.Concurrent;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Sockseek.Api;
 using Sockseek.Core;
 using Sockseek.Core.Extractors;
 using Sockseek.Core.Jobs;

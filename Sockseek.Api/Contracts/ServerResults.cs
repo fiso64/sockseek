@@ -68,7 +68,7 @@ public sealed record SearchRawResultDto(
     int? BitRate,
     int? SampleRate,
     int? Length,
-    ServerSearchResultVisibility Visibility = ServerSearchResultVisibility.Public,
+    SearchResultVisibility Visibility = SearchResultVisibility.Public,
     int? QueueLength = null,
     DateTimeOffset? ObservedAtUtc = null);
 

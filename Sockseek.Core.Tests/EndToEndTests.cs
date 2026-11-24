@@ -1,7 +1,5 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Sockseek.Api;
 using System.Text;
-using Sockseek.Core;
-using Sockseek.Core.Jobs;
 using Sockseek.Core.Services;
 
 namespace Tests.EndToEnd
@@ -169,10 +167,13 @@ namespace Tests.EndToEnd
             }
         }
 
+        // A CSV's songs go in a folder named after it; a name format decides the layout by itself.
         [TestMethod]
-        public async Task CsvSongList_DefaultOutputDir_DownloadsSongsInsideCsvNamedFolder()
+        [DataRow(null, "tracks_to_download/Test Artist - First Track.mp3", "Test Artist - First Track.mp3")]
+        [DataRow("Custom/{sartist} - {stitle}", "Custom/Test Artist - First Track.mp3", "tracks_to_download/Custom/Test Artist - First Track.mp3")]
+        public async Task CsvSongList_UsesCsvNamedFolderUnlessNameFormatted(string? nameFormat, string expected, string unexpected)
         {
-            var tempRoot = Path.Combine(Path.GetTempPath(), "slsk-csv-default-folder-" + Guid.NewGuid());
+            var tempRoot = Path.Combine(Path.GetTempPath(), "slsk-csv-folder-" + Guid.NewGuid());
             var musicRoot = Path.Combine(tempRoot, "music");
             var outputDir = Path.Combine(tempRoot, "out");
             var sourceDir = Path.Combine(tempRoot, "source");
@@ -190,6 +191,7 @@ namespace Tests.EndToEnd
                 var settings = new DownloadSettings();
                 settings.Extraction.Input = csvPath;
                 settings.Output.ParentDir = outputDir;
+                if (nameFormat != null) settings.Output.NameFormat = nameFormat;
 
                 var client = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, musicRoot);
                 var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
@@ -198,58 +200,10 @@ namespace Tests.EndToEnd
 
                 await app.RunAsync(CancellationToken.None);
 
-                var expectedPath = Path.Combine(outputDir, "tracks_to_download", "Test Artist - First Track.mp3");
-                var rootPath = Path.Combine(outputDir, "Test Artist - First Track.mp3");
                 var tree = string.Join("\n", Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
                     .Select(path => Path.GetRelativePath(outputDir, path)));
-
-                Assert.IsTrue(File.Exists(expectedPath), $"Expected downloaded song at '{expectedPath}'. Actual tree:\n{tree}");
-                Assert.IsFalse(File.Exists(rootPath), "CSV song downloads should not be placed directly in the output root.");
-            }
-            finally
-            {
-                if (Directory.Exists(tempRoot))
-                    Directory.Delete(tempRoot, true);
-            }
-        }
-
-        [TestMethod]
-        public async Task CsvSongList_NameFormat_DoesNotPrefixCsvNamedFolder()
-        {
-            var tempRoot = Path.Combine(Path.GetTempPath(), "slsk-csv-name-format-folder-" + Guid.NewGuid());
-            var musicRoot = Path.Combine(tempRoot, "music");
-            var outputDir = Path.Combine(tempRoot, "out");
-            var sourceDir = Path.Combine(tempRoot, "source");
-            Directory.CreateDirectory(musicRoot);
-            Directory.CreateDirectory(outputDir);
-            Directory.CreateDirectory(sourceDir);
-
-            var csvPath = Path.Combine(sourceDir, "tracks_to_download.csv");
-            File.WriteAllText(csvPath, "artist,title\nTest Artist,First Track\n");
-            File.WriteAllBytes(Path.Combine(musicRoot, "Test Artist - First Track.mp3"), TestHelpers.EmptyMp3Bytes);
-
-            try
-            {
-                var engineSettings = new EngineSettings { Username = "test_user", Password = "test_pass" };
-                var settings = new DownloadSettings();
-                settings.Extraction.Input = csvPath;
-                settings.Output.ParentDir = outputDir;
-                settings.Output.NameFormat = "Custom/{sartist} - {stitle}";
-
-                var client = LocalFilesSoulseekClient.FromLocalPaths(useTags: false, slowMode: false, musicRoot);
-                var app = new DownloadEngine(engineSettings, TestHelpers.CreateMockClientManager(client, engineSettings));
-                app.Enqueue(new ExtractJob(csvPath, InputType.None), settings);
-                app.CompleteEnqueue();
-
-                await app.RunAsync(CancellationToken.None);
-
-                var expectedPath = Path.Combine(outputDir, "Custom", "Test Artist - First Track.mp3");
-                var csvPrefixedPath = Path.Combine(outputDir, "tracks_to_download", "Custom", "Test Artist - First Track.mp3");
-                var tree = string.Join("\n", Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories)
-                    .Select(path => Path.GetRelativePath(outputDir, path)));
-
-                Assert.IsTrue(File.Exists(expectedPath), $"Expected name-formatted song at '{expectedPath}'. Actual tree:\n{tree}");
-                Assert.IsFalse(File.Exists(csvPrefixedPath), "Name format should not be wrapped in the CSV default folder.");
+                Assert.IsTrue(File.Exists(Path.Combine(outputDir, expected)), $"Expected the song at '{expected}'. Actual tree:\n{tree}");
+                Assert.IsFalse(File.Exists(Path.Combine(outputDir, unexpected)), $"The song should not be at '{unexpected}'.");
             }
             finally
             {

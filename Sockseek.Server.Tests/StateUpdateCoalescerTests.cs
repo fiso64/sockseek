@@ -1,6 +1,4 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
-using Sockseek.Core.Sharing;
 using Sockseek.Core.Snapshots;
 using Sockseek.Core.Transfers.Uploads;
 using Sockseek.Server;
@@ -35,7 +33,7 @@ public class StateUpdateCoalescerTests
                 new(Guid.Empty, 1, started, null, bytes, 12.9), null, file, "Group", "Folder"), previous);
             return new(new TransferSnapshot(id, TransferSnapshotDirection.Download, TransferSnapshotSource.SoulseekPeer,
                 null, null, revision, "Peer", "Folder\\Exact.bin", "output.bin", "candidate",
-                initializing ? Sockseek.Core.Snapshots.TransferPhase.Initializing : Sockseek.Core.Snapshots.TransferPhase.InProgress, bytes, 100, 1, null,
+                initializing ? TransferPhase.Initializing : TransferPhase.InProgress, bytes, 100, 1, null,
                 RequestedAtUtc: DateTimeOffset.UnixEpoch, StartedAtUtc: started,
                 LastProgressAtUtc: DateTimeOffset.UnixEpoch, BytesPerSecond: 12, File: file,
                 GroupRef: "Group", GroupDisplayPath: "Folder", GroupRelativePath: "Exact.bin"), previous: previous);
@@ -59,7 +57,7 @@ public class StateUpdateCoalescerTests
         coalescer.Flush();
         var changedBack = published[1].State.Transfers.Single();
         Assert.IsNull(changedBack.Added);
-        Assert.AreEqual(Sockseek.Api.TransferPhase.InProgress, changedBack.Status?.Phase);
+        Assert.AreEqual(TransferPhase.InProgress, changedBack.Status?.Phase);
         Assert.AreEqual(10L, changedBack.Progress?.BytesTransferred);
         Assert.AreEqual(DateTimeOffset.UnixEpoch, changedBack.Scheduling?.StartedAtUtc);
         var fourth = Capture(4, 20, false, 7, third);
@@ -74,7 +72,7 @@ public class StateUpdateCoalescerTests
         Assert.AreEqual(1, earlier.File!.Attributes!.Single().Value);
         Assert.AreEqual(10L, earlier.Progress.BytesTransferred);
         Assert.AreEqual(80L, detail.Progress.BytesTransferred);
-        Assert.AreEqual(Sockseek.Api.TransferPhase.Initializing, detail.Status.Phase);
+        Assert.AreEqual(TransferPhase.Initializing, detail.Status.Phase);
     }
 
     [TestMethod]
@@ -118,7 +116,7 @@ public class StateUpdateCoalescerTests
         var job = TestJobSummary.Create(ServerJobKind.Song, jobId, workflowId);
         var running = job with
         {
-            Lifecycle = job.Lifecycle with { LifecycleState = ServerJobLifecycleState.Running, ActivityPhase = ServerJobActivityPhase.Searching },
+            Lifecycle = job.Lifecycle with { LifecycleState = JobLifecycleState.Running, ActivityPhase = JobActivityPhase.Searching },
             Discovery = job.Discovery with { RawResultCount = 5 },
         };
 
@@ -158,7 +156,7 @@ public class StateUpdateCoalescerTests
         var addedJob = published[0].State.Jobs.Single().Added;
         Assert.IsNotNull(addedJob);
         Assert.AreEqual(2, addedJob.Revision);
-        Assert.AreEqual(ServerJobLifecycleState.Running, addedJob.Lifecycle.LifecycleState);
+        Assert.AreEqual(JobLifecycleState.Running, addedJob.Lifecycle.LifecycleState);
         Assert.AreEqual(5, addedJob.Discovery.RawResultCount);
         var added = published[0].State.Transfers.Single().Added;
         Assert.IsNotNull(added);
@@ -171,7 +169,7 @@ public class StateUpdateCoalescerTests
         {
             Jobs = [new(new JobReadState(running with
                 {
-                    Lifecycle = running.Lifecycle with { ActivityPhase = ServerJobActivityPhase.Downloading },
+                    Lifecycle = running.Lifecycle with { ActivityPhase = JobActivityPhase.Downloading },
                     Discovery = running.Discovery with { RawResultCount = 7 },
                 }, 3, false),
                 Added: false, Fields: JobFields.Lifecycle | JobFields.Discovery)],
@@ -191,7 +189,7 @@ public class StateUpdateCoalescerTests
         var updatedJob = published[1].State.Jobs.Single();
         Assert.IsNull(updatedJob.Added);
         Assert.AreEqual(4, updatedJob.Revision);
-        Assert.AreEqual(ServerJobActivityPhase.Searching, updatedJob.Lifecycle?.ActivityPhase,
+        Assert.AreEqual(JobActivityPhase.Searching, updatedJob.Lifecycle?.ActivityPhase,
             "A component changed back before flush still carries its latest value.");
         Assert.AreEqual(7, updatedJob.Discovery?.RawResultCount);
         Assert.AreEqual(5, addedJob.Discovery.RawResultCount,
@@ -284,7 +282,7 @@ public class StateUpdateCoalescerTests
         var coalescer = new StateUpdateCoalescer(batches => published.AddRange(batches.Select(batch => batch.ToDto())));
         var epoch = Guid.NewGuid();
         var workflowId = Guid.NewGuid();
-        var parent = TestJobSummary.Create(ServerJobKind.JobList, Guid.NewGuid(), workflowId, state: ServerJobLifecycleState.Running)
+        var parent = TestJobSummary.Create(ServerJobKind.JobList, Guid.NewGuid(), workflowId, state: JobLifecycleState.Running)
             with { Stats = new(MemberCount: children, CompletedMemberCount: 0) };
         CaptureUpdate(coalescer, Batch(epoch, 0, 1, workflowId, StateDelta.Empty with
         {
@@ -294,7 +292,7 @@ public class StateUpdateCoalescerTests
         {
             var transferId = Guid.NewGuid();
             var child = TestJobSummary.Create(ServerJobKind.Song, Guid.NewGuid(), workflowId,
-                state: ServerJobLifecycleState.Terminal, outcome: ServerJobTerminalOutcome.Cancelled);
+                state: JobLifecycleState.Terminal, outcome: JobTerminalOutcome.Cancelled);
             CaptureUpdate(coalescer, Batch(epoch, index, index + 1, workflowId, StateDelta.Empty with
             {
                 Jobs = [new(new JobReadState(child, 1, false), Added: false, Fields: JobFields.Lifecycle),
@@ -317,7 +315,7 @@ public class StateUpdateCoalescerTests
         Assert.AreEqual(1, published.Count);
         Assert.AreEqual(0, published[0].PreviousSequence);
         Assert.AreEqual(children + 1, published[0].Sequence);
-        Assert.AreEqual(children, published[0].State.Jobs.Count(job => job.Lifecycle?.TerminalOutcome == ServerJobTerminalOutcome.Cancelled));
+        Assert.AreEqual(children, published[0].State.Jobs.Count(job => job.Lifecycle?.TerminalOutcome == JobTerminalOutcome.Cancelled));
         Assert.AreEqual(children, published[0].State.Transfers.Count(transfer => transfer.Status?.IsTerminal == true
             && transfer.Progress?.BytesTransferred == 50));
         CollectionAssert.AreEquivalent(published[0].State.Transfers.Select(transfer => transfer.TransferId).ToArray(),
@@ -456,7 +454,7 @@ public class StateUpdateCoalescerTests
         Guid transferId, Guid jobId, Guid workflowId, long revision, long bytes, bool terminal)
         => new(transferId, TransferSnapshotDirection.Download, TransferSnapshotSource.SoulseekPeer,
             jobId, workflowId, revision, "user", "track.mp3", "track.mp3", "candidate",
-            terminal ? Sockseek.Core.Snapshots.TransferPhase.Ended : Sockseek.Core.Snapshots.TransferPhase.InProgress, bytes, 100, 1, null,
+            terminal ? TransferPhase.Ended : TransferPhase.InProgress, bytes, 100, 1, null,
             RequestedAtUtc: DateTimeOffset.UnixEpoch,
             TerminalOutcome: terminal ? TransferSnapshotTerminalOutcome.Succeeded : TransferSnapshotTerminalOutcome.None);
 

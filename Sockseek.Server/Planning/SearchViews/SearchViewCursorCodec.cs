@@ -8,10 +8,10 @@ public sealed class SearchViewCursorCodec
     // A restart discards both the temporary snapshots and their cursor key.
     private readonly byte[] key = RandomNumberGenerator.GetBytes(32);
 
-    internal Page<SearchViewFilePosition> Files(Guid viewId, long revision, ServerSearchViewSortOrder? sortOrder = null)
+    internal Page<SearchViewFilePosition> Files(Guid viewId, long revision, SearchViewSortOrder? sortOrder = null)
         => new(key, new("files", viewId, revision, SortOrder: sortOrder));
 
-    internal Page<SearchViewDirectoryPosition> Directories(Guid viewId, long revision, ServerSearchViewSortOrder? sortOrder = null)
+    internal Page<SearchViewDirectoryPosition> Directories(Guid viewId, long revision, SearchViewSortOrder? sortOrder = null)
         => new(key, new("directories", viewId, revision, SortOrder: sortOrder));
 
     internal Page<SearchViewDirectoryFilePosition> DirectoryFiles(Guid viewId, long revision, string parentRef)
@@ -30,7 +30,7 @@ public sealed class SearchViewCursorCodec
         => new(key, new("album-group-options", viewId, revision, ParentRef: parentRef));
 
     internal readonly record struct Scope(string Kind, Guid ViewId, long Revision,
-        string? ParentRef = null, ServerSearchViewSortOrder? SortOrder = null);
+        string? ParentRef = null, SearchViewSortOrder? SortOrder = null);
 
     private sealed record Cursor<T>(Scope Scope, T Position);
 

@@ -1,12 +1,8 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core;
+using Sockseek.Api;
+using TransferGroupKind = Sockseek.Core.Snapshots.TransferGroupKind;
 using Sockseek.Core.Events;
-using Sockseek.Core.Jobs;
-using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
 using Sockseek.Core.Planning;
-using Sockseek.Core.Services;
-using Sockseek.Core.Settings;
 using Sockseek.Core.Snapshots;
 using Soulseek;
 

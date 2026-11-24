@@ -1,10 +1,7 @@
-using Sockseek.Core.Models;
-using Sockseek.Core.Jobs;
 using Sockseek.Core.Services;
 using Sockseek.Core;
 using Soulseek;
 using File = Soulseek.File;
-using Sockseek.Core.Settings;
 using System.Collections.Concurrent;
 
 namespace Tests

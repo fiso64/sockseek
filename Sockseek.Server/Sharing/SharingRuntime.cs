@@ -1,4 +1,3 @@
-using Sockseek.Core;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
@@ -7,7 +6,6 @@ using Sockseek.Api;
 using Sockseek.Persistence.Sharing;
 using Sockseek.Persistence.PeerBrowsing;
 using Soulseek;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Core.Diagnostics;
 
@@ -352,7 +350,7 @@ public sealed class SharingRuntime : IAsyncDisposable
         var dto = new ShareScanStateDto(
             scanId,
             revision,
-            state.Phase.ToServer(),
+            state.Phase,
             state.StartedAtUtc ?? DateTimeOffset.UtcNow,
             state.FinishedAtUtc,
             result?.DirectoriesVisited ?? progress?.DirectoriesDiscovered ?? 0,
@@ -410,7 +408,7 @@ public sealed class SharingRuntime : IAsyncDisposable
         }
         bool configured = current.Roots.Count > 0;
         bool catalogReady = metadata is not null;
-        bool catalogStale = catalogReady && last?.Phase == ServerShareScanPhase.Failed;
+        bool catalogStale = catalogReady && last?.Phase == ShareScanPhase.Failed;
         DaemonFeatureState state;
         string? reason;
         if (catalogReady && metadata!.SettingsHash != configuration.Hash)

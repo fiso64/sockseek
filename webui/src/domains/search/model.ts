@@ -25,7 +25,7 @@ const searchModes = {
     description: 'Like Album Search, but combines matching album folders from different peers into one result per album. Choose a folder within each result. Supports artist-only searches to show all distinct songs by an artist from Soulseek.',
   },
 } as const satisfies Record<string, {
-  label: string; family: SearchModeFamily; kind: Schema<'ServerSearchViewProjectionKind'>; description: string;
+  label: string; family: SearchModeFamily; kind: Schema<'SearchViewProjectionKind'>; description: string;
 }>;
 
 export type SearchResultMode = keyof typeof searchModes;
@@ -34,7 +34,7 @@ export const searchModeOptions = (Object.keys(searchModes) as SearchResultMode[]
   ...searchModes[value], value, icon: value,
 }));
 
-export function modeForProjection(kind: Schema<'ServerSearchViewProjectionKind'>): SearchResultMode {
+export function modeForProjection(kind: Schema<'SearchViewProjectionKind'>): SearchResultMode {
   const option = searchModeOptions.find(option => option.kind === kind);
   if (!option) throw new Error(`Unknown search projection ${kind}`);
   return option.value;
@@ -118,7 +118,7 @@ export function searchModeLabel(mode: SearchResultMode): string {
   return searchModes[mode].label;
 }
 
-export function searchViewKind(mode: SearchResultMode): Schema<'ServerSearchViewProjectionKind'> {
+export function searchViewKind(mode: SearchResultMode): Schema<'SearchViewProjectionKind'> {
   return searchModes[mode].kind;
 }
 

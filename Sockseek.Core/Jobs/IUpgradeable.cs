@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 
 namespace Sockseek.Core.Jobs;
     public interface IUpgradeable

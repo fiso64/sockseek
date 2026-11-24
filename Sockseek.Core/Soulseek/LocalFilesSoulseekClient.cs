@@ -3,7 +3,6 @@ using System.Net;
 using Soulseek;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Sharing;
@@ -11,25 +10,25 @@ using Sockseek.Core.Sharing;
 
 namespace Sockseek.Core.Services
 {
-    public partial class LocalFilesSoulseekClient : ISoulseekClient, IPeerDirectorySource
+    public class LocalFilesSoulseekClient : UnsupportedSoulseekClient, IPeerDirectorySource
     {
-        public IReadOnlyCollection<Transfer> Downloads => throw new NotImplementedException();
+        public override IReadOnlyCollection<Transfer> Downloads => throw new NotImplementedException();
 
         // Soulseek.NET hard-codes the real client's major version; this local fake
         // mirrors v10's value only to satisfy ISoulseekClient.
-        public int MajorVersion => 170;
+        public override int MajorVersion => 170;
 
-        public int MinorVersion => SockseekSoulseekClientIdentity.MinorVersion;
+        public override int MinorVersion => SockseekSoulseekClientIdentity.MinorVersion;
 
-        public SoulseekClientStates State => SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
+        public override SoulseekClientStates State => SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
 
-        public SoulseekClientOptions Options { get; } = new(enableListener: false);
+        public override SoulseekClientOptions Options { get; } = new(enableListener: false);
 
         // Local-file execution has no Soulseek server or listener.
-        public string Address => null!;
-        public IPAddress IPAddress => null!;
-        public IPEndPoint IPEndPoint => null!;
-        public int? Port => null;
+        public override string Address => null!;
+        public override IPAddress IPAddress => null!;
+        public override IPEndPoint IPEndPoint => null!;
+        public override int? Port => null;
 
         private List<Soulseek.SearchResponse> index;
         private readonly bool slowMode;
@@ -145,22 +144,22 @@ namespace Sockseek.Core.Services
             => FromLocalPaths(useTags, slowMode, 0, localPaths);
 
 
-        public Task ConnectAsync(string username, string password, CancellationToken? cancellationToken = null)
+        public override Task ConnectAsync(string username, string password, CancellationToken? cancellationToken = null)
         {
             return ConnectAsync("", 0, username, password, cancellationToken);
         }
 
-        public Task ConnectAsync(string address, int port, string username, string password, CancellationToken? cancellationToken = null)
+        public override Task ConnectAsync(string address, int port, string username, string password, CancellationToken? cancellationToken = null)
         {
             return Task.CompletedTask;
         }
 
-        public Task SetSharedCountsAsync(int directories, int files, CancellationToken? cancellationToken = null)
+        public override Task SetSharedCountsAsync(int directories, int files, CancellationToken? cancellationToken = null)
         {
             return Task.CompletedTask;
         }
 
-        public async Task<BrowseResponse> BrowseAsync(string username, BrowseOptions? options = null, CancellationToken? cancellationToken = null)
+        public override async Task<BrowseResponse> BrowseAsync(string username, BrowseOptions? options = null, CancellationToken? cancellationToken = null)
         {
             var user = index.FirstOrDefault(x => x.Username == username);
 
@@ -199,12 +198,12 @@ namespace Sockseek.Core.Services
             return PeerDirectorySnapshotFactory.FromBrowseResponse(directory, response);
         }
 
-        public Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsync(SearchQuery query, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
+        public override Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsync(SearchQuery query, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
             return SearchAsyncInternal(query, null, scope, token, options, cancellationToken);
         }
 
-        public async Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
+        public override async Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
             var result = await SearchAsyncInternal(
                 query,
@@ -305,7 +304,7 @@ namespace Sockseek.Core.Services
         SemaphoreSlim GetUserSemaphore(string username) =>
             _userSemaphores.GetOrAdd(username, _ => new SemaphoreSlim(1, 1));
 
-        public async Task<Transfer> DownloadAsync(string username, string remoteFilename, string localFilename, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
+        public override async Task<Transfer> DownloadAsync(string username, string remoteFilename, string localFilename, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             async Task<Stream> StreamFactory()
             {
@@ -318,7 +317,7 @@ namespace Sockseek.Core.Services
             return await DownloadAsyncInternal(username, remoteFilename, StreamFactory, size, startOffset, token, options, cancellationToken, ownsOutputStream: true);
         }
 
-        public Task<Transfer> DownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
+        public override Task<Transfer> DownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken,
                 ownsOutputStream: options?.DisposeOutputStreamOnCompletion ?? true);
@@ -555,5 +554,48 @@ namespace Sockseek.Core.Services
         private static string ToSoulseekPath(string path)
             => path.Replace('/', '\\');
 
+
+        public override string Username => "local";
+
+        public override Task<UserInfo> GetUserInfoAsync(string username, CancellationToken? cancellationToken = null)
+        {
+            if (!index.Any(user => string.Equals(user.Username, username, StringComparison.Ordinal)))
+                throw new UserNotFoundException($"User {username} not found");
+            return Task.FromResult(new UserInfo("Local mock user", 1, 0, true));
+        }
+
+        public override Task<UserStatistics> GetUserStatisticsAsync(string username, CancellationToken? cancellationToken = null)
+        {
+            SearchResponse? user = index.FirstOrDefault(
+                candidate => string.Equals(candidate.Username, username, StringComparison.Ordinal));
+            if (user is null)
+                throw new UserNotFoundException($"User {username} not found");
+            int directories = user.Files
+                .Select(file => Utils.GetDirectoryNameSlsk(file.Filename))
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+            return Task.FromResult(new UserStatistics(
+                username,
+                averageSpeed: user.UploadSpeed,
+                uploadCount: 0,
+                fileCount: user.Files.Count,
+                directoryCount: directories));
+        }
+
+        public override Task<UserStatus> GetUserStatusAsync(string username, CancellationToken? cancellationToken = null)
+        {
+            bool exists = index.Any(
+                candidate => string.Equals(candidate.Username, username, StringComparison.Ordinal));
+            return Task.FromResult(new UserStatus(
+                username,
+                exists ? UserPresence.Online : UserPresence.Offline,
+                isPrivileged: false));
+        }
+
+        public override Task<bool> ReconfigureOptionsAsync(SoulseekClientOptionsPatch patch, CancellationToken? cancellationToken = null)
+        {
+            // The local-files client has no network transfers to throttle.
+            return Task.FromResult(false);
+        }
     }
 }

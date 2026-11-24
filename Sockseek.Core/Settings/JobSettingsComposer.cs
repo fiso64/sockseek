@@ -1,4 +1,4 @@
-using Sockseek.Core.Jobs;
+using Sockseek.Api;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Snapshots;
@@ -7,12 +7,6 @@ using System.Globalization;
 using System.Text.Json;
 
 namespace Sockseek.Core.Settings;
-
-public enum SearchSettingsBaselineKind
-{
-    Generic,
-    Music,
-}
 
 public enum JobSettingsInheritance
 {

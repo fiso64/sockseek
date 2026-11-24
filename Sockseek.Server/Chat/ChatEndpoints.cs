@@ -212,7 +212,7 @@ internal static class ChatEndpoints
             .WithChatErrors();
 
         app.MapGet("/api/chat/rooms/available", async (
-            ServerChatRoomKind? kind,
+            ChatRoomKind? kind,
             string? cursor,
             int? limit,
             bool? refresh,
@@ -406,7 +406,7 @@ internal static class ChatEndpoints
 
         app.MapGet("/api/notifications", async (
             bool? unread,
-            ServerUserNotificationKind? kind,
+            UserNotificationKind? kind,
             string? cursor,
             int? limit,
             DaemonRuntime runtime,

@@ -1,12 +1,8 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Cli;
-using Sockseek.Core;
-using Sockseek.Core.Jobs;
 using Sockseek.Core.Settings;
 using Sockseek.Server;
 
@@ -188,7 +184,7 @@ public class RemoteProfileTests
         void OnJobUpserted(JobSummaryDto summary)
         {
             if (summary.Display.Kind != ServerJobKind.Extract || summary.Relationships.ParentJobId != null) return;
-            if (summary.Lifecycle.TerminalOutcome != ServerJobTerminalOutcome.None) completed.TrySetResult(summary);
+            if (summary.Lifecycle.TerminalOutcome != JobTerminalOutcome.None) completed.TrySetResult(summary);
         }
         stateStore.JobUpserted += OnJobUpserted;
         try
@@ -239,7 +235,7 @@ public class RemoteProfileTests
 
             Assert.AreEqual((int)Sockseek.Cli.Program.CliExitCode.Success, exit, stderr.ToString());
             var summary = await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.FailureMessage);
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.FailureMessage);
             if (detach)
             {
                 Assert.IsTrue(Guid.TryParse(stdout.ToString().Trim(), out Guid reported), stdout.ToString());

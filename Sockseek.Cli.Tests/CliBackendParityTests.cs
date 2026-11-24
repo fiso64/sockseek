@@ -1,9 +1,7 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Sockseek.Cli;
-using Sockseek.Core;
 using Sockseek.Core.Services;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Settings;
@@ -36,7 +34,7 @@ public class CliBackendParityTests
                 void CaptureTerminal(DaemonClientUpdate update)
                 {
                     foreach (JobSummaryDto job in update.ChangedJobs.Where(job =>
-                        job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal))
+                        job.Lifecycle.LifecycleState == JobLifecycleState.Terminal))
                         terminalJobs[job.JobId] = job;
                 }
                 ctx.Backend.StateUpdated += CaptureTerminal;
@@ -45,7 +43,7 @@ public class CliBackendParityTests
                         new SongQueryDto("Artist", "Track One", "", "", -1, false),
                         GroupResults: true),
                     ctx.Token);
-                Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, summary.Display.SearchDefaultProjection, ctx.Name);
+                Assert.AreEqual(SearchDefaultProjectionKind.Track, summary.Display.SearchDefaultProjection, ctx.Name);
                 Assert.AreEqual(true, summary.Display.SearchGroupResults, ctx.Name);
                 try
                 {
@@ -93,7 +91,7 @@ public class CliBackendParityTests
                 void CaptureTerminal(DaemonClientUpdate update)
                 {
                     foreach (JobSummaryDto job in update.ChangedJobs.Where(job =>
-                        job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal))
+                        job.Lifecycle.LifecycleState == JobLifecycleState.Terminal))
                         terminalJobs[job.JobId] = job;
                 }
                 ctx.Backend.StateUpdated += CaptureTerminal;
@@ -124,7 +122,7 @@ public class CliBackendParityTests
                     Assert.AreEqual(liveTerminal.Lifecycle.LifecycleState, retained.Lifecycle.LifecycleState);
                     Assert.AreEqual(liveTerminal.Lifecycle.TerminalOutcome, retained.Lifecycle.TerminalOutcome);
                     Assert.AreEqual(liveTerminal.Lifecycle.ActivityPhase, retained.Lifecycle.ActivityPhase);
-                    Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, retained.Display.SearchDefaultProjection);
+                    Assert.AreEqual(SearchDefaultProjectionKind.Track, retained.Display.SearchDefaultProjection);
                     Assert.AreEqual(false, retained.Display.SearchGroupResults);
 
                     var projection = await ctx.Backend.GetFileResultsAsync(summary.JobId, ctx.Token);
@@ -186,8 +184,8 @@ public class CliBackendParityTests
                 var files = values.ToArray();
                 CollectionAssert.AreEquivalent(new[] { publicPath, lockedPath, lockedPeerPath },
                     files.Select(file => file.Filename).ToArray(), ctx.Name);
-                Assert.AreEqual(1, files.Count(file => file.Visibility == Sockseek.Core.Models.SearchResultVisibility.Public), ctx.Name);
-                Assert.AreEqual(2, files.Count(file => file.Visibility == Sockseek.Core.Models.SearchResultVisibility.Locked), ctx.Name);
+                Assert.AreEqual(1, files.Count(file => file.Visibility == SearchResultVisibility.Public), ctx.Name);
+                Assert.AreEqual(2, files.Count(file => file.Visibility == SearchResultVisibility.Locked), ctx.Name);
                 Assert.IsTrue(files.All(file => file.PreferenceTier != null), ctx.Name);
             }
             var query = new SongQueryDto(Artist: "Artist");
@@ -454,7 +452,7 @@ public class CliBackendParityTests
                 var summary = group
                     ? await ctx.Backend.SubmitSongGroupsJobAsync(new SubmitSongGroupsJobRequestDto(query), ctx.Token)
                     : await ctx.Backend.SubmitSongJobAsync(new SubmitSongJobRequestDto(query,
-                        DownloadBehavior: new DownloadBehaviorPolicyDto(Song: ServerDownloadBehavior.Manual)), ctx.Token);
+                        DownloadBehavior: new DownloadBehaviorPolicyDto(Song: DownloadBehavior.Manual)), ctx.Token);
 
                 string? selectedFilename = null;
                 if (!group)
@@ -509,7 +507,7 @@ public class CliBackendParityTests
                 var summary = await ctx.Backend.SubmitAlbumJobAsync(
                     new SubmitAlbumJobRequestDto(
                         new AlbumQueryDto("Artist", "Album", "", "", false),
-                        DownloadBehavior: new DownloadBehaviorPolicyDto(Album: ServerDownloadBehavior.Manual)),
+                        DownloadBehavior: new DownloadBehaviorPolicyDto(Album: DownloadBehavior.Manual)),
                     ctx.Token);
 
                 await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.AwaitingSelection);
@@ -569,7 +567,7 @@ public class CliBackendParityTests
                 var summary = await ctx.Backend.SubmitAlbumGroupsJobAsync(
                     new SubmitAlbumGroupsJobRequestDto(
                         new AlbumQueryDto("Artist", "", "", "", false),
-                        DownloadBehavior: new DownloadBehaviorPolicyDto(AlbumGroups: ServerDownloadBehavior.Manual)),
+                        DownloadBehavior: new DownloadBehaviorPolicyDto(AlbumGroups: DownloadBehavior.Manual)),
                     ctx.Token);
 
                 await WaitForJobStateAsync(ctx.Backend, summary.JobId, ExpectedJobStatus.AwaitingSelection);
@@ -646,20 +644,20 @@ public class CliBackendParityTests
                         Assert.AreEqual(download.JobId, repeated.JobId, ctx.Name);
                         var repeatedDetail = await BackendTestWaiter.UntilAsync(ctx.Backend,
                             ct => ctx.Backend.GetJobDetailAsync(download.JobId, ct),
-                            current => current?.Summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal
-                                && (current.Summary.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists
+                            current => current?.Summary.Lifecycle.LifecycleState == JobLifecycleState.Terminal
+                                && (current.Summary.Lifecycle.SkipReason == JobSkipReason.AlreadyExists
                                     || current.Payload is AlbumJobPayloadDto album
                                         && album.Directory.AttemptNumber > state.AttemptNumber),
                             $"{ctx.Name}: repeated selection did not produce a fresh terminal outcome.");
                         var repeatedChildren = await ctx.Backend.GetJobsAsync(
                             new JobQuery(null, null, null, null, ParentJobId: download.JobId, IncludeAll: true), ctx.Token);
                         Assert.IsTrue(repeatedChildren.Any(child =>
-                            child.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Skipped
-                            && child.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists),
+                            child.Lifecycle.TerminalOutcome == JobTerminalOutcome.Skipped
+                            && child.Lifecycle.SkipReason == JobSkipReason.AlreadyExists),
                             $"{ctx.Name}: repeat must exercise existing-file completion.");
-                        Assert.IsTrue(repeatedDetail!.Summary.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
-                            || repeatedDetail.Summary.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Skipped
-                                && repeatedDetail.Summary.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists,
+                        Assert.IsTrue(repeatedDetail!.Summary.Lifecycle.TerminalOutcome == JobTerminalOutcome.Succeeded
+                            || repeatedDetail.Summary.Lifecycle.TerminalOutcome == JobTerminalOutcome.Skipped
+                                && repeatedDetail.Summary.Lifecycle.SkipReason == JobSkipReason.AlreadyExists,
                             $"{ctx.Name}: repeat {FormatState(repeatedDetail.Summary)} "
                             + $"{repeatedDetail.Summary.Lifecycle.FailureReason}: {repeatedDetail.Summary.Lifecycle.FailureMessage}; "
                             + $"outputs={string.Join(", ", ctx.DownloadedRelativePaths())}; "
@@ -738,7 +736,7 @@ public class CliBackendParityTests
                                 Files: [folders.Items[0].Files!.Single(file => file.Filename.EndsWith("Track Two.mp3", StringComparison.Ordinal)).Ref],
                                 ExactFiles: true, SkipTrackCountVerification: true)
                             : null,
-                        RequestedMode: generalMode ? ServerExtractionMode.General : null),
+                        RequestedMode: generalMode ? ExtractionMode.General : null),
                     ctx.Token);
                 Assert.IsNotNull(download, ctx.Name);
                 Assert.AreEqual(search.JobId, download.Relationships.SourceJobId, ctx.Name);
@@ -779,7 +777,7 @@ public class CliBackendParityTests
                                 Output: new OutputSettingsPatchDto(
                                     ParentDir: Path.Combine(ctx.OutputDir, "file-output"),
                                     NameFormat: "loose/{filename}"))),
-                            RequestedMode: ServerExtractionMode.General), ctx.Token);
+                            RequestedMode: ExtractionMode.General), ctx.Token);
                     Assert.IsNotNull(selected, ctx.Name);
                     var fileJob = selected.Single();
                     Assert.AreEqual(ServerJobKind.RemoteFile, fileJob.Display.Kind, ctx.Name);
@@ -850,9 +848,9 @@ public class CliBackendParityTests
 
                 await BackendTestWaiter.UntilAsync(ctx.Backend,
                     ct => ctx.Backend.GetJobDetailAsync(summary.JobId, ct),
-                    detail => detail?.Summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal
+                    detail => detail?.Summary.Lifecycle.LifecycleState == JobLifecycleState.Terminal
                         && detail.Summary.Lifecycle.TerminalOutcome == (cancel
-                            ? ServerJobTerminalOutcome.Cancelled : ServerJobTerminalOutcome.Succeeded),
+                            ? JobTerminalOutcome.Cancelled : JobTerminalOutcome.Succeeded),
                     "Song must retain its actual cancellation/success outcome.");
                 await WaitForWorkflowStateAsync(ctx.Backend, summary.Display.WorkflowId,
                     cancel ? ServerWorkflowState.Failed : ServerWorkflowState.Completed);
@@ -975,7 +973,7 @@ public class CliBackendParityTests
                     ctx.Backend,
                     first.Display.WorkflowId,
                     job => job.Display.Kind == ServerJobKind.Album
-                        && job.Lifecycle.LifecycleState == ServerJobLifecycleState.AwaitingSelection);
+                        && job.Lifecycle.LifecycleState == JobLifecycleState.AwaitingSelection);
 
                 var visibleRoots = await ctx.Backend.GetJobsAsync(new JobQuery(
                     null, null, null, first.Display.WorkflowId, IncludeAll: false, ExcludeExtractResults: true), ctx.Token);
@@ -989,8 +987,8 @@ public class CliBackendParityTests
                     ctx.Backend,
                     second.Display.WorkflowId,
                     job => job.Display.Kind == ServerJobKind.Album
-                        && job.Lifecycle.LifecycleState is ServerJobLifecycleState.AwaitingSelection
-                            or ServerJobLifecycleState.Terminal);
+                        && job.Lifecycle.LifecycleState is JobLifecycleState.AwaitingSelection
+                            or JobLifecycleState.Terminal);
 
                 Assert.AreEqual(
                     ExpectedJobStatus.AwaitingSelection,
@@ -1029,9 +1027,9 @@ public class CliBackendParityTests
                 var query = new AlbumQueryDto("Artist", "Album", "", "", false);
                 source = group
                     ? await ctx.Backend.SubmitAlbumGroupsJobAsync(new SubmitAlbumGroupsJobRequestDto(query,
-                        DownloadBehavior: new DownloadBehaviorPolicyDto(AlbumGroups: ServerDownloadBehavior.Manual)), ctx.Token)
+                        DownloadBehavior: new DownloadBehaviorPolicyDto(AlbumGroups: DownloadBehavior.Manual)), ctx.Token)
                     : await ctx.Backend.SubmitAlbumJobAsync(new SubmitAlbumJobRequestDto(query,
-                        DownloadBehavior: new DownloadBehaviorPolicyDto(Album: ServerDownloadBehavior.Manual)), ctx.Token);
+                        DownloadBehavior: new DownloadBehaviorPolicyDto(Album: DownloadBehavior.Manual)), ctx.Token);
                 await WaitForJobStateAsync(ctx.Backend, source.JobId, ExpectedJobStatus.AwaitingSelection);
                 IReadOnlyList<AlbumFolderDto> folders;
                 if (group)
@@ -1060,9 +1058,9 @@ public class CliBackendParityTests
                 var query = new SongQueryDto("Artist", "Track", "", "", -1, false);
                 source = group
                     ? await ctx.Backend.SubmitSongGroupsJobAsync(new SubmitSongGroupsJobRequestDto(query,
-                        DownloadBehavior: new DownloadBehaviorPolicyDto(SongGroups: ServerDownloadBehavior.Manual)), ctx.Token)
+                        DownloadBehavior: new DownloadBehaviorPolicyDto(SongGroups: DownloadBehavior.Manual)), ctx.Token)
                     : await ctx.Backend.SubmitSongJobAsync(new SubmitSongJobRequestDto(query,
-                        DownloadBehavior: new DownloadBehaviorPolicyDto(Song: ServerDownloadBehavior.Manual)), ctx.Token);
+                        DownloadBehavior: new DownloadBehaviorPolicyDto(Song: DownloadBehavior.Manual)), ctx.Token);
                 await WaitForJobStateAsync(ctx.Backend, source.JobId, ExpectedJobStatus.AwaitingSelection);
                 IReadOnlyList<FileCandidateDto> candidates;
                 if (group)
@@ -1105,16 +1103,16 @@ public class CliBackendParityTests
                 Assert.IsTrue(await ctx.Backend.CancelJobAsync(source.JobId, ctx.Token), ctx.Name);
                 // Keep the transfer gate closed: owner cancellation must stop
                 // selected work, rather than waiting for the peer to finish it.
-                var cancellations = new List<(Guid, ServerJobCancellationSource)>
-                    { (source.JobId, ServerJobCancellationSource.UserRequestedJob) };
-                if (group) cancellations.Add((child.JobId, ServerJobCancellationSource.ParentJob));
+                var cancellations = new List<(Guid, JobCancellationSource)>
+                    { (source.JobId, JobCancellationSource.UserRequestedJob) };
+                if (group) cancellations.Add((child.JobId, JobCancellationSource.ParentJob));
                 foreach (var (id, cause) in cancellations)
                 {
                     var detail = await BackendTestWaiter.UntilAsync(ctx.Backend,
                         ct => ctx.Backend.GetJobDetailAsync(id, ct),
-                        value => value?.Summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal,
+                        value => value?.Summary.Lifecycle.LifecycleState == JobLifecycleState.Terminal,
                         "Cancelling a manual selection must finish its selected work.");
-                    Assert.AreEqual(ServerJobTerminalOutcome.Cancelled, detail!.Summary.Lifecycle.TerminalOutcome, ctx.Name);
+                    Assert.AreEqual(JobTerminalOutcome.Cancelled, detail!.Summary.Lifecycle.TerminalOutcome, ctx.Name);
                     Assert.AreEqual(cause, detail.Summary.Lifecycle.CancellationSource, ctx.Name);
                 }
                 await WaitForWorkflowStateAsync(ctx.Backend, source.Display.WorkflowId, ServerWorkflowState.Failed);
@@ -1151,7 +1149,7 @@ public class CliBackendParityTests
         {
             var picker = await ctx.Backend.SubmitSongJobAsync(new SubmitSongJobRequestDto(
                 new SongQueryDto("Artist", "First", "", "", -1, false),
-                DownloadBehavior: new DownloadBehaviorPolicyDto(Song: ServerDownloadBehavior.Manual)), ctx.Token);
+                DownloadBehavior: new DownloadBehaviorPolicyDto(Song: DownloadBehavior.Manual)), ctx.Token);
             await WaitForJobStateAsync(ctx.Backend, picker.JobId, ExpectedJobStatus.AwaitingSelection);
             var unrelated = await ctx.Backend.SubmitSongJobAsync(new SubmitSongJobRequestDto(
                 new SongQueryDto("Artist", "Second", "", "", -1, false)), ctx.Token);
@@ -1160,14 +1158,14 @@ public class CliBackendParityTests
             Assert.IsTrue(await ctx.Backend.CancelJobAsync(picker.JobId, ctx.Token), ctx.Name);
             var cancelled = await BackendTestWaiter.UntilAsync(ctx.Backend,
                 ct => ctx.Backend.GetJobDetailAsync(picker.JobId, ct),
-                detail => detail?.Summary.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Cancelled,
+                detail => detail?.Summary.Lifecycle.TerminalOutcome == JobTerminalOutcome.Cancelled,
                 "An idle picker must cancel while unrelated work holds the execution slot.");
             Console.WriteLine($"Busy-picker cancellation {ctx.Name}: "
                 + $"{System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1} ms.");
-            Assert.AreEqual(ServerJobCancellationSource.UserRequestedJob, cancelled!.Summary.Lifecycle.CancellationSource, ctx.Name);
+            Assert.AreEqual(JobCancellationSource.UserRequestedJob, cancelled!.Summary.Lifecycle.CancellationSource, ctx.Name);
             var active = await ctx.Backend.GetJobDetailAsync(unrelated.JobId, ctx.Token);
-            Assert.AreEqual(ServerJobLifecycleState.Running, active!.Summary.Lifecycle.LifecycleState, ctx.Name);
-            Assert.AreEqual(ServerJobCancellationSource.None, active.Summary.Lifecycle.CancellationSource, ctx.Name);
+            Assert.AreEqual(JobLifecycleState.Running, active!.Summary.Lifecycle.LifecycleState, ctx.Name);
+            Assert.AreEqual(JobCancellationSource.None, active.Summary.Lifecycle.CancellationSource, ctx.Name);
             var pickerPayload = Assert.IsInstanceOfType<SongJobPayloadDto>(cancelled.Payload);
             Assert.IsNull(pickerPayload.LastAttemptedFile, "Cancelling the picker must not start its candidates.");
             ctx.Gate.Open();
@@ -1233,7 +1231,7 @@ public class CliBackendParityTests
             new SongQueryDto("Artist", "", "", "", -1, false),
             Options: new SubmissionOptionsDto(DownloadSettings: new DownloadSettingsPatchDto(
                 Skip: new SkipSettingsPatchDto(SkipExisting: true))),
-            DownloadBehavior: new DownloadBehaviorPolicyDto(SongGroups: ServerDownloadBehavior.Manual)), ctx.Token);
+            DownloadBehavior: new DownloadBehaviorPolicyDto(SongGroups: DownloadBehavior.Manual)), ctx.Token);
         await WaitForJobStateAsync(ctx.Backend, source.JobId, ExpectedJobStatus.AwaitingSelection);
         var groups = await ctx.Backend.GetTrackGroupResultsAsync(source.JobId,
             new TrackGroupProjectionRequestDto(IncludeCandidates: true), ctx.Token);
@@ -1283,10 +1281,10 @@ public class CliBackendParityTests
         Assert.IsTrue(await ctx.Backend.CompleteManualSelectionAsync(source.JobId, ctx.Token), ctx.Name);
         var completed = await BackendTestWaiter.UntilAsync(ctx.Backend,
             ct => ctx.Backend.GetJobDetailAsync(source.JobId, ct),
-            detail => detail?.Summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal,
+            detail => detail?.Summary.Lifecycle.LifecycleState == JobLifecycleState.Terminal,
             $"{ctx.Name}: manual group selection never completed.");
         Assert.IsNotNull(completed, ctx.Name);
-        Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, completed.Summary.Lifecycle.TerminalOutcome,
+        Assert.AreEqual(JobTerminalOutcome.Succeeded, completed.Summary.Lifecycle.TerminalOutcome,
             $"{ctx.Name}: selected group child succeeded but root is {completed.Summary.Lifecycle.TerminalOutcome}: {completed.Summary.Lifecycle.FailureReason}.");
         await WaitForWorkflowStateAsync(ctx.Backend, source.Display.WorkflowId, ServerWorkflowState.Completed);
         string expectedContent = filename.EndsWith("First.mp3", StringComparison.Ordinal) ? "first" : "second";
@@ -1308,7 +1306,7 @@ public class CliBackendParityTests
         {
             var job = await ctx.Backend.SubmitSongJobAsync(new SubmitSongJobRequestDto(
                 new SongQueryDto("PeerDrop", "", "", "", -1, false),
-                DownloadBehavior: new DownloadBehaviorPolicyDto(Song: ServerDownloadBehavior.Manual)), ctx.Token);
+                DownloadBehavior: new DownloadBehaviorPolicyDto(Song: DownloadBehavior.Manual)), ctx.Token);
             await WaitForJobStateAsync(ctx.Backend, job.JobId, ExpectedJobStatus.AwaitingSelection);
             var candidates = await ctx.Backend.GetFileResultsAsync(job.JobId, ctx.Token);
             Assert.IsNotNull(candidates, ctx.Name);
@@ -1482,8 +1480,8 @@ public class CliBackendParityTests
                 InputType: "List",
                 Options: new SubmissionOptionsDto(),
                 ResultDownloadBehavior: new DownloadBehaviorPolicyDto(
-                    Album: ServerDownloadBehavior.Manual,
-                    AlbumGroups: ServerDownloadBehavior.Manual)),
+                    Album: DownloadBehavior.Manual,
+                    AlbumGroups: DownloadBehavior.Manual)),
             ctx.Token);
 
     private static SubmissionOptionsJobSettingsResolver CreateLocalResolver(
@@ -1852,28 +1850,28 @@ public class CliBackendParityTests
         => ProjectState(summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason);
 
     private static ExpectedJobStatus ProjectState(
-        ServerJobLifecycleState lifecycle,
-        ServerJobActivityPhase activity,
-        ServerJobTerminalOutcome outcome,
-        ServerJobSkipReason skipReason = ServerJobSkipReason.None)
+        JobLifecycleState lifecycle,
+        JobActivityPhase activity,
+        JobTerminalOutcome outcome,
+        JobSkipReason skipReason = JobSkipReason.None)
         => lifecycle switch
         {
-            ServerJobLifecycleState.Pending => ExpectedJobStatus.Pending,
-            ServerJobLifecycleState.AwaitingSelection => ExpectedJobStatus.AwaitingSelection,
-            ServerJobLifecycleState.Terminal => outcome switch
+            JobLifecycleState.Pending => ExpectedJobStatus.Pending,
+            JobLifecycleState.AwaitingSelection => ExpectedJobStatus.AwaitingSelection,
+            JobLifecycleState.Terminal => outcome switch
             {
-                ServerJobTerminalOutcome.Succeeded => ExpectedJobStatus.Succeeded,
-                ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.AlreadyExists => ExpectedJobStatus.AlreadyExists,
-                ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.NotFoundLastTime => ExpectedJobStatus.NotFoundLastTime,
-                ServerJobTerminalOutcome.Skipped => ExpectedJobStatus.Skipped,
+                JobTerminalOutcome.Succeeded => ExpectedJobStatus.Succeeded,
+                JobTerminalOutcome.Skipped when skipReason == JobSkipReason.AlreadyExists => ExpectedJobStatus.AlreadyExists,
+                JobTerminalOutcome.Skipped when skipReason == JobSkipReason.NotFoundLastTime => ExpectedJobStatus.NotFoundLastTime,
+                JobTerminalOutcome.Skipped => ExpectedJobStatus.Skipped,
                 _ => ExpectedJobStatus.Failed,
             },
             _ => activity switch
             {
-                ServerJobActivityPhase.Extracting => ExpectedJobStatus.Extracting,
-                ServerJobActivityPhase.Downloading => ExpectedJobStatus.Downloading,
-                ServerJobActivityPhase.RunningChildren => ExpectedJobStatus.RunningChildren,
-                ServerJobActivityPhase.None => ExpectedJobStatus.RunningChildren,
+                JobActivityPhase.Extracting => ExpectedJobStatus.Extracting,
+                JobActivityPhase.Downloading => ExpectedJobStatus.Downloading,
+                JobActivityPhase.RunningChildren => ExpectedJobStatus.RunningChildren,
+                JobActivityPhase.None => ExpectedJobStatus.RunningChildren,
                 _ => ExpectedJobStatus.Searching,
             },
         };

@@ -1,8 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core.Settings;
 using Sockseek.Server.Persistence;
@@ -241,9 +239,9 @@ public sealed class UserBrowseApiTests
             await overwriteChanged.WaitUntilAsync(async () =>
             {
                 overwriteJob = await api.GetJobDetailAsync(overwrite.Workflow.JobId);
-                return overwriteJob?.Summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal;
+                return overwriteJob?.Summary.Lifecycle.LifecycleState == JobLifecycleState.Terminal;
             }, "The overwrite workflow did not finish.", timeoutMs: 10_000);
-            Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, overwriteJob!.Summary.Lifecycle.TerminalOutcome,
+            Assert.AreEqual(JobTerminalOutcome.Succeeded, overwriteJob!.Summary.Lifecycle.TerminalOutcome,
                 overwriteJob.Summary.Lifecycle.FailureMessage);
             Assert.AreEqual("replace-me", await File.ReadAllTextAsync(overwritePath));
             Assert.AreEqual("333", await File.ReadAllTextAsync(Path.Combine(overwriteOutput, "Beta", "other (2).mp3")));

@@ -1,6 +1,4 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Cli;
-using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
@@ -73,7 +71,7 @@ public class LocalCliBackendTests
                             Output: new OutputSettingsPatchDto(
                                 NameFormat: "{artist}/{title}",
                                 WritePlaylist: true),
-                            Extraction: new ExtractionSettingsPatchDto(RequestedMode: ServerExtractionMode.Song)))]));
+                            Extraction: new ExtractionSettingsPatchDto(RequestedMode: ExtractionMode.Song)))]));
 
             Assert.AreEqual(ServerJobKind.JobList, accepted.Display.Kind);
             Assert.AreNotEqual(Guid.Empty, accepted.Display.WorkflowId);
@@ -595,7 +593,7 @@ public class LocalCliBackendTests
             Assert.IsTrue(updates
                 .SelectMany(update => update.ChangedJobs)
                 .Any(job => job.Display.Kind == ServerJobKind.Song
-                    && job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal));
+                    && job.Lifecycle.LifecycleState == JobLifecycleState.Terminal));
             Assert.IsFalse(activity.Any(item => item.Type is "download.started" or "download.state-changed" or "song.state-changed"));
         }
         finally

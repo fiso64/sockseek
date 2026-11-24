@@ -2,11 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Sockseek.Core;
 using Sockseek.Core.Events;
-using Sockseek.Core.Jobs;
-using Sockseek.Core.Models;
 using Sockseek.Core.Snapshots;
 using Sockseek.Api;
-using Sockseek.Server;
 
 namespace Sockseek.Cli;
 
@@ -68,9 +65,9 @@ public class JsonStreamProgressReporter
 
             foreach (var job in update.ChangedJobs.Where(job => job.Display.Kind == ServerJobKind.Song))
             {
-                if (EnteredSearch(job.JobId, job.Lifecycle.ActivityPhase == ServerJobActivityPhase.Searching))
+                if (EnteredSearch(job.JobId, job.Lifecycle.ActivityPhase == JobActivityPhase.Searching))
                     ReportSearchStart(job);
-                if (job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
+                if (job.Lifecycle.LifecycleState == JobLifecycleState.Terminal)
                     ReportStateChanged(job);
             }
 

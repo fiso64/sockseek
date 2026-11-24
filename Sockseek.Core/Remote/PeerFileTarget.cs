@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using System.Text.Json.Serialization;
 using System.Buffers;
 using System.Globalization;

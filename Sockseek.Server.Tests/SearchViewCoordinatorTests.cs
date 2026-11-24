@@ -1,12 +1,9 @@
 using System.Reflection;
 using System.Diagnostics;
 using System.Text.Json;
-using System.Threading.Channels;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core.Jobs;
 using Sockseek.Core;
@@ -65,7 +62,7 @@ public sealed class SearchViewCoordinatorTests
             command.Parameters.AddWithValue("$source", source.JobId.ToString("D").ToUpperInvariant());
             await command.ExecuteNonQueryAsync();
             var views = app.Services.GetRequiredService<SearchViewCoordinator>();
-            var created = (await views.CreateAsync(source.JobId, new(ServerSearchViewProjectionKind.Files,
+            var created = (await views.CreateAsync(source.JobId, new(SearchViewProjectionKind.Files,
                 new SongQueryDto(Title: "Track"), IncludeFullResults: true), CancellationToken.None))!;
             var live = await WaitForConditionViewAsync(views, created.ViewId, value => value.Counters.PublicFileCount == 3, () => { });
             Assert.IsFalse(live.IsComplete, "Stored metadata cannot finish a still-running Core search.");
@@ -83,7 +80,7 @@ public sealed class SearchViewCoordinatorTests
             try
             {
                 var historical = restarted.Services.GetRequiredService<SearchViewCoordinator>();
-                var fresh = (await historical.CreateAsync(source.JobId, new(ServerSearchViewProjectionKind.Files,
+                var fresh = (await historical.CreateAsync(source.JobId, new(SearchViewProjectionKind.Files,
                     new SongQueryDto(Title: "Track"), IncludeFullResults: true), CancellationToken.None))!;
                 var retained = await WaitForConditionViewAsync(historical, fresh.ViewId, value => value.IsComplete, () => { });
                 Assert.AreEqual(1L, retained.Revision, "A complete full batch must not need an empty follow-up publication.");
@@ -133,7 +130,7 @@ public sealed class SearchViewCoordinatorTests
             await engineCreated.Task.WaitAsync(TimeSpan.FromSeconds(5));
             var source = await supervisor.Submissions.SubmitSearchJobAsync(new("Track"), CancellationToken.None);
             var receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var view = (await views.CreateAsync(source.JobId, new(ServerSearchViewProjectionKind.Files,
+            var view = (await views.CreateAsync(source.JobId, new(SearchViewProjectionKind.Files,
                 new SongQueryDto(Title: "Track"), IncludeFullResults: true, FilterText: "match"), CancellationToken.None))!;
             // The timeout is a watchdog; the test controls the publication clock.
             using var observationCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -283,7 +280,7 @@ public sealed class SearchViewCoordinatorTests
             var views = app.Services.GetRequiredService<SearchViewCoordinator>();
             var source = await app.Services.GetRequiredService<JobSubmissions>()
                 .SubmitSearchJobAsync(new("Track"), CancellationToken.None);
-            var created = (await views.CreateAsync(source.JobId, new(ServerSearchViewProjectionKind.Files,
+            var created = (await views.CreateAsync(source.JobId, new(SearchViewProjectionKind.Files,
                 new SongQueryDto(Title: "Track"), IncludeFullResults: true), CancellationToken.None))!;
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             await using var observation = views.ObserveAsync(created.ViewId, timeout.Token).GetAsyncEnumerator();
@@ -356,7 +353,7 @@ public sealed class SearchViewCoordinatorTests
             await engineCreated.Task.WaitAsync(TimeSpan.FromSeconds(5));
             var source = await supervisor.Submissions.SubmitSearchJobAsync(new("Track"), CancellationToken.None);
             var receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            var definition = new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.Files, IncludeFullResults: true);
+            var definition = new CreateSearchViewRequestDto(SearchViewProjectionKind.Files, IncludeFullResults: true);
             var view = (await views.CreateAsync(source.JobId, definition, CancellationToken.None))!;
             var observation = views.ObserveAsync(view.ViewId, CancellationToken.None).GetAsyncEnumerator();
             await using (observation)
@@ -489,10 +486,10 @@ public sealed class SearchViewCoordinatorTests
             var source = await api.SubmitSearchJobAsync(new SubmitSearchJobRequestDto("Track"));
             var views = app.Services.GetRequiredService<SearchViewCoordinator>();
             var created = await api.CreateSearchViewAsync(source.JobId, new CreateSearchViewRequestDto(
-                directories ? ServerSearchViewProjectionKind.GenericDirectories : ServerSearchViewProjectionKind.Files,
+                directories ? SearchViewProjectionKind.GenericDirectories : SearchViewProjectionKind.Files,
                 new SongQueryDto(Title: "Track"), IncludeFullResults: true));
             var before = await WaitForConditionViewAsync(views, created.ViewId, view => view.IsComplete, () => { });
-            var order = directories ? ServerSearchViewSortOrder.DirectoryNameAscending : ServerSearchViewSortOrder.UploadSpeed;
+            var order = directories ? SearchViewSortOrder.DirectoryNameAscending : SearchViewSortOrder.UploadSpeed;
             string? cursor = null;
             string? firstCursor = null;
             var peers = new List<string>();
@@ -527,7 +524,7 @@ public sealed class SearchViewCoordinatorTests
             var after = (await api.GetSearchViewAsync(before.ViewId))!;
             Assert.IsTrue(after.ExpiresAtUtc >= before.ExpiresAtUtc);
             Assert.AreEqual(before with { ExpiresAtUtc = after.ExpiresAtUtc }, after);
-            Assert.AreEqual(ServerSearchViewSortOrder.Relevance,
+            Assert.AreEqual(SearchViewSortOrder.Relevance,
                 (await api.GetSearchViewDefinitionAsync(before.ViewId))!.Projection.SortOrder);
             Assert.AreEqual(1, searches);
         }
@@ -540,11 +537,11 @@ public sealed class SearchViewCoordinatorTests
     }
 
     [TestMethod]
-    [DataRow(ServerSearchViewProjectionKind.Files, false)]
-    [DataRow(ServerSearchViewProjectionKind.TrackGroups, true)]
-    [DataRow(ServerSearchViewProjectionKind.AlbumGroups, true)]
+    [DataRow(SearchViewProjectionKind.Files, false)]
+    [DataRow(SearchViewProjectionKind.TrackGroups, true)]
+    [DataRow(SearchViewProjectionKind.AlbumGroups, true)]
     public async Task UnreadViewsStayAtTheirPublishedPrefixAndResumeAfterSourceRetires(
-        ServerSearchViewProjectionKind kind, bool evictIdleKernel)
+        SearchViewProjectionKind kind, bool evictIdleKernel)
     {
         string directory = Path.Combine(Path.GetTempPath(), "sockseek-view-demand-" + Guid.NewGuid().ToString("N"));
         var client = ControllableSearchClientProxy.Create();
@@ -721,16 +718,16 @@ public sealed class SearchViewCoordinatorTests
                 .WaitAsync(TimeSpan.FromSeconds(5)))!;
             Assert.AreEqual(1, firstRaw.Items.Count);
             Assert.AreEqual(1L, firstRaw.NextSequence);
-            Assert.AreEqual(ServerSearchResultVisibility.Public, firstRaw.Items[0].Visibility);
+            Assert.AreEqual(SearchResultVisibility.Public, firstRaw.Items[0].Visibility);
             CombinedSearchRawPage lastRaw = (await history.GetRawSearchResultsAsync(source.JobId, firstRaw.NextSequence!.Value, 1)
                 .WaitAsync(TimeSpan.FromSeconds(5)))!;
             Assert.AreEqual(1, lastRaw.Items.Count);
             Assert.IsNull(lastRaw.NextSequence);
-            Assert.AreEqual(ServerSearchResultVisibility.Locked, lastRaw.Items[0].Visibility);
+            Assert.AreEqual(SearchResultVisibility.Locked, lastRaw.Items[0].Visibility);
             Assert.IsFalse(releaseWriter.Task.IsCompleted, "Raw paging must use the same read handoff as Search Views.");
 
-            var pendingViews = new Dictionary<ServerSearchViewProjectionKind, Task<SearchViewSummaryDto?>>();
-            foreach (ServerSearchViewProjectionKind kind in Enum.GetValues<ServerSearchViewProjectionKind>())
+            var pendingViews = new Dictionary<SearchViewProjectionKind, Task<SearchViewSummaryDto?>>();
+            foreach (SearchViewProjectionKind kind in Enum.GetValues<SearchViewProjectionKind>())
             {
                 var request = new CreateSearchViewRequestDto(kind,
                     SongQuery: new SongQueryDto(Artist: "Artist", Title: "Track"),
@@ -738,7 +735,7 @@ public sealed class SearchViewCoordinatorTests
                     RefinementSettings: new SearchSettingsPatchDto(MinGroupShares: 1));
                 pendingViews.Add(kind, views.CreateAsync(source.JobId, request, CancellationToken.None));
             }
-            var beforeDrain = new Dictionary<ServerSearchViewProjectionKind, string[]>();
+            var beforeDrain = new Dictionary<SearchViewProjectionKind, string[]>();
             foreach (var (kind, opening) in pendingViews)
             {
                 SearchViewSummaryDto view = (await opening.WaitAsync(TimeSpan.FromSeconds(5)))!;
@@ -813,7 +810,7 @@ public sealed class SearchViewCoordinatorTests
                     new(new AlbumQueryDto(Artist: "Artist")), CancellationToken.None);
                 Action<SearchResponse> receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 SearchViewSummaryDto view = (await views.CreateAsync(source.JobId,
-                    new(ServerSearchViewProjectionKind.AlbumGroups,
+                    new(SearchViewProjectionKind.AlbumGroups,
                         RefinementSettings: new SearchSettingsPatchDto(MinGroupShares: 1)), CancellationToken.None))!;
                 const string first = @"Artist\Album Alpha\01 - First.flac";
                 const string second = @"Artist\Album Alpha\02 - Second.flac";
@@ -900,7 +897,7 @@ public sealed class SearchViewCoordinatorTests
         var client = ControllableSearchClientProxy.Create();
         var options = Microsoft.Extensions.Options.Options.Create(Options(directory, client.Client));
         var clock = new ViewClock();
-        var persistence = new PersistenceCoordinator(options, timeProvider: clock);
+        var persistence = new PersistenceCoordinator(options);
         var supervisor = new EngineSupervisor(options, persistence, NullLoggerFactory.Instance);
         await using var views = new SearchViewCoordinator(
             supervisor, persistence, new SubmissionCommitCoordinator(persistence),
@@ -1046,14 +1043,14 @@ public sealed class SearchViewCoordinatorTests
                 (await queries.LookupJobsAsync(new JobLookupRequestDto([accepted.JobId]))).Single().JobId);
             Assert.IsNotNull(supervisor.StateStore.GetWorkflowSummary(accepted.Display.WorkflowId));
             supervisor.StateStore.MarkActiveJobsInfrastructureFailed("previous engine stopped");
-            Assert.AreEqual(ServerJobLifecycleState.Pending,
+            Assert.AreEqual(JobLifecycleState.Pending,
                 supervisor.StateStore.GetJobSummary(accepted.JobId)!.Lifecycle.LifecycleState,
                 "A failed engine must not fail accepted work still owned by the submission queue.");
             SearchViewSummaryDto? view = await views.CreateAsync(
                 accepted.JobId, new CreateSearchViewRequestDto(), CancellationToken.None);
             Assert.IsNotNull(view);
             Assert.AreEqual(accepted.JobId, view.SourceJobId);
-            Assert.AreEqual(ServerSearchViewProjectionKind.TrackGroups, view.Kind);
+            Assert.AreEqual(SearchViewProjectionKind.TrackGroups, view.Kind);
             Assert.IsFalse(view.IsComplete);
             var pending = await persistence.JobHistory!.GetJobAsync(accepted.JobId);
             Assert.AreEqual("Pending", pending?.LifecycleState);
@@ -1065,7 +1062,7 @@ public sealed class SearchViewCoordinatorTests
             SearchViewSummaryDto? replayView = await views.CreateAsync(
                 replay.JobId, new CreateSearchViewRequestDto(), CancellationToken.None);
             Assert.IsNotNull(replayView);
-            Assert.AreEqual(ServerSearchViewProjectionKind.TrackGroups, replayView.Kind);
+            Assert.AreEqual(SearchViewProjectionKind.TrackGroups, replayView.Kind);
             DeleteSubmissionResponseDto archive = await queries.DeleteSubmissionAsync(
                 accepted.Display.SubmissionId!.Value, CancellationToken.None);
             Assert.AreEqual(1, archive.RejectedSubmissionCount);
@@ -1182,27 +1179,27 @@ public sealed class SearchViewCoordinatorTests
                 new SearchSettingsPatchDto(MaxFallbackAttempts: 0),
             })
                 await Assert.ThrowsExactlyAsync<ArgumentException>(() => views.CreateAsync(
-                    job.JobId, new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.Files, RefinementSettings: patch),
+                    job.JobId, new CreateSearchViewRequestDto(SearchViewProjectionKind.Files, RefinementSettings: patch),
                     CancellationToken.None));
             await Assert.ThrowsExactlyAsync<ArgumentException>(() => views.CreateAsync(
                 job.JobId,
                 new CreateSearchViewRequestDto(
-                    ServerSearchViewProjectionKind.Files,
-                    SortOrder: ServerSearchViewSortOrder.DirectoryNameAscending),
+                    SearchViewProjectionKind.Files,
+                    SortOrder: SearchViewSortOrder.DirectoryNameAscending),
                 CancellationToken.None));
             SearchViewSummaryDto view = (await views.CreateAsync(
                 job.JobId,
                 new CreateSearchViewRequestDto(
-                    ServerSearchViewProjectionKind.Files,
+                    SearchViewProjectionKind.Files,
                     RefinementSettings: new SearchSettingsPatchDto(
                         NecessaryCond: new FileConditionsPatchDto(
                             Formats: new CollectionPatchDto<string>(Replace: ["flac"])),
                         PreferredCond: new FileConditionsPatchDto(
                             Formats: new CollectionPatchDto<string>(Replace: ["flac"]))),
                     FilterText: "flac",
-                    SortOrder: ServerSearchViewSortOrder.ItemSizeDescending),
+                    SortOrder: SearchViewSortOrder.ItemSizeDescending),
                 CancellationToken.None))!;
-            Assert.AreEqual(ServerSearchViewSortOrder.ItemSizeDescending, view.SortOrder);
+            Assert.AreEqual(SearchViewSortOrder.ItemSizeDescending, view.SortOrder);
             SearchViewDefinitionDto liveDefinition = (views.GetDefinition(view.ViewId, CancellationToken.None))!;
             Assert.AreEqual("flac", liveDefinition.Projection.FilterText);
             CollectionAssert.AreEqual(
@@ -1227,7 +1224,7 @@ public sealed class SearchViewCoordinatorTests
             SearchViewFilePageDto page = (views.GetFiles(view.ViewId, revision, null, 10, cancellationToken: CancellationToken.None))!;
             Assert.AreEqual(1, page.Items.Count);
             Assert.AreEqual(@"Music\Track.flac", page.Items[0].RemoteFilename);
-            Assert.AreEqual(ServerSearchPreferenceTier.Preferred, page.Items[0].PreferenceTier);
+            Assert.AreEqual(SearchPreferenceTier.Preferred, page.Items[0].PreferenceTier);
             var completed = ObserveNext(views, view.ViewId);
             try
             {
@@ -1265,14 +1262,14 @@ public sealed class SearchViewCoordinatorTests
                 SearchViewSummaryDto historical = (await historicalViews.CreateAsync(
                     jobId,
                     new CreateSearchViewRequestDto(
-                        ServerSearchViewProjectionKind.Files,
+                        SearchViewProjectionKind.Files,
                         RefinementSettings: new SearchSettingsPatchDto(
                             NecessaryCond: new FileConditionsPatchDto(
                                 Formats: new CollectionPatchDto<string>(Replace: ["mp3"]))),
                         FilterText: "mp3",
-                        SortOrder: ServerSearchViewSortOrder.ItemSizeAscending, ProfileNames: ["lossless"]),
+                        SortOrder: SearchViewSortOrder.ItemSizeAscending, ProfileNames: ["lossless"]),
                     CancellationToken.None))!;
-                Assert.AreEqual(ServerSearchViewSortOrder.ItemSizeAscending,
+                Assert.AreEqual(SearchViewSortOrder.ItemSizeAscending,
                     historical.SortOrder);
                 // Reading or rebuilding an existing view uses the accepted profile settings.
                 restarted.Services.GetRequiredService<EngineSupervisor>().Submissions.ReloadProfiles(ProfileCatalog.Empty);
@@ -1308,16 +1305,16 @@ public sealed class SearchViewCoordinatorTests
     }
 
     [TestMethod]
-    [DataRow(ServerSearchViewProjectionKind.GenericDirectories)]
-    [DataRow(ServerSearchViewProjectionKind.Files)]
-    [DataRow(ServerSearchViewProjectionKind.AlbumDirectories)]
-    [DataRow(ServerSearchViewProjectionKind.TrackGroups)]
-    [DataRow(ServerSearchViewProjectionKind.AlbumGroups)]
+    [DataRow(SearchViewProjectionKind.GenericDirectories)]
+    [DataRow(SearchViewProjectionKind.Files)]
+    [DataRow(SearchViewProjectionKind.AlbumDirectories)]
+    [DataRow(SearchViewProjectionKind.TrackGroups)]
+    [DataRow(SearchViewProjectionKind.AlbumGroups)]
     public async Task LiveConditionRefinementsKeepRowsTiersAndCountsConsistentThroughCompletion(
-        ServerSearchViewProjectionKind kind)
+        SearchViewProjectionKind kind)
     {
-        bool albumMode = kind is ServerSearchViewProjectionKind.AlbumDirectories
-            or ServerSearchViewProjectionKind.AlbumGroups;
+        bool albumMode = kind is SearchViewProjectionKind.AlbumDirectories
+            or SearchViewProjectionKind.AlbumGroups;
         string directory = System.IO.Directory.CreateTempSubdirectory("sockseek-live-conditions-").FullName;
         var client = ControllableSearchClientProxy.Create();
         var started = new TaskCompletionSource<Action<SearchResponse>>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1331,7 +1328,7 @@ public sealed class SearchViewCoordinatorTests
         };
         try
         {
-            string expectedMode = albumMode ? "album" : kind == ServerSearchViewProjectionKind.GenericDirectories ? "generic" : "song";
+            string expectedMode = albumMode ? "album" : kind == SearchViewProjectionKind.GenericDirectories ? "generic" : "song";
             var options = Options(directory, client.Client);
             options.Profiles = new ProfileCatalog { AutoProfiles = [new SettingsProfile
             {
@@ -1347,9 +1344,9 @@ public sealed class SearchViewCoordinatorTests
             var supervisor = app.Services.GetRequiredService<EngineSupervisor>();
             JobSummaryDto source = kind switch
             {
-                ServerSearchViewProjectionKind.GenericDirectories => await supervisor.Submissions.SubmitSearchJobAsync(
+                SearchViewProjectionKind.GenericDirectories => await supervisor.Submissions.SubmitSearchJobAsync(
                     new SubmitSearchJobRequestDto("Track"), CancellationToken.None),
-                ServerSearchViewProjectionKind.Files or ServerSearchViewProjectionKind.TrackGroups =>
+                SearchViewProjectionKind.Files or SearchViewProjectionKind.TrackGroups =>
                     await supervisor.Submissions.SubmitTrackSearchJobAsync(new SubmitTrackSearchJobRequestDto(
                         new SongQueryDto(Artist: "Artist", Title: "Track")), CancellationToken.None),
                 _ => await supervisor.Submissions.SubmitAlbumSearchJobAsync(new SubmitAlbumSearchJobRequestDto(
@@ -1439,16 +1436,16 @@ public sealed class SearchViewCoordinatorTests
                 foreach (SearchViewFileDto file in files)
                     Assert.AreEqual(file.Peer.Username == "first-peer"
                         && file.RemoteFilename.EndsWith("." + format, StringComparison.Ordinal)
-                            ? ServerSearchPreferenceTier.Preferred : ServerSearchPreferenceTier.Other,
+                            ? SearchPreferenceTier.Preferred : SearchPreferenceTier.Other,
                         file.PreferenceTier);
                 liveRows[view.ViewId] = ConditionRowSnapshots(files);
                 var count = (views.Selections.CountSelection(view.ViewId, new CountSearchViewSelectionRequestDto(view.Revision,
                         new RefSelectionExpressionDto(RefSelectionMode.AllExcept, [])), CancellationToken.None))!;
                 long selectedFiles = kind switch
                 {
-                    ServerSearchViewProjectionKind.TrackGroups => 1,
-                    ServerSearchViewProjectionKind.AlbumGroups => 2,
-                    ServerSearchViewProjectionKind.AlbumDirectories => 4,
+                    SearchViewProjectionKind.TrackGroups => 1,
+                    SearchViewProjectionKind.AlbumGroups => 2,
+                    SearchViewProjectionKind.AlbumDirectories => 4,
                     _ => 2,
                 };
                 Assert.AreEqual(selectedFiles, count.PublicFileCount);
@@ -1505,9 +1502,9 @@ public sealed class SearchViewCoordinatorTests
                 {
                     // Unknown duration is a separate group from 180-second
                     // tracks at the default three-second grouping tolerance.
-                    ServerSearchViewProjectionKind.TrackGroups => necessary is false ? 1 : 2,
-                    ServerSearchViewProjectionKind.AlbumGroups => necessary is false ? 2 : 4,
-                    ServerSearchViewProjectionKind.AlbumDirectories => expectedPeers.Length * 2,
+                    SearchViewProjectionKind.TrackGroups => necessary is false ? 1 : 2,
+                    SearchViewProjectionKind.AlbumGroups => necessary is false ? 2 : 4,
+                    SearchViewProjectionKind.AlbumDirectories => expectedPeers.Length * 2,
                     _ => expectedPeers.Length,
                 };
                 Assert.AreEqual(expectedSelectedFiles, selection.PublicFileCount);
@@ -1515,9 +1512,9 @@ public sealed class SearchViewCoordinatorTests
                 if (preferred is false)
                 {
                     SearchViewFileDto unknown = rows.First(file => file.Peer.Username == "missing-metadata");
-                    Assert.AreEqual(ServerSearchPreferenceTier.Other, unknown.PreferenceTier);
-                    CollectionAssert.Contains(unknown.UnsatisfiedPreferredConditions.ToArray(), ServerSearchPreferenceCondition.Bitrate);
-                    CollectionAssert.Contains(unknown.UnsatisfiedPreferredConditions.ToArray(), ServerSearchPreferenceCondition.SampleRate);
+                    Assert.AreEqual(SearchPreferenceTier.Other, unknown.PreferenceTier);
+                    CollectionAssert.Contains(unknown.UnsatisfiedPreferredConditions.ToArray(), SearchPreferenceCondition.Bitrate);
+                    CollectionAssert.Contains(unknown.UnsatisfiedPreferredConditions.ToArray(), SearchPreferenceCondition.SampleRate);
                 }
                 liveRows[view.ViewId] = ConditionRowSnapshots(rows);
                 additionalViews.Add(view);
@@ -1534,9 +1531,9 @@ public sealed class SearchViewCoordinatorTests
             var completedView = views.Get(flac.ViewId, CancellationToken.None)!;
             string selectedRef = kind switch
             {
-                ServerSearchViewProjectionKind.Files => views.GetFiles(flac.ViewId, completedView.Revision, null, 1, cancellationToken: CancellationToken.None)!.Items[0].Ref,
-                ServerSearchViewProjectionKind.TrackGroups => views.GetTrackGroups(flac.ViewId, completedView.Revision, null, 1, CancellationToken.None)!.Items[0].Ref,
-                ServerSearchViewProjectionKind.AlbumGroups => views.GetAlbumGroups(flac.ViewId, completedView.Revision, null, 1, CancellationToken.None)!.Items[0].Ref,
+                SearchViewProjectionKind.Files => views.GetFiles(flac.ViewId, completedView.Revision, null, 1, cancellationToken: CancellationToken.None)!.Items[0].Ref,
+                SearchViewProjectionKind.TrackGroups => views.GetTrackGroups(flac.ViewId, completedView.Revision, null, 1, CancellationToken.None)!.Items[0].Ref,
+                SearchViewProjectionKind.AlbumGroups => views.GetAlbumGroups(flac.ViewId, completedView.Revision, null, 1, CancellationToken.None)!.Items[0].Ref,
                 _ => views.GetDirectories(flac.ViewId, completedView.Revision, null, 1, cancellationToken: CancellationToken.None)!.Items[0].Ref.Ref,
             };
             var committedSelection = new RefSelectionExpressionDto(RefSelectionMode.Only, [selectedRef]);
@@ -1548,7 +1545,7 @@ public sealed class SearchViewCoordinatorTests
             CollectionAssert.AreEqual(new[] { new AppliedProfileDto("selection", "automatic"), new AppliedProfileDto("download", "selected") }, defaults.AppliedProfiles.ToArray());
             var receipt = (await views.Selections.CommitSelectionAsync(flac.ViewId,
                 new(completedView.Revision, committedSelection, Guid.NewGuid(), Options: selectedOptions,
-                    UseRepresentativeWhenUnchosen: kind is ServerSearchViewProjectionKind.TrackGroups or ServerSearchViewProjectionKind.AlbumGroups), CancellationToken.None))!;
+                    UseRepresentativeWhenUnchosen: kind is SearchViewProjectionKind.TrackGroups or SearchViewProjectionKind.AlbumGroups), CancellationToken.None))!;
             Assert.AreEqual(1L, receipt.SubmittedCount);
             var accepted = (await app.Services.GetRequiredService<PersistenceCoordinator>().Submissions!
                 .GetSubmissionAsync(receipt.SubmissionId!.Value, CancellationToken.None))!;
@@ -1559,7 +1556,7 @@ public sealed class SearchViewCoordinatorTests
             Assert.IsTrue(ProfileConditionEvaluator.Satisfied($"download-mode == \"{expectedMode}\"", settings, job));
             if (job is AlbumJob album) Assert.AreEqual(AlbumValidationRequirement.UserAccepted, album.ValidationRequirement);
             if (job is SongJob song) Assert.IsNotNull(song.ExactTarget);
-            if (kind == ServerSearchViewProjectionKind.AlbumDirectories)
+            if (kind == SearchViewProjectionKind.AlbumDirectories)
             {
                 var childRefs = views.GetDirectoryFiles(flac.ViewId, selectedRef, completedView.Revision, null, 100, CancellationToken.None)!
                     .Items.Select(child => child.Ref).ToArray();
@@ -1625,20 +1622,20 @@ public sealed class SearchViewCoordinatorTests
                 var page = (views.GetDirectoryFiles(view.ViewId, folder.Ref.Ref, view.Revision, cursor, 1, CancellationToken.None))!;
                 return (page.Items, page.NextCursor);
             })).Select(row => row.File);
-        if (view.Kind == ServerSearchViewProjectionKind.Files)
+        if (view.Kind == SearchViewProjectionKind.Files)
             return [.. await Pages<SearchViewFileDto>(async cursor =>
             {
                 var page = (views.GetFiles(view.ViewId, view.Revision, cursor, 1, cancellationToken: CancellationToken.None))!;
                 return (page.Items, page.NextCursor);
             })];
-        if (view.Kind is ServerSearchViewProjectionKind.GenericDirectories or ServerSearchViewProjectionKind.AlbumDirectories)
+        if (view.Kind is SearchViewProjectionKind.GenericDirectories or SearchViewProjectionKind.AlbumDirectories)
         {
             var children = new List<SearchViewFileDto>();
             foreach (var folder in await Directories()) children.AddRange(await FolderFiles(folder));
             return children.ToArray();
         }
         var files = new List<SearchViewFileDto>();
-        if (view.Kind == ServerSearchViewProjectionKind.TrackGroups)
+        if (view.Kind == SearchViewProjectionKind.TrackGroups)
         {
             var groups = await Pages<SearchViewTrackGroupDto>(async cursor =>
             {
@@ -1704,12 +1701,12 @@ public sealed class SearchViewCoordinatorTests
                 trackId = track.JobId;
                 await searchStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 SearchViewCoordinator views = app.Services.GetRequiredService<SearchViewCoordinator>();
-                Assert.AreEqual(ServerSearchViewProjectionKind.TrackGroups,
+                Assert.AreEqual(SearchViewProjectionKind.TrackGroups,
                     (await views.CreateAsync(trackId, new CreateSearchViewRequestDto(), CancellationToken.None))!.Kind);
                 var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 void OnJobUpserted(JobSummaryDto summary)
                 {
-                    if (summary.JobId == trackId && summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
+                    if (summary.JobId == trackId && summary.Lifecycle.LifecycleState == JobLifecycleState.Terminal)
                         terminal.TrySetResult();
                 }
                 supervisor.StateStore.JobUpserted += OnJobUpserted;
@@ -1735,7 +1732,7 @@ public sealed class SearchViewCoordinatorTests
                     throw new AssertFailedException("Restarted search has no retained search payload.");
                 Assert.IsTrue(payload.GroupResults);
                 SearchViewCoordinator views = restarted.Services.GetRequiredService<SearchViewCoordinator>();
-                Assert.AreEqual(ServerSearchViewProjectionKind.TrackGroups,
+                Assert.AreEqual(SearchViewProjectionKind.TrackGroups,
                     (await views.CreateAsync(trackId, new CreateSearchViewRequestDto(), CancellationToken.None))!.Kind);
                 await restarted.StopAsync();
             }
@@ -1781,7 +1778,7 @@ public sealed class SearchViewCoordinatorTests
                 new SubmitSearchJobRequestDto("still accepted"),
                 CancellationToken.None);
             var view = await views.CreateAsync(direct.JobId,
-                new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.Files), CancellationToken.None);
+                new CreateSearchViewRequestDto(SearchViewProjectionKind.Files), CancellationToken.None);
             Assert.IsNotNull(view, "Live observations and temporary display state need no daemon database.");
             Assert.AreEqual(ServerJobKind.Search, direct.Display.Kind);
             Assert.IsNotNull(direct.Display.SubmissionId);
@@ -1836,7 +1833,7 @@ public sealed class SearchViewCoordinatorTests
                 SearchViewSummaryDto created = (await views.CreateAsync(
                     job.JobId,
                     new CreateSearchViewRequestDto(
-                        ServerSearchViewProjectionKind.GenericDirectories,
+                        SearchViewProjectionKind.GenericDirectories,
                         new SongQueryDto(Title: "Restart Track"),
                         IncludeFullResults: true),
                     CancellationToken.None))!;
@@ -1869,7 +1866,7 @@ public sealed class SearchViewCoordinatorTests
                     Assert.IsNull(untouched, "Restart discards temporary Views and performs no eager projection.");
                     Assert.IsNull(views.GetDirectories(viewId, prefixRevision, null, 10, cancellationToken: CancellationToken.None));
                     var fresh = (await views.CreateAsync(sourceJobId,
-                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.GenericDirectories,
+                        new CreateSearchViewRequestDto(SearchViewProjectionKind.GenericDirectories,
                             new SongQueryDto(Title: "Restart Track"), IncludeFullResults: true), CancellationToken.None))!;
                     SearchViewSummaryDto summary = await WaitForConditionViewAsync(views, fresh.ViewId,
                         value => value.IsComplete, () => { });
@@ -1952,12 +1949,12 @@ public sealed class SearchViewCoordinatorTests
             SearchViewCoordinator views = app.Services.GetRequiredService<SearchViewCoordinator>();
             SearchViewSummaryDto view = (await views.CreateAsync(
                 job.JobId,
-                new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.Files),
+                new CreateSearchViewRequestDto(SearchViewProjectionKind.Files),
                 CancellationToken.None))!;
             SearchViewSummaryDto directoryView = (await views.CreateAsync(
                 job.JobId,
                 new CreateSearchViewRequestDto(
-                    ServerSearchViewProjectionKind.GenericDirectories,
+                    SearchViewProjectionKind.GenericDirectories,
                     new SongQueryDto(Title: "Track"),
                     IncludeFullResults: true),
                 CancellationToken.None))!;
@@ -1999,7 +1996,7 @@ public sealed class SearchViewCoordinatorTests
                 views,
                 job.JobId,
                 new CreateSearchViewRequestDto(
-                    ServerSearchViewProjectionKind.GenericDirectories,
+                    SearchViewProjectionKind.GenericDirectories,
                     new SongQueryDto(Title: "Track"),
                     IncludeFullResults: true,
                     FilterText: "Music"));
@@ -2064,7 +2061,7 @@ public sealed class SearchViewCoordinatorTests
                 views,
                 job.JobId,
                 new CreateSearchViewRequestDto(
-                    ServerSearchViewProjectionKind.GenericDirectories,
+                    SearchViewProjectionKind.GenericDirectories,
                     new SongQueryDto(Title: "Track"),
                     IncludeFullResults: true,
                     FilterText: "Track"));
@@ -2079,7 +2076,7 @@ public sealed class SearchViewCoordinatorTests
                 views,
                 job.JobId,
                 new CreateSearchViewRequestDto(
-                    ServerSearchViewProjectionKind.GenericDirectories,
+                    SearchViewProjectionKind.GenericDirectories,
                     new SongQueryDto(Title: "Track"),
                     IncludeFullResults: true));
             SearchViewDirectoryDto unfilteredDirectory = (views.GetDirectories(unfilteredSibling.ViewId, unfilteredSibling.Revision, null, 10, cancellationToken: CancellationToken.None))!.Items.Single();
@@ -2492,7 +2489,7 @@ public sealed class SearchViewCoordinatorTests
             Action<SearchResponse> receive = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
             SearchViewCoordinator views = app.Services.GetRequiredService<SearchViewCoordinator>();
             SearchViewSummaryDto view = (await views.CreateAsync(job.JobId,
-                new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.GenericDirectories,
+                new CreateSearchViewRequestDto(SearchViewProjectionKind.GenericDirectories,
                     new SongQueryDto(Title: "Folder"), IncludeFullResults: true),
                 CancellationToken.None))!;
             await PublishAsync(views, view.ViewId, () => receive(Response("peer", [File(@"Folder\Root.txt")])));

@@ -1,8 +1,6 @@
 using System.Threading.Channels;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Api;
-using Sockseek.Core;
 using Sockseek.Core.Chat;
 using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Sharing;
@@ -273,7 +271,7 @@ public sealed class ChatRuntime : IAsyncDisposable
             ChatProtocol.LiveMessageTailSize,
             cancellationToken).ConfigureAwait(false);
         return new ChatTargetSnapshotDto(
-            kind.ToServer(),
+            kind,
             targetId,
             conversation,
             room,
@@ -316,7 +314,7 @@ public sealed class ChatRuntime : IAsyncDisposable
             if (kind == ChatTargetKind.Direct)
             {
                 await store.DeleteConversationAsync(Account, targetId, cancellationToken).ConfigureAwait(false);
-                PublishTarget(new ChatTargetDeltaDto(ServerChatTargetKind.Direct, targetId, Removed: true));
+                PublishTarget(new ChatTargetDeltaDto(ChatTargetKind.Direct, targetId, Removed: true));
             }
             else
             {
@@ -352,8 +350,8 @@ public sealed class ChatRuntime : IAsyncDisposable
     }
 
     public Task<ChatPage<UserNotificationRecord>> GetNotificationsAsync(
-        bool? unread, ServerUserNotificationKind? kind, string? cursor, int limit, CancellationToken cancellationToken)
-        => store.GetNotificationsAsync(Account, unread, kind?.ToCore(), cursor, limit, cancellationToken);
+        bool? unread, UserNotificationKind? kind, string? cursor, int limit, CancellationToken cancellationToken)
+        => store.GetNotificationsAsync(Account, unread, kind, cursor, limit, cancellationToken);
 
     public Task<UserNotificationRecord?> GetNotificationAsync(Guid id, CancellationToken cancellationToken)
         => store.GetNotificationAsync(Account, id, cancellationToken);
@@ -823,7 +821,7 @@ public sealed class ChatRuntime : IAsyncDisposable
                         if (result.Notification is { } notification)
                             NotifyNotificationCommitted(notification);
                         PublishTarget(new ChatTargetDeltaDto(
-                            ServerChatTargetKind.Direct,
+                            ChatTargetKind.Direct,
                             result.Message.TargetId,
                             result.Conversation is null ? null : MapConversation(result.Conversation),
                             null,
@@ -844,7 +842,7 @@ public sealed class ChatRuntime : IAsyncDisposable
                     if (result.Notification is { } notification)
                         NotifyNotificationCommitted(notification);
                     PublishTarget(new ChatTargetDeltaDto(
-                        ServerChatTargetKind.Room,
+                        ChatTargetKind.Room,
                         result.Message.TargetId,
                         null,
                         result.Room is null ? null : Rooms.MapRoom(result.Room),
@@ -976,7 +974,7 @@ public sealed class ChatRuntime : IAsyncDisposable
         ChatMessageRecord message)
     {
         PublishTarget(new ChatTargetDeltaDto(
-            message.TargetKind.ToServer(),
+            message.TargetKind,
             message.TargetId,
             prepared.Conversation is null ? null : MapConversation(prepared.Conversation),
             prepared.Room is null ? null : Rooms.MapRoom(prepared.Room),
@@ -1008,7 +1006,7 @@ public sealed class ChatRuntime : IAsyncDisposable
         if (conversation is null)
             return;
         PublishTarget(new ChatTargetDeltaDto(
-            ServerChatTargetKind.Direct,
+            ChatTargetKind.Direct,
             conversationId,
             MapConversation(conversation),
             null,
@@ -1025,7 +1023,7 @@ public sealed class ChatRuntime : IAsyncDisposable
         if (snapshot is null)
             return;
         PublishTarget(new ChatTargetDeltaDto(
-            kind.ToServer(),
+            kind,
             targetId,
             snapshot.Conversation,
             snapshot.Room,

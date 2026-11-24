@@ -1,9 +1,6 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Jobs;
+using Sockseek.Api;
 using Sockseek.Core;
 using Sockseek.Core.Diagnostics;
-using Sockseek.Core.Extractors;
-using Sockseek.Core.Settings;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 
@@ -560,9 +557,9 @@ namespace Tests.Extractors
         [TestMethod]
         public async Task SourceRemovalDeduplicatesWithinWorkflowButAllowsLaterRuns()
         {
-            var mutations = new Sockseek.Core.Transfers.Downloads.SourceMutations.SourceMutationCoordinator(
+            var mutations = new Sockseek.Core.Transfers.Downloads.SourceMutationCoordinator(
                 new DownloadEvents(), Microsoft.Extensions.Logging.Abstractions.NullLogger<
-                    Sockseek.Core.Transfers.Downloads.SourceMutations.SourceMutationCoordinator>.Instance);
+                    Sockseek.Core.Transfers.Downloads.SourceMutationCoordinator>.Instance);
             var config = TestHelpers.CreateDefaultSettings().Download;
             config.Extraction.RemoveTracksFromSource = true;
             async Task<SongJob> Review(string title)

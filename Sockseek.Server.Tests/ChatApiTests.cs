@@ -1,11 +1,8 @@
 using System.Net;
 using System.Collections.Concurrent;
 using System.Net.Sockets;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
-using Sockseek.Core.Chat;
 using Sockseek.Core.Settings;
 using Sockseek.Server;
 using Soulseek;
@@ -73,7 +70,7 @@ public sealed class ChatApiTests
             Guid outgoingId = Guid.NewGuid();
             ChatMessageDto outgoing = await api.SendPrivateMessageAsync(
                 new SendPrivateMessageRequestDto(outgoingId, "Alice", "outbound"));
-            Assert.AreEqual(ServerChatMessageState.Sent, outgoing.State);
+            Assert.AreEqual(ChatMessageState.Sent, outgoing.State);
             foreach (string newline in new[] { "\n", "\r", "\r\n" })
             {
                 var invalid = await Assert.ThrowsExactlyAsync<SockseekApiRequestException>(() =>
@@ -158,7 +155,7 @@ public sealed class ChatApiTests
                 StringAssert.Contains(invalid.Message, "Soulseek room names");
             }
             ChatRoomSummaryDto room = await api.JoinRoomAsync("indie");
-            Assert.AreEqual(ServerChatRoomJoinPhase.Joined, room.Phase);
+            Assert.AreEqual(ChatRoomJoinPhase.Joined, room.Phase);
             Assert.IsTrue((await api.GetRoomMembersAsync(room.RoomId)).Complete);
             foreach (string newline in new[] { "\n", "\r", "\r\n" })
             {
@@ -171,7 +168,7 @@ public sealed class ChatApiTests
             ChatMessageDto roomMessage = await api.SendRoomMessageAsync(
                 room.RoomId,
                 new SendChatMessageRequestDto(Guid.NewGuid(), "hello room"));
-            Assert.AreEqual(ServerChatMessageState.Sent, roomMessage.State);
+            Assert.AreEqual(ChatMessageState.Sent, roomMessage.State);
 
             StateSnapshotDto snapshot = await api.GetRoomSnapshotAsync(room.RoomId);
             Assert.AreEqual(StateStreamScopeDto.ChatRoom(room.RoomId), snapshot.Scope);

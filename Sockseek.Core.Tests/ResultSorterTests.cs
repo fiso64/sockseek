@@ -1,5 +1,4 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Models;
+using Sockseek.Api;
 using Soulseek;
 using System.Collections.Concurrent;
 using File = Soulseek.File;

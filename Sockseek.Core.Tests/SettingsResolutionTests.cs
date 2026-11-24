@@ -1,6 +1,5 @@
+using Sockseek.Api;
 using System.Collections.Concurrent;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;

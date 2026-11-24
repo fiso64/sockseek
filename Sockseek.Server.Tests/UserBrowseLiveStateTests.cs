@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core.PeerBrowsing;
 using Sockseek.Server.PeerBrowsing;

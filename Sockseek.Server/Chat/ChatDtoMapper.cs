@@ -11,14 +11,14 @@ internal static class ChatDtoMapper
         => new(
             value.MessageId,
             value.Sequence,
-            value.TargetKind.ToServer(),
+            value.TargetKind,
             value.TargetId,
             value.DisplaySender,
-            value.Direction.ToServer(),
+            value.Direction,
             value.Body,
             value.OccurredAtUtc,
             value.RecordedAtUtc,
-            value.State.ToServer(),
+            value.State,
             value.FailureReason);
 
     public static ConversationSummaryDto ToDto(
@@ -37,11 +37,11 @@ internal static class ChatDtoMapper
         => new(
             value.NotificationId,
             value.Sequence,
-            value.Kind.ToServer(),
+            value.Kind,
             value.CreatedAtUtc,
             value.ReadAtUtc,
             value.SourceMessage.DisplaySender,
-            value.SourceMessage.TargetKind.ToServer(),
+            value.SourceMessage.TargetKind,
             value.SourceMessage.TargetId,
             value.SourceMessage.DisplayTarget,
             value.SourceMessageId,

@@ -1,11 +1,9 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Sockseek.Api;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Sockseek.Cli;
-using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
-using Sockseek.Core.Settings;
 using System.Text.Json;
 
 namespace Tests.Cli;

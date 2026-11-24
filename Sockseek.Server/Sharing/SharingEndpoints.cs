@@ -1,6 +1,4 @@
 using Sockseek.Api;
-using Sockseek.Server.Persistence;
-using static Sockseek.Server.ApiErrors;
 
 namespace Sockseek.Server;
 

@@ -1,11 +1,8 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Cli;
-using Sockseek.Server;
 using Sockseek.Api;
 using Tests.ClientTests;
 
@@ -123,7 +120,7 @@ public class CliEndToEndTests
             {
                 if (backend.ClientStore.GetWorkflowJobs(workflowId).Count(job =>
                     job.Display.Kind == ServerJobKind.Album
-                    && job.Lifecycle.LifecycleState == ServerJobLifecycleState.AwaitingSelection) >= 2)
+                    && job.Lifecycle.LifecycleState == JobLifecycleState.AwaitingSelection) >= 2)
                     bothAlbumsReady.TrySetResult();
             }
             backend.StateUpdated += ObserveAlbumReadiness;

@@ -1,8 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core.Settings;
 using Sockseek.Server;

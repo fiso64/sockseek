@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+using Sockseek.Api;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Snapshots;
 

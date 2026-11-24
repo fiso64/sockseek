@@ -3,7 +3,6 @@ using Sockseek.Api;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Snapshots;
-using Sockseek.Core.Models;
 using Sockseek.Core.Planning;
 using Sockseek.Core.Services;
 using Sockseek.Persistence.Read;

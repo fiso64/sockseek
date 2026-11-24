@@ -38,7 +38,7 @@ async function chooseFileSearch(page: Page): Promise<void> {
   await page.getByRole('menuitemradio', { name: 'File Search', exact: true }).click();
 }
 
-async function sortWithoutCreatingView(page: Page, value: string, order: Schema<'ServerSearchViewSortOrder'>) {
+async function sortWithoutCreatingView(page: Page, value: string, order: Schema<'SearchViewSortOrder'>) {
   let creates = 0;
   const observe = (request: Request) => {
     if (request.method() === 'POST' && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(request.url()).pathname)) creates++;

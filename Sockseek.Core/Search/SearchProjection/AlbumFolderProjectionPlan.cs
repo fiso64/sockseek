@@ -1,8 +1,6 @@
 using System.Collections.Concurrent;
 using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
-using Soulseek;
-using SlFile = Soulseek.File;
 
 namespace Sockseek.Core.Services;
 

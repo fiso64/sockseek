@@ -1,8 +1,5 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Microsoft.Extensions.Logging;
+using Sockseek.Api;
 using Sockseek.Core.Events;
-using Sockseek.Core.Models;
-using Sockseek.Core;
 using System.Reflection;
 using System.Diagnostics;
 

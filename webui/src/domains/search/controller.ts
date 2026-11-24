@@ -78,7 +78,7 @@ export interface SearchViewState extends SearchSelectionState {
   job: SubmittedSearch['job'] | null;
   draft: SearchDraft | null;
   summary: SearchViewSummaryDto | null;
-  sortOrder: Schema<'ServerSearchViewSortOrder'>;
+  sortOrder: Schema<'SearchViewSortOrder'>;
   rows: SearchRow[];
   nextCursor: string | null;
   loadingMore: boolean;
@@ -302,12 +302,22 @@ export class SearchViewController {
   stop(): void {
     this.stopObservation();
     this.groupOptionsRequest?.abort();
-    this.generation += 1;
-    this.updateRequest?.abort();
-    this.updateRequest = null;
+    this.cancelViewRequests();
     this.refinementGeneration += 1;
     this.refinementRequest?.abort();
     this.refinementRequest = null;
+    this.state = { ...this.state, loadingMore: false };
+    this.stopped = true;
+    this.retrievalInFlight.clear();
+    this.retrievalRequests.clear();
+  }
+
+  /** Everything in flight for the view being shown: its updates, pages, counts and choices. */
+  private cancelViewRequests(): void {
+    this.generation += 1;
+    this.updateRequest?.abort();
+    this.updateRequest = null;
+    this.cancelPageRequest();
     this.countRequest?.abort();
     this.countRequest = null;
     this.choiceRequest?.abort();
@@ -315,11 +325,6 @@ export class SearchViewController {
     this.choiceRequestKey = null;
     this.countRequestKey = null;
     this.refreshing = null;
-    this.state = { ...this.state, loadingMore: false };
-    this.stopped = true;
-    this.retrievalInFlight.clear();
-    this.retrievalRequests.clear();
-    this.cancelPageRequest();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
   }
@@ -344,19 +349,7 @@ export class SearchViewController {
       // group choices stay browser-owned; the daemon resolves their stable
       // refs against the new view. Validate folder references before rebinding:
       // an absent AllExcept exclusion must never silently broaden the selection.
-      this.generation += 1;
-      this.updateRequest?.abort();
-      this.updateRequest = null;
-      this.cancelPageRequest();
-      this.countRequest?.abort();
-      this.countRequest = null;
-      this.choiceRequest?.abort();
-      this.choiceRequest = null;
-      this.choiceRequestKey = null;
-      this.countRequestKey = null;
-      this.refreshing = null;
-      if (this.timer) clearTimeout(this.timer);
-      this.timer = null;
+      this.cancelViewRequests();
       // A retrieval still belongs to this source search after a projection
       // change. Keep observing its job so completion can refresh the new view;
       // only its old view-bound spinner is cleared.
@@ -385,7 +378,7 @@ export class SearchViewController {
     }
   }
 
-  async sort(order: Schema<'ServerSearchViewSortOrder'>): Promise<boolean> {
+  async sort(order: Schema<'SearchViewSortOrder'>): Promise<boolean> {
     const summary = this.state.summary;
     if (!summary || this.stopped || !this.visible) return false;
     if (!this.state.refining && order === this.state.sortOrder) return true;
@@ -947,7 +940,7 @@ export class SearchViewController {
   }
 
   private async reloadVisiblePages(summary: SearchViewSummaryDto, count: number,
-    options?: { request?: AbortController; replaceProjection?: boolean; resetSelection?: boolean; sortOrder?: Schema<'ServerSearchViewSortOrder'> }): Promise<boolean> {
+    options?: { request?: AbortController; replaceProjection?: boolean; resetSelection?: boolean; sortOrder?: Schema<'SearchViewSortOrder'> }): Promise<boolean> {
     this.cancelPageRequest();
     // Opening a finished search rebuilds its projection from stored inputs.
     // Observe that catch-up without fetching or displaying intermediate pages.
@@ -1021,7 +1014,7 @@ export class SearchViewController {
     }
   }
 
-  private async loadPage(summary: SearchViewSummaryDto, cursor: string | null, sortOrder: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchPage> {
+  private async loadPage(summary: SearchViewSummaryDto, cursor: string | null, sortOrder: Schema<'SearchViewSortOrder'>, signal?: AbortSignal): Promise<SearchPage> {
     function page<T>(response: { revision: SearchViewFilePageDto['revision']; nextCursor?: string | null; items: T[] },
       row: (value: T) => SearchRow): SearchPage {
       return { revision: response.revision.revision, nextCursor: response.nextCursor, rows: response.items.map(row) };

@@ -1,7 +1,6 @@
 using Sockseek.Core.Extractors;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
-using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 
 namespace Sockseek.Core.Planning;

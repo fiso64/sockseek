@@ -1,12 +1,10 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
-using Sockseek.Core;
 using Sockseek.Core.IO;
 using Sockseek.Core.Models;
 using Sockseek.Core.PeerBrowsing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Sockseek.Persistence;
 
 namespace Sockseek.Persistence.PeerBrowsing;
 

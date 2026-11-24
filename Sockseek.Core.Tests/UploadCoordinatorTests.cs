@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
 using System.Net;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
 using Sockseek.Core.Transfers.Uploads;
 

@@ -1,13 +1,9 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Microsoft.Extensions.Logging;
+using Sockseek.Api;
 using Soulseek;
-using Sockseek.Core.Jobs;
-using Sockseek.Core.Models;
 using Sockseek.Core;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
-using Sockseek.Core.Transfers.Downloads.JobTracking;
-using Sockseek.Core.Transfers.Downloads.ManualSelection;
+using Sockseek.Core.Transfers.Downloads;
 
 namespace Tests.Cancellation
 {

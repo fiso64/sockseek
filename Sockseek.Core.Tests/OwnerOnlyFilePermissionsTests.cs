@@ -1,7 +1,6 @@
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Runtime.Versioning;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core.IO;
 
 namespace Tests.Core;

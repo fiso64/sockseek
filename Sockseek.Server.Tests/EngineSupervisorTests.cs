@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Options;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
@@ -54,12 +53,12 @@ public class EngineSupervisorTests
             id,
             1,
             new TransferIdentityFieldsDto(null, null, "Download", "SoulseekPeer", "peer", "file", null),
-            new TransferStatusFieldsDto(Sockseek.Api.TransferPhase.InProgress, null, 1, false),
+            new TransferStatusFieldsDto(TransferPhase.InProgress, null, 1, false),
             new TransferProgressFieldsDto(0, 100));
         TransferStateDto Terminal(Guid id) => Active(id) with
         {
             Status = new TransferStatusFieldsDto(
-                Sockseek.Api.TransferPhase.Ended, null, 1, true, TransferTerminalOutcome.Succeeded),
+                TransferPhase.Ended, null, 1, true, TransferTerminalOutcome.Succeeded),
         };
         var current = new Dictionary<Guid, TransferStateDto>
         {
@@ -556,8 +555,8 @@ public class EngineSupervisorTests
                 {
                     return GetChildSongPayloads(supervisor, downloadSummary.JobId)
                         .Any(file => file.JobId == cancellableFile.JobId
-                            && file.TerminalOutcome == ServerJobTerminalOutcome.Cancelled
-                            && file.FailureReason == ServerJobFailureReason.Cancelled) == true;
+                            && file.TerminalOutcome == JobTerminalOutcome.Cancelled
+                            && file.FailureReason == JobFailureReason.Cancelled) == true;
                 },
                 "Timed out waiting for album file cancellation.");
 
@@ -580,8 +579,8 @@ public class EngineSupervisorTests
                 files.Any(IsActive),
                 "Cancelled album payload should not expose stale active file states.");
             Assert.IsTrue(
-                files.Any(file => file.TerminalOutcome == ServerJobTerminalOutcome.Cancelled
-                    && file.FailureReason == ServerJobFailureReason.Cancelled),
+                files.Any(file => file.TerminalOutcome == JobTerminalOutcome.Cancelled
+                    && file.FailureReason == JobFailureReason.Cancelled),
                 "Cancelled album payload should mark unfinished files as cancelled.");
 
             cts.Cancel();
@@ -1229,10 +1228,10 @@ public class EngineSupervisorTests
                     generic ? new GenericSearchJobDraftDto("Artist Track") : new TrackSearchJobDraftDto(query),
                     options));
 
-            Assert.AreEqual(generic ? ServerSearchSettingsBaselineKind.Generic : ServerSearchSettingsBaselineKind.Music, preview.Baseline);
+            Assert.AreEqual(generic ? SearchSettingsBaselineKind.Generic : SearchSettingsBaselineKind.Music, preview.Baseline);
             Assert.AreEqual(4321, preview.Settings.Values.Search?.MaxStaleTime);
             Assert.IsNull(preview.Settings.Values.Output?.WriteIndex);
-            Assert.AreEqual(ServerIncompleteAlbumActionKind.Move, preview.Settings.Values.Output?.IncompleteAlbumAction?.Kind);
+            Assert.AreEqual(IncompleteAlbumActionKind.Move, preview.Settings.Values.Output?.IncompleteAlbumAction?.Kind);
             Assert.AreEqual(Path.Join(output, "failed"), preview.Settings.Values.Output?.IncompleteAlbumAction?.Path);
             Assert.AreEqual(true, preview.Settings.Values.Skip?.SkipExisting);
             Assert.AreEqual("request", preview.Provenance["Skip.SkipExisting"]);
@@ -1306,7 +1305,7 @@ public class EngineSupervisorTests
             ResolveEffectiveSettingsResponseDto blankSearch = supervisor.Submissions.ResolveEffectiveSettings(
                 new ResolveEffectiveSettingsRequestDto(new GenericSearchJobDraftDto("")));
             Assert.IsTrue(blankSearch.IsProvisional);
-            Assert.AreEqual(ServerSearchSettingsBaselineKind.Generic, blankSearch.Baseline);
+            Assert.AreEqual(SearchSettingsBaselineKind.Generic, blankSearch.Baseline);
             Assert.ThrowsExactly<ArgumentException>(() =>
                 JobRequestMapper.CreateJob(new GenericSearchJobDraftDto("")));
             Assert.ThrowsExactly<ArgumentException>(() => supervisor.Submissions.ResolveEffectiveSettings(
@@ -1346,7 +1345,7 @@ public class EngineSupervisorTests
                 search.JobId,
                 new StartFileDownloadsRequestDto(
                     [new FileCandidateRefDto("local", @"Artist\Track.mp3")],
-                    RequestedMode: ServerExtractionMode.General),
+                    RequestedMode: ExtractionMode.General),
                 CancellationToken.None);
 
             Assert.IsNotNull(downloads);
@@ -1389,7 +1388,7 @@ public class EngineSupervisorTests
                 search.JobId,
                 new StartFolderDownloadRequestDto(
                     new AlbumFolderRefDto("local", @"Organization\Folder"),
-                    RequestedMode: ServerExtractionMode.General),
+                    RequestedMode: ExtractionMode.General),
                 CancellationToken.None);
 
             Assert.IsNotNull(download);
@@ -1459,7 +1458,7 @@ public class EngineSupervisorTests
                     [new RemoteFileJobDraftDto(
                         target,
                         DownloadSettings: new DownloadSettingsPatchDto(
-                            Skip: new SkipSettingsPatchDto(SkipMode: ServerSkipMode.Name)))]),
+                            Skip: new SkipSettingsPatchDto(SkipMode: SkipMode.Name)))]),
                 CancellationToken.None));
         }
         finally
@@ -1540,7 +1539,7 @@ public class EngineSupervisorTests
                 "slsk://Peer/Share/File.mp3",
                 DownloadSettings: new DownloadSettingsPatchDto(
                     Output: new OutputSettingsPatchDto(NameFormat: "{artist}/{title}", WritePlaylist: true),
-                    Extraction: new ExtractionSettingsPatchDto(RequestedMode: ServerExtractionMode.Song)))];
+                    Extraction: new ExtractionSettingsPatchDto(RequestedMode: ExtractionMode.Song)))];
             JobSummaryDto accepted = await supervisor.Submissions.SubmitJobListAsync(
                 new SubmitJobListRequestDto("music", music), CancellationToken.None);
 
@@ -1727,14 +1726,14 @@ public class EngineSupervisorTests
                     Guid.NewGuid(),
                     new StartFileDownloadsRequestDto(
                         [new FileCandidateRefDto("Peer", @"Share\File.bin")],
-                        RequestedMode: ServerExtractionMode.Album),
+                        RequestedMode: ExtractionMode.Album),
                     CancellationToken.None));
             await Assert.ThrowsExactlyAsync<ArgumentException>(() =>
                 supervisor.StartFolderDownloadAsync(
                     Guid.NewGuid(),
                     new StartFolderDownloadRequestDto(
                         new AlbumFolderRefDto("Peer", "Share"),
-                        RequestedMode: ServerExtractionMode.Song),
+                        RequestedMode: ExtractionMode.Song),
                     CancellationToken.None));
 
             Assert.AreEqual(0, supervisor.StateStore.GetWorkflows().Count);
@@ -1767,7 +1766,7 @@ public class EngineSupervisorTests
             var retired = new TaskCompletionSource<StateUpdateBatchDto>(TaskCreationOptions.RunContinuationsAsynchronously);
             supervisor.StateStore.JobUpserted += summary =>
             {
-                if (summary.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
+                if (summary.Lifecycle.LifecycleState == JobLifecycleState.Terminal)
                     finalJobs.Add(summary);
             };
             supervisor.StateStore.StateBatchPublished += source =>
@@ -1843,7 +1842,7 @@ public class EngineSupervisorTests
         object? session = null, shares = null, browses = null, profiles = null;
         supervisor.StateStore.JobUpserted += job =>
         {
-            if (job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
+            if (job.Lifecycle.LifecycleState == JobLifecycleState.Terminal)
                 completed[job.JobId].TrySetResult(job);
         };
         supervisor.EngineCreated += engine =>
@@ -1865,7 +1864,7 @@ public class EngineSupervisorTests
                 Assert.AreSame(shares, supervisor.Runtime.Sharing);
                 Assert.AreSame(browses, supervisor.Runtime.PeerBrowses);
                 Assert.AreSame(profiles, supervisor.Runtime.UserProfiles);
-                Assert.AreEqual(ServerJobLifecycleState.Pending,
+                Assert.AreEqual(JobLifecycleState.Pending,
                     supervisor.StateStore.GetJobSummary(interrupted.Id)!.Lifecycle.LifecycleState);
                 interrupted.PlannedSettings = originalSettings;
             }
@@ -1877,7 +1876,7 @@ public class EngineSupervisorTests
             var terminal = await Task.WhenAll(completed.Values.Select(completion => completion.Task))
                 .WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(2, engines.Count);
-            Assert.IsTrue(terminal.All(job => job.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Succeeded));
+            Assert.IsTrue(terminal.All(job => job.Lifecycle.TerminalOutcome == JobTerminalOutcome.Succeeded));
             Assert.IsTrue(accepted.All(job => registrations.GetValueOrDefault(job.JobId) == 1),
                 "Only unregistered roots may be redispatched; each accepted root runs once.");
             engines[^1].CompleteEnqueue();
@@ -1916,7 +1915,7 @@ public class EngineSupervisorTests
         var stoppedJob = new TaskCompletionSource<JobSummaryDto>(TaskCreationOptions.RunContinuationsAsynchronously);
         supervisor.StateStore.JobUpserted += job =>
         {
-            if (job.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Cancelled)
+            if (job.Lifecycle.TerminalOutcome == JobTerminalOutcome.Cancelled)
                 stoppedJob.TrySetResult(job);
         };
         var running = supervisor.RunAsync(cancellation.Token);
@@ -1933,7 +1932,7 @@ public class EngineSupervisorTests
             Assert.IsTrue(stoppedJob.Task.IsCompletedSuccessfully,
                 "Terminal cancellation must reach the state owner before the engine detaches.");
             Assert.AreEqual(accepted.JobId, stoppedJob.Task.Result.JobId);
-            Assert.AreEqual(ServerJobCancellationSource.InternalEngine,
+            Assert.AreEqual(JobCancellationSource.InternalEngine,
                 stoppedJob.Task.Result.Lifecycle.CancellationSource);
         }
         finally
@@ -2053,41 +2052,41 @@ public class EngineSupervisorTests
     }
 
     private static bool IsActive(SongJobPayloadDto song)
-        => song.LifecycleState != ServerJobLifecycleState.Terminal;
+        => song.LifecycleState != JobLifecycleState.Terminal;
 
     private static ExpectedJobStatus ProjectState(JobSummaryDto summary)
         => ProjectState(summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason);
 
     private static ExpectedJobStatus ProjectState(SongJobPayloadDto song)
         => ProjectState(
-            song.LifecycleState ?? ServerJobLifecycleState.Pending,
-            song.ActivityPhase ?? ServerJobActivityPhase.None,
-            song.TerminalOutcome ?? ServerJobTerminalOutcome.None,
-            song.SkipReason ?? ServerJobSkipReason.None);
+            song.LifecycleState ?? JobLifecycleState.Pending,
+            song.ActivityPhase ?? JobActivityPhase.None,
+            song.TerminalOutcome ?? JobTerminalOutcome.None,
+            song.SkipReason ?? JobSkipReason.None);
 
     private static ExpectedJobStatus ProjectState(
-        ServerJobLifecycleState lifecycle,
-        ServerJobActivityPhase activity,
-        ServerJobTerminalOutcome outcome,
-        ServerJobSkipReason skipReason = ServerJobSkipReason.None)
+        JobLifecycleState lifecycle,
+        JobActivityPhase activity,
+        JobTerminalOutcome outcome,
+        JobSkipReason skipReason = JobSkipReason.None)
         => lifecycle switch
         {
-            ServerJobLifecycleState.Pending => ExpectedJobStatus.Pending,
-            ServerJobLifecycleState.AwaitingSelection => ExpectedJobStatus.AwaitingSelection,
-            ServerJobLifecycleState.Terminal => outcome switch
+            JobLifecycleState.Pending => ExpectedJobStatus.Pending,
+            JobLifecycleState.AwaitingSelection => ExpectedJobStatus.AwaitingSelection,
+            JobLifecycleState.Terminal => outcome switch
             {
-                ServerJobTerminalOutcome.Succeeded => ExpectedJobStatus.Succeeded,
-                ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.AlreadyExists => ExpectedJobStatus.AlreadyExists,
-                ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.NotFoundLastTime => ExpectedJobStatus.NotFoundLastTime,
-                ServerJobTerminalOutcome.Skipped => ExpectedJobStatus.Skipped,
+                JobTerminalOutcome.Succeeded => ExpectedJobStatus.Succeeded,
+                JobTerminalOutcome.Skipped when skipReason == JobSkipReason.AlreadyExists => ExpectedJobStatus.AlreadyExists,
+                JobTerminalOutcome.Skipped when skipReason == JobSkipReason.NotFoundLastTime => ExpectedJobStatus.NotFoundLastTime,
+                JobTerminalOutcome.Skipped => ExpectedJobStatus.Skipped,
                 _ => ExpectedJobStatus.Failed,
             },
             _ => activity switch
             {
-                ServerJobActivityPhase.Extracting => ExpectedJobStatus.Extracting,
-                ServerJobActivityPhase.Downloading => ExpectedJobStatus.Downloading,
-                ServerJobActivityPhase.RunningChildren => ExpectedJobStatus.RunningChildren,
-                ServerJobActivityPhase.None => ExpectedJobStatus.RunningChildren,
+                JobActivityPhase.Extracting => ExpectedJobStatus.Extracting,
+                JobActivityPhase.Downloading => ExpectedJobStatus.Downloading,
+                JobActivityPhase.RunningChildren => ExpectedJobStatus.RunningChildren,
+                JobActivityPhase.None => ExpectedJobStatus.RunningChildren,
                 _ => ExpectedJobStatus.Searching,
             },
         };

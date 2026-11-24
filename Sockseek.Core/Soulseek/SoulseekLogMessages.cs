@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using System.Net;
 
 namespace Sockseek.Core.Services;

@@ -3,7 +3,6 @@ using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
 using Soulseek;
 using Sockseek.Core.UserProfiles;
-using Microsoft.Extensions.Logging;
 
 namespace Sockseek.Server;
 

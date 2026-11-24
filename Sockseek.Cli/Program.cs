@@ -6,9 +6,7 @@ using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Api;
 using Sockseek.Server;
-using Sockseek.Core.Snapshots;
 using Sockseek.Core.UserProfiles;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Sockseek.Core.Diagnostics;
 using System.Diagnostics;
@@ -212,14 +210,7 @@ internal static partial class Program
             try
             {
                 return await RunRemoteMonitorAsync(
-                    invocation,
-                    engineSettings,
-                    rootSettings,
-                    cliSettings,
-                    remoteSettings,
-                    output,
-                    logger,
-                    cts);
+                    invocation, engineSettings, rootSettings, cliSettings, remoteSettings, output, cts);
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested)
             {
@@ -268,7 +259,7 @@ internal static partial class Program
 
         if (string.IsNullOrEmpty(rootSettings.Extraction.Input))
         {
-            var diagnostic = new DiagnosticService(clientManager, output);
+            var diagnostic = new DiagnosticService(output);
             try
             {
                 await diagnostic.PerformNoInputActions(rootSettings.PrintOption, rootSettings.Output.IndexFilePath, cts.Token);
@@ -337,16 +328,7 @@ internal static partial class Program
         var eventLogger = new EventLogger(backend, output, includeDiagnosticDetails: engineSettings.LogLevel <= LogLevel.Debug);
         eventLogger.Attach();
 
-        backend.ActivityReceived += activity =>
-        {
-            if (activity.Payload is TrackBatchResolvedActivityDto batch
-                && batch.PrintOption == ServerPrintOption.None
-                && ShouldPrintHumanBatchPreview(batch.PrintOption.ToCore())
-                && cliReporter?.UsesLiveRendering != true)
-            {
-                PrintCompactTrackBatchResolved(activity, batch, output);
-            }
-        };
+        PrintBatchPreviews(backend, () => cliReporter, output);
 
         Task? interactiveCoordinatorTask = null;
         if (cliSettings.InteractiveMode)
@@ -442,6 +424,19 @@ internal static partial class Program
     }
 
 
+    /// <summary>Prints each resolved batch as plain lines unless a live display already shows it.</summary>
+    private static void PrintBatchPreviews(ICliBackend backend, Func<CliProgressReporter?> reporter, CliOutputController output)
+        => backend.ActivityReceived += activity =>
+        {
+            if (activity.Payload is TrackBatchResolvedActivityDto batch
+                && batch.PrintOption == ServerPrintOption.None
+                && ShouldPrintHumanBatchPreview(batch.PrintOption.ToCore())
+                && reporter()?.UsesLiveRendering != true)
+            {
+                PrintCompactTrackBatchResolved(activity, batch, output);
+            }
+        };
+
     private static async Task<CliExitCode> RunRemoteAsync(
         ParsedInvocation invocation,
         EngineSettings engineSettings,
@@ -489,16 +484,7 @@ internal static partial class Program
         var eventLogger = new EventLogger(backend, output, includeDiagnosticDetails: false);
         eventLogger.Attach();
 
-        backend.ActivityReceived += activity =>
-        {
-            if (activity.Payload is TrackBatchResolvedActivityDto batch
-                && batch.PrintOption == ServerPrintOption.None
-                && ShouldPrintHumanBatchPreview(batch.PrintOption.ToCore())
-                && cliReporter?.UsesLiveRendering != true)
-            {
-                PrintCompactTrackBatchResolved(activity, batch, output);
-            }
-        };
+        PrintBatchPreviews(backend, () => cliReporter, output);
 
         try
         {
@@ -591,7 +577,6 @@ internal static partial class Program
         CliSettings cliSettings,
         RemoteSettings remoteSettings,
         CliOutputController output,
-        ILogger logger,
         CancellationTokenSource cts)
     {
         await using var backend = new RemoteCliBackend(remoteSettings.CreateHttpClient());
@@ -1144,7 +1129,7 @@ internal static partial class Program
         SearchJobPayloadDto search,
         CancellationToken ct)
     {
-        if (search.DefaultProjection == ServerSearchDefaultProjectionKind.Album
+        if (search.DefaultProjection == SearchDefaultProjectionKind.Album
             && search.AlbumQuery != null)
         {
             var folders = await backend.GetFolderResultsAsync(
@@ -1245,7 +1230,7 @@ internal static partial class Program
     private static SearchJob ToSearchJob(SearchJobPayloadDto search, JobSummaryDto summary)
     {
         SearchJob job;
-        if (search.DefaultProjection == ServerSearchDefaultProjectionKind.Album
+        if (search.DefaultProjection == SearchDefaultProjectionKind.Album
             && search.AlbumQuery != null)
         {
             job = new SearchJob(JobRequestMapper.ToCore(search.AlbumQuery));
@@ -1562,54 +1547,54 @@ internal static partial class Program
 
     private static void ApplyJobOutcome(
         Job job,
-        ServerJobLifecycleState? lifecycleState,
-        ServerJobActivityPhase? activityPhase,
-        ServerJobTerminalOutcome? terminalOutcome,
-        ServerJobSkipReason? skipReason,
-        ServerJobFailureReason? failureReason,
+        JobLifecycleState? lifecycleState,
+        JobActivityPhase? activityPhase,
+        JobTerminalOutcome? terminalOutcome,
+        JobSkipReason? skipReason,
+        JobFailureReason? failureReason,
         string? failureMessage,
-        ServerJobCancellationSource cancellationSource)
+        JobCancellationSource cancellationSource)
     {
-        if (lifecycleState == ServerJobLifecycleState.AwaitingSelection)
+        if (lifecycleState == JobLifecycleState.AwaitingSelection)
         {
             job.SetAwaitingSelection();
             return;
         }
 
-        if (lifecycleState is ServerJobLifecycleState.Running or ServerJobLifecycleState.Pending)
+        if (lifecycleState is JobLifecycleState.Running or JobLifecycleState.Pending)
         {
-            ApplyJobActivity(job, lifecycleState.Value, activityPhase ?? ServerJobActivityPhase.None);
+            ApplyJobActivity(job, lifecycleState.Value, activityPhase ?? JobActivityPhase.None);
             return;
         }
 
-        if (lifecycleState != ServerJobLifecycleState.Terminal || terminalOutcome is null or ServerJobTerminalOutcome.None)
+        if (lifecycleState != JobLifecycleState.Terminal || terminalOutcome is null or JobTerminalOutcome.None)
             return;
 
         TryToCoreFailureReason(failureReason, out var parsedFailureReason);
 
         switch (terminalOutcome.Value)
         {
-            case ServerJobTerminalOutcome.Succeeded:
+            case JobTerminalOutcome.Succeeded:
                 job.SetDone();
                 break;
-            case ServerJobTerminalOutcome.Skipped:
+            case JobTerminalOutcome.Skipped:
                 job.SetSkipped(ToCoreSkipReason(skipReason), parsedFailureReason);
                 break;
-            case ServerJobTerminalOutcome.PartialSuccess:
+            case JobTerminalOutcome.PartialSuccess:
                 job.SetPartialSuccess(failureMessage);
                 break;
-            case ServerJobTerminalOutcome.Cancelled:
+            case JobTerminalOutcome.Cancelled:
                 job.SetCancelled(ToCoreCancellationSource(cancellationSource), failureMessage);
                 break;
-            case ServerJobTerminalOutcome.Failed:
+            case JobTerminalOutcome.Failed:
                 job.Fail(parsedFailureReason, failureMessage);
                 break;
         }
     }
 
-    private static void ApplyJobActivity(Job job, ServerJobLifecycleState lifecycleState, ServerJobActivityPhase activityPhase)
+    private static void ApplyJobActivity(Job job, JobLifecycleState lifecycleState, JobActivityPhase activityPhase)
     {
-        if (lifecycleState == ServerJobLifecycleState.Pending)
+        if (lifecycleState == JobLifecycleState.Pending)
         {
             job.ResetToPending();
             return;
@@ -1617,20 +1602,20 @@ internal static partial class Program
 
         var corePhase = activityPhase switch
         {
-            ServerJobActivityPhase.Extracting => JobActivityPhase.Extracting,
-            ServerJobActivityPhase.Downloading => JobActivityPhase.Downloading,
-            ServerJobActivityPhase.RetrievingFolder => JobActivityPhase.RetrievingFolder,
-            ServerJobActivityPhase.RunningChildren => JobActivityPhase.RunningChildren,
-            ServerJobActivityPhase.Searching => JobActivityPhase.Searching,
-            ServerJobActivityPhase.WaitingForSearchConcurrency => JobActivityPhase.WaitingForSearchConcurrency,
-            ServerJobActivityPhase.SearchRateLimited => JobActivityPhase.SearchRateLimited,
-            ServerJobActivityPhase.ProcessingSearchResults => JobActivityPhase.ProcessingSearchResults,
-            ServerJobActivityPhase.Organizing => JobActivityPhase.Organizing,
-            ServerJobActivityPhase.RunningOnComplete => JobActivityPhase.RunningOnComplete,
-            ServerJobActivityPhase.RunningFallback => JobActivityPhase.RunningFallback,
-            ServerJobActivityPhase.SearchingFallback => JobActivityPhase.SearchingFallback,
-            ServerJobActivityPhase.DownloadingFallback => JobActivityPhase.DownloadingFallback,
-            ServerJobActivityPhase.ProcessingFallback => JobActivityPhase.ProcessingFallback,
+            JobActivityPhase.Extracting => JobActivityPhase.Extracting,
+            JobActivityPhase.Downloading => JobActivityPhase.Downloading,
+            JobActivityPhase.RetrievingFolder => JobActivityPhase.RetrievingFolder,
+            JobActivityPhase.RunningChildren => JobActivityPhase.RunningChildren,
+            JobActivityPhase.Searching => JobActivityPhase.Searching,
+            JobActivityPhase.WaitingForSearchConcurrency => JobActivityPhase.WaitingForSearchConcurrency,
+            JobActivityPhase.SearchRateLimited => JobActivityPhase.SearchRateLimited,
+            JobActivityPhase.ProcessingSearchResults => JobActivityPhase.ProcessingSearchResults,
+            JobActivityPhase.Organizing => JobActivityPhase.Organizing,
+            JobActivityPhase.RunningOnComplete => JobActivityPhase.RunningOnComplete,
+            JobActivityPhase.RunningFallback => JobActivityPhase.RunningFallback,
+            JobActivityPhase.SearchingFallback => JobActivityPhase.SearchingFallback,
+            JobActivityPhase.DownloadingFallback => JobActivityPhase.DownloadingFallback,
+            JobActivityPhase.ProcessingFallback => JobActivityPhase.ProcessingFallback,
             _ => JobActivityPhase.None,
         };
 
@@ -1640,7 +1625,7 @@ internal static partial class Program
             job.UpdateActivity(corePhase);
     }
 
-    private static bool TryToCoreFailureReason(ServerJobFailureReason? reason, out JobFailureReason coreReason)
+    private static bool TryToCoreFailureReason(JobFailureReason? reason, out JobFailureReason coreReason)
     {
         if (reason == null)
         {
@@ -1651,20 +1636,20 @@ internal static partial class Program
         return Enum.TryParse(reason.Value.ToString(), out coreReason);
     }
 
-    private static SongDownloadSource ToSongDownloadSource(ServerSongDownloadSource source)
+    private static SongDownloadSource ToSongDownloadSource(SongDownloadSource source)
         => Enum.TryParse<SongDownloadSource>(source.ToString(), out var coreSource)
             ? coreSource
             : SongDownloadSource.None;
 
-    private static JobSkipReason ToCoreSkipReason(ServerJobSkipReason? reason)
+    private static JobSkipReason ToCoreSkipReason(JobSkipReason? reason)
         => reason == null
             ? JobSkipReason.None
             : Enum.TryParse(reason.Value.ToString(), out JobSkipReason coreReason)
                 ? coreReason
                 : JobSkipReason.None;
 
-    private static JobCancellationSource ToCoreCancellationSource(ServerJobCancellationSource source)
-        => source == ServerJobCancellationSource.None
+    private static JobCancellationSource ToCoreCancellationSource(JobCancellationSource source)
+        => source == JobCancellationSource.None
             ? JobCancellationSource.InternalEngine
             : Enum.TryParse(source.ToString(), out JobCancellationSource coreSource)
                 ? coreSource

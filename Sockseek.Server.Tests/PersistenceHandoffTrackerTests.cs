@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Persistence.Write;
 using Sockseek.Server.Persistence;
 using Sockseek.Core.Jobs;

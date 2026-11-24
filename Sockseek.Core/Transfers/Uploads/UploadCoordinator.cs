@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Net;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Core.Diagnostics;
 using Sockseek.Core.IO;

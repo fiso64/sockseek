@@ -1,10 +1,7 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Sockseek.Api;
 using Soulseek;
-using Sockseek.Core.Models;
-using Sockseek.Core.Jobs;
 using Sockseek.Core.Services;
 using Tests.ClientTests;
-using Sockseek.Core.Settings;
 using System.Collections.Concurrent;
 
 namespace Tests.Unit

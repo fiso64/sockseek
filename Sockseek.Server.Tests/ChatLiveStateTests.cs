@@ -1,5 +1,3 @@
-using System.Text;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core.Chat;
 using Sockseek.Server;
@@ -16,7 +14,7 @@ public sealed class ChatLiveStateTests
         Guid epoch = Guid.NewGuid();
         Guid conversationId = Guid.NewGuid();
         StateStreamScopeDto scope = StateStreamScopeDto.ChatConversation(conversationId);
-        ChatMessageDto first = Message(conversationId, 1, "first", ServerChatMessageState.Received);
+        ChatMessageDto first = Message(conversationId, 1, "first", ChatMessageState.Received);
         var conversation = Conversation(conversationId, 1, first);
         store.ApplySnapshot(new StateSnapshotDto(
             scope,
@@ -25,9 +23,9 @@ public sealed class ChatLiveStateTests
             null,
             [], [], [], [],
             new ChatTargetSnapshotDto(
-                ServerChatTargetKind.Direct, conversationId, conversation, null, [first], false)));
+                ChatTargetKind.Direct, conversationId, conversation, null, [first], false)));
 
-        ChatMessageDto second = Message(conversationId, 2, "second", ServerChatMessageState.Received);
+        ChatMessageDto second = Message(conversationId, 2, "second", ChatMessageState.Received);
         var update = store.Apply(new StateUpdateBatchDto(
             scope,
             epoch,
@@ -39,7 +37,7 @@ public sealed class ChatLiveStateTests
                 ChatTargets =
                 [
                     new ChatTargetDeltaDto(
-                        ServerChatTargetKind.Direct,
+                        ChatTargetKind.Direct,
                         conversationId,
                         Conversation(conversationId, 2, second),
                         Messages: [second])
@@ -62,7 +60,7 @@ public sealed class ChatLiveStateTests
         Guid epoch = Guid.NewGuid();
         Guid conversationId = Guid.NewGuid();
         StateStreamScopeDto scope = StateStreamScopeDto.ChatConversation(conversationId);
-        ChatMessageDto first = Message(conversationId, 1, "first", ServerChatMessageState.Received);
+        ChatMessageDto first = Message(conversationId, 1, "first", ChatMessageState.Received);
         store.ApplySnapshot(new StateSnapshotDto(
             scope,
             new StateStreamPositionDto(epoch, 0),
@@ -70,7 +68,7 @@ public sealed class ChatLiveStateTests
             null,
             [], [], [], [],
             new ChatTargetSnapshotDto(
-                ServerChatTargetKind.Direct,
+                ChatTargetKind.Direct,
                 conversationId,
                 Conversation(conversationId, 1, first),
                 null,
@@ -87,7 +85,7 @@ public sealed class ChatLiveStateTests
             {
                 ChatTargets =
                 [
-                    new ChatTargetDeltaDto(ServerChatTargetKind.Direct, Guid.NewGuid())
+                    new ChatTargetDeltaDto(ChatTargetKind.Direct, Guid.NewGuid())
                 ],
             },
             [])));
@@ -105,10 +103,10 @@ public sealed class ChatLiveStateTests
             null,
             [], [], [], []));
         Guid conversationId = Guid.NewGuid();
-        ChatMessageDto message = Message(conversationId, 1, "hello", ServerChatMessageState.Received);
+        ChatMessageDto message = Message(conversationId, 1, "hello", ChatMessageState.Received);
         var notification = new UserNotificationDto(
-            Guid.NewGuid(), 1, ServerUserNotificationKind.PrivateMessage,
-            DateTimeOffset.UtcNow, null, "Alice", ServerChatTargetKind.Direct,
+            Guid.NewGuid(), 1, UserNotificationKind.PrivateMessage,
+            DateTimeOffset.UtcNow, null, "Alice", ChatTargetKind.Direct,
             conversationId, "Alice", message.MessageId, "hello",
             $"/api/chat/conversations/{conversationId:D}");
 
@@ -153,7 +151,7 @@ public sealed class ChatLiveStateTests
             DateTimeOffset.UtcNow,
             StateDeltaDto.Empty with
             {
-                ChatTargets = [new ChatTargetDeltaDto(ServerChatTargetKind.Direct, conversationId)],
+                ChatTargets = [new ChatTargetDeltaDto(ChatTargetKind.Direct, conversationId)],
             },
             [])));
 
@@ -194,7 +192,7 @@ public sealed class ChatLiveStateTests
         Guid epoch = Guid.NewGuid();
         Guid conversationId = Guid.NewGuid();
         StateStreamScopeDto scope = StateStreamScopeDto.ChatConversation(conversationId);
-        ChatMessageDto message = Message(conversationId, 1, "hello", ServerChatMessageState.Received);
+        ChatMessageDto message = Message(conversationId, 1, "hello", ChatMessageState.Received);
         store.ApplySnapshot(new StateSnapshotDto(
             scope,
             new StateStreamPositionDto(epoch, 1),
@@ -202,7 +200,7 @@ public sealed class ChatLiveStateTests
             null,
             [], [], [], [],
             new ChatTargetSnapshotDto(
-                ServerChatTargetKind.Direct,
+                ChatTargetKind.Direct,
                 conversationId,
                 Conversation(conversationId, 1, message),
                 null,
@@ -222,7 +220,7 @@ public sealed class ChatLiveStateTests
         Guid epoch = Guid.NewGuid();
         Guid conversationId = Guid.NewGuid();
         StateStreamScopeDto scope = StateStreamScopeDto.ChatConversation(conversationId);
-        ChatMessageDto first = Message(conversationId, 1, "first", ServerChatMessageState.Received);
+        ChatMessageDto first = Message(conversationId, 1, "first", ChatMessageState.Received);
         store.ApplySnapshot(new StateSnapshotDto(
             scope,
             new StateStreamPositionDto(epoch, 1),
@@ -230,7 +228,7 @@ public sealed class ChatLiveStateTests
             null,
             [], [], [], [],
             new ChatTargetSnapshotDto(
-                ServerChatTargetKind.Direct,
+                ChatTargetKind.Direct,
                 conversationId,
                 Conversation(conversationId, 1, first),
                 null,
@@ -248,7 +246,7 @@ public sealed class ChatLiveStateTests
                 ChatTargets =
                 [
                     new ChatTargetDeltaDto(
-                        ServerChatTargetKind.Direct,
+                        ChatTargetKind.Direct,
                         conversationId,
                         Conversation(conversationId, 2, first) with { LastMessage = null },
                         Messages: [],
@@ -270,13 +268,13 @@ public sealed class ChatLiveStateTests
         Guid conversationId = Guid.NewGuid();
         Guid messageId = Guid.NewGuid();
         var message = new ChatMessageRecord(
-            messageId, 1, "local", Sockseek.Core.Chat.ChatTargetKind.Direct, conversationId,
-            "alice", "Alice", "alice", "Alice", Sockseek.Core.Chat.ChatMessageDirection.Incoming,
+            messageId, 1, "local", ChatTargetKind.Direct, conversationId,
+            "alice", "Alice", "alice", "Alice", ChatMessageDirection.Incoming,
             "first\n" + new string('x', ChatLimits.NotificationPreviewCharacters + 20),
-            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Sockseek.Core.Chat.ChatMessageState.Received,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, ChatMessageState.Received,
             null, 1, DateTimeOffset.UtcNow);
         var record = new UserNotificationRecord(
-            Guid.NewGuid(), 1, "local", Sockseek.Core.Chat.UserNotificationKind.PrivateMessage,
+            Guid.NewGuid(), 1, "local", UserNotificationKind.PrivateMessage,
             messageId, DateTimeOffset.UtcNow, null, message);
 
         UserNotificationDto projected = ChatDtoMapper.ToDto(record);
@@ -288,10 +286,10 @@ public sealed class ChatLiveStateTests
     }
 
     private static ChatMessageDto Message(
-        Guid targetId, long sequence, string text, ServerChatMessageState state)
+        Guid targetId, long sequence, string text, ChatMessageState state)
         => new(
-            Guid.NewGuid(), sequence, ServerChatTargetKind.Direct, targetId, "Alice",
-            ServerChatMessageDirection.Incoming, text, DateTimeOffset.UtcNow,
+            Guid.NewGuid(), sequence, ChatTargetKind.Direct, targetId, "Alice",
+            ChatMessageDirection.Incoming, text, DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow, state, null);
 
     private static ConversationSummaryDto Conversation(
@@ -302,8 +300,8 @@ public sealed class ChatLiveStateTests
     {
         Guid messageId = Guid.NewGuid();
         return new UserNotificationDto(
-            Guid.NewGuid(), sequence, ServerUserNotificationKind.PrivateMessage,
-            DateTimeOffset.UtcNow, null, "Alice", ServerChatTargetKind.Direct,
+            Guid.NewGuid(), sequence, UserNotificationKind.PrivateMessage,
+            DateTimeOffset.UtcNow, null, "Alice", ChatTargetKind.Direct,
             conversationId, "Alice", messageId, "hello",
             $"/api/chat/conversations/{conversationId:D}");
     }

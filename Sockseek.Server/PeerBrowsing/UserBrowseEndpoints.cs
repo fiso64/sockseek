@@ -58,6 +58,7 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/user-browses/{browseId:guid}/directories", DirectoriesAsync)
+            .MapErrors(ReadFailure)
             .WithTags("User Browsing")
             .WithSummary("Gets a stable page of share directories.")
             .Produces<PageDto<BrowseDirectoryEntryDto>>()
@@ -69,6 +70,7 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/user-browses/{browseId:guid}/directories/{directoryId:long}", DirectoryAsync)
+            .MapErrors(ReadFailure)
             .WithTags("User Browsing")
             .WithSummary("Gets one share directory.")
             .Produces<BrowseDirectoryEntryDto>()
@@ -79,6 +81,7 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/user-browses/{browseId:guid}/directories/{directoryId:long}/files", FilesAsync)
+            .MapErrors(ReadFailure)
             .WithTags("User Browsing")
             .WithSummary("Gets a stable page of files in one share directory.")
             .Produces<PageDto<BrowseFileEntryDto>>()
@@ -90,6 +93,7 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/user-browses/{browseId:guid}/search", SearchAsync)
+            .MapErrors(ReadFailure)
             .WithTags("User Browsing")
             .WithSummary("Searches one immutable share artifact as flat directory/file rows.")
             .Produces<BrowseSearchPageDto>()
@@ -101,6 +105,7 @@ internal static class UserBrowseEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapPost("/api/user-browses/{browseId:guid}/downloads", StartDownloadsAsync)
+            .MapErrors(DownloadFailure)
             .WithTags("User Browsing")
             .WithSummary("Starts ordinary remote downloads from a browse selection.")
             .Produces<StartUserShareDownloadsResponseDto>()
@@ -252,48 +257,41 @@ internal static class UserBrowseEndpoints
         PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
-        try
-        {
-            ValidateQuery(query);
-            int pageSize = PageSize(limit, ServerProtocol.DefaultNestedPageSize);
-            long? afterId = cursor is null
-                ? null
-                : cursors.DecodeRows(
-                    cursor,
-                    PeerBrowseCursorKind.Directories,
-                    browseId,
-                    parentId,
-                    recursive,
-                    query);
-            string? afterSortKey = null;
-            if (afterId is { } directoryId)
-            {
-                PeerBrowseDirectoryEntry? entry = await service.ReadDirectoryEntryAsync(
-                    browseId, directoryId, cancellationToken).ConfigureAwait(false);
-                if (entry is null)
-                    return InvalidCursor();
-                afterSortKey = entry.DisplayPath;
-            }
-            PeerBrowsePage<PeerBrowseDirectoryEntry> page = await service.ReadDirectoriesAsync(
+        ValidateQuery(query);
+        int pageSize = PageSize(limit, ServerProtocol.DefaultNestedPageSize);
+        long? afterId = cursor is null
+            ? null
+            : cursors.DecodeRows(
+                cursor,
+                PeerBrowseCursorKind.Directories,
                 browseId,
                 parentId,
-                query,
                 recursive,
-                afterSortKey,
-                afterId,
-                pageSize,
-                cancellationToken).ConfigureAwait(false);
-            string? nextCursor = page.NextId is { } nextId
-                ? cursors.EncodeRows(
-                    PeerBrowseCursorKind.Directories, browseId, parentId, recursive, query, nextId)
-                : null;
-            return Results.Ok(new PageDto<BrowseDirectoryEntryDto>(
-                page.Items.Select(UserBrowseDtoMapper.ToDto).ToArray(), nextCursor));
-        }
-        catch (Exception exception)
+                query);
+        string? afterSortKey = null;
+        if (afterId is { } directoryId)
         {
-            return ReadFailure(exception);
+            PeerBrowseDirectoryEntry? entry = await service.ReadDirectoryEntryAsync(
+                browseId, directoryId, cancellationToken).ConfigureAwait(false);
+            if (entry is null)
+                return InvalidCursor();
+            afterSortKey = entry.DisplayPath;
         }
+        PeerBrowsePage<PeerBrowseDirectoryEntry> page = await service.ReadDirectoriesAsync(
+            browseId,
+            parentId,
+            query,
+            recursive,
+            afterSortKey,
+            afterId,
+            pageSize,
+            cancellationToken).ConfigureAwait(false);
+        string? nextCursor = page.NextId is { } nextId
+            ? cursors.EncodeRows(
+                PeerBrowseCursorKind.Directories, browseId, parentId, recursive, query, nextId)
+            : null;
+        return Results.Ok(new PageDto<BrowseDirectoryEntryDto>(
+            page.Items.Select(UserBrowseDtoMapper.ToDto).ToArray(), nextCursor));
     }
 
     private static async Task<IResult> DirectoryAsync(
@@ -305,18 +303,11 @@ internal static class UserBrowseEndpoints
         PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
-        try
-        {
-            PeerBrowseDirectoryEntry? entry = await service.ReadDirectoryEntryAsync(
-                browseId, directoryId, cancellationToken).ConfigureAwait(false);
-            return entry is null
-                ? Results.NotFound(new ApiErrorDto("The share directory was not found.", "directory-not-found"))
-                : Results.Ok(UserBrowseDtoMapper.ToDto(entry));
-        }
-        catch (Exception exception)
-        {
-            return ReadFailure(exception);
-        }
+        PeerBrowseDirectoryEntry? entry = await service.ReadDirectoryEntryAsync(
+            browseId, directoryId, cancellationToken).ConfigureAwait(false);
+        return entry is null
+            ? Results.NotFound(new ApiErrorDto("The share directory was not found.", "directory-not-found"))
+            : Results.Ok(UserBrowseDtoMapper.ToDto(entry));
     }
 
     private static async Task<IResult> FilesAsync(
@@ -332,46 +323,39 @@ internal static class UserBrowseEndpoints
         PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
-        try
-        {
-            ValidateQuery(query);
-            int pageSize = PageSize(limit, ServerProtocol.DefaultPageSize);
-            long? afterId = cursor is null
-                ? null
-                : cursors.DecodeRows(
-                    cursor,
-                    PeerBrowseCursorKind.Files,
-                    browseId,
-                    directoryId,
-                    false,
-                    query);
-            string? afterSortKey = null;
-            if (afterId is { } fileId)
-            {
-                PeerBrowseFileEntry? entry = await service.ReadFileEntryAsync(
-                    browseId, fileId, cancellationToken).ConfigureAwait(false);
-                if (entry is null || entry.DirectoryId != directoryId)
-                    return InvalidCursor();
-                afterSortKey = entry.Name;
-            }
-            PeerBrowsePage<PeerBrowseFileEntry> page = await service.ReadFilesAsync(
+        ValidateQuery(query);
+        int pageSize = PageSize(limit, ServerProtocol.DefaultPageSize);
+        long? afterId = cursor is null
+            ? null
+            : cursors.DecodeRows(
+                cursor,
+                PeerBrowseCursorKind.Files,
                 browseId,
                 directoryId,
-                query,
-                afterSortKey,
-                afterId,
-                pageSize,
-                cancellationToken).ConfigureAwait(false);
-            string? nextCursor = page.NextId is { } nextId
-                ? cursors.EncodeRows(
-                    PeerBrowseCursorKind.Files, browseId, directoryId, false, query, nextId)
-                : null;
-            return Results.Ok(new PageDto<BrowseFileEntryDto>(page.Items.Select(UserBrowseDtoMapper.ToDto).ToArray(), nextCursor));
-        }
-        catch (Exception exception)
+                false,
+                query);
+        string? afterSortKey = null;
+        if (afterId is { } fileId)
         {
-            return ReadFailure(exception);
+            PeerBrowseFileEntry? entry = await service.ReadFileEntryAsync(
+                browseId, fileId, cancellationToken).ConfigureAwait(false);
+            if (entry is null || entry.DirectoryId != directoryId)
+                return InvalidCursor();
+            afterSortKey = entry.Name;
         }
+        PeerBrowsePage<PeerBrowseFileEntry> page = await service.ReadFilesAsync(
+            browseId,
+            directoryId,
+            query,
+            afterSortKey,
+            afterId,
+            pageSize,
+            cancellationToken).ConfigureAwait(false);
+        string? nextCursor = page.NextId is { } nextId
+            ? cursors.EncodeRows(
+                PeerBrowseCursorKind.Files, browseId, directoryId, false, query, nextId)
+            : null;
+        return Results.Ok(new PageDto<BrowseFileEntryDto>(page.Items.Select(UserBrowseDtoMapper.ToDto).ToArray(), nextCursor));
     }
 
     private static async Task<IResult> SearchAsync(
@@ -386,67 +370,60 @@ internal static class UserBrowseEndpoints
         PeerBrowseService? service = runtime.PeerBrowses;
         if (service is null)
             return Unavailable();
-        try
-        {
-            string normalizedQuery = NormalizeSearchQuery(query);
-            int pageSize = PageSize(limit, ServerProtocol.DefaultNestedPageSize);
-            PeerBrowseResource? resource = await service.GetAccessibleAsync(
-                browseId, cancellationToken).ConfigureAwait(false);
-            if (resource is null)
-                return Expired();
-            if (resource.State != PeerBrowseState.Complete)
-                throw new PeerBrowseNotReadyException();
+        string normalizedQuery = NormalizeSearchQuery(query);
+        int pageSize = PageSize(limit, ServerProtocol.DefaultNestedPageSize);
+        PeerBrowseResource? resource = await service.GetAccessibleAsync(
+            browseId, cancellationToken).ConfigureAwait(false);
+        if (resource is null)
+            return Expired();
+        if (resource.State != PeerBrowseState.Complete)
+            throw new PeerBrowseNotReadyException();
 
-            PeerBrowseSearchCursor? after = cursor is null
-                ? null
-                : cursors.DecodeSearch(
-                    cursor,
-                    browseId,
-                    resource.Revision,
-                    normalizedQuery);
-            string? afterSortKey = null;
-            if (after is not null)
-            {
-                afterSortKey = await service.ReadSearchSortKeyAsync(
-                    browseId,
-                    after.Kind,
-                    after.EntryId,
-                    cancellationToken).ConfigureAwait(false);
-                if (afterSortKey is null)
-                    return InvalidCursor();
-            }
-
-            PeerBrowseSearchPage page = await service.SearchAsync(
+        PeerBrowseSearchCursor? after = cursor is null
+            ? null
+            : cursors.DecodeSearch(
+                cursor,
                 browseId,
-                normalizedQuery,
-                afterSortKey,
-                after?.Kind,
-                after?.EntryId,
-                pageSize,
+                resource.Revision,
+                normalizedQuery);
+        string? afterSortKey = null;
+        if (after is not null)
+        {
+            afterSortKey = await service.ReadSearchSortKeyAsync(
+                browseId,
+                after.Kind,
+                after.EntryId,
                 cancellationToken).ConfigureAwait(false);
-            string? nextCursor = page.NextId is { } nextId
-                ? cursors.EncodeSearch(
-                    browseId,
-                    resource.Revision,
-                    normalizedQuery,
-                    page.NextKind!.Value,
-                    nextId)
-                : null;
-            return Results.Ok(new BrowseSearchPageDto(
+            if (afterSortKey is null)
+                return InvalidCursor();
+        }
+
+        PeerBrowseSearchPage page = await service.SearchAsync(
+            browseId,
+            normalizedQuery,
+            afterSortKey,
+            after?.Kind,
+            after?.EntryId,
+            pageSize,
+            cancellationToken).ConfigureAwait(false);
+        string? nextCursor = page.NextId is { } nextId
+            ? cursors.EncodeSearch(
                 browseId,
                 resource.Revision,
                 normalizedQuery,
-                page.Items.Select(UserBrowseDtoMapper.ToDto).ToArray(),
-                page.PublicMatchingFileCount,
-                page.PublicMatchingBytes,
-                page.LockedMatchingFileCount,
-                page.LockedMatchingBytes,
-                nextCursor));
-        }
-        catch (Exception exception)
-        {
-            return ReadFailure(exception);
-        }
+                page.NextKind!.Value,
+                nextId)
+            : null;
+        return Results.Ok(new BrowseSearchPageDto(
+            browseId,
+            resource.Revision,
+            normalizedQuery,
+            page.Items.Select(UserBrowseDtoMapper.ToDto).ToArray(),
+            page.PublicMatchingFileCount,
+            page.PublicMatchingBytes,
+            page.LockedMatchingFileCount,
+            page.LockedMatchingBytes,
+            nextCursor));
     }
 
     private static async Task<IResult> StartDownloadsAsync(
@@ -457,36 +434,29 @@ internal static class UserBrowseEndpoints
         SubmissionCommitCoordinator commits,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            ValidateShareOptions(request.Options);
-            if (request.RequestId == Guid.Empty)
-                throw new PeerBrowseSelectionException("RequestId cannot be empty.");
-            string fingerprint = Fingerprint(browseId, request);
-            StartUserShareDownloadsResponseDto response = await commits.ExecuteAsync(
-                request.RequestId,
-                fingerprint,
-                async operationToken =>
-                {
-                    (PeerBrowseResource resource, PeerBrowseDownloadResolution resolution) =
-                        await ResolveSelectionAsync(
-                            browseId,
-                            request.Selections,
-                            runtime,
-                            operationToken,
-                            request.ExcludedFileIds,
-                            request.ExcludedDirectoryIds).ConfigureAwait(false);
-                    return await submissions.SubmitUserShareDownloadsAsync(
-                        resource.Username, resolution, request.Options,
-                        request.RequestId, fingerprint, operationToken).ConfigureAwait(false);
-                },
-                cancellationToken).ConfigureAwait(false);
-            return Results.Ok(response);
-        }
-        catch (Exception exception)
-        {
-            return DownloadFailure(exception);
-        }
+        ValidateShareOptions(request.Options);
+        if (request.RequestId == Guid.Empty)
+            throw new PeerBrowseSelectionException("RequestId cannot be empty.");
+        string fingerprint = Fingerprint(browseId, request);
+        StartUserShareDownloadsResponseDto response = await commits.ExecuteAsync(
+            request.RequestId,
+            fingerprint,
+            async operationToken =>
+            {
+                (PeerBrowseResource resource, PeerBrowseDownloadResolution resolution) =
+                    await ResolveSelectionAsync(
+                        browseId,
+                        request.Selections,
+                        runtime,
+                        operationToken,
+                        request.ExcludedFileIds,
+                        request.ExcludedDirectoryIds).ConfigureAwait(false);
+                return await submissions.SubmitUserShareDownloadsAsync(
+                    resource.Username, resolution, request.Options,
+                    request.RequestId, fingerprint, operationToken).ConfigureAwait(false);
+            },
+            cancellationToken).ConfigureAwait(false);
+        return Results.Ok(response);
     }
 
     internal static string Fingerprint(Guid browseId, StartUserShareDownloadsRequestDto request)

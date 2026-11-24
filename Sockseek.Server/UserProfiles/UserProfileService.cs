@@ -1,7 +1,5 @@
-using Microsoft.Extensions.Logging;
 using Sockseek.Api;
 using Sockseek.Core.Diagnostics;
-using Sockseek.Core.Models;
 using Sockseek.Core.Sharing;
 using Sockseek.Core.UserProfiles;
 using Soulseek;

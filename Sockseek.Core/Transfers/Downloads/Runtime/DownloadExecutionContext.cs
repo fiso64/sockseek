@@ -1,11 +1,5 @@
+using Sockseek.Api;
 using System.Collections.Concurrent;
-using Microsoft.Extensions.Logging;
-using Soulseek;
-using Sockseek.Core.Transfers.Downloads.JobTracking;
-using Sockseek.Core.Transfers.Downloads.Reporting;
-using Sockseek.Core.Transfers.Downloads.Runtime;
-using Sockseek.Core.Transfers.Downloads.Skipping;
-using Sockseek.Core.Transfers.Downloads.SourceMutations;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
@@ -13,14 +7,19 @@ using Sockseek.Core.Settings;
 using Sockseek.Core.Extractors;
 using Sockseek.Core.Planning;
 
-namespace Sockseek.Core.Transfers.Downloads.Runtime;
+namespace Sockseek.Core.Transfers.Downloads;
 
 internal sealed record PendingTerminalTransfer(
     Guid TransferId,
     int AttemptCount,
     PeerFileTarget? Target,
     string SourceReference,
-    string InitialOutputPath);
+    string InitialOutputPath)
+{
+    /// <summary>The transfer as its events describe it: from the peer target, or from the fallback source.</summary>
+    public TransferSubject Subject(SongJob song)
+        => new(TransferId, song, Target, Target is null ? SourceReference : null);
+}
 
 internal sealed class DownloadExecutionContext
 {

@@ -1,5 +1,4 @@
 using Sockseek.Api;
-using Sockseek.Core.PeerBrowsing;
 using Sockseek.Persistence.PeerBrowsing;
 using Sockseek.Server.PeerBrowsing;
 

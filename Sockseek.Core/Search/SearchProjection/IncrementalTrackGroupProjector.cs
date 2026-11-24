@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using System.Collections.Concurrent;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;

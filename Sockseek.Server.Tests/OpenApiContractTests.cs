@@ -3,12 +3,8 @@ using System.Text.Json;
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core;
-using Sockseek.Core.Models;
-using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
-using Sockseek.Core.Snapshots;
 using Sockseek.Api;
 using Sockseek.Server;
 using Sockseek.Server.Persistence;
@@ -342,13 +338,13 @@ public class OpenApiContractTests
             .Any(value => value.GetString() == "null"));
         foreach (string enumSchema in new[]
         {
-            nameof(ServerSearchViewProjectionKind),
+            nameof(SearchViewProjectionKind),
             nameof(SearchViewRetentionState),
             nameof(SearchViewDirectoryVisibility),
             nameof(SearchViewDirectoryRetrievalState),
-            nameof(ServerSearchResultVisibility),
-            nameof(ServerSearchPreferenceTier),
-            nameof(ServerSearchPreferenceCondition),
+            nameof(SearchResultVisibility),
+            nameof(SearchPreferenceTier),
+            nameof(SearchPreferenceCondition),
         })
         {
             JsonElement values = schemas.GetProperty(enumSchema).GetProperty("enum");
@@ -628,13 +624,13 @@ public class OpenApiContractTests
     {
         ServerPrintOption combinedPrint = ServerPrintOption.Jobs | ServerPrintOption.Full;
         var settings = new DownloadSettingsPatchDto(
-            Output: new OutputSettingsPatchDto(AlbumArtOption: ServerAlbumArtOption.Largest),
-            Skip: new SkipSettingsPatchDto(SkipMode: ServerSkipMode.Index),
+            Output: new OutputSettingsPatchDto(AlbumArtOption: AlbumArtOption.Largest),
+            Skip: new SkipSettingsPatchDto(SkipMode: SkipMode.Index),
             Extraction: new ExtractionSettingsPatchDto(
                 InputType: ServerInputType.SoulseekLink,
-                RequestedMode: ServerExtractionMode.General),
+                RequestedMode: ExtractionMode.General),
             PrintOption: combinedPrint);
-        var behavior = new DownloadBehaviorPolicyDto(Album: ServerDownloadBehavior.Manual);
+        var behavior = new DownloadBehaviorPolicyDto(Album: DownloadBehavior.Manual);
         using JsonDocument settingsJson = JsonDocument.Parse(JsonSerializer.Serialize(
             settings,
             SockseekApiJsonContext.Default.DownloadSettingsPatchDto));
@@ -692,7 +688,7 @@ public class OpenApiContractTests
         var jobId = Guid.NewGuid();
         var epoch = Guid.NewGuid();
         var summary = TestJobSummary.Create(ServerJobKind.Search, jobId, workflowId, displayId: 4,
-            state: ServerJobLifecycleState.Running, phase: ServerJobActivityPhase.Searching, name: "item", query: "query");
+            state: JobLifecycleState.Running, phase: JobActivityPhase.Searching, name: "item", query: "query");
         var batch = new StateUpdateBatchDto(
             StateStreamScopeDto.Workflow(workflowId),
             epoch,

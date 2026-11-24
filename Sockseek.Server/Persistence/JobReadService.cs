@@ -59,7 +59,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
     private async Task<JobDetailDto> WithRepeatOptionsAsync(JobDetailDto detail, CancellationToken ct)
     {
         var job = detail.Summary;
-        if (job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal || job.Display.SubmissionId is not Guid submission ||
+        if (job.Lifecycle.LifecycleState != JobLifecycleState.Terminal || job.Display.SubmissionId is not Guid submission ||
             persistence.JobHistory == null || persistence.Submissions == null) return detail;
         bool canRun = false, canExtract = false, canEdit = false;
         if (job.Display.Kind is not (ServerJobKind.RemoteFile or ServerJobKind.RemoteDirectory))
@@ -75,7 +75,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         }
         int missing = 0;
         Guid? file = null;
-        if (!canRun && job.Lifecycle.TerminalOutcome is not ServerJobTerminalOutcome.Succeeded
+        if (!canRun && job.Lifecycle.TerminalOutcome is not JobTerminalOutcome.Succeeded
             && job.Display.Kind is ServerJobKind.RemoteDirectory or ServerJobKind.Album or ServerJobKind.RemoteFile or ServerJobKind.Song)
         {
             try { await persistence.WaitForRetryHistoryAsync(live, job.JobId, ct); }
@@ -104,7 +104,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         var candidates = await submissions.GetCompletedIdsAsync(category == CompletedJobCategory.Searches, cancellationToken).ConfigureAwait(false);
         var active = live.GetJobs(new JobQuery(null, null, null, null, IncludeAll: true))
-            .Where(job => job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal)
+            .Where(job => job.Lifecycle.LifecycleState != JobLifecycleState.Terminal)
             .Select(job => job.Display.SubmissionId).OfType<Guid>().ToHashSet();
         active.UnionWith(supervisor.GetPendingSubmissionIds());
         var eligible = candidates.Where(id => !active.Contains(id)).ToArray();
@@ -135,7 +135,7 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         var liveJobs = live.GetJobs(new JobQuery(
             null, null, null, null, IncludeAll: true, SubmissionId: submissionId));
         if (supervisor.GetPendingSubmissionIds().Contains(submissionId)
-            || liveJobs.Any(job => job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal))
+            || liveJobs.Any(job => job.Lifecycle.LifecycleState != JobLifecycleState.Terminal))
             return new(submissionId, 0, 0, 1, [new("nonterminal-jobs", 1)]);
 
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -210,8 +210,8 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         {
             TotalJobCount = jobs.Count,
             UserRootJobCount = jobs.Count(job => job.Display.Role == ServerJobRole.UserRoot),
-            ActiveJobCount = jobs.Count(job => job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal),
-            FailedJobCount = jobs.Count(job => job.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Failed),
+            ActiveJobCount = jobs.Count(job => job.Lifecycle.LifecycleState != JobLifecycleState.Terminal),
+            FailedJobCount = jobs.Count(job => job.Lifecycle.TerminalOutcome == JobTerminalOutcome.Failed),
         };
     }
 
@@ -223,7 +223,6 @@ public sealed partial class JobReadService(EngineStateStore live, EngineSupervis
         ValidateJobPageLimit(limit);
         var decoded = JobHistoryReader.DecodeCursor(cursor);
         var liveRows = live.GetWorkflowPageCandidates(
-            decoded?.DisplayId,
             decoded?.Id,
             limit == int.MaxValue ? limit : limit + 1);
         persistence.EnsureJobProjectionsAvailable();

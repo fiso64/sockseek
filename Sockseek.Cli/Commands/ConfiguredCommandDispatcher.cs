@@ -1,7 +1,6 @@
 using Sockseek.Api;
 using Sockseek.Core.Settings;
 using Sockseek.Core.UserProfiles;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Sockseek.Cli;
@@ -204,5 +203,51 @@ internal sealed record ConfiguredCommandInvocation(
         if (string.IsNullOrWhiteSpace(value) || value.StartsWith('-'))
             throw new ArgumentException($"Option '{option}' requires a value.");
         return value;
+    }
+}
+
+/// <summary>
+/// The one reading of flags, options and JSON output shared by the commands
+/// that have their own positional grammar.
+/// </summary>
+internal static class CommandArguments
+{
+    public static bool Flag(IReadOnlyList<string> args, string name)
+        => args.Any(argument => string.Equals(OptionName(argument), name, StringComparison.OrdinalIgnoreCase));
+
+    public static bool Json(IReadOnlyList<string> args) => Flag(args, "--json");
+
+    /// <summary>The value of <c>--name value</c> or <c>--name=value</c>.</summary>
+    public static string? Option(IReadOnlyList<string> args, string name)
+    {
+        for (int index = 0; index < args.Count; index++)
+        {
+            string token = args[index];
+            if (!string.Equals(OptionName(token), name, StringComparison.OrdinalIgnoreCase))
+                continue;
+            int equals = token.IndexOf('=');
+            if (equals >= 0) return token[(equals + 1)..];
+            return index + 1 < args.Count ? args[index + 1] : null;
+        }
+        return null;
+    }
+
+    public static string OptionName(string token)
+    {
+        int equals = token.IndexOf('=');
+        return (equals < 0 ? token : token[..equals]).ToLowerInvariant();
+    }
+
+    public static void Write(object value, bool json)
+    {
+        if (json) WriteJson(value);
+        else Console.WriteLine(value);
+    }
+
+    public static void WriteJson(object value)
+    {
+        System.Text.Json.JsonSerializerOptions options = SockseekApiJson.CreateSerializerOptions();
+        options.WriteIndented = true;
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(value, value.GetType(), options));
     }
 }

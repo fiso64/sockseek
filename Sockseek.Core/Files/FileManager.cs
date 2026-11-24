@@ -1,8 +1,7 @@
+using Sockseek.Api;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
-using Sockseek.Core;
 using Sockseek.Core.Settings;
-using Microsoft.Extensions.Logging;
 
 namespace Sockseek.Core.Services;
 

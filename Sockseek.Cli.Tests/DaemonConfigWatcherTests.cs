@@ -1,13 +1,8 @@
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Cli;
-using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
 using Sockseek.Server;
-using Sockseek.Server.Persistence;
 using Tests.ClientTests;
 using UserInfo = Soulseek.UserInfo;
 using System.Net;

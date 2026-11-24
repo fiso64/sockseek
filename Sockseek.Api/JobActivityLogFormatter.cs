@@ -65,7 +65,7 @@ public sealed class JobActivityLogFormatter
         lock (sync)
         {
             RememberStructure(summary);
-            if (summary.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal)
+            if (summary.Lifecycle.LifecycleState != JobLifecycleState.Terminal)
                 return null;
             if (!loggedTerminalJobs.Add(summary.JobId))
                 return null;
@@ -231,14 +231,14 @@ public sealed class JobActivityLogFormatter
     private static ActivityLogDisplayKind DisplayKind(JobSummaryDto summary)
         => summary.Lifecycle.TerminalOutcome switch
         {
-            ServerJobTerminalOutcome.Succeeded => ActivityLogDisplayKind.Succeeded,
-            ServerJobTerminalOutcome.Skipped
-                when summary.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists =>
+            JobTerminalOutcome.Succeeded => ActivityLogDisplayKind.Succeeded,
+            JobTerminalOutcome.Skipped
+                when summary.Lifecycle.SkipReason == JobSkipReason.AlreadyExists =>
                 ActivityLogDisplayKind.AlreadyExists,
-            ServerJobTerminalOutcome.Skipped => ActivityLogDisplayKind.Skipped,
-            ServerJobTerminalOutcome.Cancelled => ActivityLogDisplayKind.Cancelled,
-            ServerJobTerminalOutcome.PartialSuccess => ActivityLogDisplayKind.Partial,
-            ServerJobTerminalOutcome.Failed => ActivityLogDisplayKind.Failed,
+            JobTerminalOutcome.Skipped => ActivityLogDisplayKind.Skipped,
+            JobTerminalOutcome.Cancelled => ActivityLogDisplayKind.Cancelled,
+            JobTerminalOutcome.PartialSuccess => ActivityLogDisplayKind.Partial,
+            JobTerminalOutcome.Failed => ActivityLogDisplayKind.Failed,
             _ => ActivityLogDisplayKind.Status,
         };
 
@@ -257,17 +257,17 @@ public sealed class JobActivityLogFormatter
     private static string StatusLabel(JobSummaryDto summary)
         => summary.Lifecycle.TerminalOutcome switch
         {
-            ServerJobTerminalOutcome.Succeeded => "succeeded",
-            ServerJobTerminalOutcome.Skipped
-                when summary.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists =>
+            JobTerminalOutcome.Succeeded => "succeeded",
+            JobTerminalOutcome.Skipped
+                when summary.Lifecycle.SkipReason == JobSkipReason.AlreadyExists =>
                 "already exists",
-            ServerJobTerminalOutcome.Skipped
-                when summary.Lifecycle.SkipReason == ServerJobSkipReason.NotFoundLastTime =>
+            JobTerminalOutcome.Skipped
+                when summary.Lifecycle.SkipReason == JobSkipReason.NotFoundLastTime =>
                 "not found",
-            ServerJobTerminalOutcome.Skipped => "skipped",
-            ServerJobTerminalOutcome.Cancelled => "cancelled",
-            ServerJobTerminalOutcome.PartialSuccess => "partial",
-            ServerJobTerminalOutcome.Failed =>
+            JobTerminalOutcome.Skipped => "skipped",
+            JobTerminalOutcome.Cancelled => "cancelled",
+            JobTerminalOutcome.PartialSuccess => "partial",
+            JobTerminalOutcome.Failed =>
                 ServerFailureReasonDisplay.FailedLabel(summary.Lifecycle.FailureReason),
             _ => "terminal",
         };

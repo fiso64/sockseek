@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Services;
 
@@ -31,23 +32,17 @@ namespace Sockseek.Core.Models;
 
         public FileConditions(FileConditions other)
         {
-            LengthTolerance = other.LengthTolerance;
-            MinBitrate = other.MinBitrate;
-            MaxBitrate = other.MaxBitrate;
-            MinSampleRate = other.MinSampleRate;
-            MaxSampleRate = other.MaxSampleRate;
-            AcceptNoLength = other.AcceptNoLength;
-            StrictArtist = other.StrictArtist;
-            StrictTitle = other.StrictTitle;
-            StrictAlbum = other.StrictAlbum;
-            ExcludeLocked = other.ExcludeLocked;
-            MinBitDepth = other.MinBitDepth;
-            MaxBitDepth = other.MaxBitDepth;
-            AcceptMissingProps = other.AcceptMissingProps;
+            (LengthTolerance, MinBitrate, MaxBitrate, MinSampleRate, MaxSampleRate, MinBitDepth, MaxBitDepth,
+                StrictTitle, StrictArtist, StrictAlbum, ExcludeLocked, AcceptNoLength, AcceptMissingProps) = other.Scalars;
             Formats = other.Formats.ToArray();
             BannedUsers = other.BannedUsers.ToArray();
             AllowedUsers = other.AllowedUsers.ToArray();
         }
+
+        // Every non-list condition, for copying and comparing in one place.
+        private (int?, int?, int?, int?, int?, int?, int?, bool, bool, bool, bool, bool, bool) Scalars
+            => (LengthTolerance, MinBitrate, MaxBitrate, MinSampleRate, MaxSampleRate, MinBitDepth, MaxBitDepth,
+                StrictTitle, StrictArtist, StrictAlbum, ExcludeLocked, AcceptNoLength, AcceptMissingProps);
 
         public FileConditions With(FileConditionPatch other)
         {
@@ -97,29 +92,11 @@ namespace Sockseek.Core.Models;
         }
 
         public override bool Equals(object? obj)
-        {
-            if (obj == null || GetType() != obj.GetType())
-                return false;
-
-            var other = (FileConditions)obj;
-
-            return LengthTolerance == other.LengthTolerance
-                && MinBitrate == other.MinBitrate
-                && MaxBitrate == other.MaxBitrate
-                && MinSampleRate == other.MinSampleRate
-                && MaxSampleRate == other.MaxSampleRate
-                && MinBitDepth == other.MinBitDepth
-                && MaxBitDepth == other.MaxBitDepth
-                && StrictTitle == other.StrictTitle
-                && StrictArtist == other.StrictArtist
-                && StrictAlbum == other.StrictAlbum
-                && ExcludeLocked == other.ExcludeLocked
-                && AcceptNoLength == other.AcceptNoLength
-                && AcceptMissingProps == other.AcceptMissingProps
+            => obj is FileConditions other && GetType() == other.GetType()
+                && Scalars == other.Scalars
                 && Formats.SequenceEqual(other.Formats)
                 && BannedUsers.SequenceEqual(other.BannedUsers)
                 && AllowedUsers.SequenceEqual(other.AllowedUsers);
-        }
 
         public bool HasActiveAudioPropertyConditions()
             => MinBitrate != null
@@ -175,22 +152,7 @@ namespace Sockseek.Core.Models;
             SearchResponse? response = null,
             bool filenameChecks = true,
             bool checkUser = true)
-        {
-            int length    = query?.Length ?? -1;
-            string title  = query?.Title  ?? "";
-            string artist = query?.Artist ?? "";
-            string album  = query?.Album  ?? "";
-            return FormatSatisfies(file.Path)
-                && LengthToleranceSatisfies(file.Length, length)
-                && BitrateSatisfies(file.Bitrate)
-                && SampleRateSatisfies(file.SampleRate)
-                && BitDepthSatisfies(file.BitDepth)
-                && (!filenameChecks
-                    || StrictTitleSatisfies(file.Path, title)
-                    && StrictArtistSatisfies(file.Path, artist)
-                    && StrictAlbumSatisfies(file.Path, album))
-                && (!checkUser || UserSatisfies(response));
-        }
+            => ProjectionFileSatisfies(file, query, response?.Username, filenameChecks, checkUser);
 
         internal bool ProjectionFileSatisfies(
             ConditionFile file,
@@ -415,31 +377,6 @@ namespace Sockseek.Core.Models;
             return false;
         }
 
-        public static bool FuzzyPhraseString(string fname, string tname, bool diacrRemove = true, bool ignoreCase = true, bool boundarySkipWs = true)
-        {
-            if (tname.Length == 0)
-                return true;
-
-            fname = FuzzyPhrasePreprocess(fname, diacrRemove);
-            tname = FuzzyPhrasePreprocess(tname, diacrRemove);
-
-            return fname.ContainsWithBoundary(tname, ignoreCase);
-        }
-
-        // Note: Unused. ResultSorter uses the optimized CheapBracketCheck
-        public static bool BracketCheck(SongQuery query, SongQuery inferred)
-        {
-            string t1 = query.Title.RemoveFt().Replace('[', '(');
-            if (t1.Contains('('))
-                return true;
-
-            string t2 = inferred.Title.RemoveFt().Replace('[', '(');
-            if (!t2.Contains('('))
-                return true;
-
-            return false;
-        }
-
         public bool FormatSatisfies(string fname)
         {
             if (Formats.Length == 0)
@@ -533,23 +470,13 @@ namespace Sockseek.Core.Models;
         public bool? AcceptNoLength;
         public bool? AcceptMissingProps;
 
+        // Every non-list condition, for comparing in one place.
+        private (int?, int?, int?, int?, int?, int?, int?, bool?, bool?, bool?, bool?, bool?, bool?) Scalars
+            => (LengthTolerance, MinBitrate, MaxBitrate, MinSampleRate, MaxSampleRate, MinBitDepth, MaxBitDepth,
+                StrictTitle, StrictArtist, StrictAlbum, ExcludeLocked, AcceptNoLength, AcceptMissingProps);
+
         public bool IsEmpty()
-            => LengthTolerance == null
-            && MinBitrate == null
-            && MaxBitrate == null
-            && MinSampleRate == null
-            && MaxSampleRate == null
-            && MinBitDepth == null
-            && MaxBitDepth == null
-            && StrictTitle == null
-            && StrictArtist == null
-            && StrictAlbum == null
-            && ExcludeLocked == null
-            && Formats == null
-            && BannedUsers == null
-            && AllowedUsers == null
-            && AcceptNoLength == null
-            && AcceptMissingProps == null;
+            => Scalars == default && Formats == null && BannedUsers == null && AllowedUsers == null;
 
         public void FillMissingFrom(FileConditionPatch? fallback)
         {
@@ -593,57 +520,21 @@ namespace Sockseek.Core.Models;
         }
 
         public override bool Equals(object? obj)
-        {
-            if (obj is not FileConditionPatch other)
-                return false;
+            => obj is FileConditionPatch other
+                && Scalars == other.Scalars
+                && SameList(Formats, other.Formats)
+                && SameList(BannedUsers, other.BannedUsers)
+                && SameList(AllowedUsers, other.AllowedUsers);
 
-            return LengthTolerance == other.LengthTolerance
-                && MinBitrate == other.MinBitrate
-                && MaxBitrate == other.MaxBitrate
-                && MinSampleRate == other.MinSampleRate
-                && MaxSampleRate == other.MaxSampleRate
-                && MinBitDepth == other.MinBitDepth
-                && MaxBitDepth == other.MaxBitDepth
-                && StrictTitle == other.StrictTitle
-                && StrictArtist == other.StrictArtist
-                && StrictAlbum == other.StrictAlbum
-                && ExcludeLocked == other.ExcludeLocked
-                && AcceptNoLength == other.AcceptNoLength
-                && AcceptMissingProps == other.AcceptMissingProps
-                && ((Formats == null && other.Formats == null) || (Formats != null && other.Formats != null && Formats.SequenceEqual(other.Formats)))
-                && ((BannedUsers == null && other.BannedUsers == null) || (BannedUsers != null && other.BannedUsers != null && BannedUsers.SequenceEqual(other.BannedUsers)))
-                && ((AllowedUsers == null && other.AllowedUsers == null) || (AllowedUsers != null && other.AllowedUsers != null && AllowedUsers.SequenceEqual(other.AllowedUsers)));
-        }
+        private static bool SameList(string[]? left, string[]? right)
+            => left == null ? right == null : right != null && left.SequenceEqual(right);
 
         public override int GetHashCode()
         {
             var hash = new HashCode();
-            hash.Add(LengthTolerance);
-            hash.Add(MinBitrate);
-            hash.Add(MaxBitrate);
-            hash.Add(MinSampleRate);
-            hash.Add(MaxSampleRate);
-            hash.Add(MinBitDepth);
-            hash.Add(MaxBitDepth);
-            hash.Add(StrictTitle);
-            hash.Add(StrictArtist);
-            hash.Add(StrictAlbum);
-            hash.Add(ExcludeLocked);
-            hash.Add(AcceptNoLength);
-            hash.Add(AcceptMissingProps);
-
-            if (Formats != null)
-                foreach (var format in Formats)
-                    hash.Add(format);
-
-            if (BannedUsers != null)
-                foreach (var bannedUser in BannedUsers)
-                    hash.Add(bannedUser);
-
-            if (AllowedUsers != null)
-                foreach (var allowedUser in AllowedUsers)
-                    hash.Add(allowedUser);
-
+            hash.Add(Scalars);
+            foreach (string item in (Formats ?? []).Concat(BannedUsers ?? []).Concat(AllowedUsers ?? []))
+                hash.Add(item);
             return hash.ToHashCode();
         }
     }

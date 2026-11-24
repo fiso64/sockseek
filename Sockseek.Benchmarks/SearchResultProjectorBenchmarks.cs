@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using BenchmarkDotNet.Attributes;
-using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;

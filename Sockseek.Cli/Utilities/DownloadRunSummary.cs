@@ -31,20 +31,20 @@ internal readonly record struct DownloadRunSummary(int Succeeded, int Failed, in
                 or ServerJobKind.SongGroups or ServerJobKind.AlbumGroups);
             switch (job.Lifecycle.TerminalOutcome)
             {
-                case ServerJobTerminalOutcome.Succeeded:
-                case ServerJobTerminalOutcome.Skipped when job.Lifecycle.SkipReason == ServerJobSkipReason.AlreadyExists:
+                case JobTerminalOutcome.Succeeded:
+                case JobTerminalOutcome.Skipped when job.Lifecycle.SkipReason == JobSkipReason.AlreadyExists:
                     if (count) succeeded++;
                     break;
-                case ServerJobTerminalOutcome.Skipped when job.Lifecycle.SkipReason == ServerJobSkipReason.Manual:
+                case JobTerminalOutcome.Skipped when job.Lifecycle.SkipReason == JobSkipReason.Manual:
                     if (count) skipped++;
                     break;
-                case ServerJobTerminalOutcome.Cancelled:
+                case JobTerminalOutcome.Cancelled:
                     exitCode = Program.CliExitCode.Cancelled;
                     if (count) failed++;
                     break;
-                case ServerJobTerminalOutcome.Failed:
-                case ServerJobTerminalOutcome.PartialSuccess:
-                case ServerJobTerminalOutcome.Skipped:
+                case JobTerminalOutcome.Failed:
+                case JobTerminalOutcome.PartialSuccess:
+                case JobTerminalOutcome.Skipped:
                     if (exitCode == Program.CliExitCode.Success) exitCode = Program.CliExitCode.WorkFailed;
                     if (count) failed++;
                     break;

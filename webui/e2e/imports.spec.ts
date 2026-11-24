@@ -8,7 +8,7 @@ test('folds a running text extraction into one source-labelled root and opens it
   // New Job preview commit exercises the same import presentation separately.
   const accepted = await page.request.post('/api/jobs/extract', { data: {
     input: 'Fixture song', inputType: 'string', options: {
-      downloadSettings: { extraction: { requestedMode: 0 /* ServerExtractionMode.Song */ } },
+      downloadSettings: { extraction: { requestedMode: 0 /* ExtractionMode.Song */ } },
     },
   } satisfies Schema<'SubmitExtractJobRequestDto'> });
   expect(accepted.status()).toBe(202);

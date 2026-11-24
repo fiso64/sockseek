@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core;
 using Sockseek.Core.Events;
 using Sockseek.Core.Jobs;
@@ -6,7 +5,7 @@ using Sockseek.Core.Snapshots;
 using Sockseek.Core.Planning;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
-using Sockseek.Core.Transfers.Downloads.JobTracking;
+using Sockseek.Core.Transfers.Downloads;
 using Sockseek.Persistence.Write;
 using Sockseek.Persistence.Read;
 using Sockseek.Api;
@@ -566,7 +565,7 @@ public sealed class EnginePersistenceTests
 
         var cancelledPayload = (SongJobPayloadDto)HistoricalJobDtoMapper.ToPayload(
             ToPersistedJob(mutations[cancelledSong.Id]));
-        Assert.AreEqual(ServerJobTerminalOutcome.Cancelled, cancelledPayload.TerminalOutcome);
+        Assert.AreEqual(JobTerminalOutcome.Cancelled, cancelledPayload.TerminalOutcome);
         Assert.IsNull(cancelledPayload.ResolvedUsername);
         Assert.IsNull(cancelledPayload.ExactTarget);
         Assert.IsNotNull(cancelledPayload.LastAttemptedFile);
@@ -1017,7 +1016,7 @@ public sealed class EnginePersistenceTests
         foreach (var (handler, change) in stale) Project(handler, change);
         Assert.AreEqual(acceptedWrites, sink.Mutations.Count,
             "Rejected older headers cannot mutate relationships or enter persistence.");
-        Assert.AreEqual(ServerJobLifecycleState.Terminal, store.GetJobSummary(job.Id)!.Lifecycle.LifecycleState);
+        Assert.AreEqual(JobLifecycleState.Terminal, store.GetJobSummary(job.Id)!.Lifecycle.LifecycleState);
         events.RaiseWorkflowRetired(job.WorkflowId, 1);
 
         Assert.IsTrue(readableDuringRetirement,

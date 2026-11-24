@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Sockseek.Core.Jobs;
@@ -5,14 +6,6 @@ using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
 
 namespace Sockseek.Core.Services;
-
-[JsonConverter(typeof(JsonStringEnumConverter<SearchDefaultProjectionKind>))]
-public enum SearchDefaultProjectionKind
-{
-    GenericFile,
-    Track,
-    Album,
-}
 
 public sealed record SongQueryDefinition(
     string Artist,

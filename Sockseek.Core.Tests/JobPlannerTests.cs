@@ -1,5 +1,4 @@
-using Sockseek.Core.Extractors;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Sockseek.Api;
 using Sockseek.Core.Planning;
 using Sockseek.Core.Snapshots;
 using Tests.ClientTests;

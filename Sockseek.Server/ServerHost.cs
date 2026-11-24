@@ -2,11 +2,9 @@ using System.Reflection;
 using System.IO.Compression;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
-using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Sockseek.Api;
@@ -264,17 +262,7 @@ public static class ServerHost
                 // discriminator mappings as <base><derived>. These SignalR-only
                 // types are not otherwise reachable from HTTP endpoints, so add
                 // the mapped component names explicitly as well.
-                Type[] activityPayloadTypes =
-                [
-                    typeof(JobStatusActivityDto),
-                    typeof(JobMessageActivityDto),
-                    typeof(WorkflowMessageActivityDto),
-                    typeof(DiagnosticActivityDto),
-                    typeof(ExtractionStartedActivityDto),
-                    typeof(DownloadAttemptFailedActivityDto),
-                    typeof(TrackBatchResolvedActivityDto),
-                ];
-                foreach (Type payloadType in activityPayloadTypes)
+                foreach (Type payloadType in supplementalContractTypes.Where(type => type.IsSubclassOf(typeof(ActivityPayloadDto))))
                 {
                     var schema = await context.GetOrCreateSchemaAsync(
                         payloadType,
@@ -340,6 +328,17 @@ public static class ServerHost
                 await context.Response.WriteAsJsonAsync(
                     new ApiErrorDto(exception.Message, "HistoryUnavailable"),
                     context.RequestAborted);
+            }
+            // The API's shared error contract, so endpoints only handle what is
+            // particular to them: a feature that is switched off, and bad input.
+            catch (NotSupportedException exception) when (!context.Response.HasStarted)
+            {
+                await Results.Problem(exception.Message, statusCode: StatusCodes.Status503ServiceUnavailable)
+                    .ExecuteAsync(context);
+            }
+            catch (Exception exception) when (ApiErrors.IsInvalidRequest(exception) && !context.Response.HasStarted)
+            {
+                await ApiErrors.BadRequest(exception).ExecuteAsync(context);
             }
         });
 

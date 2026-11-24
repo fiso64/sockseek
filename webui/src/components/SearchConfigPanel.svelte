@@ -135,6 +135,31 @@
   </HelpPopover>
 {/snippet}
 
+<!-- The same bitrate, sample rate and bit depth ranges, as required limits or as preferences. -->
+{#snippet qualityRanges(values: SearchConditions['ranking']['common'], tab: 'conditions' | 'ranking')}
+  <div class="config-grid">
+    <label><span>{fields.minBitrate[tab].label} <small>kbps</small></span><IntegerInput bind:value={values.minBitrate} placeholder="Any" /></label>
+    <label><span>{fields.maxBitrate[tab].label} <small>kbps</small></span><IntegerInput bind:value={values.maxBitrate} placeholder="Any" /></label>
+  </div>
+  {#each [['minSampleRate', 'maxSampleRate'], ['minBitDepth', 'maxBitDepth']] as const as pair}
+    <div class="config-grid">
+      {#each pair as field}
+        <label>
+          <span>{fields[field][tab].label}</span>
+          <select class="field" bind:value={values[field]}>
+            <option value={null}>Any</option>
+            {#if field.endsWith('SampleRate')}
+              {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
+            {:else}
+              {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
+            {/if}
+          </select>
+        </label>
+      {/each}
+    </div>
+  {/each}
+{/snippet}
+
 <!-- Keep placement stable while editing: only album-group filtering puts Grouping below Peers. -->
 {#snippet grouping()}
   <section class="panel subtle search-config-section">
@@ -184,50 +209,7 @@
         customPlaceholder={genericMode ? 'pdf, epub, zip, txt…' : undefined}
       />
 
-      <div class="config-grid">
-        <label>
-          <span>{fields.minBitrate.conditions.label} <small>kbps</small></span>
-          <IntegerInput bind:value={conditions.common.minBitrate} placeholder="Any" />
-        </label>
-        <label>
-          <span>{fields.maxBitrate.conditions.label} <small>kbps</small></span>
-          <IntegerInput bind:value={conditions.common.maxBitrate} placeholder="Any" />
-        </label>
-      </div>
-
-      <div class="config-grid">
-        <label>
-          <span>{fields.minSampleRate.conditions.label}</span>
-          <select class="field" bind:value={conditions.common.minSampleRate}>
-            <option value={null}>Any</option>
-            {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
-          </select>
-        </label>
-        <label>
-          <span>{fields.maxSampleRate.conditions.label}</span>
-          <select class="field" bind:value={conditions.common.maxSampleRate}>
-            <option value={null}>Any</option>
-            {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
-          </select>
-        </label>
-      </div>
-
-      <div class="config-grid">
-        <label>
-          <span>{fields.minBitDepth.conditions.label}</span>
-          <select class="field" bind:value={conditions.common.minBitDepth}>
-            <option value={null}>Any</option>
-            {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
-          </select>
-        </label>
-        <label>
-          <span>{fields.maxBitDepth.conditions.label}</span>
-          <select class="field" bind:value={conditions.common.maxBitDepth}>
-            <option value={null}>Any</option>
-            {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
-          </select>
-        </label>
-      </div>
+      {@render qualityRanges(conditions.common, 'conditions')}
 
       {#if !genericMode}
         <div class="config-check-with-help">
@@ -366,44 +348,7 @@
         customPlaceholder={genericMode ? 'pdf, epub, zip, txt…' : undefined}
       />
 
-      <div class="config-grid">
-        <label><span>{fields.minBitrate.ranking.label} <small>kbps</small></span><IntegerInput bind:value={conditions.ranking.common.minBitrate} placeholder="Any" /></label>
-        <label><span>{fields.maxBitrate.ranking.label} <small>kbps</small></span><IntegerInput bind:value={conditions.ranking.common.maxBitrate} placeholder="Any" /></label>
-      </div>
-
-      <div class="config-grid">
-        <label>
-          <span>{fields.minSampleRate.ranking.label}</span>
-          <select class="field" bind:value={conditions.ranking.common.minSampleRate}>
-            <option value={null}>Any</option>
-            {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
-          </select>
-        </label>
-        <label>
-          <span>{fields.maxSampleRate.ranking.label}</span>
-          <select class="field" bind:value={conditions.ranking.common.maxSampleRate}>
-            <option value={null}>Any</option>
-            {#each sampleRates as rate}<option value={rate.value}>{rate.label}</option>{/each}
-          </select>
-        </label>
-      </div>
-
-      <div class="config-grid">
-        <label>
-          <span>{fields.minBitDepth.ranking.label}</span>
-          <select class="field" bind:value={conditions.ranking.common.minBitDepth}>
-            <option value={null}>Any</option>
-            {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
-          </select>
-        </label>
-        <label>
-          <span>{fields.maxBitDepth.ranking.label}</span>
-          <select class="field" bind:value={conditions.ranking.common.maxBitDepth}>
-            <option value={null}>Any</option>
-            {#each bitDepths as depth}<option value={depth}>{depth}-bit</option>{/each}
-          </select>
-        </label>
-      </div>
+      {@render qualityRanges(conditions.ranking.common, 'ranking')}
     </section>
 
     <div class="search-config-columns">

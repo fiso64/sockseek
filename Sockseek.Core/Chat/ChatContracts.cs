@@ -1,5 +1,5 @@
+using Sockseek.Api;
 using System.Text;
-using System.Text.Json.Serialization;
 using Sockseek.Core.Sharing;
 
 namespace Sockseek.Core.Chat;
@@ -19,55 +19,6 @@ public sealed class ChatCapacityException(string message) : InvalidOperationExce
 
 /// <summary>The requested mutation conflicts with the target's current chat state.</summary>
 public sealed class ChatStateConflictException(string message) : InvalidOperationException(message);
-
-[JsonConverter(typeof(JsonStringEnumConverter<ChatTargetKind>))]
-public enum ChatTargetKind
-{
-    Direct,
-    Room,
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter<ChatMessageDirection>))]
-public enum ChatMessageDirection
-{
-    Incoming,
-    Outgoing,
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter<ChatMessageState>))]
-public enum ChatMessageState
-{
-    Received,
-    Pending,
-    Sent,
-    Failed,
-    Unknown,
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter<ChatRoomKind>))]
-public enum ChatRoomKind
-{
-    Unknown,
-    Public,
-    Private,
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter<ChatRoomJoinPhase>))]
-public enum ChatRoomJoinPhase
-{
-    Disconnected,
-    Joining,
-    Joined,
-    Leaving,
-    Failed,
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter<UserNotificationKind>))]
-public enum UserNotificationKind
-{
-    PrivateMessage,
-    RoomMention,
-}
 
 public sealed record ChatMessageRecord(
     Guid MessageId,

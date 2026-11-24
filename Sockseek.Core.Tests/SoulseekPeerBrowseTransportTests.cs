@@ -1,7 +1,4 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core.PeerBrowsing;
-using Sockseek.Core.Services;
-using Sockseek.Core.Settings;
 using Soulseek;
 using Tests.ClientTests;
 

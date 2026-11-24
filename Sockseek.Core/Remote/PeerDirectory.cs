@@ -1,4 +1,3 @@
-using Sockseek.Core.Services;
 
 namespace Sockseek.Core.Models;
 

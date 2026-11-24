@@ -15,13 +15,13 @@ public enum SearchViewRetentionState
 }
 
 public sealed record CreateSearchViewRequestDto(
-    ServerSearchViewProjectionKind? Kind = null,
+    SearchViewProjectionKind? Kind = null,
     SongQueryDto? SongQuery = null,
     AlbumQueryDto? AlbumQuery = null,
     bool IncludeFullResults = false,
     SearchSettingsPatchDto? RefinementSettings = null,
     string? FilterText = null,
-    ServerSearchViewSortOrder? SortOrder = null,
+    SearchViewSortOrder? SortOrder = null,
     // Layer view-relevant settings from these named profiles before explicit refinements.
     IReadOnlyList<string>? ProfileNames = null,
     // Explicit File Search checks remain visible across changes to the text filter.
@@ -44,7 +44,7 @@ public sealed record SearchViewCountersDto(
 public sealed record SearchViewSummaryDto(
     Guid ViewId,
     Guid SourceJobId,
-    ServerSearchViewProjectionKind Kind,
+    SearchViewProjectionKind Kind,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset ExpiresAtUtc,
     long Revision,
@@ -53,7 +53,7 @@ public sealed record SearchViewSummaryDto(
     bool IsComplete,
     SearchViewRetentionState RetentionState,
     SearchViewCountersDto Counters,
-    ServerSearchViewSortOrder SortOrder = ServerSearchViewSortOrder.Relevance,
+    SearchViewSortOrder SortOrder = SearchViewSortOrder.Relevance,
     string? FilterText = null);
 
 public sealed record SearchViewDefinitionDto(
@@ -76,19 +76,26 @@ public sealed record SearchViewRevisionDto(
 
 public sealed record SearchViewFileDto(
     string Ref,
-    ServerSearchResultVisibility Visibility,
-    ServerSearchPreferenceTier PreferenceTier,
+    SearchResultVisibility Visibility,
+    SearchPreferenceTier PreferenceTier,
     bool NecessaryConditionsSatisfied,
-    IReadOnlyList<ServerSearchPreferenceCondition> SatisfiedPreferredConditions,
-    IReadOnlyList<ServerSearchPreferenceCondition> UnsatisfiedPreferredConditions,
+    IReadOnlyList<SearchPreferenceCondition> SatisfiedPreferredConditions,
+    IReadOnlyList<SearchPreferenceCondition> UnsatisfiedPreferredConditions,
     string RemoteFilename,
     PeerInfoDto Peer,
     FileMetadataDto File);
 
+/// <summary>One page of a search-view listing: the revision it was read from and where the next page starts.</summary>
+public interface ISearchViewPage
+{
+    SearchViewRevisionDto Revision { get; }
+    string? NextCursor { get; }
+}
+
 public sealed record SearchViewFilePageDto(
     SearchViewRevisionDto Revision,
     IReadOnlyList<SearchViewFileDto> Items,
-    string? NextCursor);
+    string? NextCursor) : ISearchViewPage;
 
 [JsonConverter(typeof(JsonStringEnumConverter<SearchViewDirectoryVisibility>))]
 public enum SearchViewDirectoryVisibility
@@ -119,8 +126,8 @@ public sealed record PeerDirectoryRefDto(
 public sealed record SearchViewDirectoryDto(
     PeerDirectoryRefDto Ref,
     SearchViewDirectoryVisibility Visibility,
-    ServerSearchPreferenceTier PreferenceTier,
-    IReadOnlyList<ServerSearchPreferenceCondition> SatisfiedPreferredConditions,
+    SearchPreferenceTier PreferenceTier,
+    IReadOnlyList<SearchPreferenceCondition> SatisfiedPreferredConditions,
     long PublicMatchingFileCount,
     long LockedMatchingFileCount,
     long PublicMatchingBytes,
@@ -136,7 +143,7 @@ public sealed record SearchViewDirectoryDto(
 public sealed record SearchViewDirectoryPageDto(
     SearchViewRevisionDto Revision,
     IReadOnlyList<SearchViewDirectoryDto> Items,
-    string? NextCursor);
+    string? NextCursor) : ISearchViewPage;
 
 public sealed record SearchViewDirectoryFileDto(
     string Ref,
@@ -153,7 +160,7 @@ public sealed record SearchViewDirectoryFilePageDto(
     PeerDirectoryRefDto Directory,
     IReadOnlyList<SearchViewDirectoryFileDto> Items,
     string? NextCursor,
-    SearchViewDirectoryDto DirectorySummary);
+    SearchViewDirectoryDto DirectorySummary) : ISearchViewPage;
 
 public sealed record RetrieveSearchViewDirectoryRequestDto(
     long Revision,
@@ -171,7 +178,7 @@ public sealed record SearchViewTrackGroupDto(
 public sealed record SearchViewTrackGroupPageDto(
     SearchViewRevisionDto Revision,
     IReadOnlyList<SearchViewTrackGroupDto> Items,
-    string? NextCursor);
+    string? NextCursor) : ISearchViewPage;
 
 /// <summary>PreviousTo or NextTo returns one neighbor of the exact option in this revision.</summary>
 public sealed record SearchViewGroupOptionQuery(string? FilterText = null, string? PreviousTo = null, string? NextTo = null);
@@ -181,7 +188,7 @@ public sealed record SearchViewTrackGroupOptionPageDto(
     string GroupRef,
     IReadOnlyList<SearchViewFileDto> Items,
     string? NextCursor,
-    IReadOnlyList<int>? Positions = null);
+    IReadOnlyList<int>? Positions = null) : ISearchViewPage;
 
 public sealed record SearchViewAlbumGroupDto(
     string Ref,
@@ -194,14 +201,14 @@ public sealed record SearchViewAlbumGroupDto(
 public sealed record SearchViewAlbumGroupPageDto(
     SearchViewRevisionDto Revision,
     IReadOnlyList<SearchViewAlbumGroupDto> Items,
-    string? NextCursor);
+    string? NextCursor) : ISearchViewPage;
 
 public sealed record SearchViewAlbumGroupOptionPageDto(
     SearchViewRevisionDto Revision,
     string GroupRef,
     IReadOnlyList<SearchViewDirectoryDto> Items,
     string? NextCursor,
-    IReadOnlyList<int>? Positions = null);
+    IReadOnlyList<int>? Positions = null) : ISearchViewPage;
 
 /// <summary>Reads browser-held group choices against one immutable revision; it does not save them.</summary>
 public sealed record ResolveSearchViewChosenOptionsRequestDto(

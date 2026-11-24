@@ -1,7 +1,6 @@
 using Sockseek.Api;
 using Sockseek.Persistence.Read;
 using Sockseek.Persistence.Write;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Sockseek.Server.Persistence;

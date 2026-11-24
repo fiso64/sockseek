@@ -2,11 +2,9 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 using Sockseek.Api;
 using Sockseek.Persistence.Read;
-using Sockseek.Persistence.Sqlite;
 using System.Threading.Channels;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
 using Sockseek.Core.Transfers.Uploads;
@@ -209,7 +207,7 @@ public sealed class UploadPersistenceTests
         state.UpdateUploadTransfer(active);
         state.FlushStateUpdates();
         Assert.IsTrue(await updates.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.AreEqual(Sockseek.Api.TransferPhase.InProgress, updates.Current.Items.Single().Status.Phase);
+        Assert.AreEqual(TransferPhase.InProgress, updates.Current.Items.Single().Status.Phase);
         var next = updates.MoveNextAsync().AsTask();
         state.UpdateUploadTransfer(active with { Revision = 2, BytesTransferred = 50 });
         state.UpdateUploadTransfer(active with { Revision = 3, State = UploadTransferState.Completed,
@@ -381,10 +379,10 @@ public sealed class UploadPersistenceTests
                     new(TransferCommandDirection.Upload, "Peer", cancelled.GroupRef!),
                 ]);
                 Assert.AreEqual(1L, groups.Items.Single().CancelledCount);
-                Assert.AreEqual(Sockseek.Api.TransferPhase.Ended, exact.Items.Single().Status.Phase);
+                Assert.AreEqual(TransferPhase.Ended, exact.Items.Single().Status.Phase);
                 var timeline = await Timeline();
                 var row = timeline.Items.Single(item => item.TransferId == queuedId);
-                Assert.AreEqual(Sockseek.Api.TransferPhase.Ended, row.Status.Phase, "The timeline must agree with exact lookup and group counts before commit.");
+                Assert.AreEqual(TransferPhase.Ended, row.Status.Phase, "The timeline must agree with exact lookup and group counts before commit.");
                 Assert.AreEqual(0, row.Status.AttemptCount);
                 Assert.AreEqual(cancelled.Revision, row.Revision);
                 Assert.AreEqual(cancelled.FinishedAtUtc!.Value.ToUnixTimeMilliseconds(), row.Status.CompletedAtUtc!.Value.ToUnixTimeMilliseconds());
@@ -429,7 +427,7 @@ public sealed class UploadPersistenceTests
                 "Ended", "Succeeded", stale.SizeBytes, stale.SizeBytes, 1, "None", null,
                 GroupRef: stale.GroupRef, GroupDisplayPath: stale.GroupDisplayPath)));
             await WaitForStored(active.TransferId.Value, "Ended");
-            Assert.AreEqual(Sockseek.Api.TransferPhase.InProgress, state.GetLiveTransfer(active.TransferId.Value)!.Status.Phase);
+            Assert.AreEqual(TransferPhase.InProgress, state.GetLiveTransfer(active.TransferId.Value)!.Status.Phase);
             var newer = await Timeline("Succeeded");
             Assert.AreEqual(1, newer.Items.Count, "A newer durable completion must survive the old status filter.");
             Assert.AreEqual(active.TransferId.Value, newer.Items.Single().TransferId,

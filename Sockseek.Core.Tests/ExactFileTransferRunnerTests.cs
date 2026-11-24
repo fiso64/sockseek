@@ -1,12 +1,10 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Microsoft.Extensions.Logging;
+using Sockseek.Api;
+using TransferFailureReason = Sockseek.Core.Events.TransferFailureReason;
 using Soulseek;
 using Sockseek.Core.Events;
-using Sockseek.Core.Jobs;
-using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
-using Sockseek.Core.Transfers.Downloads.State;
+using Sockseek.Core.Transfers.Downloads;
 using Tests.ClientTests;
 using Directory = System.IO.Directory;
 using File = System.IO.File;
@@ -451,7 +449,7 @@ public sealed class ExactFileTransferRunnerTests
         client.BeforeDownloadStartsAsync = (_, _, _) => client.DownloadCallCount == 1
             ? throw new UserOfflineException("User Peer appears to be offline") : Task.CompletedTask;
         var (runner, _, events) = CreateRunner(client);
-        var phases = new List<Sockseek.Core.Snapshots.TransferPhase>();
+        var phases = new List<TransferPhase>();
         events.DownloadStateChanged += change => { lock (phases) phases.Add(change.Transfer.Phase); };
         var target = Target(username, filename);
         string root = CreateTempDirectory();
@@ -467,7 +465,7 @@ public sealed class ExactFileTransferRunnerTests
             Assert.AreEqual(ExactFileTransferStatus.Completed, outcome.Status);
             Assert.AreEqual(2, client.DownloadCallCount);
             Assert.AreEqual(1, presenceChecks);
-            lock (phases) CollectionAssert.Contains(phases, Sockseek.Core.Snapshots.TransferPhase.QueuedForPeer);
+            lock (phases) CollectionAssert.Contains(phases, TransferPhase.QueuedForPeer);
 
             // The same failure ends a download that was not chosen from this peer.
             client.DownloadCallCount = 0;

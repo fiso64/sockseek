@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Cli;
 
@@ -32,10 +31,10 @@ public class CliProgressReporterTests
     public void JobStatusPresenter_UsesSplitTerminalState()
     {
         var status = CliJobStatusPresenter.ForSplit(
-            ServerJobLifecycleState.Terminal,
-            ServerJobActivityPhase.None,
-            ServerJobTerminalOutcome.Skipped,
-            ServerJobSkipReason.AlreadyExists);
+            JobLifecycleState.Terminal,
+            JobActivityPhase.None,
+            JobTerminalOutcome.Skipped,
+            JobSkipReason.AlreadyExists);
 
         Assert.AreEqual("already exists", status.Label);
         Assert.IsTrue(status.IsSuccessful);
@@ -45,10 +44,10 @@ public class CliProgressReporterTests
     public void JobStatusPresenter_UsesTransferStateForRunningJobs()
     {
         var status = CliJobStatusPresenter.ForSplit(
-            ServerJobLifecycleState.Running,
-            ServerJobActivityPhase.Downloading,
-            ServerJobTerminalOutcome.None,
-            transferPhase: Sockseek.Api.TransferPhase.QueuedLocally);
+            JobLifecycleState.Running,
+            JobActivityPhase.Downloading,
+            JobTerminalOutcome.None,
+            transferPhase: TransferPhase.QueuedLocally);
 
         Assert.AreEqual("queued (L)", status.Label);
         Assert.IsTrue(status.IsActive);
@@ -57,9 +56,9 @@ public class CliProgressReporterTests
     [TestMethod]
     public void LiveSummaryVisibility_IncludesPendingSearchWaitAndRateLimit()
     {
-        var pending = Summary(ServerJobLifecycleState.Pending, ServerJobActivityPhase.None);
-        var waiting = Summary(ServerJobLifecycleState.Running, ServerJobActivityPhase.WaitingForSearchConcurrency);
-        var limited = Summary(ServerJobLifecycleState.Running, ServerJobActivityPhase.SearchRateLimited);
+        var pending = Summary(JobLifecycleState.Pending, JobActivityPhase.None);
+        var waiting = Summary(JobLifecycleState.Running, JobActivityPhase.WaitingForSearchConcurrency);
+        var limited = Summary(JobLifecycleState.Running, JobActivityPhase.SearchRateLimited);
 
         Assert.IsTrue(CliProgressReporter.ShouldStartLiveRenderingForSummary(
             pending,
@@ -90,24 +89,24 @@ public class CliProgressReporterTests
             1,
             workflowId,
             ServerJobKind.Album,
-            ServerJobLifecycleState.Running,
-            ServerJobActivityPhase.Downloading);
+            JobLifecycleState.Running,
+            JobActivityPhase.Downloading);
         var child = Job(
             Guid.NewGuid(),
             2,
             workflowId,
             ServerJobKind.Song,
-            ServerJobLifecycleState.Running,
-            ServerJobActivityPhase.Downloading,
+            JobLifecycleState.Running,
+            JobActivityPhase.Downloading,
             parentJobId: albumId);
         var completedSearch = Job(
             Guid.NewGuid(),
             3,
             workflowId,
             ServerJobKind.Search,
-            ServerJobLifecycleState.Terminal,
-            ServerJobActivityPhase.None,
-            ServerJobTerminalOutcome.Succeeded);
+            JobLifecycleState.Terminal,
+            JobActivityPhase.None,
+            JobTerminalOutcome.Succeeded);
         var state = new DaemonClientStateView(
             null,
             [],
@@ -181,8 +180,8 @@ public class CliProgressReporterTests
             1,
             workflowId,
             ServerJobKind.Search,
-            ServerJobLifecycleState.Running,
-            ServerJobActivityPhase.Searching);
+            JobLifecycleState.Running,
+            JobActivityPhase.Searching);
         var store = new DaemonClientStore();
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         var initial = store.ApplySnapshot(Snapshot(Guid.NewGuid(), 2, [job]));
@@ -208,8 +207,8 @@ public class CliProgressReporterTests
             1,
             workflowId,
             ServerJobKind.Search,
-            ServerJobLifecycleState.Running,
-            ServerJobActivityPhase.Searching);
+            JobLifecycleState.Running,
+            JobActivityPhase.Searching);
         var store = new DaemonClientStore();
         var reporter = new CliProgressReporter(new CliSettings { NoProgress = true });
         var epoch = Guid.NewGuid();
@@ -218,10 +217,10 @@ public class CliProgressReporterTests
         var state = job with { Revision = 1 };
         var terminalLifecycle = state.Lifecycle with
         {
-            LifecycleState = ServerJobLifecycleState.Terminal,
-            ActivityPhase = ServerJobActivityPhase.None,
-            TerminalOutcome = ServerJobTerminalOutcome.Cancelled,
-            CancellationSource = ServerJobCancellationSource.UserRequestedJob,
+            LifecycleState = JobLifecycleState.Terminal,
+            ActivityPhase = JobActivityPhase.None,
+            TerminalOutcome = JobTerminalOutcome.Cancelled,
+            CancellationSource = JobCancellationSource.UserRequestedJob,
         };
         var update = store.Apply(new StateUpdateBatchDto(
             StateStreamScopeDto.Daemon,
@@ -253,8 +252,8 @@ public class CliProgressReporterTests
     }
 
     private static JobSummaryDto Summary(
-        ServerJobLifecycleState lifecycle,
-        ServerJobActivityPhase activity)
+        JobLifecycleState lifecycle,
+        JobActivityPhase activity)
         => TestJobSummary.Create(ServerJobKind.Search, Guid.NewGuid(), Guid.NewGuid(), displayId: 1,
             state: lifecycle, phase: activity, name: "item", query: "query");
 
@@ -263,9 +262,9 @@ public class CliProgressReporterTests
         int displayId,
         Guid workflowId,
         ServerJobKind kind,
-        ServerJobLifecycleState lifecycle,
-        ServerJobActivityPhase activity,
-        ServerJobTerminalOutcome outcome = ServerJobTerminalOutcome.None,
+        JobLifecycleState lifecycle,
+        JobActivityPhase activity,
+        JobTerminalOutcome outcome = JobTerminalOutcome.None,
         Guid? parentJobId = null)
         => TestJobSummary.Create(kind, jobId, workflowId, displayId, state: lifecycle, phase: activity,
             outcome: outcome, name: "item", query: "query", parentId: parentJobId);

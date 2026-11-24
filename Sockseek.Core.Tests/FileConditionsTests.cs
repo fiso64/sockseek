@@ -1,5 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Soulseek;
@@ -399,7 +397,6 @@ namespace Tests.FileConditionsTests
             var fc = new FileConditions { StrictAlbum = true };
 
             Assert.IsFalse(fc.StrictAlbumSatisfies(@"Music\Diverse System\AD：PIANO X\01 - Song.flac", "AD:PIANO X"));
-            Assert.IsTrue(FileConditions.FuzzyPhraseString(@"Music\Diverse System\AD：PIANO X", "AD:PIANO X"));
         }
 
         [TestMethod]
@@ -493,34 +490,6 @@ namespace Tests.FileConditionsTests
             var fc = new FileConditions { AllowedUsers = new[] { "gooduser" } };
             var response = new SearchResponse("baduser", 1, true, 100, 0, new List<Soulseek.File>());
             Assert.IsFalse(fc.AllowedUsersSatisfies(response));
-        }
-    }
-
-    [TestClass]
-    public class BracketCheckTests
-    {
-        [TestMethod]
-        public void TrackHasBracket_ReturnsTrue()
-        {
-            var track = TestHelpers.CreateQuery(title: "Song (Remix)");
-            var other = TestHelpers.CreateQuery(title: "Song (Remix)");
-            Assert.IsTrue(FileConditions.BracketCheck(track, other));
-        }
-
-        [TestMethod]
-        public void OtherHasNoBracket_ReturnsTrue()
-        {
-            var track = TestHelpers.CreateQuery(title: "Song");
-            var other = TestHelpers.CreateQuery(title: "Song");
-            Assert.IsTrue(FileConditions.BracketCheck(track, other));
-        }
-
-        [TestMethod]
-        public void OtherHasBracket_TrackDoesNot_ReturnsFalse()
-        {
-            var track = TestHelpers.CreateQuery(title: "Song");
-            var other = TestHelpers.CreateQuery(title: "Song (Remix)");
-            Assert.IsFalse(FileConditions.BracketCheck(track, other));
         }
     }
 

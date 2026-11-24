@@ -4,7 +4,6 @@ using System.Text.Json.Serialization;
 using System.Text.Encodings.Web;
 using Microsoft.Data.Sqlite;
 using Sockseek.Core.Models;
-using Sockseek.Core.Services;
 using Sockseek.Core.Snapshots;
 using Sockseek.Persistence.Sqlite;
 

@@ -1,6 +1,4 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Soulseek;
-using Sockseek.Core.Services;
 using Directory = System.IO.Directory;
 using File = System.IO.File;
 

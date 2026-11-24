@@ -58,90 +58,90 @@ public enum ServerJobRole
 }
 
 /// <summary>High-level runtime lifecycle returned by job, workflow, and live-state DTOs.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ServerJobLifecycleState>))]
-public enum ServerJobLifecycleState
+[JsonConverter(typeof(JsonStringEnumConverter<JobLifecycleState>))]
+public enum JobLifecycleState
 {
-    Pending,
-    Running,
-    AwaitingSelection,
-    Terminal,
+    Pending = 0,
+    Running = 1,
+    AwaitingSelection = 2,
+    Terminal = 3,
 }
 
 /// <summary>Current runtime activity for non-terminal jobs.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ServerJobActivityPhase>))]
-public enum ServerJobActivityPhase
+[JsonConverter(typeof(JsonStringEnumConverter<JobActivityPhase>))]
+public enum JobActivityPhase
 {
-    None,
-    WaitingForSearchConcurrency,
-    SearchRateLimited,
-    Searching,
-    ProcessingSearchResults,
-    Extracting,
-    Downloading,
-    RetrievingFolder,
-    RunningChildren,
-    Organizing,
-    RunningOnComplete,
-    RunningFallback,
-    SearchingFallback,
-    DownloadingFallback,
-    ProcessingFallback,
+    None = 0,
+    WaitingForSearchConcurrency = 1,
+    SearchRateLimited = 2,
+    Searching = 3,
+    ProcessingSearchResults = 4,
+    Extracting = 5,
+    Downloading = 6,
+    RetrievingFolder = 7,
+    RunningChildren = 8,
+    Organizing = 9,
+    RunningOnComplete = 10,
+    RunningFallback = 11,
+    SearchingFallback = 12,
+    DownloadingFallback = 13,
+    ProcessingFallback = 14,
 }
 
 /// <summary>Terminal result for completed jobs.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ServerJobTerminalOutcome>))]
-public enum ServerJobTerminalOutcome
+[JsonConverter(typeof(JsonStringEnumConverter<JobTerminalOutcome>))]
+public enum JobTerminalOutcome
 {
-    None,
-    Succeeded,
-    Failed,
-    Skipped,
-    Cancelled,
-    PartialSuccess,
+    None = 0,
+    Succeeded = 1,
+    Failed = 2,
+    Skipped = 3,
+    Cancelled = 4,
+    PartialSuccess = 5,
 }
 
 /// <summary>Source that produced a terminal song download.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ServerSongDownloadSource>))]
-public enum ServerSongDownloadSource
+[JsonConverter(typeof(JsonStringEnumConverter<SongDownloadSource>))]
+public enum SongDownloadSource
 {
-    None,
-    Soulseek,
-    Fallback,
+    None = 0,
+    Soulseek = 1,
+    Fallback = 2,
 }
 
 /// <summary>Reason a terminal job was skipped.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ServerJobSkipReason>))]
-public enum ServerJobSkipReason
+[JsonConverter(typeof(JsonStringEnumConverter<JobSkipReason>))]
+public enum JobSkipReason
 {
-    None,
-    AlreadyExists,
-    NotFoundLastTime,
-    Manual,
-    Filtered,
+    None = 0,
+    AlreadyExists = 1,
+    NotFoundLastTime = 2,
+    Manual = 3,
+    Filtered = 4,
 }
 
 /// <summary>
 /// Source of a terminal cancellation outcome. This is job-level provenance, not every
 /// lower-level cancellation token used by a download attempt.
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ServerJobCancellationSource>))]
-public enum ServerJobCancellationSource
+[JsonConverter(typeof(JsonStringEnumConverter<JobCancellationSource>))]
+public enum JobCancellationSource
 {
     /// <summary>The job is not cancelled, or the source was not assigned.</summary>
-    None,
+    None = 0,
     /// <summary>The user explicitly cancelled this single job.</summary>
-    UserRequestedJob,
+    UserRequestedJob = 1,
     /// <summary>The job was cancelled because its parent job was cancelled.</summary>
-    ParentJob,
+    ParentJob = 2,
     /// <summary>The user cancelled the workflow that owns this job.</summary>
-    UserRequestedWorkflow,
+    UserRequestedWorkflow = 3,
     /// <summary>The user requested global cancellation of all engine jobs.</summary>
-    UserRequestedAllJobs,
+    UserRequestedAllJobs = 4,
     /// <summary>
     /// The engine cancelled the job internally, for example because an engine-owned
     /// timeout/watchdog caused a terminal cancellation.
     /// </summary>
-    InternalEngine,
+    InternalEngine = 5,
 }
 
 /// <summary>
@@ -164,31 +164,31 @@ public enum ServerWorkflowState
 /// <summary>
 /// Stable failure reason returned by job and live-state DTOs.
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ServerJobFailureReason>))]
-public enum ServerJobFailureReason
+[JsonConverter(typeof(JsonStringEnumConverter<JobFailureReason>))]
+public enum JobFailureReason
 {
     /// <summary>No failure reason.</summary>
-    None,
+    None = 0,
     /// <summary>The job could not form a valid search string.</summary>
-    InvalidSearchString,
+    InvalidSearchString = 1,
     /// <summary>The job exhausted download retry attempts.</summary>
-    OutOfDownloadRetries,
+    OutOfDownloadRetries = 2,
     /// <summary>All attempted downloads failed.</summary>
-    AllDownloadsFailed,
+    AllDownloadsFailed = 4,
     /// <summary>Failure did not match a more specific reason.</summary>
-    Other,
+    Other = 5,
     /// <summary>Input extraction failed.</summary>
-    ExtractionFailed,
+    ExtractionFailed = 6,
     /// <summary>Job was cancelled.</summary>
-    Cancelled,
+    Cancelled = 7,
     /// <summary>One or more child jobs failed and no child completed successfully.</summary>
-    ChildJobsFailed,
+    ChildJobsFailed = 8,
     /// <summary>The Soulseek search returned no results.</summary>
-    NoSearchResults,
+    NoSearchResults = 9,
     /// <summary>Soulseek returned results, but none matched the requested filters or projection.</summary>
-    NoMatchingResults,
+    NoMatchingResults = 10,
     /// <summary>The daemon stopped before the job finished.</summary>
-    Interrupted,
+    Interrupted = 11,
 }
 
 /// <summary>

@@ -39,11 +39,11 @@ public sealed record OutputSettingsPatchDto(
     IncompleteAlbumActionSettingsPatchDto? IncompleteAlbumAction = null,
     CollectionPatchDto<string>? OnComplete = null,
     bool? AlbumArtOnly = null,
-    ServerAlbumArtOption? AlbumArtOption = null,
+    AlbumArtOption? AlbumArtOption = null,
     bool? ClearWriteIndex = null);
 
 public sealed record IncompleteAlbumActionSettingsPatchDto(
-    ServerIncompleteAlbumActionKind? Kind = null,
+    IncompleteAlbumActionKind? Kind = null,
     string? Path = null,
     bool? ClearPath = null,
     bool? ClearKind = null);
@@ -119,9 +119,9 @@ public sealed record FolderConditionsPatchDto(
 public sealed record SkipSettingsPatchDto(
     bool? SkipExisting = null,
     bool? SkipNotFound = null,
-    ServerSkipMode? SkipMode = null,
+    SkipMode? SkipMode = null,
     string? SkipMusicDir = null,
-    ServerSkipMode? SkipModeMusicDir = null,
+    SkipMode? SkipModeMusicDir = null,
     bool? SkipCheckCond = null,
     bool? SkipCheckPrefCond = null);
 
@@ -142,7 +142,7 @@ public sealed record ExtractionSettingsPatchDto(
     // Nullable by design: null lets the input source decide. String input and string
     // lines inside list files then use the 3.0 album default; explicit Song/Album
     // only affects ambiguous string interpretation.
-    ServerExtractionMode? RequestedMode = null,
+    ExtractionMode? RequestedMode = null,
     bool? UpgradeToAlbum = null,
     bool? SetAlbumMinTrackCount = null,
     bool? SetAlbumMaxTrackCount = null,

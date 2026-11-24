@@ -4,7 +4,6 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Sockseek.Api;
 using Sockseek.Persistence.Read;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Sockseek.Server.Persistence;

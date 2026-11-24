@@ -1,7 +1,5 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Sockseek.Api;
 using Soulseek;
-using Sockseek.Core.Jobs;
-using Sockseek.Core;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 

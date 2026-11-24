@@ -1,6 +1,5 @@
 using Tests;
 using Microsoft.Extensions.Options;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Persistence.Read;
 using Sockseek.Server.Persistence;

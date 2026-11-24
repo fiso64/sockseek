@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using Sockseek.Core.Snapshots;
 using System.Collections.Concurrent;
 using Sockseek.Core.Models;
@@ -93,12 +94,19 @@ public class SearchJob : Job
     {
         var state = GetOrCreateIncrementalProjectionState(
             ProjectionKey("sorted-track", projection, search, peerFailureCounts),
-            () => new IncrementalNeutralFileProjectionState(
-                new IncrementalResultSorter(
+            () =>
+            {
+                var sorter = new IncrementalResultSorter(
                     projection.Query,
                     ProjectionSettings(search),
                     peerFailureCounts,
-                    requireFileSatisfies: !projection.IncludeFullResults)));
+                    requireFileSatisfies: !projection.IncludeFullResults);
+                return new IncrementalProjection<FileCandidate>(
+                    results => sorter.AddRange(results),
+                    () => sorter.SnapshotProjectedFiles()
+                        .Select(file => file.Input.ToFileCandidate(file.ConditionFacts))
+                        .ToList());
+            });
 
         return state.Snapshot(this);
     }
@@ -117,17 +125,18 @@ public class SearchJob : Job
     {
         var state = GetOrCreateIncrementalProjectionState(
             ProjectionKey("album-folders", projection, search, peerFailureCounts, includeLocked),
-            () => new IncrementalNeutralProjectionState<IncrementalAlbumFolderProjector, AlbumFolder>(
-                new IncrementalAlbumFolderProjector(
+            () =>
+            {
+                var folders = new IncrementalAlbumFolderProjector(
                     projection.Query,
                     ProjectionSettings(search),
                     peerFailureCounts,
                     ignoreStringSortConditions: projection.IgnoreStringSortConditions,
                     sortMode: projection.SortMode,
-                    enforceMinimumTrackCount: projection.EnforceMinimumTrackCount),
-                (projector, results) => projector.AddRange(results),
-                projector => projector.Snapshot(),
-                includeLocked));
+                    enforceMinimumTrackCount: projection.EnforceMinimumTrackCount);
+                return new IncrementalProjection<AlbumFolder>(
+                    results => folders.AddRange(results), folders.Snapshot, includeLocked);
+            });
 
         var result = state.Snapshot(this);
         ApplyRetrievedDirectories(result.Items);
@@ -153,11 +162,11 @@ public class SearchJob : Job
     {
         var state = GetOrCreateIncrementalProjectionState(
             ProjectionKey("track-groups", projection, search, peerFailureCounts, includeLocked),
-            () => new IncrementalNeutralProjectionState<IncrementalTrackGroupProjector, SongJob>(
-                new IncrementalTrackGroupProjector(projection.Query, ProjectionSettings(search), peerFailureCounts),
-                (projector, results) => projector.AddRange(results),
-                projector => projector.Snapshot(),
-                includeLocked));
+            () =>
+            {
+                var groups = new IncrementalTrackGroupProjector(projection.Query, ProjectionSettings(search), peerFailureCounts);
+                return new IncrementalProjection<SongJob>(results => groups.AddRange(results), groups.Snapshot, includeLocked);
+            });
 
         return state.Snapshot(this);
     }
@@ -176,7 +185,19 @@ public class SearchJob : Job
     {
         var state = GetOrCreateIncrementalProjectionState(
             ProjectionKey("album-groups", projection, search, peerFailureCounts, includeLocked),
-            () => new IncrementalAlbumGroupsProjectionState(projection.Query, ProjectionSettings(search), includeLocked, peerFailureCounts));
+            () =>
+            {
+                // Folders are grouped first; album groups follow each change to them.
+                var folders = new IncrementalAlbumFolderProjector(
+                    projection.Query,
+                    ProjectionSettings(search),
+                    peerFailureCounts,
+                    ignoreStringSortConditions: true,
+                    sortMode: FolderSortMode.DeterministicUnranked);
+                var groups = new IncrementalAlbumGroupProjector(projection.Query, ProjectionSettings(search), peerFailureCounts);
+                return new IncrementalProjection<AlbumJob>(
+                    results => groups.ApplyChanges(folders.AddRangeAndGetChanges(results)), groups.Snapshot, includeLocked);
+            });
 
         var result = state.Snapshot(this);
         ApplyRetrievedDirectories(result.Items.SelectMany(album => album.Results));
@@ -295,27 +316,16 @@ public class SearchJob : Job
         string? Uri,
         bool ArtistMaybeWrong);
 
-    private sealed class IncrementalNeutralProjectionState<TProjector, TItem>
+    /// <summary>
+    /// One cached view of this search's results, fed only the results that
+    /// arrived since it was last read.
+    /// </summary>
+    private sealed class IncrementalProjection<TItem>(
+        Action<List<SearchProjectionInput>> add, Func<List<TItem>> snapshot, bool includeLocked = false)
     {
         private readonly Lock gate = new();
-        private readonly TProjector projector;
-        private readonly Func<TProjector, IEnumerable<SearchProjectionInput>, int> addRange;
-        private readonly Func<TProjector, List<TItem>> snapshot;
-        private readonly bool includeLocked;
         private long lastSequence;
         private SearchProjectionSnapshot<TItem>? cachedSnapshot;
-
-        public IncrementalNeutralProjectionState(
-            TProjector projector,
-            Func<TProjector, IEnumerable<SearchProjectionInput>, int> addRange,
-            Func<TProjector, List<TItem>> snapshot,
-            bool includeLocked)
-        {
-            this.projector = projector;
-            this.addRange = addRange;
-            this.snapshot = snapshot;
-            this.includeLocked = includeLocked;
-        }
 
         public SearchProjectionSnapshot<TItem> Snapshot(SearchJob job)
         {
@@ -324,7 +334,7 @@ public class SearchJob : Job
                 var newResults = job.RawSnapshot(lastSequence);
                 if (newResults.Count > 0)
                 {
-                    addRange(projector, RawInputs(newResults, includeLocked));
+                    add(RawInputs(newResults, includeLocked));
                     lastSequence = newResults[^1].Sequence;
                     cachedSnapshot = null;
                 }
@@ -338,90 +348,7 @@ public class SearchJob : Job
                     return cachedSnapshot;
                 }
 
-                var items = snapshot(projector);
-                cachedSnapshot = new SearchProjectionSnapshot<TItem>(revision, items, isComplete);
-                return cachedSnapshot;
-            }
-        }
-    }
-
-    private sealed class IncrementalNeutralFileProjectionState(IncrementalResultSorter projector)
-    {
-        private readonly Lock gate = new();
-        private long lastSequence;
-        private SearchProjectionSnapshot<FileCandidate>? cachedSnapshot;
-
-        public SearchProjectionSnapshot<FileCandidate> Snapshot(SearchJob job)
-        {
-            lock (gate)
-            {
-                var newResults = job.RawSnapshot(lastSequence);
-                if (newResults.Count > 0)
-                {
-                    projector.AddRange(RawInputs(newResults));
-                    lastSequence = newResults[^1].Sequence;
-                    cachedSnapshot = null;
-                }
-                if (cachedSnapshot != null
-                    && cachedSnapshot.Revision == job.Revision
-                    && cachedSnapshot.IsComplete == job.IsComplete)
-                    return cachedSnapshot;
-                cachedSnapshot = new SearchProjectionSnapshot<FileCandidate>(
-                    job.Revision,
-                    projector.SnapshotProjectedFiles()
-                        .Select(file => file.Input.ToFileCandidate(file.ConditionFacts))
-                        .ToList(),
-                    job.IsComplete);
-                return cachedSnapshot;
-            }
-        }
-    }
-
-    private sealed class IncrementalAlbumGroupsProjectionState
-    {
-        private readonly Lock gate = new();
-        private readonly IncrementalAlbumFolderProjector albumProjector;
-        private readonly IncrementalAlbumGroupProjector groupProjector;
-        private readonly bool includeLocked;
-        private long lastSequence;
-        private SearchProjectionSnapshot<AlbumJob>? cachedSnapshot;
-
-        public IncrementalAlbumGroupsProjectionState(AlbumQuery query, SearchSettings search, bool includeLocked,
-            ConcurrentDictionary<string, int>? peerFailureCounts)
-        {
-            this.includeLocked = includeLocked;
-            albumProjector = new IncrementalAlbumFolderProjector(
-                query,
-                search,
-                peerFailureCounts,
-                ignoreStringSortConditions: true,
-                sortMode: FolderSortMode.DeterministicUnranked);
-            groupProjector = new IncrementalAlbumGroupProjector(query, search, peerFailureCounts);
-        }
-
-        public SearchProjectionSnapshot<AlbumJob> Snapshot(SearchJob job)
-        {
-            lock (gate)
-            {
-                var newResults = job.RawSnapshot(lastSequence);
-                if (newResults.Count > 0)
-                {
-                    var changes = albumProjector.AddRangeAndGetChanges(RawInputs(newResults, includeLocked));
-                    groupProjector.ApplyChanges(changes);
-                    lastSequence = newResults[^1].Sequence;
-                    cachedSnapshot = null;
-                }
-
-                int revision = job.Revision;
-                bool isComplete = job.IsComplete;
-                if (cachedSnapshot != null
-                    && cachedSnapshot.Revision == revision
-                    && cachedSnapshot.IsComplete == isComplete)
-                {
-                    return cachedSnapshot;
-                }
-
-                cachedSnapshot = new SearchProjectionSnapshot<AlbumJob>(revision, groupProjector.Snapshot(), isComplete);
+                cachedSnapshot = new SearchProjectionSnapshot<TItem>(revision, snapshot(), isComplete);
                 return cachedSnapshot;
             }
         }

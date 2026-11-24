@@ -28,65 +28,65 @@ internal static class CliJobStatusPresenter
         => ForSplit(summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason, summary.Lifecycle.FailureReason, transfer?.Phase, transfer?.QueuePosition);
 
     public static CliJobStatus ForSplit(
-        ServerJobLifecycleState lifecycle,
-        ServerJobActivityPhase activity,
-        ServerJobTerminalOutcome outcome,
-        ServerJobSkipReason skipReason = ServerJobSkipReason.None,
-        ServerJobFailureReason? failureReason = null,
+        JobLifecycleState lifecycle,
+        JobActivityPhase activity,
+        JobTerminalOutcome outcome,
+        JobSkipReason skipReason = JobSkipReason.None,
+        JobFailureReason? failureReason = null,
         TransferPhase? transferPhase = null,
         int? queuePosition = null)
     {
-        if (lifecycle == ServerJobLifecycleState.Terminal)
+        if (lifecycle == JobLifecycleState.Terminal)
             return Terminal(outcome, skipReason, failureReason);
 
-        if (activity == ServerJobActivityPhase.Downloading && TryTransferPhase(transferPhase, queuePosition, out var transfer))
+        if (activity == JobActivityPhase.Downloading && TryTransferPhase(transferPhase, queuePosition, out var transfer))
             return transfer;
 
         return activity switch
         {
-            ServerJobActivityPhase.WaitingForSearchConcurrency => Active("waiting search", ConsoleColor.DarkGray),
-            ServerJobActivityPhase.SearchRateLimited => Active("rate limited", ConsoleColor.DarkGray),
-            ServerJobActivityPhase.Searching => Active("searching"),
-            ServerJobActivityPhase.ProcessingSearchResults => Active("processing results"),
-            ServerJobActivityPhase.Extracting => Active("extracting"),
-            ServerJobActivityPhase.Downloading => Active("downloading"),
-            ServerJobActivityPhase.RetrievingFolder => Active("retrieving folder"),
-            ServerJobActivityPhase.RunningChildren => Active("running"),
-            ServerJobActivityPhase.Organizing => Active("organizing"),
-            ServerJobActivityPhase.RunningOnComplete => Active("on-complete"),
-            ServerJobActivityPhase.RunningFallback => Active("fallback"),
-            ServerJobActivityPhase.SearchingFallback => Active("searching fallback"),
-            ServerJobActivityPhase.DownloadingFallback => Active("downloading fallback"),
-            ServerJobActivityPhase.ProcessingFallback => Active("processing fallback"),
+            JobActivityPhase.WaitingForSearchConcurrency => Active("waiting search", ConsoleColor.DarkGray),
+            JobActivityPhase.SearchRateLimited => Active("rate limited", ConsoleColor.DarkGray),
+            JobActivityPhase.Searching => Active("searching"),
+            JobActivityPhase.ProcessingSearchResults => Active("processing results"),
+            JobActivityPhase.Extracting => Active("extracting"),
+            JobActivityPhase.Downloading => Active("downloading"),
+            JobActivityPhase.RetrievingFolder => Active("retrieving folder"),
+            JobActivityPhase.RunningChildren => Active("running"),
+            JobActivityPhase.Organizing => Active("organizing"),
+            JobActivityPhase.RunningOnComplete => Active("on-complete"),
+            JobActivityPhase.RunningFallback => Active("fallback"),
+            JobActivityPhase.SearchingFallback => Active("searching fallback"),
+            JobActivityPhase.DownloadingFallback => Active("downloading fallback"),
+            JobActivityPhase.ProcessingFallback => Active("processing fallback"),
             _ => lifecycle switch
             {
-                ServerJobLifecycleState.Pending => new("queued", ConsoleColor.Gray, CliJobStatusCategory.Queued),
-                ServerJobLifecycleState.AwaitingSelection => Active("awaiting selection"),
+                JobLifecycleState.Pending => new("queued", ConsoleColor.Gray, CliJobStatusCategory.Queued),
+                JobLifecycleState.AwaitingSelection => Active("awaiting selection"),
                 _ => Active("running"),
             },
         };
     }
 
-    public static string FailureReasonLabel(ServerJobFailureReason? reason)
+    public static string FailureReasonLabel(JobFailureReason? reason)
         => ServerFailureReasonDisplay.Label(reason);
 
     private static CliJobStatus Active(string label, ConsoleColor color = ConsoleColor.Cyan)
         => new(label, color, CliJobStatusCategory.Active);
 
-    private static CliJobStatus Terminal(ServerJobTerminalOutcome outcome, ServerJobSkipReason skipReason, ServerJobFailureReason? reason)
+    private static CliJobStatus Terminal(JobTerminalOutcome outcome, JobSkipReason skipReason, JobFailureReason? reason)
         => outcome switch
         {
-            ServerJobTerminalOutcome.Succeeded => new("succeeded", ConsoleColor.Green, CliJobStatusCategory.Succeeded),
-            ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.AlreadyExists => new("already exists", ConsoleColor.Green, CliJobStatusCategory.Succeeded),
-            ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.NotFoundLastTime => new("not found", ConsoleColor.DarkGray, CliJobStatusCategory.Succeeded),
-            ServerJobTerminalOutcome.Skipped => new("skipped", ConsoleColor.DarkGray, CliJobStatusCategory.Succeeded),
-            ServerJobTerminalOutcome.Cancelled => new("cancelled", ConsoleColor.DarkGray, CliJobStatusCategory.Failed),
-            ServerJobTerminalOutcome.PartialSuccess => new("partial", ConsoleColor.Yellow, CliJobStatusCategory.Failed),
-            ServerJobTerminalOutcome.Failed => new(FailedLabel(reason), ConsoleColor.Red, CliJobStatusCategory.Failed),
+            JobTerminalOutcome.Succeeded => new("succeeded", ConsoleColor.Green, CliJobStatusCategory.Succeeded),
+            JobTerminalOutcome.Skipped when skipReason == JobSkipReason.AlreadyExists => new("already exists", ConsoleColor.Green, CliJobStatusCategory.Succeeded),
+            JobTerminalOutcome.Skipped when skipReason == JobSkipReason.NotFoundLastTime => new("not found", ConsoleColor.DarkGray, CliJobStatusCategory.Succeeded),
+            JobTerminalOutcome.Skipped => new("skipped", ConsoleColor.DarkGray, CliJobStatusCategory.Succeeded),
+            JobTerminalOutcome.Cancelled => new("cancelled", ConsoleColor.DarkGray, CliJobStatusCategory.Failed),
+            JobTerminalOutcome.PartialSuccess => new("partial", ConsoleColor.Yellow, CliJobStatusCategory.Failed),
+            JobTerminalOutcome.Failed => new(FailedLabel(reason), ConsoleColor.Red, CliJobStatusCategory.Failed),
             _ => new("failed", ConsoleColor.Red, CliJobStatusCategory.Failed),
         };
 
-    private static string FailedLabel(ServerJobFailureReason? reason)
+    private static string FailedLabel(JobFailureReason? reason)
     {
         return ServerFailureReasonDisplay.FailedLabel(reason);
     }

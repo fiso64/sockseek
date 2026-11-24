@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using Sockseek.Core.Models;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Settings;

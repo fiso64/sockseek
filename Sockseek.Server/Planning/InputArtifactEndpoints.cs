@@ -7,6 +7,7 @@ internal static class InputArtifactEndpoints
     public static void Map(WebApplication app)
     {
         app.MapPost("/api/input-artifacts", UploadAsync)
+            .MapErrors(Failure)
             .WithTags("Input Artifacts")
             .WithSummary("Streams an immutable browser input into daemon-owned expiring storage.")
             .WithDescription("The browser filename is retained only as safe presentation metadata and is never used as a daemon path. No internal file-size cap is imposed.")
@@ -15,6 +16,7 @@ internal static class InputArtifactEndpoints
             .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
 
         app.MapGet("/api/input-artifacts/{artifactId}", GetAsync)
+            .MapErrors(Failure)
             .WithTags("Input Artifacts")
             .WithSummary("Gets immutable artifact metadata.")
             .Produces<InputArtifactDto>()
@@ -29,21 +31,14 @@ internal static class InputArtifactEndpoints
         CancellationToken cancellationToken,
         string? fileName = null)
     {
-        try
-        {
-            fileName ??= request.Headers["X-File-Name"].FirstOrDefault();
-            InputArtifactDto artifact = await artifacts.UploadAsync(
-                request.Body,
-                fileName,
-                cancellationToken).ConfigureAwait(false);
-            return Results.Created(
-                $"/api/input-artifacts/{artifact.ArtifactId}",
-                artifact);
-        }
-        catch (Exception exception)
-        {
-            return Failure(exception);
-        }
+        fileName ??= request.Headers["X-File-Name"].FirstOrDefault();
+        InputArtifactDto artifact = await artifacts.UploadAsync(
+            request.Body,
+            fileName,
+            cancellationToken).ConfigureAwait(false);
+        return Results.Created(
+            $"/api/input-artifacts/{artifact.ArtifactId}",
+            artifact);
     }
 
     private static async Task<IResult> GetAsync(
@@ -51,21 +46,14 @@ internal static class InputArtifactEndpoints
         InputArtifactCoordinator artifacts,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            InputArtifactDto? artifact = await artifacts.GetAsync(
-                artifactId,
-                cancellationToken).ConfigureAwait(false);
-            return artifact == null
-                ? Results.NotFound(new ApiErrorDto(
-                    "The input artifact was not found or has expired.",
-                    "artifact-not-found"))
-                : Results.Ok(artifact);
-        }
-        catch (Exception exception)
-        {
-            return Failure(exception);
-        }
+        InputArtifactDto? artifact = await artifacts.GetAsync(
+            artifactId,
+            cancellationToken).ConfigureAwait(false);
+        return artifact == null
+            ? Results.NotFound(new ApiErrorDto(
+                "The input artifact was not found or has expired.",
+                "artifact-not-found"))
+            : Results.Ok(artifact);
     }
 
     private static IResult Failure(Exception exception)

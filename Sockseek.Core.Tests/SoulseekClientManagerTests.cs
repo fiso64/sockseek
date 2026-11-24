@@ -1,10 +1,6 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Microsoft.Extensions.Logging;
 using Sockseek.Core.Diagnostics;
 using Soulseek;
 using Soulseek.Diagnostics;
-using Sockseek.Core.Services;
-using Sockseek.Core.Settings;
 using Tests.ClientTests;
 using System.Net;
 using Sockseek.Core.UserProfiles;

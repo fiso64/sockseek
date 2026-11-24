@@ -1,6 +1,7 @@
 using System.Globalization;
-using System.Text.Json;
 using Sockseek.Api;
+
+using static Sockseek.Cli.CommandArguments;
 
 namespace Sockseek.Cli;
 
@@ -241,28 +242,9 @@ internal static class ChatCommands
     private static string RequiredArgument(IReadOnlyList<string> args, int index, string name)
         => PositionalArgument(args, index) ?? throw new ArgumentException($"Missing {name}.");
 
-    private static string? Option(IReadOnlyList<string> args, string name)
-    {
-        for (int i = 0; i < args.Count - 1; i++)
-            if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
-                return args[i + 1];
-        return null;
-    }
-
     private static Guid? ParseGuid(string? value)
         => value is null ? null
             : Guid.TryParse(value, out Guid id) ? id
             : throw new ArgumentException("--through must be a message UUID.");
 
-    private static bool Flag(IReadOnlyList<string> args, string name)
-        => args.Contains(name, StringComparer.OrdinalIgnoreCase);
-    private static bool Json(IReadOnlyList<string> args) => Flag(args, "--json");
-
-    private static void Write<T>(T value, bool json)
-    {
-        if (!json) { Console.WriteLine(value); return; }
-        JsonSerializerOptions options = SockseekApiJson.CreateSerializerOptions();
-        options.WriteIndented = true;
-        Console.WriteLine(JsonSerializer.Serialize(value, options));
-    }
 }

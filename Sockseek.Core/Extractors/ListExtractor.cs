@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using System.Text;
 
 using Sockseek.Core.Models;

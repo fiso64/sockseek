@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.Extensions.Logging;
 
 namespace Sockseek.Core.Diagnostics;
 

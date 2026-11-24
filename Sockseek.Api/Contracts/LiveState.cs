@@ -214,7 +214,7 @@ public sealed record ShareScanErrorSampleDto(
 public sealed record ShareScanStateDto(
     Guid ScanId,
     long Revision,
-    ServerShareScanPhase Phase,
+    ShareScanPhase Phase,
     DateTimeOffset StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
     long DirectoriesDiscovered,
@@ -270,7 +270,7 @@ public sealed record JobDisplayFieldsDto(
     Guid? SubmissionId,
     ServerJobRole Role,
     DateTimeOffset? CreatedAtUtc,
-    ServerSearchDefaultProjectionKind? SearchDefaultProjection = null,
+    SearchDefaultProjectionKind? SearchDefaultProjection = null,
     bool? SearchGroupResults = null,
     string? SourceDetail = null);
 
@@ -279,15 +279,15 @@ public sealed record JobDisplayFieldsDto(
 /// are cleared by sending this component with those fields set to null.
 /// </summary>
 public sealed record JobLifecycleFieldsDto(
-    ServerJobLifecycleState LifecycleState,
-    ServerJobActivityPhase ActivityPhase,
+    JobLifecycleState LifecycleState,
+    JobActivityPhase ActivityPhase,
     DateTimeOffset? ActivityUntilUtc,
-    ServerJobTerminalOutcome TerminalOutcome,
-    ServerJobSkipReason SkipReason,
-    ServerJobFailureReason? FailureReason,
+    JobTerminalOutcome TerminalOutcome,
+    JobSkipReason SkipReason,
+    JobFailureReason? FailureReason,
     string? FailureMessage,
     bool HasFailureDetail,
-    ServerJobCancellationSource CancellationSource,
+    JobCancellationSource CancellationSource,
     IReadOnlyList<ResourceActionDto> AvailableActions);
 
 /// <summary>A cohesive replacement for current discovery counters.</summary>
@@ -520,7 +520,7 @@ public sealed record StateDeltaDto(
 }
 
 public sealed record ChatTargetDeltaDto(
-    ServerChatTargetKind Kind,
+    ChatTargetKind Kind,
     Guid TargetId,
     ConversationSummaryDto? Conversation = null,
     ChatRoomSummaryDto? Room = null,
@@ -530,7 +530,7 @@ public sealed record ChatTargetDeltaDto(
     bool Removed = false);
 
 public sealed record ChatTargetSnapshotDto(
-    ServerChatTargetKind Kind,
+    ChatTargetKind Kind,
     Guid TargetId,
     ConversationSummaryDto? Conversation,
     ChatRoomSummaryDto? Room,

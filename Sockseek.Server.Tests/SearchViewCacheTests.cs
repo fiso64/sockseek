@@ -3,7 +3,6 @@ using Sockseek.Server.Planning;
 using Sockseek.Persistence;
 using Sockseek.Persistence.Tests;
 using Sockseek.Persistence.Write;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
 using System.Text.Json;
@@ -11,7 +10,6 @@ using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
-using Sockseek.Persistence.Planning;
 using Sockseek.Persistence.Sqlite;
 
 namespace Sockseek.Server.Tests;

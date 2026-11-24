@@ -1,5 +1,4 @@
 using System.Text;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core.Snapshots;
 
 namespace Tests.Core;

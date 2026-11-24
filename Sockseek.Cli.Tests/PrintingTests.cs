@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Cli;
 using Sockseek.Core.Models;
 using Sockseek.Core.Jobs;

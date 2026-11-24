@@ -4,8 +4,6 @@ using System.Security.Cryptography;
 using System.Net.Sockets;
 using System.Diagnostics;
 using Sockseek.Core.Settings;
-using System.ComponentModel;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Core.Diagnostics;
 using Sockseek.Core.UserProfiles;

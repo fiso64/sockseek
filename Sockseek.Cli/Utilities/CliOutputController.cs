@@ -1,6 +1,4 @@
-using Microsoft.Extensions.Logging;
 using Sockseek.Core.Diagnostics;
-using Sockseek.Core.Settings;
 
 namespace Sockseek.Cli;
 

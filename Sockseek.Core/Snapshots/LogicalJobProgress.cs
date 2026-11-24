@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using Sockseek.Core.Jobs;
 
 namespace Sockseek.Core.Snapshots;

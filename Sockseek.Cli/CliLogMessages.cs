@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 
 namespace Sockseek.Cli;
 

@@ -1,5 +1,4 @@
 using System.Reflection;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core;
 using Sockseek.Core.Events;
 using Sockseek.Core.Jobs;
@@ -187,7 +186,7 @@ public class EngineStateStoreTests
         UpdateState(store, roots[3]);
         store.RetireJobProjections(roots[3].WorkflowId, [roots[3].Id]);
         Assert.IsTrue(await updates.MoveNextAsync());
-        Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, updates.Current.Jobs.Single().Lifecycle!.TerminalOutcome);
+        Assert.AreEqual(JobTerminalOutcome.Succeeded, updates.Current.Jobs.Single().Lifecycle!.TerminalOutcome);
         Assert.AreEqual(0, updates.Current.RemovedJobIds.Count, "Storage retirement cannot remove the displayed result.");
 
         store.RemoveSubmissions([roots[3].SubmissionId!.Value]);
@@ -287,12 +286,12 @@ public class EngineStateStoreTests
         while (!finalSeen && await updates.MoveNextAsync())
         {
             var final = updates.Current.State.Jobs.SingleOrDefault(row => row.JobId == child.Id);
-            finalSeen = final?.Lifecycle?.TerminalOutcome == ServerJobTerminalOutcome.Succeeded
-                || final?.Added?.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Succeeded;
+            finalSeen = final?.Lifecycle?.TerminalOutcome == JobTerminalOutcome.Succeeded
+                || final?.Added?.Lifecycle.TerminalOutcome == JobTerminalOutcome.Succeeded;
         }
         Assert.IsTrue(finalSeen, "A final scoped row must survive immediate runtime eviction.");
         Assert.IsNull(store.GetJobSummary(child.Id));
-        Assert.AreEqual(ServerJobLifecycleState.Pending, first.Lifecycle.LifecycleState,
+        Assert.AreEqual(JobLifecycleState.Pending, first.Lifecycle.LifecycleState,
             "Earlier reads remain immutable while the current fact becomes terminal.");
         var waiting = updates.MoveNextAsync().AsTask();
         deadline.Cancel();
@@ -363,7 +362,7 @@ public class EngineStateStoreTests
         var current = store.GetLiveTransfer(queued.TransferId)!;
         Assert.AreEqual(2L, current.Revision);
         Assert.AreEqual(12L, current.Progress.BytesPerSecond);
-        Assert.AreEqual(Sockseek.Api.TransferPhase.QueuedLocally, earlier.Status.Phase);
+        Assert.AreEqual(TransferPhase.QueuedLocally, earlier.Status.Phase);
     }
 
     [TestMethod]
@@ -374,7 +373,7 @@ public class EngineStateStoreTests
         Guid job = Guid.NewGuid();
         var download = new TransferSnapshot(Guid.NewGuid(), TransferSnapshotDirection.Download,
             TransferSnapshotSource.SoulseekPeer, job, workflow, 1, "Peer", "Track.flac", null, null,
-            Sockseek.Core.Snapshots.TransferPhase.InProgress, 0, 100, 1, null, BytesPerSecond: 10);
+            TransferPhase.InProgress, 0, 100, 1, null, BytesPerSecond: 10);
         var upload = new UploadTransferSnapshot(Guid.NewGuid(), 1, "Peer", "Track.flac", 100,
             DateTimeOffset.UnixEpoch, UploadTransferState.Queued, UploadFailureReason.None,
             UploadCancellationSource.None, 0, 0, null, null, null);
@@ -399,12 +398,12 @@ public class EngineStateStoreTests
         Assert.AreEqual(new TransferSummary(1, 0, 1, 0, 0, 0, 7), state.Summary);
         Assert.AreEqual(2, state.Active.Count, "Visibility must not retire the underlying transfer facts.");
         state.SetWorkflowVisible(workflow, true);
-        download = download with { Revision = 3, Phase = Sockseek.Core.Snapshots.TransferPhase.QueuedRemotely, BytesPerSecond = 0 };
+        download = download with { Revision = 3, Phase = TransferPhase.QueuedRemotely, BytesPerSecond = 0 };
         state.ApplyDownload(download, terminal: false);
         Assert.AreEqual(new TransferSummary(2, 1, 1, 1, 0, 0, 7), state.Summary);
         Assert.AreEqual("QueuedRemotely", state.Active[download.Id].State);
         download = download with { Revision = 4,
-            Phase = Sockseek.Core.Snapshots.TransferPhase.Ended, TerminalOutcome = TransferSnapshotTerminalOutcome.Failed };
+            Phase = TransferPhase.Ended, TerminalOutcome = TransferSnapshotTerminalOutcome.Failed };
         state.ApplyDownload(download, terminal: false);
         Assert.AreEqual(new TransferSummary(1, 0, 1, 0, 1, 0, 7), state.Summary);
         state.SetWorkflowVisible(workflow, false);
@@ -506,7 +505,7 @@ public class EngineStateStoreTests
         UpdateState(store, search);
         var searchDisplay = batches.SelectMany(batch => batch.State.Jobs)
             .Last(delta => delta.JobId == search.Id && delta.Display is not null).Display!;
-        Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, searchDisplay.SearchDefaultProjection);
+        Assert.AreEqual(SearchDefaultProjectionKind.Track, searchDisplay.SearchDefaultProjection);
         Assert.IsTrue(searchDisplay.SearchGroupResults);
         Assert.AreEqual(searchDisplay, store.GetWorkflowSnapshot(job.WorkflowId).Jobs
             .Single(row => row.JobId == search.Id).Display);
@@ -861,7 +860,7 @@ public class EngineStateStoreTests
             progress(new(revision, DateTimeOffset.UnixEpoch, Reference(job),
                 CoreSnapshotFactory.CreateFileDownloadState(job),
                 CoreSnapshotFactory.CreateDownloadTransfer(transferId, job, job.Target, "attempt.part",
-                    revision, Sockseek.Core.Snapshots.TransferPhase.InProgress, bytes, size ?? -1, 1)));
+                    revision, TransferPhase.InProgress, bytes, size ?? -1, 1)));
         }
         Progress(1, 32, 128);
         var earlier = store.GetWorkflowSnapshot(job.WorkflowId);
@@ -943,7 +942,7 @@ public class EngineStateStoreTests
                 ++revision, DateTimeOffset.UnixEpoch, Reference(job),
                 CoreSnapshotFactory.CreateFileDownloadState(job),
                 CoreSnapshotFactory.CreateDownloadTransfer(transferId, job, job.Target, "attempt.part",
-                    revision, Sockseek.Core.Snapshots.TransferPhase.InProgress, 16, 256, 1)));
+                    revision, TransferPhase.InProgress, 16, 256, 1)));
         }
         Progress(128);
         var captured = client.GetJob(job.Id)!;
@@ -1287,7 +1286,7 @@ public class EngineStateStoreTests
         var terminal = Transfer(song) with
         {
             Id = transferId,
-            Phase = Sockseek.Core.Snapshots.TransferPhase.Ended,
+            Phase = TransferPhase.Ended,
             TerminalOutcome = TransferSnapshotTerminalOutcome.Succeeded,
         };
         var batches = new List<StateUpdateBatchDto>();
@@ -1539,7 +1538,7 @@ public class EngineStateStoreTests
         Assert.AreEqual(2, tail.Items.Count);
         Assert.AreEqual(artwork[^1].Id, tail.Items[^1].ChildJobId);
         Assert.AreEqual(50, tail.Items[^1].File?.ProgressPercent);
-        Assert.AreEqual(ServerJobLifecycleState.Running, tail.Items[^1].Child?.Lifecycle.LifecycleState);
+        Assert.AreEqual(JobLifecycleState.Running, tail.Items[^1].Child?.Lifecycle.LifecycleState);
         Assert.IsNull(tail.NextOrdinal);
         var appended = album.EnsureSupplementalTrackJobs([File(@"Other\New.jpg")]).Single();
         UpdateStructure(store, album);
@@ -1591,7 +1590,7 @@ public class EngineStateStoreTests
             .CreateDelegate<Action<DownloadProgressedChange>>(store);
         reportProgress(new DownloadProgressedChange(
             2, DateTimeOffset.UtcNow, Reference(child), CoreSnapshotFactory.CreateFileDownloadState(child), CoreSnapshotFactory.CreateDownloadTransfer(
-                progressTransferId, child, target, "/staging/File.part", 1, Sockseek.Core.Snapshots.TransferPhase.InProgress, 32, 256, 1)));
+                progressTransferId, child, target, "/staging/File.part", 1, TransferPhase.InProgress, 32, 256, 1)));
         // Progress alone must update the containing job; a long transfer need
         // not emit another state edge or trigger a detail read before the tick.
         ApplyUpdates();
@@ -1603,7 +1602,7 @@ public class EngineStateStoreTests
         Assert.IsNotNull(page);
         Assert.IsTrue(page.ChildrenMaterialized);
         Assert.AreEqual(child.Id, page.Items.Single().ChildJobId);
-        Assert.AreEqual(ServerJobLifecycleState.Running, page.Items.Single().Child?.Lifecycle.LifecycleState);
+        Assert.AreEqual(JobLifecycleState.Running, page.Items.Single().Child?.Lifecycle.LifecycleState);
         Assert.AreEqual(50, page.Items.Single().File?.ProgressPercent);
         Assert.AreEqual("/output/final/File.bin", page.Items.Single().File?.DownloadPath);
         var childPayload = store.GetJobDetail(child.Id)!.Payload;
@@ -1622,7 +1621,7 @@ public class EngineStateStoreTests
         Assert.AreEqual(50, payload.Directory.ProgressPercent);
         var transferId = Guid.NewGuid();
         long transferRevision = 0;
-        foreach (var state in new[] { Sockseek.Core.Snapshots.TransferPhase.QueuedRemotely, Sockseek.Core.Snapshots.TransferPhase.InProgress, Sockseek.Core.Snapshots.TransferPhase.InProgress })
+        foreach (var state in new[] { TransferPhase.QueuedRemotely, TransferPhase.InProgress, TransferPhase.InProgress })
             InvokePrivate(store, "OnDownloadStateChanged", new DownloadStateChangedChange(
                 3, DateTimeOffset.UtcNow, Reference(child), CoreSnapshotFactory.CreateFileDownloadState(child), CoreSnapshotFactory.CreateDownloadTransfer(
                     transferId, child, target, "/output/File.bin", ++transferRevision,
@@ -1634,7 +1633,7 @@ public class EngineStateStoreTests
         reportProgress(new DownloadProgressedChange(
             4, DateTimeOffset.UtcNow, Reference(child), CoreSnapshotFactory.CreateFileDownloadState(child),
             CoreSnapshotFactory.CreateDownloadTransfer(progressTransferId, child, target,
-                "/staging/File.part", 2, Sockseek.Core.Snapshots.TransferPhase.InProgress, 48, 256, 1)));
+                "/staging/File.part", 2, TransferPhase.InProgress, 48, 256, 1)));
         // An HTTP/scoped read between ticks sees the same counters and keeps
         // its captured revision immutable when completion arrives later.
         var readBeforeFlush = store.GetJobSummary(directory.Id)!;
@@ -1803,7 +1802,7 @@ public class EngineStateStoreTests
 
         var payload = store.GetJobDetail(song.Id)?.Payload as SongJobPayloadDto;
         Assert.IsNotNull(payload);
-        Assert.AreEqual(ServerSongDownloadSource.Fallback, payload.DownloadSource);
+        Assert.AreEqual(SongDownloadSource.Fallback, payload.DownloadSource);
         Assert.AreEqual(new FallbackSourceDto("Another provider", "Source title", "source-reference"), payload.Fallback);
     }
 
@@ -1812,12 +1811,6 @@ public class EngineStateStoreTests
     {
         AssertMapping<JobSnapshotKind, ServerJobKind>(ApiEnumMapper.ToServer);
         AssertMapping<JobSemanticRole, ServerJobRole>(ApiEnumMapper.ToServer);
-        AssertMapping<JobLifecycleState, ServerJobLifecycleState>(ApiEnumMapper.ToServer);
-        AssertMapping<JobActivityPhase, ServerJobActivityPhase>(ApiEnumMapper.ToServer);
-        AssertMapping<JobTerminalOutcome, ServerJobTerminalOutcome>(ApiEnumMapper.ToServer);
-        AssertMapping<SongDownloadSource, ServerSongDownloadSource>(ApiEnumMapper.ToServer);
-        AssertMapping<JobSkipReason, ServerJobSkipReason>(ApiEnumMapper.ToServer);
-        AssertMapping<JobCancellationSource, ServerJobCancellationSource>(ApiEnumMapper.ToServer);
         AssertMapping<FolderRetrievalOutcome, ServerFolderRetrievalOutcome>(ApiEnumMapper.ToServer);
         foreach (JobFailureReason reason in Enum.GetValues<JobFailureReason>())
             Assert.AreEqual(reason == JobFailureReason.None ? null : reason.ToString(),
@@ -1843,10 +1836,10 @@ public class EngineStateStoreTests
 
         var summary = store.GetJobSummary(song.Id);
         Assert.IsNotNull(summary);
-        Assert.AreEqual(ServerJobLifecycleState.Running, summary.Lifecycle.LifecycleState);
-        Assert.AreEqual(ServerJobActivityPhase.SearchRateLimited, summary.Lifecycle.ActivityPhase);
+        Assert.AreEqual(JobLifecycleState.Running, summary.Lifecycle.LifecycleState);
+        Assert.AreEqual(JobActivityPhase.SearchRateLimited, summary.Lifecycle.ActivityPhase);
         Assert.AreEqual(until, summary.Lifecycle.ActivityUntilUtc);
-        Assert.AreEqual(ServerJobTerminalOutcome.None, summary.Lifecycle.TerminalOutcome);
+        Assert.AreEqual(JobTerminalOutcome.None, summary.Lifecycle.TerminalOutcome);
     }
 
     [TestMethod]
@@ -1914,7 +1907,7 @@ public class EngineStateStoreTests
         Register(store, failed);
 
         var runningJobs = store.GetJobs(new JobQuery(
-            ServerJobLifecycleState.Running,
+            JobLifecycleState.Running,
             TerminalOutcome: null,
             Kind: null,
             WorkflowId: null,
@@ -1922,8 +1915,8 @@ public class EngineStateStoreTests
         CollectionAssert.AreEquivalent(new[] { running.Id }, runningJobs.Select(job => job.JobId).ToArray());
 
         var failedJobs = store.GetJobs(new JobQuery(
-            ServerJobLifecycleState.Terminal,
-            ServerJobTerminalOutcome.Failed,
+            JobLifecycleState.Terminal,
+            JobTerminalOutcome.Failed,
             Kind: null,
             WorkflowId: null,
             IncludeAll: true));
@@ -2099,9 +2092,9 @@ public class EngineStateStoreTests
 
         var summary = store.GetJobSummary(list.Id);
         Assert.IsNotNull(summary);
-        Assert.AreEqual(ServerJobLifecycleState.Running, summary.Lifecycle.LifecycleState);
-        Assert.AreEqual(ServerJobActivityPhase.RunningChildren, summary.Lifecycle.ActivityPhase);
-        Assert.AreEqual(ServerJobTerminalOutcome.None, summary.Lifecycle.TerminalOutcome);
+        Assert.AreEqual(JobLifecycleState.Running, summary.Lifecycle.LifecycleState);
+        Assert.AreEqual(JobActivityPhase.RunningChildren, summary.Lifecycle.ActivityPhase);
+        Assert.AreEqual(JobTerminalOutcome.None, summary.Lifecycle.TerminalOutcome);
     }
 
     [TestMethod]
@@ -2404,7 +2397,7 @@ public class EngineStateStoreTests
             candidate,
             $"C:/downloads/{song.Query.Title}.mp3",
             revision: 1,
-            phase: Sockseek.Core.Snapshots.TransferPhase.InProgress,
+            phase: TransferPhase.InProgress,
             bytesTransferred: song.BytesTransferred,
             totalBytes: song.FileSize is > 0 ? song.FileSize.Value : file.Size,
             attemptCount: 0);
@@ -2434,7 +2427,7 @@ public class EngineStateStoreTests
             ?? ordered.First().Display.QueryText
             ?? ordered.First().Display.Kind.ToWireString();
 
-        int active = ordered.Count(job => job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal);
+        int active = ordered.Count(job => job.Lifecycle.LifecycleState != JobLifecycleState.Terminal);
         int failed = ordered.Count(IsFailed);
         int completed = ordered.Count - active;
         var state = active > 0 ? ServerWorkflowState.Active
@@ -2452,11 +2445,11 @@ public class EngineStateStoreTests
     }
 
     private static bool IsFailed(JobSummaryDto job)
-        => job.Lifecycle.TerminalOutcome is ServerJobTerminalOutcome.Failed
-            or ServerJobTerminalOutcome.Cancelled
-            or ServerJobTerminalOutcome.PartialSuccess
-            || (job.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Skipped
-                && job.Lifecycle.SkipReason != ServerJobSkipReason.AlreadyExists);
+        => job.Lifecycle.TerminalOutcome is JobTerminalOutcome.Failed
+            or JobTerminalOutcome.Cancelled
+            or JobTerminalOutcome.PartialSuccess
+            || (job.Lifecycle.TerminalOutcome == JobTerminalOutcome.Skipped
+                && job.Lifecycle.SkipReason != JobSkipReason.AlreadyExists);
 
     private static void AssertClientMatchesProjection(
         EngineStateStore server,

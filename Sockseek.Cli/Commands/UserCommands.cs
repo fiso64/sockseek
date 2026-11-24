@@ -5,6 +5,8 @@ using System.Text.Json.Nodes;
 using Sockseek.Api;
 using Sockseek.Core.UserProfiles;
 
+using static Sockseek.Cli.CommandArguments;
+
 namespace Sockseek.Cli;
 
 /// <summary>Remote profile and filesystem-shaped user-share commands.</summary>
@@ -432,25 +434,6 @@ internal static class UserCommands
     private static string? Word(IReadOnlyList<string> args, int index)
         => index < args.Count && !args[index].StartsWith('-') ? args[index] : null;
 
-    private static bool Flag(IReadOnlyList<string> args, string name)
-        => args.Any(argument => string.Equals(OptionName(argument), name, StringComparison.OrdinalIgnoreCase));
-
-    private static bool Json(IReadOnlyList<string> args) => Flag(args, "--json");
-
-    private static string? Option(IReadOnlyList<string> args, string name)
-    {
-        for (int index = 0; index < args.Count; index++)
-        {
-            string token = args[index];
-            if (!string.Equals(OptionName(token), name, StringComparison.OrdinalIgnoreCase))
-                continue;
-            int equals = token.IndexOf('=');
-            if (equals >= 0) return token[(equals + 1)..];
-            return index + 1 < args.Count ? args[index + 1] : null;
-        }
-        return null;
-    }
-
     private static bool TryOptionValue(
         IReadOnlyList<string> args,
         ref int index,
@@ -471,12 +454,6 @@ internal static class UserCommands
         else
             throw new ArgumentException($"Option '{name}' requires a value.");
         return true;
-    }
-
-    private static string OptionName(string token)
-    {
-        int equals = token.IndexOf('=');
-        return (equals < 0 ? token : token[..equals]).ToLowerInvariant();
     }
 
     private static Guid ParseGuid(string value, string name)
@@ -583,20 +560,6 @@ internal static class UserCommands
         if (summary.LockedBranchesSkipped > 0)
             Console.WriteLine($"Locked branches skipped: {summary.LockedBranchesSkipped:N0}");
         Console.WriteLine($"Output root: {Safe(summary.OutputParent)}");
-    }
-
-    private static void Write(object value, bool json)
-    {
-        if (json) WriteJson(value);
-        else Console.WriteLine(value);
-    }
-
-    private static void WriteJson(object value)
-    {
-        JsonSerializerOptions options = SockseekApiJson.CreateSerializerOptions();
-        options.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-        options.WriteIndented = true;
-        Console.WriteLine(JsonSerializer.Serialize(value, value.GetType(), options));
     }
 
     private static readonly IReadOnlyDictionary<string, bool> ProfileOptions = Options(

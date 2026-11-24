@@ -1,5 +1,4 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Models;
+using Sockseek.Api;
 using Sockseek.Core.Jobs;
 using Sockseek.Core;
 using Sockseek.Core.Extractors;

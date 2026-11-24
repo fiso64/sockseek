@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using Sockseek.Core.Jobs;
 
 namespace Sockseek.Core.Extractors;

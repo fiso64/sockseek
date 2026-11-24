@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 
 namespace Tests.Server;
@@ -14,14 +13,14 @@ public class DaemonClientStoreTests
         var workflowId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
         var transferId = Guid.NewGuid();
-        var initial = Job(jobId, workflowId, revision: 1, lifecycle: ServerJobLifecycleState.Pending)
+        var initial = Job(jobId, workflowId, revision: 1, lifecycle: JobLifecycleState.Pending)
             with { Stats = new JobSummaryStatsDto(CandidateCount: 2) };
 
         store.ApplySnapshot(Snapshot(epoch, 5, workflowId, [initial]));
         var terminal = initial.Lifecycle with
         {
-            LifecycleState = ServerJobLifecycleState.Terminal,
-            TerminalOutcome = ServerJobTerminalOutcome.Succeeded,
+            LifecycleState = JobLifecycleState.Terminal,
+            TerminalOutcome = JobTerminalOutcome.Succeeded,
             FailureMessage = null,
         };
         var transfer = Transfer(transferId, jobId, workflowId, revision: 1, bytes: 0);
@@ -43,8 +42,8 @@ public class DaemonClientStoreTests
                 [])));
 
         Assert.AreEqual(DaemonClientApplyStatus.Applied, update.Status);
-        Assert.AreEqual(ServerJobLifecycleState.Terminal, store.GetJob(jobId)?.Lifecycle.LifecycleState);
-        Assert.AreEqual(ServerJobTerminalOutcome.Succeeded, store.GetJob(jobId)?.Lifecycle.TerminalOutcome);
+        Assert.AreEqual(JobLifecycleState.Terminal, store.GetJob(jobId)?.Lifecycle.LifecycleState);
+        Assert.AreEqual(JobTerminalOutcome.Succeeded, store.GetJob(jobId)?.Lifecycle.TerminalOutcome);
         Assert.IsNull(store.GetJob(jobId)?.Stats?.CandidateCount);
         Assert.AreEqual(transferId, store.GetJobTransfers(jobId).Single().TransferId);
         Assert.AreEqual(0, update.Activity.Count);
@@ -57,10 +56,10 @@ public class DaemonClientStoreTests
         var epoch = Guid.NewGuid();
         var workflowId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
-        var initial = Job(jobId, workflowId, revision: 1, lifecycle: ServerJobLifecycleState.Pending);
+        var initial = Job(jobId, workflowId, revision: 1, lifecycle: JobLifecycleState.Pending);
         store.ApplySnapshot(Snapshot(epoch, 10, workflowId, [initial]));
 
-        var running = initial.Lifecycle with { LifecycleState = ServerJobLifecycleState.Running };
+        var running = initial.Lifecycle with { LifecycleState = JobLifecycleState.Running };
         var overlap = store.Apply(Batch(
             epoch,
             previous: 8,
@@ -82,7 +81,7 @@ public class DaemonClientStoreTests
 
         Assert.AreEqual(DaemonClientApplyStatus.Applied, overlap.Status);
         Assert.AreEqual(DaemonClientApplyStatus.IgnoredStale, stale.Status);
-        Assert.AreEqual(ServerJobLifecycleState.Running, store.GetJob(jobId)?.Lifecycle.LifecycleState);
+        Assert.AreEqual(JobLifecycleState.Running, store.GetJob(jobId)?.Lifecycle.LifecycleState);
     }
 
     [TestMethod]
@@ -92,11 +91,11 @@ public class DaemonClientStoreTests
         var epoch = Guid.NewGuid();
         var workflowId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
-        var initial = Job(jobId, workflowId, revision: 1, lifecycle: ServerJobLifecycleState.Pending);
+        var initial = Job(jobId, workflowId, revision: 1, lifecycle: JobLifecycleState.Pending);
         var scope = StateStreamScopeDto.Workflow(workflowId);
         store.ApplySnapshot(Snapshot(epoch, 3, workflowId, [initial]));
 
-        var terminal = initial.Lifecycle with { LifecycleState = ServerJobLifecycleState.Terminal };
+        var terminal = initial.Lifecycle with { LifecycleState = JobLifecycleState.Terminal };
         var update = store.Apply(Batch(
             epoch,
             previous: 5,
@@ -110,7 +109,7 @@ public class DaemonClientStoreTests
         Assert.AreEqual(DaemonClientApplyStatus.RecoveryRequired, update.Status);
         Assert.AreEqual(DaemonClientRecoveryReason.SequenceGap, update.RecoveryReason);
         Assert.IsTrue(store.IsStale(scope));
-        Assert.AreEqual(ServerJobLifecycleState.Pending, store.GetJob(jobId)?.Lifecycle.LifecycleState);
+        Assert.AreEqual(JobLifecycleState.Pending, store.GetJob(jobId)?.Lifecycle.LifecycleState);
         Assert.AreEqual(3, store.GetPosition(scope)?.Sequence);
     }
 
@@ -122,7 +121,7 @@ public class DaemonClientStoreTests
         var nextEpoch = Guid.NewGuid();
         var workflowId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
-        var initial = Job(jobId, workflowId, revision: 1, lifecycle: ServerJobLifecycleState.Pending);
+        var initial = Job(jobId, workflowId, revision: 1, lifecycle: JobLifecycleState.Pending);
         store.ApplySnapshot(Snapshot(firstEpoch, 2, workflowId, [initial]));
 
         var update = store.Apply(Batch(
@@ -149,12 +148,12 @@ public class DaemonClientStoreTests
             Guid.NewGuid(),
             firstWorkflow,
             1,
-            ServerJobLifecycleState.Running);
+            JobLifecycleState.Running);
         var second = Job(
             Guid.NewGuid(),
             secondWorkflow,
             1,
-            ServerJobLifecycleState.Running);
+            JobLifecycleState.Running);
         store.ApplySnapshot(Snapshot(
             Guid.NewGuid(),
             0,
@@ -190,8 +189,8 @@ public class DaemonClientStoreTests
         var epoch = Guid.NewGuid();
         var firstWorkflow = Guid.NewGuid();
         var secondWorkflow = Guid.NewGuid();
-        var firstJob = Job(Guid.NewGuid(), firstWorkflow, 1, ServerJobLifecycleState.Running);
-        var secondJob = Job(Guid.NewGuid(), secondWorkflow, 1, ServerJobLifecycleState.Terminal);
+        var firstJob = Job(Guid.NewGuid(), firstWorkflow, 1, JobLifecycleState.Running);
+        var secondJob = Job(Guid.NewGuid(), secondWorkflow, 1, JobLifecycleState.Terminal);
         var firstTransfer = Transfer(Guid.NewGuid(), firstJob.JobId, firstWorkflow, 1, 5);
         var secondTransfer = Transfer(Guid.NewGuid(), firstJob.JobId, firstWorkflow, 1, 9);
         store.ApplySnapshot(new StateSnapshotDto(
@@ -221,12 +220,12 @@ public class DaemonClientStoreTests
         var epoch = Guid.NewGuid();
         var workflowId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
-        var failed = Job(jobId, workflowId, 3, ServerJobLifecycleState.Terminal) with
+        var failed = Job(jobId, workflowId, 3, JobLifecycleState.Terminal) with
         {
-            Lifecycle = Job(jobId, workflowId, 3, ServerJobLifecycleState.Terminal).Lifecycle with
+            Lifecycle = Job(jobId, workflowId, 3, JobLifecycleState.Terminal).Lifecycle with
             {
-                TerminalOutcome = ServerJobTerminalOutcome.Failed,
-                FailureReason = ServerJobFailureReason.Other,
+                TerminalOutcome = JobTerminalOutcome.Failed,
+                FailureReason = JobFailureReason.Other,
                 FailureMessage = "old failure",
                 HasFailureDetail = true,
             },
@@ -235,8 +234,8 @@ public class DaemonClientStoreTests
 
         var cleared = failed.Lifecycle with
         {
-            LifecycleState = ServerJobLifecycleState.Running,
-            TerminalOutcome = ServerJobTerminalOutcome.None,
+            LifecycleState = JobLifecycleState.Running,
+            TerminalOutcome = JobTerminalOutcome.None,
             FailureReason = null,
             FailureMessage = null,
             HasFailureDetail = false,
@@ -262,7 +261,7 @@ public class DaemonClientStoreTests
 
         var current = store.GetJob(jobId);
         Assert.IsNotNull(current);
-        Assert.AreEqual(ServerJobLifecycleState.Running, current.Lifecycle.LifecycleState);
+        Assert.AreEqual(JobLifecycleState.Running, current.Lifecycle.LifecycleState);
         Assert.IsNull(current.Lifecycle.FailureReason);
         Assert.IsNull(current.Lifecycle.FailureMessage);
         Assert.IsFalse(current.Lifecycle.HasFailureDetail);
@@ -274,7 +273,7 @@ public class DaemonClientStoreTests
         var store = new DaemonClientStore();
         var epoch = Guid.NewGuid();
         var workflowId = Guid.NewGuid();
-        var job = Job(Guid.NewGuid(), workflowId, 1, ServerJobLifecycleState.Running);
+        var job = Job(Guid.NewGuid(), workflowId, 1, JobLifecycleState.Running);
         var transfer = Transfer(Guid.NewGuid(), job.JobId, workflowId, 1, 25);
         store.ApplySnapshot(new StateSnapshotDto(
             StateStreamScopeDto.Workflow(workflowId),
@@ -288,7 +287,7 @@ public class DaemonClientStoreTests
         var terminal = transfer with
         {
             Revision = 2,
-            Status = transfer.Status with { Phase = Sockseek.Api.TransferPhase.Ended, IsTerminal = true },
+            Status = transfer.Status with { Phase = TransferPhase.Ended, IsTerminal = true },
             Progress = transfer.Progress with { BytesTransferred = 100 },
         };
 
@@ -350,7 +349,7 @@ public class DaemonClientStoreTests
         Guid jobId,
         Guid workflowId,
         long revision,
-        ServerJobLifecycleState lifecycle)
+        JobLifecycleState lifecycle)
         => TestJobSummary.Create(ServerJobKind.Song, jobId, workflowId, displayId: 1, revision: revision,
             state: lifecycle, name: "job", query: "query");
 
@@ -374,6 +373,6 @@ public class DaemonClientStoreTests
                 "user",
                 "music\\track.mp3",
                 "candidate"),
-            new TransferStatusFieldsDto(Sockseek.Api.TransferPhase.InProgress, "track.mp3", 1, false),
+            new TransferStatusFieldsDto(TransferPhase.InProgress, "track.mp3", 1, false),
             new TransferProgressFieldsDto(bytes, 100));
 }

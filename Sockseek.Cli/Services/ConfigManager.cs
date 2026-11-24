@@ -1,11 +1,7 @@
 using Sockseek.Core;
-using Sockseek.Core.Models;
 using Sockseek.Core.Jobs;
-using Sockseek.Core.Extractors;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
-using Sockseek.Api;
-using Sockseek.Server;
 
 namespace Sockseek.Cli;
 

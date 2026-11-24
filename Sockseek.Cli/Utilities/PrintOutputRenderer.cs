@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using System.Collections.Concurrent;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
@@ -439,7 +440,7 @@ internal static class ResultPrintFormatter
             var foldersToPrint = printOption.HasFlag(PrintOption.Full)
                 ? album.Results
                 : album.Results.Take(1).ToList();
-            JsonPrinter.PrintAlbumJson(foldersToPrint, album);
+            JsonPrinter.PrintAlbumJson(foldersToPrint);
             return;
         }
 
@@ -486,7 +487,7 @@ internal static class ResultPrintFormatter
         if (orderedResults == null || orderedResults.Count == 0)
         {
             if (printOption.HasFlag(PrintOption.Json))
-                JsonPrinter.PrintTrackResultJson(song.Query, Array.Empty<FileCandidate>());
+                JsonPrinter.PrintTrackResultJson(Array.Empty<FileCandidate>());
             if (!nonVerbose)
                 Printing.WriteLine("No results", ConsoleColor.Yellow);
             return;
@@ -496,7 +497,7 @@ internal static class ResultPrintFormatter
             Printing.WriteLine();
 
         if (printOption.HasFlag(PrintOption.Json))
-            JsonPrinter.PrintTrackResultJson(song.Query, orderedResults, printFull);
+            JsonPrinter.PrintTrackResultJson(orderedResults, printFull);
         else if (printOption.HasFlag(PrintOption.Link))
         {
             var first = orderedResults.FirstOrDefault(candidate => candidate.Visibility == SearchResultVisibility.Public);

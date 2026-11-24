@@ -2224,7 +2224,7 @@
             "name": "sortOrder",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ServerSearchViewSortOrder"
+              "$ref": "#/components/schemas/SearchViewSortOrder"
             }
           }
         ],
@@ -2339,7 +2339,7 @@
             "name": "sortOrder",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ServerSearchViewSortOrder"
+              "$ref": "#/components/schemas/SearchViewSortOrder"
             }
           }
         ],
@@ -5099,7 +5099,7 @@
             "name": "kind",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ServerChatRoomKind"
+              "$ref": "#/components/schemas/ChatRoomKind"
             }
           },
           {
@@ -6333,7 +6333,7 @@
             "name": "kind",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ServerUserNotificationKind"
+              "$ref": "#/components/schemas/UserNotificationKind"
             }
           },
           {
@@ -7361,21 +7361,21 @@
             "name": "lifecycleState",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ServerJobLifecycleState"
+              "$ref": "#/components/schemas/JobLifecycleState"
             }
           },
           {
             "name": "terminalOutcome",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ServerJobTerminalOutcome"
+              "$ref": "#/components/schemas/JobTerminalOutcome"
             }
           },
           {
             "name": "skipReason",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ServerJobSkipReason"
+              "$ref": "#/components/schemas/JobSkipReason"
             }
           },
           {
@@ -11740,6 +11740,9 @@
           }
         }
       },
+      "AlbumArtOption": {
+        "type": "integer"
+      },
       "AlbumFolderDownloadSelectionDto": {
         "type": "object",
         "properties": {
@@ -11976,7 +11979,7 @@
             "format": "int32"
           },
           "kind": {
-            "$ref": "#/components/schemas/ServerChatRoomKind"
+            "$ref": "#/components/schemas/ChatRoomKind"
           },
           "owned": {
             "type": "boolean"
@@ -12500,6 +12503,12 @@
         ],
         "type": "integer"
       },
+      "ChatMessageDirection": {
+        "enum": [
+          "Incoming",
+          "Outgoing"
+        ]
+      },
       "ChatMessageDto": {
         "required": [
           "messageId",
@@ -12528,7 +12537,7 @@
             "format": "int64"
           },
           "targetKind": {
-            "$ref": "#/components/schemas/ServerChatTargetKind"
+            "$ref": "#/components/schemas/ChatTargetKind"
           },
           "targetId": {
             "type": "string",
@@ -12538,7 +12547,7 @@
             "type": "string"
           },
           "direction": {
-            "$ref": "#/components/schemas/ServerChatMessageDirection"
+            "$ref": "#/components/schemas/ChatMessageDirection"
           },
           "text": {
             "type": "string"
@@ -12552,7 +12561,7 @@
             "format": "date-time"
           },
           "state": {
-            "$ref": "#/components/schemas/ServerChatMessageState"
+            "$ref": "#/components/schemas/ChatMessageState"
           },
           "failureReason": {
             "type": [
@@ -12582,6 +12591,15 @@
           }
         }
       },
+      "ChatMessageState": {
+        "enum": [
+          "Received",
+          "Pending",
+          "Sent",
+          "Failed",
+          "Unknown"
+        ]
+      },
       "ChatRoomDetailDto": {
         "required": [
           "summary",
@@ -12605,6 +12623,22 @@
             }
           }
         }
+      },
+      "ChatRoomJoinPhase": {
+        "enum": [
+          "Disconnected",
+          "Joining",
+          "Joined",
+          "Leaving",
+          "Failed"
+        ]
+      },
+      "ChatRoomKind": {
+        "enum": [
+          "Unknown",
+          "Public",
+          "Private"
+        ]
       },
       "ChatRoomPageDto": {
         "required": [
@@ -12663,7 +12697,7 @@
             "type": "boolean"
           },
           "kind": {
-            "$ref": "#/components/schemas/ServerChatRoomKind"
+            "$ref": "#/components/schemas/ChatRoomKind"
           },
           "owned": {
             "type": "boolean"
@@ -12672,7 +12706,7 @@
             "type": "boolean"
           },
           "phase": {
-            "$ref": "#/components/schemas/ServerChatRoomJoinPhase"
+            "$ref": "#/components/schemas/ChatRoomJoinPhase"
           },
           "failureReason": {
             "type": [
@@ -13214,6 +13248,12 @@
           }
         }
       },
+      "ChatTargetKind": {
+        "enum": [
+          "Direct",
+          "Room"
+        ]
+      },
       "ChatTargetSnapshotDto": {
         "required": [
           "kind",
@@ -13224,7 +13264,7 @@
         "type": "object",
         "properties": {
           "kind": {
-            "$ref": "#/components/schemas/ServerChatTargetKind"
+            "$ref": "#/components/schemas/ChatTargetKind"
           },
           "targetId": {
             "type": "string",
@@ -13935,7 +13975,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerSearchViewProjectionKind"
+                "$ref": "#/components/schemas/SearchViewProjectionKind"
               }
             ]
           },
@@ -13985,7 +14025,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerSearchViewSortOrder"
+                "$ref": "#/components/schemas/SearchViewSortOrder"
               }
             ]
           },
@@ -15258,11 +15298,18 @@
           }
         }
       },
+      "DownloadBehavior": {
+        "enum": [
+          "Automatic",
+          "Manual"
+        ],
+        "default": "Automatic"
+      },
       "DownloadBehaviorPolicyDto": {
         "type": "object",
         "properties": {
           "default": {
-            "$ref": "#/components/schemas/ServerDownloadBehavior"
+            "$ref": "#/components/schemas/DownloadBehavior"
           },
           "song": {
             "oneOf": [
@@ -15270,7 +15317,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerDownloadBehavior"
+                "$ref": "#/components/schemas/DownloadBehavior"
               }
             ]
           },
@@ -15280,7 +15327,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerDownloadBehavior"
+                "$ref": "#/components/schemas/DownloadBehavior"
               }
             ]
           },
@@ -15290,7 +15337,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerDownloadBehavior"
+                "$ref": "#/components/schemas/DownloadBehavior"
               }
             ]
           },
@@ -15300,7 +15347,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerDownloadBehavior"
+                "$ref": "#/components/schemas/DownloadBehavior"
               }
             ]
           }
@@ -15502,6 +15549,9 @@
           }
         }
       },
+      "ExtractionMode": {
+        "type": "integer"
+      },
       "ExtractionSettingsPatchDto": {
         "type": "object",
         "properties": {
@@ -15557,7 +15607,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerExtractionMode"
+                "$ref": "#/components/schemas/ExtractionMode"
               }
             ]
           },
@@ -16043,6 +16093,14 @@
           }
         }
       },
+      "IncompleteAlbumActionKind": {
+        "enum": [
+          "Move",
+          "Delete",
+          "Keep",
+          null
+        ]
+      },
       "IncompleteAlbumActionSettingsPatchDto": {
         "type": "object",
         "properties": {
@@ -16052,7 +16110,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerIncompleteAlbumActionKind"
+                "$ref": "#/components/schemas/IncompleteAlbumActionKind"
               }
             ]
           },
@@ -16115,6 +16173,35 @@
             ]
           }
         }
+      },
+      "JobActivityPhase": {
+        "enum": [
+          "None",
+          "WaitingForSearchConcurrency",
+          "SearchRateLimited",
+          "Searching",
+          "ProcessingSearchResults",
+          "Extracting",
+          "Downloading",
+          "RetrievingFolder",
+          "RunningChildren",
+          "Organizing",
+          "RunningOnComplete",
+          "RunningFallback",
+          "SearchingFallback",
+          "DownloadingFallback",
+          "ProcessingFallback"
+        ]
+      },
+      "JobCancellationSource": {
+        "enum": [
+          "None",
+          "UserRequestedJob",
+          "ParentJob",
+          "UserRequestedWorkflow",
+          "UserRequestedAllJobs",
+          "InternalEngine"
+        ]
       },
       "JobDeltaDto": {
         "required": [
@@ -16352,7 +16439,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerSearchDefaultProjectionKind"
+                "$ref": "#/components/schemas/SearchDefaultProjectionKind"
               }
             ]
           },
@@ -17038,6 +17125,22 @@
           }
         }
       },
+      "JobFailureReason": {
+        "enum": [
+          "None",
+          "InvalidSearchString",
+          "OutOfDownloadRetries",
+          "AllDownloadsFailed",
+          "Other",
+          "ExtractionFailed",
+          "Cancelled",
+          "ChildJobsFailed",
+          "NoSearchResults",
+          "NoMatchingResults",
+          "Interrupted",
+          null
+        ]
+      },
       "JobLifecycleFieldsDto": {
         "required": [
           "lifecycleState",
@@ -17051,10 +17154,10 @@
         "type": "object",
         "properties": {
           "lifecycleState": {
-            "$ref": "#/components/schemas/ServerJobLifecycleState"
+            "$ref": "#/components/schemas/JobLifecycleState"
           },
           "activityPhase": {
-            "$ref": "#/components/schemas/ServerJobActivityPhase"
+            "$ref": "#/components/schemas/JobActivityPhase"
           },
           "activityUntilUtc": {
             "type": [
@@ -17064,10 +17167,10 @@
             "format": "date-time"
           },
           "terminalOutcome": {
-            "$ref": "#/components/schemas/ServerJobTerminalOutcome"
+            "$ref": "#/components/schemas/JobTerminalOutcome"
           },
           "skipReason": {
-            "$ref": "#/components/schemas/ServerJobSkipReason"
+            "$ref": "#/components/schemas/JobSkipReason"
           },
           "failureReason": {
             "oneOf": [
@@ -17075,7 +17178,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerJobFailureReason"
+                "$ref": "#/components/schemas/JobFailureReason"
               }
             ]
           },
@@ -17089,7 +17192,7 @@
             "type": "boolean"
           },
           "cancellationSource": {
-            "$ref": "#/components/schemas/ServerJobCancellationSource"
+            "$ref": "#/components/schemas/JobCancellationSource"
           },
           "availableActions": {
             "type": "array",
@@ -17098,6 +17201,14 @@
             }
           }
         }
+      },
+      "JobLifecycleState": {
+        "enum": [
+          "Pending",
+          "Running",
+          "AwaitingSelection",
+          "Terminal"
+        ]
       },
       "JobListScopeDto": {
         "required": [
@@ -20699,7 +20810,7 @@
             "type": "string"
           },
           "defaultProjection": {
-            "$ref": "#/components/schemas/ServerSearchDefaultProjectionKind"
+            "$ref": "#/components/schemas/SearchDefaultProjectionKind"
           },
           "songQuery": {
             "oneOf": [
@@ -20921,7 +21032,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerJobLifecycleState"
+                "$ref": "#/components/schemas/JobLifecycleState"
               }
             ]
           },
@@ -20931,7 +21042,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerJobActivityPhase"
+                "$ref": "#/components/schemas/JobActivityPhase"
               }
             ]
           },
@@ -20948,7 +21059,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerJobTerminalOutcome"
+                "$ref": "#/components/schemas/JobTerminalOutcome"
               }
             ]
           },
@@ -20958,7 +21069,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerJobSkipReason"
+                "$ref": "#/components/schemas/JobSkipReason"
               }
             ]
           },
@@ -20968,7 +21079,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerJobFailureReason"
+                "$ref": "#/components/schemas/JobFailureReason"
               }
             ]
           },
@@ -20988,10 +21099,10 @@
             }
           },
           "cancellationSource": {
-            "$ref": "#/components/schemas/ServerJobCancellationSource"
+            "$ref": "#/components/schemas/JobCancellationSource"
           },
           "downloadSource": {
-            "$ref": "#/components/schemas/ServerSongDownloadSource"
+            "$ref": "#/components/schemas/SongDownloadSource"
           },
           "exactTarget": {
             "required": [
@@ -21372,7 +21483,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerJobLifecycleState"
+                "$ref": "#/components/schemas/JobLifecycleState"
               }
             ]
           },
@@ -21382,7 +21493,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerJobTerminalOutcome"
+                "$ref": "#/components/schemas/JobTerminalOutcome"
               }
             ]
           },
@@ -21412,7 +21523,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerJobSkipReason"
+                "$ref": "#/components/schemas/JobSkipReason"
               }
             ]
           },
@@ -21547,6 +21658,15 @@
             ]
           }
         }
+      },
+      "JobSkipReason": {
+        "enum": [
+          "None",
+          "AlreadyExists",
+          "NotFoundLastTime",
+          "Manual",
+          "Filtered"
+        ]
       },
       "JobStatusActivityDto": {
         "required": [
@@ -21727,6 +21847,16 @@
             "format": "int32"
           }
         }
+      },
+      "JobTerminalOutcome": {
+        "enum": [
+          "None",
+          "Succeeded",
+          "Failed",
+          "Skipped",
+          "Cancelled",
+          "PartialSuccess"
+        ]
       },
       "JoinRoomRequestDto": {
         "required": [
@@ -22082,7 +22212,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerAlbumArtOption"
+                "$ref": "#/components/schemas/AlbumArtOption"
               }
             ]
           },
@@ -23068,7 +23198,7 @@
         "type": "object",
         "properties": {
           "baseline": {
-            "$ref": "#/components/schemas/ServerSearchSettingsBaselineKind"
+            "$ref": "#/components/schemas/SearchSettingsBaselineKind"
           },
           "settings": {
             "$ref": "#/components/schemas/EffectiveDownloadSettingsDto"
@@ -23337,6 +23467,34 @@
           }
         }
       },
+      "SearchDefaultProjectionKind": {
+        "enum": [
+          "GenericFile",
+          "Track",
+          "Album",
+          null
+        ]
+      },
+      "SearchPreferenceCondition": {
+        "enum": [
+          "Format",
+          "Length",
+          "Bitrate",
+          "SampleRate",
+          "BitDepth",
+          "Title",
+          "Artist",
+          "Album",
+          "Username",
+          "ExcludeLocked"
+        ]
+      },
+      "SearchPreferenceTier": {
+        "enum": [
+          "Preferred",
+          "Other"
+        ]
+      },
       "SearchRawResultDto": {
         "required": [
           "sequence",
@@ -23405,7 +23563,7 @@
             "format": "int32"
           },
           "visibility": {
-            "$ref": "#/components/schemas/ServerSearchResultVisibility"
+            "$ref": "#/components/schemas/SearchResultVisibility"
           },
           "queueLength": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -23424,6 +23582,15 @@
             "format": "date-time"
           }
         }
+      },
+      "SearchResultVisibility": {
+        "enum": [
+          "Public",
+          "Locked"
+        ]
+      },
+      "SearchSettingsBaselineKind": {
+        "type": "integer"
       },
       "SearchSettingsPatchDto": {
         "type": "object",
@@ -23983,12 +24150,12 @@
             "$ref": "#/components/schemas/SearchViewDirectoryVisibility"
           },
           "preferenceTier": {
-            "$ref": "#/components/schemas/ServerSearchPreferenceTier"
+            "$ref": "#/components/schemas/SearchPreferenceTier"
           },
           "satisfiedPreferredConditions": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ServerSearchPreferenceCondition"
+              "$ref": "#/components/schemas/SearchPreferenceCondition"
             }
           },
           "publicMatchingFileCount": {
@@ -24222,10 +24389,10 @@
             "type": "string"
           },
           "visibility": {
-            "$ref": "#/components/schemas/ServerSearchResultVisibility"
+            "$ref": "#/components/schemas/SearchResultVisibility"
           },
           "preferenceTier": {
-            "$ref": "#/components/schemas/ServerSearchPreferenceTier"
+            "$ref": "#/components/schemas/SearchPreferenceTier"
           },
           "necessaryConditionsSatisfied": {
             "type": "boolean"
@@ -24233,13 +24400,13 @@
           "satisfiedPreferredConditions": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ServerSearchPreferenceCondition"
+              "$ref": "#/components/schemas/SearchPreferenceCondition"
             }
           },
           "unsatisfiedPreferredConditions": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ServerSearchPreferenceCondition"
+              "$ref": "#/components/schemas/SearchPreferenceCondition"
             }
           },
           "remoteFilename": {
@@ -24309,6 +24476,15 @@
             ]
           }
         }
+      },
+      "SearchViewProjectionKind": {
+        "enum": [
+          "Files",
+          "GenericDirectories",
+          "AlbumDirectories",
+          "TrackGroups",
+          "AlbumGroups"
+        ]
       },
       "SearchViewRetentionState": {
         "enum": [
@@ -24408,6 +24584,22 @@
           }
         }
       },
+      "SearchViewSortOrder": {
+        "enum": [
+          "Relevance",
+          "UploadSpeed",
+          "QueueDepth",
+          "ItemSizeAscending",
+          "ItemSizeDescending",
+          "DirectorySizeAscending",
+          "DirectorySizeDescending",
+          "FileCountAscending",
+          "FileCountDescending",
+          "DirectoryNameAscending",
+          "DirectoryNameDescending"
+        ],
+        "default": "Relevance"
+      },
       "SearchViewSummaryDto": {
         "required": [
           "viewId",
@@ -24433,7 +24625,7 @@
             "format": "uuid"
           },
           "kind": {
-            "$ref": "#/components/schemas/ServerSearchViewProjectionKind"
+            "$ref": "#/components/schemas/SearchViewProjectionKind"
           },
           "createdAtUtc": {
             "type": "string",
@@ -24477,7 +24669,7 @@
             "$ref": "#/components/schemas/SearchViewCountersDto"
           },
           "sortOrder": {
-            "$ref": "#/components/schemas/ServerSearchViewSortOrder"
+            "$ref": "#/components/schemas/SearchViewSortOrder"
           },
           "filterText": {
             "type": [
@@ -24650,53 +24842,6 @@
           }
         }
       },
-      "ServerAlbumArtOption": {
-        "type": "integer"
-      },
-      "ServerChatMessageDirection": {
-        "enum": [
-          "Incoming",
-          "Outgoing"
-        ]
-      },
-      "ServerChatMessageState": {
-        "enum": [
-          "Received",
-          "Pending",
-          "Sent",
-          "Failed",
-          "Unknown"
-        ]
-      },
-      "ServerChatRoomJoinPhase": {
-        "enum": [
-          "Disconnected",
-          "Joining",
-          "Joined",
-          "Leaving",
-          "Failed"
-        ]
-      },
-      "ServerChatRoomKind": {
-        "enum": [
-          "Unknown",
-          "Public",
-          "Private"
-        ]
-      },
-      "ServerChatTargetKind": {
-        "enum": [
-          "Direct",
-          "Room"
-        ]
-      },
-      "ServerDownloadBehavior": {
-        "enum": [
-          "Automatic",
-          "Manual"
-        ],
-        "default": "Automatic"
-      },
       "ServerExistingFileSource": {
         "enum": [
           "CompletionHistory",
@@ -24705,23 +24850,12 @@
           null
         ]
       },
-      "ServerExtractionMode": {
-        "type": "integer"
-      },
       "ServerFolderRetrievalOutcome": {
         "enum": [
           "none",
           "completed",
           "cancelled",
           "failed"
-        ]
-      },
-      "ServerIncompleteAlbumActionKind": {
-        "enum": [
-          "Move",
-          "Delete",
-          "Keep",
-          null
         ]
       },
       "ServerInfoDto": {
@@ -24756,51 +24890,6 @@
       "ServerInputType": {
         "type": "integer"
       },
-      "ServerJobActivityPhase": {
-        "enum": [
-          "None",
-          "WaitingForSearchConcurrency",
-          "SearchRateLimited",
-          "Searching",
-          "ProcessingSearchResults",
-          "Extracting",
-          "Downloading",
-          "RetrievingFolder",
-          "RunningChildren",
-          "Organizing",
-          "RunningOnComplete",
-          "RunningFallback",
-          "SearchingFallback",
-          "DownloadingFallback",
-          "ProcessingFallback"
-        ]
-      },
-      "ServerJobCancellationSource": {
-        "enum": [
-          "None",
-          "UserRequestedJob",
-          "ParentJob",
-          "UserRequestedWorkflow",
-          "UserRequestedAllJobs",
-          "InternalEngine"
-        ]
-      },
-      "ServerJobFailureReason": {
-        "enum": [
-          "None",
-          "InvalidSearchString",
-          "OutOfDownloadRetries",
-          "AllDownloadsFailed",
-          "Other",
-          "ExtractionFailed",
-          "Cancelled",
-          "ChildJobsFailed",
-          "NoSearchResults",
-          "NoMatchingResults",
-          "Interrupted",
-          null
-        ]
-      },
       "ServerJobKind": {
         "enum": [
           "extract",
@@ -24816,39 +24905,12 @@
           "generic"
         ]
       },
-      "ServerJobLifecycleState": {
-        "enum": [
-          "Pending",
-          "Running",
-          "AwaitingSelection",
-          "Terminal"
-        ]
-      },
       "ServerJobRole": {
         "enum": [
           "user-root",
           "semantic-result",
           "orchestration",
           "execution-child"
-        ]
-      },
-      "ServerJobSkipReason": {
-        "enum": [
-          "None",
-          "AlreadyExists",
-          "NotFoundLastTime",
-          "Manual",
-          "Filtered"
-        ]
-      },
-      "ServerJobTerminalOutcome": {
-        "enum": [
-          "None",
-          "Succeeded",
-          "Failed",
-          "Skipped",
-          "Cancelled",
-          "PartialSuccess"
         ]
       },
       "ServerPrintOption": {
@@ -24859,94 +24921,6 @@
           "cancel",
           "retry"
         ]
-      },
-      "ServerSearchDefaultProjectionKind": {
-        "enum": [
-          "GenericFile",
-          "Track",
-          "Album",
-          null
-        ]
-      },
-      "ServerSearchPreferenceCondition": {
-        "enum": [
-          "Format",
-          "Length",
-          "Bitrate",
-          "SampleRate",
-          "BitDepth",
-          "Title",
-          "Artist",
-          "Album",
-          "Username",
-          "ExcludeLocked"
-        ]
-      },
-      "ServerSearchPreferenceTier": {
-        "enum": [
-          "Preferred",
-          "Other"
-        ]
-      },
-      "ServerSearchResultVisibility": {
-        "enum": [
-          "Public",
-          "Locked"
-        ]
-      },
-      "ServerSearchSettingsBaselineKind": {
-        "type": "integer"
-      },
-      "ServerSearchViewProjectionKind": {
-        "enum": [
-          "Files",
-          "GenericDirectories",
-          "AlbumDirectories",
-          "TrackGroups",
-          "AlbumGroups"
-        ]
-      },
-      "ServerSearchViewSortOrder": {
-        "enum": [
-          "Relevance",
-          "UploadSpeed",
-          "QueueDepth",
-          "ItemSizeAscending",
-          "ItemSizeDescending",
-          "DirectorySizeAscending",
-          "DirectorySizeDescending",
-          "FileCountAscending",
-          "FileCountDescending",
-          "DirectoryNameAscending",
-          "DirectoryNameDescending"
-        ],
-        "default": "Relevance"
-      },
-      "ServerShareScanPhase": {
-        "enum": [
-          "Idle",
-          "Preparing",
-          "Enumerating",
-          "FinalizingIndex",
-          "BuildingBrowseArtifact",
-          "Validating",
-          "Publishing",
-          "Completed",
-          "Cancelling",
-          "Cancelled",
-          "Failed"
-        ]
-      },
-      "ServerSkipMode": {
-        "type": "integer"
-      },
-      "ServerSongDownloadSource": {
-        "enum": [
-          "None",
-          "Soulseek",
-          "Fallback"
-        ],
-        "default": "None"
       },
       "ServerStatusDto": {
         "required": [
@@ -25053,12 +25027,6 @@
             ]
           }
         }
-      },
-      "ServerUserNotificationKind": {
-        "enum": [
-          "PrivateMessage",
-          "RoomMention"
-        ]
       },
       "ServerWorkflowState": {
         "enum": [
@@ -25179,6 +25147,21 @@
           }
         }
       },
+      "ShareScanPhase": {
+        "enum": [
+          "Idle",
+          "Preparing",
+          "Enumerating",
+          "FinalizingIndex",
+          "BuildingBrowseArtifact",
+          "Validating",
+          "Publishing",
+          "Completed",
+          "Cancelling",
+          "Cancelled",
+          "Failed"
+        ]
+      },
       "ShareScanStateDto": {
         "required": [
           "scanId",
@@ -25207,7 +25190,7 @@
             "format": "int64"
           },
           "phase": {
-            "$ref": "#/components/schemas/ServerShareScanPhase"
+            "$ref": "#/components/schemas/ShareScanPhase"
           },
           "startedAtUtc": {
             "type": "string",
@@ -25339,6 +25322,9 @@
           }
         }
       },
+      "SkipMode": {
+        "type": "integer"
+      },
       "SkipSettingsPatchDto": {
         "type": "object",
         "properties": {
@@ -25360,7 +25346,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerSkipMode"
+                "$ref": "#/components/schemas/SkipMode"
               }
             ]
           },
@@ -25376,7 +25362,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerSkipMode"
+                "$ref": "#/components/schemas/SkipMode"
               }
             ]
           },
@@ -25393,6 +25379,14 @@
             ]
           }
         }
+      },
+      "SongDownloadSource": {
+        "enum": [
+          "None",
+          "Soulseek",
+          "Fallback"
+        ],
+        "default": "None"
       },
       "SongQueryDto": {
         "type": "object",
@@ -25621,7 +25615,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerExtractionMode"
+                "$ref": "#/components/schemas/ExtractionMode"
               }
             ]
           }
@@ -25672,7 +25666,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/ServerExtractionMode"
+                "$ref": "#/components/schemas/ExtractionMode"
               }
             ]
           }
@@ -34190,7 +34184,7 @@
             "format": "int64"
           },
           "kind": {
-            "$ref": "#/components/schemas/ServerUserNotificationKind"
+            "$ref": "#/components/schemas/UserNotificationKind"
           },
           "createdAtUtc": {
             "type": "string",
@@ -34207,7 +34201,7 @@
             "type": "string"
           },
           "targetKind": {
-            "$ref": "#/components/schemas/ServerChatTargetKind"
+            "$ref": "#/components/schemas/ChatTargetKind"
           },
           "targetId": {
             "type": "string",
@@ -34227,6 +34221,12 @@
             "type": "string"
           }
         }
+      },
+      "UserNotificationKind": {
+        "enum": [
+          "PrivateMessage",
+          "RoomMention"
+        ]
       },
       "UserPictureRefDto": {
         "required": [

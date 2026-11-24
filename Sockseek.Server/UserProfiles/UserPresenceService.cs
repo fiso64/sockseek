@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
-using Microsoft.Extensions.Logging;
 using Sockseek.Api;
 using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Sharing;

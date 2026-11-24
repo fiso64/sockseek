@@ -1,6 +1,4 @@
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Text.Json;
 using Sockseek.Api;
 using Sockseek.Core.Settings;
@@ -35,7 +33,7 @@ public class EventTrafficProfilingTests
             .Select(index =>
             {
                 var job = TestJobSummary.Create(ServerJobKind.Song, Guid.NewGuid(), workflowId, index, revision: 2,
-                    state: ServerJobLifecycleState.Running, phase: ServerJobActivityPhase.Downloading,
+                    state: JobLifecycleState.Running, phase: JobActivityPhase.Downloading,
                     name: $"Track {index}", query: $"Artist - Track {index}");
                 return job with { Display = job.Display with { AppliedProfiles = [new("profile-a", "automatic")] } };
             })
@@ -62,7 +60,7 @@ public class EventTrafficProfilingTests
                 "peer",
                 $"Artist\\Album\\{job.Display.QueryText}.flac",
                 Guid.NewGuid().ToString("N")),
-            new TransferStatusFieldsDto(Sockseek.Api.TransferPhase.InProgress, $"C:\\music\\{job.Display.QueryText}.flac", 1, false),
+            new TransferStatusFieldsDto(TransferPhase.InProgress, $"C:\\music\\{job.Display.QueryText}.flac", 1, false),
             new TransferProgressFieldsDto(500_000, 1_000_000))).ToList();
         var fullTransfers = Batch(
             workflowId,

@@ -2080,7 +2080,7 @@ export interface paths {
                     revision: number | string;
                     cursor?: string;
                     limit?: number | string;
-                    sortOrder?: components["schemas"]["ServerSearchViewSortOrder"];
+                    sortOrder?: components["schemas"]["SearchViewSortOrder"];
                 };
                 header?: never;
                 path: {
@@ -2167,7 +2167,7 @@ export interface paths {
                     revision: number | string;
                     cursor?: string;
                     limit?: number | string;
-                    sortOrder?: components["schemas"]["ServerSearchViewSortOrder"];
+                    sortOrder?: components["schemas"]["SearchViewSortOrder"];
                 };
                 header?: never;
                 path: {
@@ -4751,7 +4751,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
-                    kind?: components["schemas"]["ServerChatRoomKind"];
+                    kind?: components["schemas"]["ChatRoomKind"];
                     cursor?: string;
                     limit?: number | string;
                     refresh?: boolean;
@@ -5801,7 +5801,7 @@ export interface paths {
             parameters: {
                 query?: {
                     unread?: boolean;
-                    kind?: components["schemas"]["ServerUserNotificationKind"];
+                    kind?: components["schemas"]["UserNotificationKind"];
                     cursor?: string;
                     limit?: number | string;
                 };
@@ -6909,9 +6909,9 @@ export interface paths {
         get: {
             parameters: {
                 query: {
-                    lifecycleState?: components["schemas"]["ServerJobLifecycleState"];
-                    terminalOutcome?: components["schemas"]["ServerJobTerminalOutcome"];
-                    skipReason?: components["schemas"]["ServerJobSkipReason"];
+                    lifecycleState?: components["schemas"]["JobLifecycleState"];
+                    terminalOutcome?: components["schemas"]["JobTerminalOutcome"];
+                    skipReason?: components["schemas"]["JobSkipReason"];
                     kind?: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
                     workflowId?: string;
                     parentJobId?: string;
@@ -10729,6 +10729,7 @@ export interface components {
         AddRoomMemberRequestDto: {
             username: string;
         };
+        AlbumArtOption: number;
         AlbumFolderDownloadSelectionDto: {
             files?: null | components["schemas"]["FileCandidateRefDto"][];
             /** @default false */
@@ -10786,7 +10787,7 @@ export interface components {
             name: string;
             /** Format: int32 */
             userCount: number | string;
-            kind: components["schemas"]["ServerChatRoomKind"];
+            kind: components["schemas"]["ChatRoomKind"];
             owned: boolean;
             moderated: boolean;
         };
@@ -10911,33 +10912,41 @@ export interface components {
         };
         /** @enum {integer} */
         ChatLiveMessageTailSize: 100;
+        /** @enum {unknown} */
+        ChatMessageDirection: "Incoming" | "Outgoing";
         ChatMessageDto: {
             /** Format: uuid */
             messageId: string;
             /** Format: int64 */
             sequence: number | string;
-            targetKind: components["schemas"]["ServerChatTargetKind"];
+            targetKind: components["schemas"]["ChatTargetKind"];
             /** Format: uuid */
             targetId: string;
             sender: string;
-            direction: components["schemas"]["ServerChatMessageDirection"];
+            direction: components["schemas"]["ChatMessageDirection"];
             text: string;
             /** Format: date-time */
             occurredAtUtc: string;
             /** Format: date-time */
             recordedAtUtc: string;
-            state: components["schemas"]["ServerChatMessageState"];
+            state: components["schemas"]["ChatMessageState"];
             failureReason?: null | string;
         };
         ChatMessagePageDto: {
             items: components["schemas"]["ChatMessageDto"][];
             nextCursor?: null | string;
         };
+        /** @enum {unknown} */
+        ChatMessageState: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
         ChatRoomDetailDto: {
             summary: components["schemas"]["ChatRoomSummaryDto"];
             owner?: null | string;
             operators: string[];
         };
+        /** @enum {unknown} */
+        ChatRoomJoinPhase: "Disconnected" | "Joining" | "Joined" | "Leaving" | "Failed";
+        /** @enum {unknown} */
+        ChatRoomKind: "Unknown" | "Public" | "Private";
         ChatRoomPageDto: {
             items: components["schemas"]["ChatRoomSummaryDto"][];
             nextCursor?: null | string;
@@ -10949,10 +10958,10 @@ export interface components {
             configured: boolean;
             remembered: boolean;
             desired: boolean;
-            kind: components["schemas"]["ServerChatRoomKind"];
+            kind: components["schemas"]["ChatRoomKind"];
             owned: boolean;
             moderated: boolean;
-            phase: components["schemas"]["ServerChatRoomJoinPhase"];
+            phase: components["schemas"]["ChatRoomJoinPhase"];
             failureReason?: null | string;
             /** Format: int32 */
             memberCount: number | string;
@@ -11093,8 +11102,10 @@ export interface components {
             /** @default false */
             removed: boolean;
         };
+        /** @enum {unknown} */
+        ChatTargetKind: "Direct" | "Room";
         ChatTargetSnapshotDto: {
-            kind: components["schemas"]["ServerChatTargetKind"];
+            kind: components["schemas"]["ChatTargetKind"];
             /** Format: uuid */
             targetId: string;
             conversation?: null | components["schemas"]["ConversationSummaryDto"];
@@ -11258,14 +11269,14 @@ export interface components {
             preview: components["schemas"]["JobPreviewSummaryDto"];
         };
         CreateSearchViewRequestDto: {
-            kind?: null | components["schemas"]["ServerSearchViewProjectionKind"];
+            kind?: null | components["schemas"]["SearchViewProjectionKind"];
             songQuery?: null | components["schemas"]["SongQueryDto"];
             albumQuery?: null | components["schemas"]["AlbumQueryDto"];
             /** @default false */
             includeFullResults: boolean;
             refinementSettings?: null | components["schemas"]["SearchSettingsPatchDto"];
             filterText?: null | string;
-            sortOrder?: null | components["schemas"]["ServerSearchViewSortOrder"];
+            sortOrder?: null | components["schemas"]["SearchViewSortOrder"];
             profileNames?: null | string[];
             keepVisibleFiles?: null | components["schemas"]["FileCandidateRefDto"][];
         };
@@ -11559,12 +11570,17 @@ export interface components {
             exceptionType: string;
             exceptionMessage: string;
         };
+        /**
+         * @default Automatic
+         * @enum {unknown}
+         */
+        DownloadBehavior: "Automatic" | "Manual";
         DownloadBehaviorPolicyDto: {
-            default?: components["schemas"]["ServerDownloadBehavior"];
-            song?: null | components["schemas"]["ServerDownloadBehavior"];
-            album?: null | components["schemas"]["ServerDownloadBehavior"];
-            songGroups?: null | components["schemas"]["ServerDownloadBehavior"];
-            albumGroups?: null | components["schemas"]["ServerDownloadBehavior"];
+            default?: components["schemas"]["DownloadBehavior"];
+            song?: null | components["schemas"]["DownloadBehavior"];
+            album?: null | components["schemas"]["DownloadBehavior"];
+            songGroups?: null | components["schemas"]["DownloadBehavior"];
+            albumGroups?: null | components["schemas"]["DownloadBehavior"];
         };
         DownloadSettingsPatchDto: {
             output?: null | components["schemas"]["OutputSettingsPatchDto"];
@@ -11597,6 +11613,7 @@ export interface components {
             /** @default false */
             soundCloudTokenConfigured: boolean;
         };
+        ExtractionMode: number;
         ExtractionSettingsPatchDto: {
             input?: null | string;
             inputType?: null | components["schemas"]["ServerInputType"];
@@ -11606,7 +11623,7 @@ export interface components {
             offset?: null | number | string;
             reverse?: null | boolean;
             removeTracksFromSource?: null | boolean;
-            requestedMode?: null | components["schemas"]["ServerExtractionMode"];
+            requestedMode?: null | components["schemas"]["ExtractionMode"];
             upgradeToAlbum?: null | boolean;
             setAlbumMinTrackCount?: null | boolean;
             setAlbumMaxTrackCount?: null | boolean;
@@ -11706,8 +11723,10 @@ export interface components {
             missingFiles: number | string;
             completedOnRetry: boolean;
         };
+        /** @enum {unknown} */
+        IncompleteAlbumActionKind: "Move" | "Delete" | "Keep" | null;
         IncompleteAlbumActionSettingsPatchDto: {
-            kind?: null | components["schemas"]["ServerIncompleteAlbumActionKind"];
+            kind?: null | components["schemas"]["IncompleteAlbumActionKind"];
             path?: null | string;
             clearPath?: null | boolean;
             clearKind?: null | boolean;
@@ -11723,6 +11742,10 @@ export interface components {
             expiresAtUtc: string;
             originalName?: null | string;
         };
+        /** @enum {unknown} */
+        JobActivityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback" | "SearchingFallback" | "DownloadingFallback" | "ProcessingFallback";
+        /** @enum {unknown} */
+        JobCancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
         JobDeltaDto: {
             /** Format: uuid */
             jobId: string;
@@ -11769,7 +11792,7 @@ export interface components {
             role: components["schemas"]["ServerJobRole"];
             /** Format: date-time */
             createdAtUtc?: null | string;
-            searchDefaultProjection?: null | components["schemas"]["ServerSearchDefaultProjectionKind"];
+            searchDefaultProjection?: null | components["schemas"]["SearchDefaultProjectionKind"];
             searchGroupResults?: null | boolean;
             sourceDetail?: null | string;
         };
@@ -11888,19 +11911,23 @@ export interface components {
             /** @default false */
             groupResults: boolean;
         };
+        /** @enum {unknown} */
+        JobFailureReason: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
         JobLifecycleFieldsDto: {
-            lifecycleState: components["schemas"]["ServerJobLifecycleState"];
-            activityPhase: components["schemas"]["ServerJobActivityPhase"];
+            lifecycleState: components["schemas"]["JobLifecycleState"];
+            activityPhase: components["schemas"]["JobActivityPhase"];
             /** Format: date-time */
             activityUntilUtc?: null | string;
-            terminalOutcome: components["schemas"]["ServerJobTerminalOutcome"];
-            skipReason: components["schemas"]["ServerJobSkipReason"];
-            failureReason?: null | components["schemas"]["ServerJobFailureReason"];
+            terminalOutcome: components["schemas"]["JobTerminalOutcome"];
+            skipReason: components["schemas"]["JobSkipReason"];
+            failureReason?: null | components["schemas"]["JobFailureReason"];
             failureMessage?: null | string;
             hasFailureDetail: boolean;
-            cancellationSource: components["schemas"]["ServerJobCancellationSource"];
+            cancellationSource: components["schemas"]["JobCancellationSource"];
             availableActions: components["schemas"]["ResourceActionDto"][];
         };
+        /** @enum {unknown} */
+        JobLifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
         JobListScopeDto: {
             query: components["schemas"]["JobQuery"];
             /**
@@ -12760,7 +12787,7 @@ export interface components {
             /** @enum {string} */
             kind?: "search";
             queryText: string;
-            defaultProjection: components["schemas"]["ServerSearchDefaultProjectionKind"];
+            defaultProjection: components["schemas"]["SearchDefaultProjectionKind"];
             songQuery?: null | components["schemas"]["SongQueryDto"];
             albumQuery?: null | components["schemas"]["AlbumQueryDto"];
             includeFullResults: boolean;
@@ -12812,17 +12839,17 @@ export interface components {
             jobId?: null | string;
             /** Format: int32 */
             displayId?: null | number | string;
-            lifecycleState?: null | components["schemas"]["ServerJobLifecycleState"];
-            activityPhase?: null | components["schemas"]["ServerJobActivityPhase"];
+            lifecycleState?: null | components["schemas"]["JobLifecycleState"];
+            activityPhase?: null | components["schemas"]["JobActivityPhase"];
             /** Format: date-time */
             activityUntilUtc?: null | string;
-            terminalOutcome?: null | components["schemas"]["ServerJobTerminalOutcome"];
-            skipReason?: null | components["schemas"]["ServerJobSkipReason"];
-            failureReason?: null | components["schemas"]["ServerJobFailureReason"];
+            terminalOutcome?: null | components["schemas"]["JobTerminalOutcome"];
+            skipReason?: null | components["schemas"]["JobSkipReason"];
+            failureReason?: null | components["schemas"]["JobFailureReason"];
             failureMessage?: null | string;
             availableActions?: null | components["schemas"]["ResourceActionDto"][];
-            cancellationSource?: components["schemas"]["ServerJobCancellationSource"];
-            downloadSource?: components["schemas"]["ServerSongDownloadSource"];
+            cancellationSource?: components["schemas"]["JobCancellationSource"];
+            downloadSource?: components["schemas"]["SongDownloadSource"];
             exactTarget?: null | {
                 username: string;
                 filename: string;
@@ -12909,13 +12936,13 @@ export interface components {
             sourceMutation?: null | components["schemas"]["SourceMutationDto"];
         };
         JobQuery: {
-            lifecycleState?: null | components["schemas"]["ServerJobLifecycleState"];
-            terminalOutcome?: null | components["schemas"]["ServerJobTerminalOutcome"];
+            lifecycleState?: null | components["schemas"]["JobLifecycleState"];
+            terminalOutcome?: null | components["schemas"]["JobTerminalOutcome"];
             kind?: null | components["schemas"]["ServerJobKind"];
             /** Format: uuid */
             workflowId?: null | string;
             includeAll: boolean;
-            skipReason?: null | components["schemas"]["ServerJobSkipReason"];
+            skipReason?: null | components["schemas"]["JobSkipReason"];
             /** Format: uuid */
             parentJobId?: null | string;
             /** Format: uuid */
@@ -12951,6 +12978,8 @@ export interface components {
             profileNames: string[];
             downloadSettings?: null | components["schemas"]["DownloadSettingsPatchDto"];
         };
+        /** @enum {unknown} */
+        JobSkipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
         JobStatusActivityDto: {
             /** Format: int32 */
             displayId: number | string;
@@ -12993,6 +13022,8 @@ export interface components {
             /** Format: int32 */
             reusedMemberCount?: null | number | string;
         };
+        /** @enum {unknown} */
+        JobTerminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
         JoinRoomRequestDto: {
             roomName: string;
             /** @default true */
@@ -13075,7 +13106,7 @@ export interface components {
             incompleteAlbumAction?: null | components["schemas"]["IncompleteAlbumActionSettingsPatchDto"];
             onComplete?: null | components["schemas"]["CollectionPatchDtoOfstring"];
             albumArtOnly?: null | boolean;
-            albumArtOption?: null | components["schemas"]["ServerAlbumArtOption"];
+            albumArtOption?: null | components["schemas"]["AlbumArtOption"];
             clearWriteIndex?: null | boolean;
         };
         PageDtoOfBrowseDirectoryEntryDto: {
@@ -13334,7 +13365,7 @@ export interface components {
             options?: null | components["schemas"]["SubmissionOptionsDto"];
         };
         ResolveEffectiveSettingsResponseDto: {
-            baseline: components["schemas"]["ServerSearchSettingsBaselineKind"];
+            baseline: components["schemas"]["SearchSettingsBaselineKind"];
             settings: components["schemas"]["EffectiveDownloadSettingsDto"];
             appliedProfiles: components["schemas"]["AppliedProfileDto"][];
             provenance: {
@@ -13399,6 +13430,12 @@ export interface components {
             revision: number | string;
             complete: boolean;
         };
+        /** @enum {unknown} */
+        SearchDefaultProjectionKind: "GenericFile" | "Track" | "Album" | null;
+        /** @enum {unknown} */
+        SearchPreferenceCondition: "Format" | "Length" | "Bitrate" | "SampleRate" | "BitDepth" | "Title" | "Artist" | "Album" | "Username" | "ExcludeLocked";
+        /** @enum {unknown} */
+        SearchPreferenceTier: "Preferred" | "Other";
         SearchRawResultDto: {
             /** Format: int64 */
             sequence: number | string;
@@ -13414,12 +13451,15 @@ export interface components {
             sampleRate?: null | number | string;
             /** Format: int32 */
             length?: null | number | string;
-            visibility?: components["schemas"]["ServerSearchResultVisibility"];
+            visibility?: components["schemas"]["SearchResultVisibility"];
             /** Format: int32 */
             queueLength?: null | number | string;
             /** Format: date-time */
             observedAtUtc?: null | string;
         };
+        /** @enum {unknown} */
+        SearchResultVisibility: "Public" | "Locked";
+        SearchSettingsBaselineKind: number;
         SearchSettingsPatchDto: {
             necessaryCond?: null | components["schemas"]["FileConditionsPatchDto"];
             preferredCond?: null | components["schemas"]["FileConditionsPatchDto"];
@@ -13534,8 +13574,8 @@ export interface components {
         SearchViewDirectoryDto: {
             ref: components["schemas"]["PeerDirectoryRefDto"];
             visibility: components["schemas"]["SearchViewDirectoryVisibility"];
-            preferenceTier: components["schemas"]["ServerSearchPreferenceTier"];
-            satisfiedPreferredConditions: components["schemas"]["ServerSearchPreferenceCondition"][];
+            preferenceTier: components["schemas"]["SearchPreferenceTier"];
+            satisfiedPreferredConditions: components["schemas"]["SearchPreferenceCondition"][];
             /** Format: int64 */
             publicMatchingFileCount: number | string;
             /** Format: int64 */
@@ -13590,11 +13630,11 @@ export interface components {
         SearchViewDirectoryVisibility: "Public" | "Locked" | "Mixed";
         SearchViewFileDto: {
             ref: string;
-            visibility: components["schemas"]["ServerSearchResultVisibility"];
-            preferenceTier: components["schemas"]["ServerSearchPreferenceTier"];
+            visibility: components["schemas"]["SearchResultVisibility"];
+            preferenceTier: components["schemas"]["SearchPreferenceTier"];
             necessaryConditionsSatisfied: boolean;
-            satisfiedPreferredConditions: components["schemas"]["ServerSearchPreferenceCondition"][];
-            unsatisfiedPreferredConditions: components["schemas"]["ServerSearchPreferenceCondition"][];
+            satisfiedPreferredConditions: components["schemas"]["SearchPreferenceCondition"][];
+            unsatisfiedPreferredConditions: components["schemas"]["SearchPreferenceCondition"][];
             remoteFilename: string;
             peer: components["schemas"]["PeerInfoDto"];
             file: components["schemas"]["FileMetadataDto"];
@@ -13610,6 +13650,8 @@ export interface components {
             groupRefs: string[];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
         };
+        /** @enum {unknown} */
+        SearchViewProjectionKind: "Files" | "GenericDirectories" | "AlbumDirectories" | "TrackGroups" | "AlbumGroups";
         /** @enum {unknown} */
         SearchViewRetentionState: "Live" | "Complete" | "Incomplete" | "Interrupted" | "Pruned";
         SearchViewRevisionDto: {
@@ -13634,12 +13676,17 @@ export interface components {
             settings: components["schemas"]["EffectiveDownloadSettingsDto"];
             appliedProfiles: components["schemas"]["AppliedProfileDto"][];
         };
+        /**
+         * @default Relevance
+         * @enum {unknown}
+         */
+        SearchViewSortOrder: "Relevance" | "UploadSpeed" | "QueueDepth" | "ItemSizeAscending" | "ItemSizeDescending" | "DirectorySizeAscending" | "DirectorySizeDescending" | "FileCountAscending" | "FileCountDescending" | "DirectoryNameAscending" | "DirectoryNameDescending";
         SearchViewSummaryDto: {
             /** Format: uuid */
             viewId: string;
             /** Format: uuid */
             sourceJobId: string;
-            kind: components["schemas"]["ServerSearchViewProjectionKind"];
+            kind: components["schemas"]["SearchViewProjectionKind"];
             /** Format: date-time */
             createdAtUtc: string;
             /** Format: date-time */
@@ -13653,7 +13700,7 @@ export interface components {
             isComplete: boolean;
             retentionState: components["schemas"]["SearchViewRetentionState"];
             counters: components["schemas"]["SearchViewCountersDto"];
-            sortOrder?: components["schemas"]["ServerSearchViewSortOrder"];
+            sortOrder?: components["schemas"]["SearchViewSortOrder"];
             filterText?: null | string;
         };
         SearchViewTrackGroupDto: {
@@ -13694,29 +13741,10 @@ export interface components {
             username: string;
             text: string;
         };
-        ServerAlbumArtOption: number;
-        /** @enum {unknown} */
-        ServerChatMessageDirection: "Incoming" | "Outgoing";
-        /** @enum {unknown} */
-        ServerChatMessageState: "Received" | "Pending" | "Sent" | "Failed" | "Unknown";
-        /** @enum {unknown} */
-        ServerChatRoomJoinPhase: "Disconnected" | "Joining" | "Joined" | "Leaving" | "Failed";
-        /** @enum {unknown} */
-        ServerChatRoomKind: "Unknown" | "Public" | "Private";
-        /** @enum {unknown} */
-        ServerChatTargetKind: "Direct" | "Room";
-        /**
-         * @default Automatic
-         * @enum {unknown}
-         */
-        ServerDownloadBehavior: "Automatic" | "Manual";
         /** @enum {unknown} */
         ServerExistingFileSource: "CompletionHistory" | "Library" | "Destination" | null;
-        ServerExtractionMode: number;
         /** @enum {unknown} */
         ServerFolderRetrievalOutcome: "none" | "completed" | "cancelled" | "failed";
-        /** @enum {unknown} */
-        ServerIncompleteAlbumActionKind: "Move" | "Delete" | "Keep" | null;
         ServerInfoDto: {
             name: string;
             version: string;
@@ -13727,48 +13755,12 @@ export interface components {
         };
         ServerInputType: number;
         /** @enum {unknown} */
-        ServerJobActivityPhase: "None" | "WaitingForSearchConcurrency" | "SearchRateLimited" | "Searching" | "ProcessingSearchResults" | "Extracting" | "Downloading" | "RetrievingFolder" | "RunningChildren" | "Organizing" | "RunningOnComplete" | "RunningFallback" | "SearchingFallback" | "DownloadingFallback" | "ProcessingFallback";
-        /** @enum {unknown} */
-        ServerJobCancellationSource: "None" | "UserRequestedJob" | "ParentJob" | "UserRequestedWorkflow" | "UserRequestedAllJobs" | "InternalEngine";
-        /** @enum {unknown} */
-        ServerJobFailureReason: "None" | "InvalidSearchString" | "OutOfDownloadRetries" | "AllDownloadsFailed" | "Other" | "ExtractionFailed" | "Cancelled" | "ChildJobsFailed" | "NoSearchResults" | "NoMatchingResults" | "Interrupted" | null;
-        /** @enum {unknown} */
         ServerJobKind: "extract" | "search" | "song" | "album" | "song-groups" | "album-groups" | "job-list" | "retrieve-folder" | "remote-file" | "remote-directory" | "generic";
         /** @enum {unknown} */
-        ServerJobLifecycleState: "Pending" | "Running" | "AwaitingSelection" | "Terminal";
-        /** @enum {unknown} */
         ServerJobRole: "user-root" | "semantic-result" | "orchestration" | "execution-child";
-        /** @enum {unknown} */
-        ServerJobSkipReason: "None" | "AlreadyExists" | "NotFoundLastTime" | "Manual" | "Filtered";
-        /** @enum {unknown} */
-        ServerJobTerminalOutcome: "None" | "Succeeded" | "Failed" | "Skipped" | "Cancelled" | "PartialSuccess";
         ServerPrintOption: number;
         /** @enum {unknown} */
         ServerResourceActionKind: "cancel" | "retry";
-        /** @enum {unknown} */
-        ServerSearchDefaultProjectionKind: "GenericFile" | "Track" | "Album" | null;
-        /** @enum {unknown} */
-        ServerSearchPreferenceCondition: "Format" | "Length" | "Bitrate" | "SampleRate" | "BitDepth" | "Title" | "Artist" | "Album" | "Username" | "ExcludeLocked";
-        /** @enum {unknown} */
-        ServerSearchPreferenceTier: "Preferred" | "Other";
-        /** @enum {unknown} */
-        ServerSearchResultVisibility: "Public" | "Locked";
-        ServerSearchSettingsBaselineKind: number;
-        /** @enum {unknown} */
-        ServerSearchViewProjectionKind: "Files" | "GenericDirectories" | "AlbumDirectories" | "TrackGroups" | "AlbumGroups";
-        /**
-         * @default Relevance
-         * @enum {unknown}
-         */
-        ServerSearchViewSortOrder: "Relevance" | "UploadSpeed" | "QueueDepth" | "ItemSizeAscending" | "ItemSizeDescending" | "DirectorySizeAscending" | "DirectorySizeDescending" | "FileCountAscending" | "FileCountDescending" | "DirectoryNameAscending" | "DirectoryNameDescending";
-        /** @enum {unknown} */
-        ServerShareScanPhase: "Idle" | "Preparing" | "Enumerating" | "FinalizingIndex" | "BuildingBrowseArtifact" | "Validating" | "Publishing" | "Completed" | "Cancelling" | "Cancelled" | "Failed";
-        ServerSkipMode: number;
-        /**
-         * @default None
-         * @enum {unknown}
-         */
-        ServerSongDownloadSource: "None" | "Soulseek" | "Fallback";
         ServerStatusDto: {
             soulseekClient: components["schemas"]["SoulseekClientStatusDto"];
             /** Format: int32 */
@@ -13787,8 +13779,6 @@ export interface components {
             profile?: null | components["schemas"]["LocalUserProfileDto"];
             memory?: null | components["schemas"]["ProcessMemoryDto"];
         };
-        /** @enum {unknown} */
-        ServerUserNotificationKind: "PrivateMessage" | "RoomMention";
         /** @enum {unknown} */
         ServerWorkflowState: "active" | "failed" | "completed";
         SessionDto: {
@@ -13819,12 +13809,14 @@ export interface components {
             relativePath: string;
             message: string;
         };
+        /** @enum {unknown} */
+        ShareScanPhase: "Idle" | "Preparing" | "Enumerating" | "FinalizingIndex" | "BuildingBrowseArtifact" | "Validating" | "Publishing" | "Completed" | "Cancelling" | "Cancelled" | "Failed";
         ShareScanStateDto: {
             /** Format: uuid */
             scanId: string;
             /** Format: int64 */
             revision: number | string;
-            phase: components["schemas"]["ServerShareScanPhase"];
+            phase: components["schemas"]["ShareScanPhase"];
             /** Format: date-time */
             startedAtUtc: string;
             /** Format: date-time */
@@ -13854,15 +13846,21 @@ export interface components {
             activeScan?: null | components["schemas"]["ShareScanStateDto"];
             lastScan?: null | components["schemas"]["ShareScanStateDto"];
         };
+        SkipMode: number;
         SkipSettingsPatchDto: {
             skipExisting?: null | boolean;
             skipNotFound?: null | boolean;
-            skipMode?: null | components["schemas"]["ServerSkipMode"];
+            skipMode?: null | components["schemas"]["SkipMode"];
             skipMusicDir?: null | string;
-            skipModeMusicDir?: null | components["schemas"]["ServerSkipMode"];
+            skipModeMusicDir?: null | components["schemas"]["SkipMode"];
             skipCheckCond?: null | boolean;
             skipCheckPrefCond?: null | boolean;
         };
+        /**
+         * @default None
+         * @enum {unknown}
+         */
+        SongDownloadSource: "None" | "Soulseek" | "Fallback";
         SongQueryDto: {
             artist?: null | string;
             title?: null | string;
@@ -13920,14 +13918,14 @@ export interface components {
         StartFileDownloadsRequestDto: {
             files: components["schemas"]["FileCandidateRefDto"][];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
-            requestedMode?: null | components["schemas"]["ServerExtractionMode"];
+            requestedMode?: null | components["schemas"]["ExtractionMode"];
         };
         StartFolderDownloadRequestDto: {
             folder: components["schemas"]["AlbumFolderRefDto"];
             options?: null | components["schemas"]["SubmissionOptionsDto"];
             albumQuery?: null | components["schemas"]["AlbumQueryDto"];
             selection?: null | components["schemas"]["AlbumFolderDownloadSelectionDto"];
-            requestedMode?: null | components["schemas"]["ServerExtractionMode"];
+            requestedMode?: null | components["schemas"]["ExtractionMode"];
         };
         StartShareScanResponseDto: {
             result: components["schemas"]["StartShareScanResult"];
@@ -15943,13 +15941,13 @@ export interface components {
             notificationId: string;
             /** Format: int64 */
             sequence: number | string;
-            kind: components["schemas"]["ServerUserNotificationKind"];
+            kind: components["schemas"]["UserNotificationKind"];
             /** Format: date-time */
             createdAtUtc: string;
             /** Format: date-time */
             readAtUtc?: null | string;
             actor: string;
-            targetKind: components["schemas"]["ServerChatTargetKind"];
+            targetKind: components["schemas"]["ChatTargetKind"];
             /** Format: uuid */
             targetId: string;
             targetName: string;
@@ -15958,6 +15956,8 @@ export interface components {
             preview: string;
             resourcePath: string;
         };
+        /** @enum {unknown} */
+        UserNotificationKind: "PrivateMessage" | "RoomMention";
         UserPictureRefDto: {
             url: string;
             mediaType: string;

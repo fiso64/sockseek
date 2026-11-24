@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Logging;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Persistence.Read;
@@ -8,7 +7,6 @@ using Sockseek.Persistence.Sqlite;
 using Sockseek.Persistence.Write;
 using System.Diagnostics;
 using Sockseek.Api;
-using Sockseek.Core.Transfers.Uploads;
 using Sockseek.Persistence.Chat;
 using Sockseek.Persistence.Planning;
 using Sockseek.Server.Planning;
@@ -18,8 +16,7 @@ namespace Sockseek.Server.Persistence;
 public sealed class PersistenceCoordinator(
     IOptions<ServerOptions> serverOptions,
     ILogger<PersistenceCoordinator>? logger = null,
-    ILoggerFactory? loggerFactory = null,
-    TimeProvider? timeProvider = null) : IHostedService
+    ILoggerFactory? loggerFactory = null) : IHostedService
 {
     private readonly ServerOptions options = serverOptions.Value;
     private readonly ILogger<PersistenceCoordinator> logger = logger
@@ -131,7 +128,7 @@ public sealed class PersistenceCoordinator(
             retentionOptions,
             version,
             loggerFactory.CreateLogger<PersistenceRuntimeHost>(),
-            handoffs, timeProvider);
+            handoffs);
         var startup = await host.StartAsync(cancellationToken).ConfigureAwait(false);
         host.Health.CommitCompleted += OnHistoryHealthChanged;
         host.Health.FailureRecorded += OnHistoryHealthChanged;

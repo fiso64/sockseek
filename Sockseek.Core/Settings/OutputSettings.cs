@@ -1,5 +1,4 @@
-using System.Text.Json.Serialization;
-using Sockseek.Core.Models;
+using Sockseek.Api;
 using Sockseek.Core.Services;
 
 namespace Sockseek.Core.Settings;

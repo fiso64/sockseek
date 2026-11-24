@@ -64,7 +64,7 @@
     oncheckrevision: (viewId: string, revision: number | string, signal: AbortSignal) => Promise<Schema<'SearchViewRevisionLifetimeDto'>>;
     onloaddefinition: (viewId: string) => Promise<Schema<'SearchViewDefinitionDto'>>;
     onrefine: (request: SearchViewRequest, resetSelection?: boolean) => Promise<boolean>;
-    onsort: (order: Schema<'ServerSearchViewSortOrder'>) => Promise<boolean>;
+    onsort: (order: Schema<'SearchViewSortOrder'>) => Promise<boolean>;
     onloadmore: () => void;
     onretry: () => void;
     onloaddirectory: (ref: string) => void;
@@ -257,7 +257,7 @@
     return JSON.stringify([projectionFingerprint(), sort, sizeDirection]);
   }
 
-  function currentSortOrder(): Schema<'ServerSearchViewSortOrder'> {
+  function currentSortOrder(): Schema<'SearchViewSortOrder'> {
     if (sort === 'speed') return 'UploadSpeed';
     if (sort === 'queue') return 'QueueDepth';
     if (sort === 'size') return genericMode
@@ -654,7 +654,7 @@
     return row.value.peer.username;
   }
 
-  function preference(row: OrdinaryRow): Schema<'ServerSearchPreferenceTier'> {
+  function preference(row: OrdinaryRow): Schema<'SearchPreferenceTier'> {
     return row.value.preferenceTier;
   }
 

@@ -1,5 +1,5 @@
+using Sockseek.Api;
 using System.Collections.Concurrent;
-using System.Text.Json.Serialization;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
@@ -19,32 +19,6 @@ public sealed record SearchViewCounters(
     long OtherFileCount,
     long TopLevelItemCount = 0,
     long SelectableOptionCount = 0);
-
-[JsonConverter(typeof(JsonStringEnumConverter<SearchViewProjectionKind>))]
-public enum SearchViewProjectionKind
-{
-    Files,
-    GenericDirectories,
-    AlbumDirectories,
-    TrackGroups,
-    AlbumGroups,
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter<SearchViewSortOrder>))]
-public enum SearchViewSortOrder
-{
-    Relevance,
-    UploadSpeed,
-    QueueDepth,
-    ItemSizeAscending,
-    ItemSizeDescending,
-    DirectorySizeAscending,
-    DirectorySizeDescending,
-    FileCountAscending,
-    FileCountDescending,
-    DirectoryNameAscending,
-    DirectoryNameDescending,
-}
 
 public sealed record SearchViewProjectionDefinition(
     SearchViewProjectionKind Kind,

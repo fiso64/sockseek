@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.RegularExpressions;
-using Sockseek.Core;
 using Sockseek.Core.Settings;
 
 namespace Sockseek.Core.Sharing;

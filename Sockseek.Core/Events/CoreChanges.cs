@@ -1,6 +1,5 @@
+using Sockseek.Api;
 using Sockseek.Core.Models;
-using Microsoft.Extensions.Logging;
-using Sockseek.Core;
 using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Core.Events;

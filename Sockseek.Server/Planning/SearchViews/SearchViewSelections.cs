@@ -1,13 +1,11 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using Sockseek.Core;
 using Sockseek.Api;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
-using Sockseek.Core.Transfers.Downloads.Skipping;
-using Sockseek.Persistence.Planning;
+using Sockseek.Core.Transfers.Downloads;
 using Sockseek.Server.Persistence;
 
 namespace Sockseek.Server.Planning;
@@ -354,6 +352,19 @@ public sealed class SearchViewSelections
             return (observed.PublicFileCount, observed.LockedFileCount);
         }
 
+        // The item exists in this view, so its choices are bound; they must suit its kind.
+        void BindChoices(SearchViewCommitItem item)
+        {
+            unresolvedChoices.Remove(item.Ref);
+            unresolvedAlbumSelections.Remove(item.Ref);
+            if (request.ChosenOptions?.ContainsKey(item.Ref) == true
+                && item.TrackGroup == null && item.AlbumGroup == null)
+                throw new ArgumentException("A chosen option must refer to a result group.");
+            if (request.AlbumFileSelections?.ContainsKey(item.Ref) == true
+                && item.AlbumGroup == null)
+                throw new ArgumentException("An album file selection must refer to an album group.");
+        }
+
         (long Public, long Locked) CountItem(SearchViewCommitItem item)
         {
             if (item.File is { } file)
@@ -408,14 +419,7 @@ public sealed class SearchViewSelections
                 if ((item.ParentRef != null && selectedContainers.Contains(item.ParentRef))
                     || item.ContainerRefs?.Any(selectedContainers.Contains) == true)
                     continue;
-                unresolvedChoices.Remove(item.Ref);
-                unresolvedAlbumSelections.Remove(item.Ref);
-                if (request.ChosenOptions?.ContainsKey(item.Ref) == true
-                    && item.TrackGroup == null && item.AlbumGroup == null)
-                    throw new ArgumentException("A chosen option must refer to a result group.");
-                if (request.AlbumFileSelections?.ContainsKey(item.Ref) == true
-                    && item.AlbumGroup == null)
-                    throw new ArgumentException("An album file selection must refer to an album group.");
+                BindChoices(item);
                 (long itemPublic, long itemLocked) = CountItem(item);
                 publicCount = checked(publicCount + itemPublic);
                 lockedCount = checked(lockedCount + itemLocked);
@@ -437,14 +441,7 @@ public sealed class SearchViewSelections
                 foreach (var item in snapshot.ReadCommitItems(RefSelectionMode.Only, modifiedGroups, cancellationToken))
                 {
                     if (!IsSelectedTopLevel(item.Ref)) continue;
-                    unresolvedChoices.Remove(item.Ref);
-                    unresolvedAlbumSelections.Remove(item.Ref);
-                    if (request.ChosenOptions?.ContainsKey(item.Ref) == true
-                        && item.TrackGroup == null && item.AlbumGroup == null)
-                        throw new ArgumentException("A chosen option must refer to a result group.");
-                    if (request.AlbumFileSelections?.ContainsKey(item.Ref) == true
-                        && item.AlbumGroup == null)
-                        throw new ArgumentException("An album file selection must refer to an album group.");
+                    BindChoices(item);
                     (long actualPublic, long actualLocked) = CountItem(item);
                     var baselineItem = item.AlbumGroup is { } album
                         ? CountDirectory(album.Representative)

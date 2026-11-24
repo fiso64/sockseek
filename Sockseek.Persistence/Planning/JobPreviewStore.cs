@@ -566,72 +566,48 @@ public sealed class JobPreviewStore(
         }
     }
 
-    public async Task<bool> MarkCommittedAsync(
-        Guid previewId,
-        Guid submissionId,
-        CancellationToken cancellationToken = default)
+    public Task<bool> MarkCommittedAsync(
+        Guid previewId, Guid submissionId, CancellationToken cancellationToken = default)
+        => MoveCommitStateAsync("""
+            UPDATE job_previews SET state = 'Committed',
+                committed_submission_id = $submission, revision = revision + 1
+            WHERE id = $preview AND state = 'Committing'
+                AND committed_submission_id = $submission;
+            """, previewId, submissionId, cancellationToken);
+
+    public Task<bool> TryBeginCommitAsync(
+        Guid previewId, Guid submissionId, CancellationToken cancellationToken = default)
+        => MoveCommitStateAsync("""
+            UPDATE job_previews SET state = 'Committing',
+                committed_submission_id = $submission, revision = revision + 1
+            WHERE id = $preview AND state IN ('Ready', 'PartiallyReady')
+                AND expires_at_utc > $now;
+            """, previewId, submissionId, cancellationToken, bindNow: true);
+
+    public Task<bool> ReleaseCommitAsync(
+        Guid previewId, Guid submissionId, CancellationToken cancellationToken = default)
+        => MoveCommitStateAsync("""
+            UPDATE job_previews SET
+                state = CASE WHEN failed_node_count > 0 THEN 'PartiallyReady' ELSE 'Ready' END,
+                committed_submission_id = NULL,
+                revision = revision + 1
+            WHERE id = $preview AND state = 'Committing'
+                AND committed_submission_id = $submission;
+            """, previewId, submissionId, cancellationToken);
+
+    /// <summary>One guarded step of a preview's commit; false when the preview was not in the expected state.</summary>
+    private async Task<bool> MoveCommitStateAsync(
+        string update, Guid previewId, Guid submissionId, CancellationToken cancellationToken, bool bindNow = false)
     {
         EnsureInitialized();
         return await WithWriteAsync(async (connection, transaction, ct) =>
         {
             await using var command = connection.CreateCommand();
             command.Transaction = transaction;
-            command.CommandText = """
-                UPDATE job_previews SET state = 'Committed',
-                    committed_submission_id = $submission, revision = revision + 1
-                WHERE id = $preview AND state = 'Committing'
-                    AND committed_submission_id = $submission;
-                """;
+            command.CommandText = update;
             Add(command, "$submission", submissionId);
             Add(command, "$preview", previewId);
-            return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1;
-        }, cancellationToken).ConfigureAwait(false);
-    }
-
-
-    public async Task<bool> TryBeginCommitAsync(
-        Guid previewId,
-        Guid submissionId,
-        CancellationToken cancellationToken = default)
-    {
-        EnsureInitialized();
-        return await WithWriteAsync(async (connection, transaction, ct) =>
-        {
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                UPDATE job_previews SET state = 'Committing',
-                    committed_submission_id = $submission, revision = revision + 1
-                WHERE id = $preview AND state IN ('Ready', 'PartiallyReady')
-                    AND expires_at_utc > $now;
-                """;
-            Add(command, "$submission", submissionId);
-            Add(command, "$preview", previewId);
-            Add(command, "$now", clock.GetUtcNow());
-            return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1;
-        }, cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task<bool> ReleaseCommitAsync(
-        Guid previewId,
-        Guid submissionId,
-        CancellationToken cancellationToken = default)
-    {
-        EnsureInitialized();
-        return await WithWriteAsync(async (connection, transaction, ct) =>
-        {
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                UPDATE job_previews SET
-                    state = CASE WHEN failed_node_count > 0 THEN 'PartiallyReady' ELSE 'Ready' END,
-                    committed_submission_id = NULL,
-                    revision = revision + 1
-                WHERE id = $preview AND state = 'Committing'
-                    AND committed_submission_id = $submission;
-                """;
-            Add(command, "$preview", previewId);
-            Add(command, "$submission", submissionId);
+            if (bindNow) Add(command, "$now", clock.GetUtcNow());
             return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1;
         }, cancellationToken).ConfigureAwait(false);
     }

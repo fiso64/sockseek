@@ -1,7 +1,5 @@
 using System.Net;
 using System.Text.Json;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core;
 using Sockseek.Core.Extractors;
 using Sockseek.Core.Settings;
 

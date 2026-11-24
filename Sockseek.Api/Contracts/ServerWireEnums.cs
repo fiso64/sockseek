@@ -14,22 +14,22 @@ public enum ServerPrintOption
     IndexFailed = 64,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerDownloadBehavior>))]
-public enum ServerDownloadBehavior
+[JsonConverter(typeof(JsonStringEnumConverter<DownloadBehavior>))]
+public enum DownloadBehavior
 {
     Automatic,
     Manual,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerIncompleteAlbumActionKind>))]
-public enum ServerIncompleteAlbumActionKind
+[JsonConverter(typeof(JsonStringEnumConverter<IncompleteAlbumActionKind>))]
+public enum IncompleteAlbumActionKind
 {
     Move,
     Delete,
     Keep,
 }
 
-public enum ServerSkipMode
+public enum SkipMode
 {
     Name = 0,
     Tag = 2,
@@ -51,36 +51,36 @@ public enum ServerInputType
     None = -1,
 }
 
-public enum ServerExtractionMode
+public enum ExtractionMode
 {
     Song = 0,
     Album = 1,
     General = 2,
 }
 
-public enum ServerAlbumArtOption
+public enum AlbumArtOption
 {
     Default = 0,
     Most = 1,
     Largest = 2,
 }
 
-public enum ServerSearchSettingsBaselineKind
+public enum SearchSettingsBaselineKind
 {
     Generic = 0,
     Music = 1,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerSearchDefaultProjectionKind>))]
-public enum ServerSearchDefaultProjectionKind
+[JsonConverter(typeof(JsonStringEnumConverter<SearchDefaultProjectionKind>))]
+public enum SearchDefaultProjectionKind
 {
     GenericFile,
     Track,
     Album,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerSearchViewProjectionKind>))]
-public enum ServerSearchViewProjectionKind
+[JsonConverter(typeof(JsonStringEnumConverter<SearchViewProjectionKind>))]
+public enum SearchViewProjectionKind
 {
     Files,
     GenericDirectories,
@@ -89,8 +89,8 @@ public enum ServerSearchViewProjectionKind
     AlbumGroups,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerSearchViewSortOrder>))]
-public enum ServerSearchViewSortOrder
+[JsonConverter(typeof(JsonStringEnumConverter<SearchViewSortOrder>))]
+public enum SearchViewSortOrder
 {
     Relevance,
     UploadSpeed,
@@ -105,51 +105,51 @@ public enum ServerSearchViewSortOrder
     DirectoryNameDescending,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerSearchResultVisibility>))]
-public enum ServerSearchResultVisibility
+[JsonConverter(typeof(JsonStringEnumConverter<SearchResultVisibility>))]
+public enum SearchResultVisibility
 {
     Public,
     Locked,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerSearchPreferenceTier>))]
-public enum ServerSearchPreferenceTier
+[JsonConverter(typeof(JsonStringEnumConverter<SearchPreferenceTier>))]
+public enum SearchPreferenceTier
 {
     Preferred,
     Other,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerSearchPreferenceCondition>))]
-public enum ServerSearchPreferenceCondition
+[JsonConverter(typeof(JsonStringEnumConverter<SearchPreferenceCondition>))]
+public enum SearchPreferenceCondition
 {
-    Format,
-    Length,
-    Bitrate,
-    SampleRate,
-    BitDepth,
-    Title,
-    Artist,
-    Album,
-    Username,
-    ExcludeLocked,
+    Format = 0,
+    Length = 1,
+    Bitrate = 2,
+    SampleRate = 3,
+    BitDepth = 4,
+    Title = 5,
+    Artist = 6,
+    Album = 7,
+    Username = 8,
+    ExcludeLocked = 9,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerChatTargetKind>))]
-public enum ServerChatTargetKind
+[JsonConverter(typeof(JsonStringEnumConverter<ChatTargetKind>))]
+public enum ChatTargetKind
 {
     Direct,
     Room,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerChatMessageDirection>))]
-public enum ServerChatMessageDirection
+[JsonConverter(typeof(JsonStringEnumConverter<ChatMessageDirection>))]
+public enum ChatMessageDirection
 {
     Incoming,
     Outgoing,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerChatMessageState>))]
-public enum ServerChatMessageState
+[JsonConverter(typeof(JsonStringEnumConverter<ChatMessageState>))]
+public enum ChatMessageState
 {
     Received,
     Pending,
@@ -158,16 +158,16 @@ public enum ServerChatMessageState
     Unknown,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerChatRoomKind>))]
-public enum ServerChatRoomKind
+[JsonConverter(typeof(JsonStringEnumConverter<ChatRoomKind>))]
+public enum ChatRoomKind
 {
     Unknown,
     Public,
     Private,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerChatRoomJoinPhase>))]
-public enum ServerChatRoomJoinPhase
+[JsonConverter(typeof(JsonStringEnumConverter<ChatRoomJoinPhase>))]
+public enum ChatRoomJoinPhase
 {
     Disconnected,
     Joining,
@@ -176,15 +176,15 @@ public enum ServerChatRoomJoinPhase
     Failed,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerUserNotificationKind>))]
-public enum ServerUserNotificationKind
+[JsonConverter(typeof(JsonStringEnumConverter<UserNotificationKind>))]
+public enum UserNotificationKind
 {
     PrivateMessage,
     RoomMention,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ServerShareScanPhase>))]
-public enum ServerShareScanPhase
+[JsonConverter(typeof(JsonStringEnumConverter<ShareScanPhase>))]
+public enum ShareScanPhase
 {
     Idle,
     Preparing,

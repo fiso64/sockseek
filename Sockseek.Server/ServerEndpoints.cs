@@ -1,7 +1,6 @@
 using Sockseek.Api;
 using Sockseek.Server.Persistence;
 using Sockseek.Persistence.Sqlite;
-using static Sockseek.Server.ApiErrors;
 
 namespace Sockseek.Server;
 
@@ -29,8 +28,7 @@ internal static class ServerEndpoints
         app.MapPost("/api/persistence/integrity", async (
             PersistenceCoordinator coordinator, CancellationToken cancellationToken) =>
         {
-            try { return Results.Ok(await coordinator.CheckIntegrityAsync(cancellationToken)); }
-            catch (Exception ex) when (IsInvalidRequest(ex)) { return BadRequest(ex); }
+            return Results.Ok(await coordinator.CheckIntegrityAsync(cancellationToken));
         })
             .WithTags("Persistence")
             .WithSummary("Runs SQLite integrity_check against the live database.")
@@ -47,7 +45,6 @@ internal static class ServerEndpoints
             {
                 return Results.Json(new ApiErrorDto(ex.Message, "HistoryUnavailable"), statusCode: 503);
             }
-            catch (Exception ex) when (IsInvalidRequest(ex)) { return BadRequest(ex); }
         })
             .WithTags("Persistence")
             .WithSummary("Creates and independently verifies a WAL-safe online backup.")
@@ -58,8 +55,7 @@ internal static class ServerEndpoints
         app.MapPost("/api/persistence/checkpoint", async (
             PersistenceCoordinator coordinator, CancellationToken cancellationToken) =>
         {
-            try { return Results.Ok(await coordinator.CheckpointAsync(cancellationToken)); }
-            catch (Exception ex) when (IsInvalidRequest(ex)) { return BadRequest(ex); }
+            return Results.Ok(await coordinator.CheckpointAsync(cancellationToken));
         })
             .WithTags("Persistence")
             .WithSummary("Requests a bounded passive WAL checkpoint.")
@@ -69,8 +65,7 @@ internal static class ServerEndpoints
         app.MapPost("/api/persistence/retention", async (
             PersistenceCoordinator coordinator, CancellationToken cancellationToken) =>
         {
-            try { return Results.Ok(await coordinator.RunRetentionAsync(cancellationToken)); }
-            catch (Exception ex) when (IsInvalidRequest(ex)) { return BadRequest(ex); }
+            return Results.Ok(await coordinator.RunRetentionAsync(cancellationToken));
         })
             .WithTags("Persistence")
             .WithSummary("Runs one bounded retention batch.")

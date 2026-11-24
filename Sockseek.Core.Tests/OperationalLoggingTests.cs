@@ -1,8 +1,5 @@
-using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Net.Sockets;
 using Sockseek.Core.Diagnostics;
-using Sockseek.Core.Services;
 
 namespace Tests.Core;
 

@@ -1,6 +1,5 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Sockseek.Api;
 using Sockseek.Core.Snapshots;
-using Sockseek.Core.Events;
 
 namespace Tests.Core;
 

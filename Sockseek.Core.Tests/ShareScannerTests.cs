@@ -1,5 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
 
 namespace Tests.Core;

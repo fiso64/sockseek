@@ -1,5 +1,4 @@
 using Microsoft.Data.Sqlite;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Persistence.Sqlite;
 
 namespace Sockseek.Persistence.Tests;

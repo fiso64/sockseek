@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using Sockseek.Core.Events;
 using Sockseek.Core.Models;
 using Soulseek;

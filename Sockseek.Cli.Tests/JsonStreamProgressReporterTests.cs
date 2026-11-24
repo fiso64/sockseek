@@ -1,7 +1,6 @@
+using Sockseek.Api;
 using System.Text.Json;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Cli;
-using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 

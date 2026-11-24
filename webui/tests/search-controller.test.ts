@@ -2306,7 +2306,7 @@ describe('Search View request isolation', () => {
     let oldSignal: AbortSignal | undefined;
     let continuationReads = 0;
     class Api extends DaemonApiClient {
-      override getSearchViewFiles(id: string, revision: number | string, cursor?: string | null, _limit?: number, _sort?: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal) {
+      override getSearchViewFiles(id: string, revision: number | string, cursor?: string | null, _limit?: number, _sort?: Schema<'SearchViewSortOrder'>, signal?: AbortSignal) {
         if (!cursor) return Promise.resolve(page(id, Number(revision), 'next'));
         continuationReads++;
         if (Number(revision) === 1) { oldSignal = signal; return pending.promise; }
@@ -2348,13 +2348,13 @@ describe('Search View read ordering', () => {
     class Api extends DaemonApiClient {
       override async createSearchView(): Promise<SearchViewSummaryDto> { creates++; throw new Error('A sort must be a read'); }
       override async getSearchViewFiles(id: string, revision: number | string, _cursor?: string | null,
-        _limit?: number, order?: Schema<'ServerSearchViewSortOrder'>) {
+        _limit?: number, order?: Schema<'SearchViewSortOrder'>) {
         orders.push(order);
         const items = [left.bestChild, right.bestChild];
         return { revision: summary(id, Number(revision)), items: order === 'Relevance' ? items : items.reverse(), nextCursor: null };
       }
       override async getSearchViewDirectories(id: string, revision: number | string, _cursor?: string | null,
-        _limit?: number, order?: Schema<'ServerSearchViewSortOrder'>) {
+        _limit?: number, order?: Schema<'SearchViewSortOrder'>) {
         orders.push(order);
         return { revision: summary(id, Number(revision)), items: order === 'Relevance' ? [left, right] : [right, left], nextCursor: null };
       }
@@ -2423,7 +2423,7 @@ describe('Search View read ordering', () => {
     const reads: (string | undefined)[] = [];
     class Api extends DaemonApiClient {
       override getSearchViewFiles(id: string, revision: number | string, _cursor?: string | null,
-        _limit?: number, order?: Schema<'ServerSearchViewSortOrder'>, signal?: AbortSignal) {
+        _limit?: number, order?: Schema<'SearchViewSortOrder'>, signal?: AbortSignal) {
         reads.push(order);
         if (order === 'UploadSpeed') { oldSignal = signal; return older.promise; }
         return Promise.resolve(page(id, Number(revision)));
@@ -2451,7 +2451,7 @@ describe('Search View read ordering', () => {
     let failing = true;
     class Api extends DaemonApiClient {
       override async getSearchViewFiles(id: string, revision: number | string, _cursor?: string | null,
-        _limit?: number, order?: Schema<'ServerSearchViewSortOrder'>) {
+        _limit?: number, order?: Schema<'SearchViewSortOrder'>) {
         if (order === 'UploadSpeed' && failing) throw new Error('Page temporarily unavailable');
         return page(id, Number(revision));
       }

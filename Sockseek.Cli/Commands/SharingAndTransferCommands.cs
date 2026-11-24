@@ -4,6 +4,8 @@ using System.Text.Json.Nodes;
 using Sockseek.Api;
 using Sockseek.Core.Models;
 
+using static Sockseek.Cli.CommandArguments;
+
 namespace Sockseek.Cli;
 
 /// <summary>Thin daemon client for sharing and generic transfer resources.</summary>
@@ -27,7 +29,7 @@ internal static class SharingAndTransferCommands
                 && (await api.GetJobDetailAsync(id, cancellationToken))?.RepeatOptions?.CanExtractAgain == true;
             var job = Equals(action, "rerun") ? await api.RunJobAgainAsync(id, cancellationToken, extractAgain)
                 : await api.RetryDirectoryAsync(id, cancellationToken);
-            if (JsonRequested(args)) Write(job, json: true);
+            if (Json(args)) Write(job, json: true);
             else Console.WriteLine($"Queued job {job.Display.DisplayId} ({job.JobId}).");
             return Program.CliExitCode.Success;
         }
@@ -52,7 +54,7 @@ internal static class SharingAndTransferCommands
             DaemonStateDto daemon = snapshot.Daemon
                 ?? throw new InvalidDataException(
                     "Daemon snapshot did not contain daemon state.");
-            WriteSharing(daemon.Sharing, daemon.Uploads, JsonRequested(args));
+            WriteSharing(daemon.Sharing, daemon.Uploads, Json(args));
             return Program.CliExitCode.Success;
         }
         if (!Equals(action, "scan"))
@@ -66,13 +68,13 @@ internal static class SharingAndTransferCommands
             ShareScanStateDto scan = await api.CancelShareScanAsync(
                 sharing.ActiveScan.ScanId,
                 cancellationToken).ConfigureAwait(false);
-            Write(scan, JsonRequested(args));
+            Write(scan, Json(args));
             return Program.CliExitCode.Success;
         }
 
         StartShareScanResponseDto started = await api.StartShareScanAsync(
             cancellationToken).ConfigureAwait(false);
-        Write(started, JsonRequested(args));
+        Write(started, Json(args));
         return Program.CliExitCode.Success;
     }
 
@@ -105,7 +107,7 @@ internal static class SharingAndTransferCommands
                     Username: Option(args, "--username"),
                     GroupRef: Option(args, "--group-ref")),
                 cancellationToken).ConfigureAwait(false);
-            WriteReceipt(receipt, JsonRequested(args));
+            WriteReceipt(receipt, Json(args));
             return Program.CliExitCode.Success;
         }
         if (Equals(action, "remove"))
@@ -117,7 +119,7 @@ internal static class SharingAndTransferCommands
                     Username: Option(args, "--username"),
                     GroupRef: Option(args, "--group-ref")),
                 cancellationToken).ConfigureAwait(false);
-            WriteReceipt(receipt, JsonRequested(args));
+            WriteReceipt(receipt, Json(args));
             return Program.CliExitCode.Success;
         }
         if (action is not null)
@@ -136,7 +138,7 @@ internal static class SharingAndTransferCommands
             limit,
             ct: cancellationToken).ConfigureAwait(false);
 
-        if (JsonRequested(args))
+        if (Json(args))
         {
             Write(page, json: true);
             return Program.CliExitCode.Success;
@@ -184,12 +186,12 @@ internal static class SharingAndTransferCommands
             TransferCommandReceiptDto receipt = await api.RemoveTransferAsync(
                 transferId,
                 cancellationToken).ConfigureAwait(false);
-            WriteReceipt(receipt, JsonRequested(args));
+            WriteReceipt(receipt, Json(args));
         }
         else if (Equals(action, "retry"))
         {
             var job = await api.RetryTransferAsync(transferId, cancellationToken);
-            if (JsonRequested(args)) Write(job, json: true);
+            if (Json(args)) Write(job, json: true);
             else Console.WriteLine($"Retry queued as job {job.Display.DisplayId} ({job.JobId}).");
         }
         else
@@ -197,7 +199,7 @@ internal static class SharingAndTransferCommands
             TransferStateDto transfer = await api.CancelTransferAsync(
                 transferId,
                 cancellationToken).ConfigureAwait(false);
-            Write(transfer, JsonRequested(args));
+            Write(transfer, Json(args));
         }
         return Program.CliExitCode.Success;
     }
@@ -270,18 +272,6 @@ internal static class SharingAndTransferCommands
             Console.WriteLine($"Active scan: {state.ActiveScan.ScanId:D} {state.ActiveScan.Phase}");
         if (state.LastScan is not null)
             Console.WriteLine($"Last scan: {state.LastScan.ScanId:D} {state.LastScan.Phase}");
-    }
-
-    private static void Write(object value, bool json)
-    {
-        if (!json)
-        {
-            Console.WriteLine(value);
-            return;
-        }
-        JsonSerializerOptions options = SockseekApiJson.CreateSerializerOptions();
-        options.WriteIndented = true;
-        Console.WriteLine(JsonSerializer.Serialize(value, value.GetType(), options));
     }
 
     private static string? Positional(IReadOnlyList<string> args, int index)
@@ -398,16 +388,6 @@ internal static class SharingAndTransferCommands
 
     }
 
-    private static string? Option(IReadOnlyList<string> args, string name)
-    {
-        for (int i = 0; i < args.Count - 1; i++)
-        {
-            if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase))
-                return args[i + 1];
-        }
-        return null;
-    }
-
     private static int ParseLimit(string? value, int fallback)
         => value is null
             ? fallback
@@ -415,9 +395,6 @@ internal static class SharingAndTransferCommands
               && parsed >= 1
                 ? parsed
                 : throw new ArgumentException("Input error: --limit must be a positive integer.");
-
-    private static bool JsonRequested(IReadOnlyList<string> args)
-        => args.Contains("--json", StringComparer.OrdinalIgnoreCase);
 
     private static bool Equals(string? left, string right)
         => string.Equals(left, right, StringComparison.OrdinalIgnoreCase);

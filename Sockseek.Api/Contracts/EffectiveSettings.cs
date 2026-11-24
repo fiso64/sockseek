@@ -25,7 +25,7 @@ public sealed record EffectiveDownloadSettingsDto(
     bool SoundCloudTokenConfigured = false);
 
 public sealed record ResolveEffectiveSettingsResponseDto(
-    ServerSearchSettingsBaselineKind Baseline,
+    SearchSettingsBaselineKind Baseline,
     EffectiveDownloadSettingsDto Settings,
     IReadOnlyList<AppliedProfileDto> AppliedProfiles,
     IReadOnlyDictionary<string, string> Provenance,

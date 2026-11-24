@@ -1,7 +1,5 @@
 using System.Reflection;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Soulseek;
-using Sockseek.Core.Services;
 using Sockseek.Core.Sharing;
 
 namespace Tests.Core;

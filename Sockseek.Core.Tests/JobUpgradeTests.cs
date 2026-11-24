@@ -1,5 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Models;
 using Sockseek.Core.Jobs;
 using Sockseek.Core;
 using System.Collections.Generic;

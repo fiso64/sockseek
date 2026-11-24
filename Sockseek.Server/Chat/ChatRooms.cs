@@ -1,8 +1,6 @@
 using System.Collections.Immutable;
 using System.Text;
-using Microsoft.Extensions.Logging;
 using Sockseek.Api;
-using Sockseek.Core;
 using Sockseek.Core.Chat;
 using Sockseek.Core.Diagnostics;
 using Sockseek.Core.Settings;
@@ -80,7 +78,7 @@ public sealed class ChatRooms : IDisposable
     }
 
     public async Task<AvailableRoomPageDto> GetAvailableRoomsAsync(
-        ServerChatRoomKind? kind, string? cursor, int limit, bool refresh, CancellationToken cancellationToken)
+        ChatRoomKind? kind, string? cursor, int limit, bool refresh, CancellationToken cancellationToken)
     {
         limit = ChatIdentity.ValidatePageSize(limit);
         AvailableRoomCache cache = await GetAvailableRoomCacheAsync(refresh, cancellationToken).ConfigureAwait(false);
@@ -366,7 +364,7 @@ public sealed class ChatRooms : IDisposable
                         ex,
                         LogIdentity.Hash(persisted.RoomKey));
                 }
-                bool isPrivate = classification?.Kind == ServerChatRoomKind.Private
+                bool isPrivate = classification?.Kind == ChatRoomKind.Private
                                  || persisted.Kind == ChatRoomKind.Private;
                 RoomData joined = await Client.JoinRoomAsync(
                     persisted.DisplayName, isPrivate, cancellationToken).ConfigureAwait(false);
@@ -495,11 +493,11 @@ public sealed class ChatRooms : IDisposable
             var candidate = new AvailableRoomDto(
                 key,
                 Math.Max(0, room.UserCount),
-                kind.ToServer(),
+                kind,
                 owned.Contains(key),
                 moderated.Contains(key));
             if (!target.TryGetValue(key, out AvailableRoomDto? current)
-                || kind == ChatRoomKind.Private && current.Kind != ServerChatRoomKind.Private)
+                || kind == ChatRoomKind.Private && current.Kind != ChatRoomKind.Private)
             {
                 target[key] = candidate;
             }
@@ -735,10 +733,10 @@ public sealed class ChatRooms : IDisposable
             configured,
             room.RuntimeDesired,
             configured || room.RuntimeDesired,
-            (runtime.Kind != ChatRoomKind.Unknown ? runtime.Kind : room.Kind).ToServer(),
+            (runtime.Kind != ChatRoomKind.Unknown ? runtime.Kind : room.Kind),
             owned,
             moderated,
-            runtime.Phase.ToServer(),
+            runtime.Phase,
             runtime.FailureReason,
             runtime.Members.Count,
             runtime.MemberRevision,
@@ -758,7 +756,7 @@ public sealed class ChatRooms : IDisposable
         if (room is null)
             return;
         TargetChanged?.Invoke(new ChatTargetDeltaDto(
-            ServerChatTargetKind.Room,
+            ChatTargetKind.Room,
             roomId,
             null,
             MapRoom(room),
@@ -887,9 +885,9 @@ public sealed class ChatRooms : IDisposable
         {
             null or "" => static _ => true,
             "desired" => static room => room.Desired,
-            "joined" => static room => room.Phase == ServerChatRoomJoinPhase.Joined,
-            "failed" => static room => room.Phase == ServerChatRoomJoinPhase.Failed,
-            "disconnected" => static room => room.Phase == ServerChatRoomJoinPhase.Disconnected,
+            "joined" => static room => room.Phase == ChatRoomJoinPhase.Joined,
+            "failed" => static room => room.Phase == ChatRoomJoinPhase.Failed,
+            "disconnected" => static room => room.Phase == ChatRoomJoinPhase.Disconnected,
             _ => throw new ArgumentException("Invalid room state filter."),
         };
 

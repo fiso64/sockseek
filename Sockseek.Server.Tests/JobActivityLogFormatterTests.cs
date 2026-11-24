@@ -1,7 +1,5 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
-using Sockseek.Core;
 
 namespace Tests;
 
@@ -13,8 +11,8 @@ public class JobActivityLogFormatterTests
     {
         var formatter = new JobActivityLogFormatter();
         var summary = Summary(
-            ServerJobLifecycleState.Terminal,
-            ServerJobTerminalOutcome.Succeeded);
+            JobLifecycleState.Terminal,
+            JobTerminalOutcome.Succeeded);
 
         var first = formatter.Format(summary);
         var duplicate = formatter.Format(summary);
@@ -27,19 +25,19 @@ public class JobActivityLogFormatterTests
     }
 
     [TestMethod]
-    [DataRow(ServerJobTerminalOutcome.Succeeded, ServerJobSkipReason.None)]
-    [DataRow(ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.None)]
-    [DataRow(ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.AlreadyExists)]
-    [DataRow(ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.NotFoundLastTime)]
-    [DataRow(ServerJobTerminalOutcome.Cancelled, ServerJobSkipReason.None)]
-    [DataRow(ServerJobTerminalOutcome.PartialSuccess, ServerJobSkipReason.None)]
-    [DataRow(ServerJobTerminalOutcome.Failed, ServerJobSkipReason.None)]
+    [DataRow(JobTerminalOutcome.Succeeded, JobSkipReason.None)]
+    [DataRow(JobTerminalOutcome.Skipped, JobSkipReason.None)]
+    [DataRow(JobTerminalOutcome.Skipped, JobSkipReason.AlreadyExists)]
+    [DataRow(JobTerminalOutcome.Skipped, JobSkipReason.NotFoundLastTime)]
+    [DataRow(JobTerminalOutcome.Cancelled, JobSkipReason.None)]
+    [DataRow(JobTerminalOutcome.PartialSuccess, JobSkipReason.None)]
+    [DataRow(JobTerminalOutcome.Failed, JobSkipReason.None)]
     public void TerminalState_HighlightsOnlyStatusPrefix(
-        ServerJobTerminalOutcome outcome,
-        ServerJobSkipReason skipReason)
+        JobTerminalOutcome outcome,
+        JobSkipReason skipReason)
     {
         var entry = new JobActivityLogFormatter().Format(Summary(
-            ServerJobLifecycleState.Terminal,
+            JobLifecycleState.Terminal,
             outcome,
             skipReason: skipReason));
 
@@ -127,8 +125,8 @@ public class JobActivityLogFormatterTests
             workflowId: workflowId,
             kind: ServerJobKind.Song,
             parentJobId: album.JobId,
-            lifecycle: ServerJobLifecycleState.Terminal,
-            outcome: ServerJobTerminalOutcome.Failed);
+            lifecycle: JobLifecycleState.Terminal,
+            outcome: JobTerminalOutcome.Failed);
         var formatter = new JobActivityLogFormatter();
 
         formatter.Format(album);
@@ -168,21 +166,21 @@ public class JobActivityLogFormatterTests
             payload);
 
     private static JobSummaryDto Summary(
-        ServerJobLifecycleState lifecycle = ServerJobLifecycleState.Running,
-        ServerJobTerminalOutcome outcome = ServerJobTerminalOutcome.None,
+        JobLifecycleState lifecycle = JobLifecycleState.Running,
+        JobTerminalOutcome outcome = JobTerminalOutcome.None,
         Guid? jobId = null,
         Guid? workflowId = null,
         ServerJobKind kind = ServerJobKind.Search,
         Guid? parentJobId = null,
-        ServerJobSkipReason skipReason = ServerJobSkipReason.None)
+        JobSkipReason skipReason = JobSkipReason.None)
         => new(jobId ?? Guid.NewGuid(),
             0,
             new(7, workflowId ?? Guid.NewGuid(), kind, "item", "Artist - Title", [], ServerPrintOption.None, null, ServerJobRole.UserRoot, null),
-            new(lifecycle, lifecycle == ServerJobLifecycleState.Running
-                ? ServerJobActivityPhase.Searching
-                : ServerJobActivityPhase.None, null, outcome, skipReason, outcome == ServerJobTerminalOutcome.Failed
-                ? ServerJobFailureReason.AllDownloadsFailed
-                : null, outcome == ServerJobTerminalOutcome.Failed ? "boom" : null, false, ServerJobCancellationSource.None, []),
+            new(lifecycle, lifecycle == JobLifecycleState.Running
+                ? JobActivityPhase.Searching
+                : JobActivityPhase.None, null, outcome, skipReason, outcome == JobTerminalOutcome.Failed
+                ? JobFailureReason.AllDownloadsFailed
+                : null, outcome == JobTerminalOutcome.Failed ? "boom" : null, false, JobCancellationSource.None, []),
             new(null, null),
             new(parentJobId, null, null));
 }

@@ -1,11 +1,8 @@
-using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
-using Sockseek.Core.Transfers.Downloads.State;
 using Sockseek.Core.PeerBrowsing;
-using Microsoft.Extensions.Logging;
 
-namespace Sockseek.Core.Transfers.Downloads.Runtime;
+namespace Sockseek.Core.Transfers.Downloads;
 
 internal sealed class DownloadRunScope : IDisposable, IAsyncDisposable
 {

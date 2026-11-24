@@ -1,6 +1,4 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
-using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
@@ -58,7 +56,7 @@ public sealed class JobSummaryStatsTests
         search.Definition = SearchDefinition.Create(search, new SearchSettings());
 
         JobSummaryDto live = ServerSnapshotMapper.ToJobSummary(CoreSnapshotFactory.CreateJob(search, 0));
-        Assert.AreEqual(ServerSearchDefaultProjectionKind.Track, live.Display.SearchDefaultProjection);
+        Assert.AreEqual(SearchDefaultProjectionKind.Track, live.Display.SearchDefaultProjection);
         Assert.AreEqual(true, live.Display.SearchGroupResults);
 
         var retained = RetainedJobFixture.Create("Search", CoreSnapshotFactory.CreateJob(search, 1).Payload)

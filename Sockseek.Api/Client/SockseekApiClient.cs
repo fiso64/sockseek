@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
@@ -323,7 +322,7 @@ public sealed class SockseekApiClient
         long revision,
         string? cursor = null,
         int limit = ServerProtocol.DefaultPageSize,
-        ServerSearchViewSortOrder? sortOrder = null,
+        SearchViewSortOrder? sortOrder = null,
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewFilePageDto>(
             $"api/search-views/{viewId}/files"
@@ -338,7 +337,7 @@ public sealed class SockseekApiClient
         long revision,
         string? cursor = null,
         int limit = ServerProtocol.DefaultNestedPageSize,
-        ServerSearchViewSortOrder? sortOrder = null,
+        SearchViewSortOrder? sortOrder = null,
         CancellationToken ct = default)
         => GetOptionalAsync<SearchViewDirectoryPageDto>(
             $"api/search-views/{viewId}/directories"
@@ -1073,7 +1072,7 @@ public sealed class SockseekApiClient
         => DeleteRequiredAsync($"api/chat/conversations/{conversationId}", ct);
 
     public async Task<AvailableRoomPageDto> GetAvailableRoomsAsync(
-        ServerChatRoomKind? kind = null,
+        ChatRoomKind? kind = null,
         string? cursor = null,
         int limit = ServerProtocol.DefaultPageSize,
         bool refresh = false,
@@ -1146,7 +1145,7 @@ public sealed class SockseekApiClient
 
     public async Task<NotificationPageDto> GetNotificationsAsync(
         bool? unread = null,
-        ServerUserNotificationKind? kind = null,
+        UserNotificationKind? kind = null,
         string? cursor = null,
         int limit = ServerProtocol.DefaultPageSize,
         CancellationToken ct = default)
@@ -1313,8 +1312,8 @@ public sealed class SockseekApiClient
     private static int? HeaderInt(HttpResponseMessage response, string name)
         => int.TryParse(Header(response, name), out int value) ? value : null;
 
-    private static bool IsActiveLifecycle(ServerJobLifecycleState state)
-        => state != ServerJobLifecycleState.Terminal;
+    private static bool IsActiveLifecycle(JobLifecycleState state)
+        => state != JobLifecycleState.Terminal;
 
     private static string UserBrowseStateWire(UserBrowseState state)
         => state switch

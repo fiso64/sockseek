@@ -1,8 +1,6 @@
 using Sockseek.Api;
-using Sockseek.Core.Services;
 using Sockseek.Persistence.Read;
 using Sockseek.Persistence.Write;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Core.Diagnostics;
 
@@ -393,7 +391,7 @@ public sealed partial class TransferReadService(EngineStateStore live, DaemonRun
 
         TransferQueueEstimateDto? estimate = null;
         if (liveDetail is not null
-            && liveDetail.Transfer.Status.Phase == Api.TransferPhase.QueuedLocally
+            && liveDetail.Transfer.Status.Phase == TransferPhase.QueuedLocally
             && runtime?.Sharing is { } sharing)
         {
             var value = sharing.Uploads.GetQueueEstimate(transferId);

@@ -1,8 +1,5 @@
-using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
-using Sockseek.Core.Services;
-using Sockseek.Core.Settings;
 using Sockseek.Core.Snapshots;
 using Sockseek.Api;
 using Sockseek.Server;
@@ -93,7 +90,7 @@ internal sealed class InteractiveCliCoordinator
                 startedFollowUp = true;
             }
 
-            if (summary.Lifecycle.LifecycleState == ServerJobLifecycleState.AwaitingSelection
+            if (summary.Lifecycle.LifecycleState == JobLifecycleState.AwaitingSelection
                 && handledManualSelections.Add(summary.JobId))
             {
                 if (summary.Display.Kind is ServerJobKind.Album or ServerJobKind.AlbumGroups)
@@ -126,7 +123,7 @@ internal sealed class InteractiveCliCoordinator
             return;
 
         if (!interactiveEnabled
-            || search.DefaultProjection != ServerSearchDefaultProjectionKind.Album
+            || search.DefaultProjection != SearchDefaultProjectionKind.Album
             || search.AlbumQuery == null)
             return;
 
@@ -164,7 +161,7 @@ internal sealed class InteractiveCliCoordinator
         void OnUpdate(DaemonClientUpdate update)
         {
             if (!update.ChangedJobs.Any(row => row.JobId == summary.JobId
-                    && row.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Cancelled)) return;
+                    && row.Lifecycle.TerminalOutcome == JobTerminalOutcome.Cancelled)) return;
             lock (prompt)
             {
                 if (listening) prompt.Cancel();
@@ -193,7 +190,7 @@ internal sealed class InteractiveCliCoordinator
     private async Task HandleManualAlbumJobAsync(Guid albumJobId, CancellationToken ct)
     {
         var detail = await backend.GetJobDetailAsync(albumJobId, ct);
-        if (detail?.Summary.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Cancelled || detail?.Payload is not AlbumJobPayloadDto album)
+        if (detail?.Summary.Lifecycle.TerminalOutcome == JobTerminalOutcome.Cancelled || detail?.Payload is not AlbumJobPayloadDto album)
             return;
 
         var projection = await backend.GetFolderResultsAsync(
@@ -262,7 +259,7 @@ internal sealed class InteractiveCliCoordinator
     private async Task HandleManualAlbumGroupsJobAsync(Guid albumGroupsJobId, CancellationToken ct)
     {
         var detail = await backend.GetJobDetailAsync(albumGroupsJobId, ct);
-        if (detail?.Summary.Lifecycle.TerminalOutcome == ServerJobTerminalOutcome.Cancelled || detail?.Payload is not AlbumGroupsJobPayloadDto albumGroups)
+        if (detail?.Summary.Lifecycle.TerminalOutcome == JobTerminalOutcome.Cancelled || detail?.Payload is not AlbumGroupsJobPayloadDto albumGroups)
             return;
 
         var projection = await backend.GetAlbumGroupResultsAsync(
@@ -330,7 +327,7 @@ internal sealed class InteractiveCliCoordinator
         if (IsCompleted(summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason))
             return;
 
-        if (summary.Lifecycle.FailureReason == ServerJobFailureReason.Cancelled)
+        if (summary.Lifecycle.FailureReason == JobFailureReason.Cancelled)
             return;
 
         if (session.LastSelectedFolderKey != null)
@@ -522,7 +519,7 @@ internal sealed class InteractiveCliCoordinator
 
     private static SearchJob ToSearchJob(SearchJobPayloadDto payload)
     {
-        var job = payload.DefaultProjection == ServerSearchDefaultProjectionKind.Album
+        var job = payload.DefaultProjection == SearchDefaultProjectionKind.Album
             && payload.AlbumQuery != null
             ? new SearchJob(new AlbumQuery
             {
@@ -559,18 +556,18 @@ internal sealed class InteractiveCliCoordinator
 
     private static DownloadBehaviorPolicyDto InteractiveDownloadBehavior(DownloadBehaviorPolicyDto? existing)
         => existing == null
-            ? new DownloadBehaviorPolicyDto(Album: ServerDownloadBehavior.Manual, AlbumGroups: ServerDownloadBehavior.Manual)
-            : existing with { Album = ServerDownloadBehavior.Manual, AlbumGroups = ServerDownloadBehavior.Manual };
+            ? new DownloadBehaviorPolicyDto(Album: DownloadBehavior.Manual, AlbumGroups: DownloadBehavior.Manual)
+            : existing with { Album = DownloadBehavior.Manual, AlbumGroups = DownloadBehavior.Manual };
 
     private SubmissionOptionsDto OptionsForWorkflow(Guid workflowId)
         => (rootOptions ?? new SubmissionOptionsDto()) with { WorkflowId = workflowId };
 
-    private static bool IsActive(ServerJobLifecycleState state)
-        => state != ServerJobLifecycleState.Terminal;
+    private static bool IsActive(JobLifecycleState state)
+        => state != JobLifecycleState.Terminal;
 
-    private static bool IsCompleted(ServerJobTerminalOutcome outcome, ServerJobSkipReason skipReason = ServerJobSkipReason.None)
-        => outcome == ServerJobTerminalOutcome.Succeeded
-            || (outcome == ServerJobTerminalOutcome.Skipped && skipReason == ServerJobSkipReason.AlreadyExists);
+    private static bool IsCompleted(JobTerminalOutcome outcome, JobSkipReason skipReason = JobSkipReason.None)
+        => outcome == JobTerminalOutcome.Succeeded
+            || (outcome == JobTerminalOutcome.Skipped && skipReason == JobSkipReason.AlreadyExists);
 
     private enum InteractiveAlbumResultKind
     {

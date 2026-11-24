@@ -1,33 +1,10 @@
+using Sockseek.Api;
 using System.Collections.Concurrent;
 using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
 
-using System.Text.Json.Serialization;
 
 namespace Sockseek.Core.Services;
-
-[JsonConverter(typeof(JsonStringEnumConverter<SearchPreferenceTier>))]
-public enum SearchPreferenceTier
-{
-    Preferred,
-    Other,
-}
-
-[JsonConverter(typeof(JsonStringEnumConverter<SearchPreferenceCondition>))]
-public enum SearchPreferenceCondition
-{
-    // Stable identities: retained projections encode sets using these values.
-    Format = 0,
-    Length = 1,
-    Bitrate = 2,
-    SampleRate = 3,
-    BitDepth = 4,
-    Title = 5,
-    Artist = 6,
-    Album = 7,
-    Username = 8,
-    ExcludeLocked = 9,
-}
 
 public readonly record struct SearchConditionFacts(
     bool NecessaryConditionsSatisfied,

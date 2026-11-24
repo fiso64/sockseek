@@ -1,10 +1,8 @@
-using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
-using Sockseek.Core.Transfers.Downloads.Reporting;
+using Sockseek.Core.Transfers.Downloads;
 
 namespace Tests;
 

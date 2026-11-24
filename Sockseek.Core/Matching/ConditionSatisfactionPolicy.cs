@@ -1,4 +1,3 @@
-using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Settings;
 using Soulseek;

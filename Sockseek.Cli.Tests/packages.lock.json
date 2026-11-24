@@ -668,6 +668,7 @@
           "SkiaSharp": "[4.156.0, )",
           "SkiaSharp.NativeAssets.Linux.NoDependencies": "[4.156.0, )",
           "SmallestCSVParser": "[1.2.0, )",
+          "Sockseek.Api": "[4.0.0-alpha.1, )",
           "Soulseek": "[10.0.2, )",
           "SpotifyAPI.Web": "[7.4.2, )",
           "SpotifyAPI.Web.Auth": "[7.4.2, )",

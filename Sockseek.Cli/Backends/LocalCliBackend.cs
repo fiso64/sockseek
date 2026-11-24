@@ -4,7 +4,6 @@ using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
-using Sockseek.Core.Snapshots;
 using Sockseek.Api;
 using Sockseek.Server;
 using Sockseek.Core.Planning;
@@ -366,38 +365,35 @@ internal sealed class LocalCliBackend
     {
         ct.ThrowIfCancellationRequested();
 
-        var sourceJob = GetRuntimeJob<Job>(sourceJobId);
-        if (sourceJob?.Config == null)
+        if (FindFolderToRetrieve(sourceJobId, request) is not var (sourceJob, folder))
             return Task.FromResult<JobSummaryDto?>(null);
-
-        var folder = JobRequestMapper.FindAlbumFolderForRetrieval(
-            sourceJob,
-            request.Folder,
-            engine.GetPeerFailureCounts(sourceJob.WorkflowId),
-            request.AlbumQuery);
-        if (folder == null)
-            throw new ArgumentException("Requested folder was not found in this job's album candidates.");
 
         var retrieveJob = new RetrieveFolderJob(folder.DirectoryIdentity) { ItemName = folder.FolderPath, WorkflowId = sourceJob.WorkflowId };
         EnqueueAccepted(retrieveJob, sourceJob.Config, sourceJobId);
         return Task.FromResult<JobSummaryDto?>(stateStore.GetJobSummary(retrieveJob.Id) ?? ServerSnapshotMapper.ToSubmittedJobSummary(retrieveJob, sourceJobId));
     }
 
-    public async Task<RetrieveFolderJobPayloadDto?> RetrieveFolderAndWaitAsync(Guid sourceJobId, RetrieveFolderRequestDto request, CancellationToken ct = default)
+    /// <summary>The job and the album folder a retrieval request names; null when the job is not running here.</summary>
+    private (Job Source, AlbumFolder Folder)? FindFolderToRetrieve(Guid sourceJobId, RetrieveFolderRequestDto request)
     {
-        ct.ThrowIfCancellationRequested();
-
         var sourceJob = GetRuntimeJob<Job>(sourceJobId);
         if (sourceJob?.Config == null)
             return null;
-
         var folder = JobRequestMapper.FindAlbumFolderForRetrieval(
             sourceJob,
             request.Folder,
             engine.GetPeerFailureCounts(sourceJob.WorkflowId),
-            request.AlbumQuery);
-        if (folder == null)
-            throw new ArgumentException("Requested folder was not found in this job's album candidates.");
+            request.AlbumQuery)
+            ?? throw new ArgumentException("Requested folder was not found in this job's album candidates.");
+        return (sourceJob, folder);
+    }
+
+    public async Task<RetrieveFolderJobPayloadDto?> RetrieveFolderAndWaitAsync(Guid sourceJobId, RetrieveFolderRequestDto request, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (FindFolderToRetrieve(sourceJobId, request) is not var (sourceJob, folder))
+            return null;
 
         var retrieveJob = await engine.ProcessFolderRetrieval(folder, sourceJob);
         return new RetrieveFolderJobPayloadDto(
@@ -418,17 +414,17 @@ internal sealed class LocalCliBackend
 
         if (request.Files.Count == 0)
             throw new ArgumentException("At least one file is required.");
-        if (request.RequestedMode == ServerExtractionMode.Album)
+        if (request.RequestedMode == ExtractionMode.Album)
             throw new ArgumentException("A file selection cannot be interpreted as an album.");
 
         var summaries = new List<JobSummaryDto>();
-        if (request.RequestedMode == ServerExtractionMode.General
+        if (request.RequestedMode == ExtractionMode.General
             && request.Options?.DownloadSettings is { } explicitPatch)
         {
             RemoteTransferSettingsValidator.ValidateExplicitPatch(explicitPatch);
         }
 
-        if ((request.RequestedMode is null or ServerExtractionMode.Song)
+        if ((request.RequestedMode is null or ExtractionMode.Song)
             && sourceJob is SongJob manualSong && manualSong.IsAwaitingSelection)
         {
             if (request.Files.Count != 1)
@@ -457,7 +453,7 @@ internal sealed class LocalCliBackend
             if (candidate == null)
                 throw new ArgumentException("Requested file was not found in this job's file candidates.");
 
-            if ((request.RequestedMode is null or ServerExtractionMode.Song)
+            if ((request.RequestedMode is null or ExtractionMode.Song)
                 && sourceJob is SongGroupsJob && sourceJob.IsAwaitingSelection)
             {
                 if (!engine.TryStartManualSongSelection(sourceJobId, candidate,
@@ -471,7 +467,7 @@ internal sealed class LocalCliBackend
             Job followUpJob = JobRequestMapper.CreateFileSelectionFollowUp(
                 sourceJob,
                 candidate,
-                request.RequestedMode?.ToCore());
+                request.RequestedMode);
             var settings = BuildFollowUpSettings(sourceJob, followUpJob, request.Options);
             if (followUpJob is RemoteFileJob)
                 RemoteTransferSettingsValidator.ValidateExplicitNameFormat(explicitCliDownloadSettings);
@@ -487,7 +483,7 @@ internal sealed class LocalCliBackend
     public Task<JobSummaryDto?> StartFolderDownloadAsync(Guid sourceJobId, StartFolderDownloadRequestDto request, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        if (request.RequestedMode == ServerExtractionMode.Song)
+        if (request.RequestedMode == ExtractionMode.Song)
             throw new ArgumentException("A directory selection cannot be interpreted as one song.");
 
         var sourceJob = GetRuntimeJob<Job>(sourceJobId);
@@ -504,13 +500,13 @@ internal sealed class LocalCliBackend
 
         folder = JobRequestMapper.ApplyFolderDownloadSelection(folder, request.Selection);
 
-        if (request.RequestedMode == ServerExtractionMode.General
+        if (request.RequestedMode == ExtractionMode.General
             && request.Options?.DownloadSettings is { } explicitPatch)
         {
             RemoteTransferSettingsValidator.ValidateExplicitPatch(explicitPatch);
         }
 
-        if (request.RequestedMode == ServerExtractionMode.General)
+        if (request.RequestedMode == ExtractionMode.General)
         {
             var directoryJob = JobRequestMapper.CreateRemoteDirectoryDownload(folder, request.Selection);
             directoryJob.ItemName = sourceJob.ItemName;

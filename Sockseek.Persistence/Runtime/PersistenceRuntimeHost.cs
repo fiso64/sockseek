@@ -1,11 +1,9 @@
-using Sockseek.Core;
 using Sockseek.Persistence.Read;
 using Sockseek.Persistence.Sqlite;
 using Sockseek.Persistence.Write;
 using Sockseek.Persistence.Chat;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Sockseek.Persistence;
 using Sockseek.Persistence.Planning;
 
 namespace Sockseek.Persistence.Runtime;
@@ -48,7 +46,6 @@ public sealed class PersistenceRuntimeHost
     private int suppressedFailureLogs;
     private readonly ILogger<PersistenceRuntimeHost> logger;
     private readonly IPersistenceMutationObserver? mutationObserver;
-    private readonly TimeProvider clock;
 
     public PersistenceRuntimeHost(
         SockseekSqliteOptions sqliteOptions,
@@ -56,8 +53,7 @@ public sealed class PersistenceRuntimeHost
         PersistenceRetentionOptions retentionOptions,
         string version,
         ILogger<PersistenceRuntimeHost>? logger = null,
-        IPersistenceMutationObserver? mutationObserver = null,
-        TimeProvider? timeProvider = null)
+        IPersistenceMutationObserver? mutationObserver = null)
     {
         this.sqliteOptions = sqliteOptions;
         this.writerOptions = writerOptions;
@@ -65,7 +61,6 @@ public sealed class PersistenceRuntimeHost
         this.version = version;
         this.logger = logger ?? NullLogger<PersistenceRuntimeHost>.Instance;
         this.mutationObserver = mutationObserver;
-        clock = timeProvider ?? TimeProvider.System;
         writerOptions.Validate();
         retentionOptions.Validate();
         Health.FailureRecorded += LogFailure;

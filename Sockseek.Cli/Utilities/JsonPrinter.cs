@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using Sockseek.Core;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
@@ -105,7 +106,7 @@ public class TrackJson
         Path          = string.IsNullOrEmpty(entry.DownloadPath) ? null : entry.DownloadPath.Replace('\\', '/');
         Length        = entry.Length == -1 ? null : (int?)entry.Length;
         Type          = entry.IsAlbum ? "Album" : "Normal";
-        FailureReason = entry.FailureReason == Sockseek.Core.JobFailureReason.None ? null : entry.FailureReason;
+        FailureReason = entry.FailureReason == JobFailureReason.None ? null : entry.FailureReason;
         (LifecycleState, ActivityPhase, TerminalOutcome, SkipReason) = SplitIndexState(entry.State, entry.FailureReason);
     }
 
@@ -118,7 +119,7 @@ public class TrackJson
             JobStateOld.Done => (JobLifecycleState.Terminal, JobActivityPhase.None, JobTerminalOutcome.Succeeded, JobSkipReason.None),
             JobStateOld.AlreadyExists => (JobLifecycleState.Terminal, JobActivityPhase.None, JobTerminalOutcome.Skipped, JobSkipReason.AlreadyExists),
             JobStateOld.NotFoundLastTime => (JobLifecycleState.Terminal, JobActivityPhase.None, JobTerminalOutcome.Skipped, JobSkipReason.NotFoundLastTime),
-            JobStateOld.Failed when failureReason == Sockseek.Core.JobFailureReason.Cancelled
+            JobStateOld.Failed when failureReason == JobFailureReason.Cancelled
                 => (JobLifecycleState.Terminal, JobActivityPhase.None, JobTerminalOutcome.Cancelled, JobSkipReason.None),
             JobStateOld.Failed => (JobLifecycleState.Terminal, JobActivityPhase.None, JobTerminalOutcome.Failed, JobSkipReason.None),
             _ => (JobLifecycleState.Pending, JobActivityPhase.None, JobTerminalOutcome.None, JobSkipReason.None),
@@ -151,7 +152,7 @@ public static class JsonPrinter
     };
     private static readonly JsonSerializerOptions _indentedOptions = new(_options) { WriteIndented = true };
 
-    public static void PrintTrackResultJson(SongQuery query, IEnumerable<FileCandidate> results, bool printAll = false)
+    public static void PrintTrackResultJson(IEnumerable<FileCandidate> results, bool printAll = false)
     {
         var candidates = results.ToList();
         if (candidates.Count == 0)
@@ -199,7 +200,7 @@ public static class JsonPrinter
         Printing.WriteLine(json);
     }
 
-    public static void PrintAlbumJson(List<AlbumFolder> folders, AlbumJob job)
+    public static void PrintAlbumJson(List<AlbumFolder> folders)
     {
         if (folders.Count == 0)
         {

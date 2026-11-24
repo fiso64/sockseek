@@ -1,5 +1,4 @@
 using Sockseek.Core.Settings;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Core.Services;
 

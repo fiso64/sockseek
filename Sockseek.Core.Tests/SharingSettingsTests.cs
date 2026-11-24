@@ -1,6 +1,6 @@
+using Sockseek.Api;
 using System.Net;
 using System.Text.RegularExpressions;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core.Sharing;
 
 namespace Tests.Core;

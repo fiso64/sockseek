@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using Microsoft.EntityFrameworkCore;
 using Sockseek.Persistence.Entities;
 
@@ -126,7 +127,7 @@ public sealed class PersistenceRuntimeSession(
                         transfer.Direction == "Download" && transfer.Source == "SoulseekPeer" && transfer.JobId != null
                         && transfer.Username != null && transfer.RemotePath != null && transfer.LocalPath != null)
                     .SetProperty(transfer => transfer.LastSequence, 0)
-                    .SetProperty(transfer => transfer.State, nameof(Sockseek.Core.Snapshots.TransferPhase.Ended))
+                    .SetProperty(transfer => transfer.State, nameof(TransferPhase.Ended))
                     .SetProperty(transfer => transfer.TerminalOutcome, "Interrupted")
                     .SetProperty(transfer => transfer.FailureReason, "None")
                     .SetProperty(transfer => transfer.FailureMessage, "The daemon stopped before this transfer finished.")

@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 
 namespace Sockseek.Api;
 
@@ -203,12 +202,12 @@ public sealed record WorkflowDetailDto(
 /// <param name="ExcludeExtractResults">Exclude generated jobs represented by their extraction source, before paging.</param>
 /// <param name="ExcludeKinds">Omit these job kinds before paging, including live updates.</param>
 public sealed record JobQuery(
-    ServerJobLifecycleState? LifecycleState,
-    ServerJobTerminalOutcome? TerminalOutcome,
+    JobLifecycleState? LifecycleState,
+    JobTerminalOutcome? TerminalOutcome,
     ServerJobKind? Kind,
     Guid? WorkflowId,
     bool IncludeAll,
-    ServerJobSkipReason? SkipReason = null,
+    JobSkipReason? SkipReason = null,
     Guid? ParentJobId = null,
     Guid? SubmissionId = null,
     ServerJobRole? Role = null,

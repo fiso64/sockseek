@@ -314,7 +314,7 @@ public sealed class DaemonClientStore
     {
         lock (gate)
             return liveJobs.Values
-                .Where(job => job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal)
+                .Where(job => job.Lifecycle.LifecycleState != JobLifecycleState.Terminal)
                 .OrderBy(job => job.Display.DisplayId)
                 .ToList();
     }
@@ -323,7 +323,7 @@ public sealed class DaemonClientStore
     {
         lock (gate)
             return liveJobs.Values
-                .Where(job => job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
+                .Where(job => job.Lifecycle.LifecycleState == JobLifecycleState.Terminal)
                 .OrderBy(job => job.Display.DisplayId)
                 .ToList();
     }
@@ -559,7 +559,7 @@ public sealed class DaemonClientStore
 
     private void ApplyChatTarget(ChatTargetDeltaDto delta)
     {
-        StateStreamScopeDto scope = delta.Kind == ServerChatTargetKind.Direct
+        StateStreamScopeDto scope = delta.Kind == ChatTargetKind.Direct
             ? StateStreamScopeDto.ChatConversation(delta.TargetId)
             : StateStreamScopeDto.ChatRoom(delta.TargetId);
         if (!liveChatTargets.TryGetValue(scope, out ChatTargetSnapshotDto? current))
@@ -620,8 +620,8 @@ public sealed class DaemonClientStore
         if (snapshot.Scope.Kind is StateStreamScopeKind.ChatConversation or StateStreamScopeKind.ChatRoom)
         {
             var expectedKind = snapshot.Scope.Kind == StateStreamScopeKind.ChatConversation
-                ? ServerChatTargetKind.Direct
-                : ServerChatTargetKind.Room;
+                ? ChatTargetKind.Direct
+                : ChatTargetKind.Room;
             if (snapshot.Daemon != null
                 || snapshot.UserBrowse != null
                 || snapshot.Workflows.Count != 0
@@ -631,15 +631,15 @@ public sealed class DaemonClientStore
                 || snapshot.ChatTarget is not { } target
                 || target.TargetId != snapshot.Scope.ChatTargetId
                 || target.Kind != expectedKind
-                || expectedKind == ServerChatTargetKind.Direct
+                || expectedKind == ChatTargetKind.Direct
                     && (target.Conversation is null || target.Room is not null)
-                || expectedKind == ServerChatTargetKind.Room
+                || expectedKind == ChatTargetKind.Room
                     && (target.Room is null || target.Conversation is not null)
                 || target.Conversation is { } conversation
-                    && (expectedKind != ServerChatTargetKind.Direct
+                    && (expectedKind != ChatTargetKind.Direct
                         || conversation.ConversationId != target.TargetId)
                 || target.Room is { } room
-                    && (expectedKind != ServerChatTargetKind.Room
+                    && (expectedKind != ChatTargetKind.Room
                         || room.RoomId != target.TargetId)
                 || target.Messages.Any(message =>
                     message.TargetId != target.TargetId || message.TargetKind != expectedKind))
@@ -667,6 +667,19 @@ public sealed class DaemonClientStore
         }
     }
 
+    /// <summary>Whether a delta carries anything from the daemon or workflow streams.</summary>
+    private static bool HasDaemonOrWorkflowState(StateDeltaDto state)
+        => state.Daemon != null
+            || state.Workflows.Count != 0
+            || state.Jobs.Count != 0
+            || state.Searches.Count != 0
+            || state.Transfers.Count != 0
+            || state.RemovedWorkflowIds.Count != 0
+            || state.RemovedJobIds.Count != 0
+            || state.RemovedSearchJobIds.Count != 0
+            || state.RemovedTransferIds.Count != 0
+            || state.Notifications is { Count: > 0 };
+
     private static void ValidateBatch(StateUpdateBatchDto batch)
     {
         if (batch.Scope.Kind != StateStreamScopeKind.Daemon && batch.State.ActivitySummary != null)
@@ -680,30 +693,21 @@ public sealed class DaemonClientStore
         if (chatScope)
         {
             var expectedKind = batch.Scope.Kind == StateStreamScopeKind.ChatConversation
-                ? ServerChatTargetKind.Direct
-                : ServerChatTargetKind.Room;
+                ? ChatTargetKind.Direct
+                : ChatTargetKind.Room;
             if ((batch.State.ChatTargets ?? []).Any(target =>
                     target.TargetId != batch.Scope.ChatTargetId
                     || target.Kind != expectedKind
                     || target.Conversation is { } conversation
-                        && (expectedKind != ServerChatTargetKind.Direct
+                        && (expectedKind != ChatTargetKind.Direct
                             || conversation.ConversationId != target.TargetId)
                     || target.Room is { } room
-                        && (expectedKind != ServerChatTargetKind.Room
+                        && (expectedKind != ChatTargetKind.Room
                             || room.RoomId != target.TargetId)
                     || (target.Messages ?? []).Any(message =>
                         message.TargetId != target.TargetId || message.TargetKind != expectedKind)))
                 throw new ArgumentException("A chat batch may contain only its requested target.");
-            if (batch.State.Daemon != null
-                || batch.State.Workflows.Count != 0
-                || batch.State.Jobs.Count != 0
-                || batch.State.Searches.Count != 0
-                || batch.State.Transfers.Count != 0
-                || batch.State.RemovedWorkflowIds.Count != 0
-                || batch.State.RemovedJobIds.Count != 0
-                || batch.State.RemovedSearchJobIds.Count != 0
-                || batch.State.RemovedTransferIds.Count != 0
-                || batch.State.Notifications is { Count: > 0 })
+            if (HasDaemonOrWorkflowState(batch.State))
             {
                 throw new ArgumentException("A chat batch cannot contain daemon or workflow state.");
             }
@@ -717,16 +721,7 @@ public sealed class DaemonClientStore
         {
             if (batch.State.UserBrowse is not { } browse
                 || browse.BrowseId != batch.Scope.UserBrowseId
-                || batch.State.Daemon != null
-                || batch.State.Workflows.Count != 0
-                || batch.State.Jobs.Count != 0
-                || batch.State.Searches.Count != 0
-                || batch.State.Transfers.Count != 0
-                || batch.State.RemovedWorkflowIds.Count != 0
-                || batch.State.RemovedJobIds.Count != 0
-                || batch.State.RemovedSearchJobIds.Count != 0
-                || batch.State.RemovedTransferIds.Count != 0
-                || batch.State.Notifications is { Count: > 0 }
+                || HasDaemonOrWorkflowState(batch.State)
                 || batch.State.ChatTargets is { Count: > 0 })
             {
                 throw new ArgumentException("A user-browse batch may contain only its requested resource.");

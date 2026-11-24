@@ -21,7 +21,6 @@
 
   <ItemGroup>
     <Compile Include="../Sockseek.Core.Tests/TestClients/MockSoulseekClient.cs" Link="TestClients/MockSoulseekClient.cs" />
-    <Compile Include="../Sockseek.Core.Tests/TestClients/MockSoulseekClientNotImpl.cs" Link="TestClients/MockSoulseekClientNotImpl.cs" />
   </ItemGroup>
 
 </Project>

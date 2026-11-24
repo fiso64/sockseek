@@ -1,31 +1,20 @@
+using Sockseek.Api;
+using TransferFailureReason = Sockseek.Core.Events.TransferFailureReason;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Soulseek;
 using Sockseek.Core.Models;
-using Sockseek.Core;
-using Sockseek.Core.Transfers.Downloads.Commands;
-using Sockseek.Core.Transfers.Downloads.Queueing;
-using Sockseek.Core.Transfers.Downloads.JobTracking;
-using Sockseek.Core.Transfers.Downloads.ManualSelection;
-using Sockseek.Core.Transfers.Downloads.Reporting;
-using Sockseek.Core.Transfers.Downloads.Runtime;
-using Sockseek.Core.Transfers.Downloads.Skipping;
-using Sockseek.Core.Transfers.Downloads.SourceMutations;
-using Sockseek.Core.Transfers.Downloads.State;
+using Sockseek.Core.Transfers.Downloads;
 using Sockseek.Core.Extractors;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.PeerBrowsing;
 using Sockseek.Core.Snapshots;
-using Sockseek.Core.Events;
 
 using Directory = System.IO.Directory;
-using File = System.IO.File;
 
 namespace Sockseek.Core;
 

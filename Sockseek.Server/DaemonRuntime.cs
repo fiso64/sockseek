@@ -1,10 +1,7 @@
-using Microsoft.Extensions.Logging;
 using Sockseek.Api;
-using Sockseek.Core.Chat;
 using Sockseek.Core.PeerBrowsing;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
-using Sockseek.Core.Sharing;
 using Sockseek.Core.Transfers.Uploads;
 using Sockseek.Core.UserProfiles;
 using Sockseek.Persistence.PeerBrowsing;

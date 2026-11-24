@@ -1,3 +1,4 @@
+using Sockseek.Api;
 using Microsoft.Data.Sqlite;
 using Sockseek.Persistence.Sqlite;
 using Sockseek.Core.Services;
@@ -177,43 +178,18 @@ public sealed class ShareScanCoordinator
             SharingTelemetry.RecordScan(totalDuration.Elapsed);
             return result;
         }
-        catch (OperationCanceledException) when (linked.IsCancellationRequested)
+        catch (Exception exception)
         {
+            bool cancelled = exception is OperationCanceledException && linked.IsCancellationRequested;
             CleanupUnpublished(paths);
             SetState(new(
                 generationId,
-                ShareScanPhase.Cancelled,
+                cancelled ? ShareScanPhase.Cancelled : ShareScanPhase.Failed,
                 startedAt,
                 DateTimeOffset.UtcNow,
                 null,
-                "Cancelled"));
-            SharingTelemetry.RecordScanResult("cancelled");
-            throw;
-        }
-        catch (RegexMatchTimeoutException)
-        {
-            CleanupUnpublished(paths);
-            SetState(new(
-                generationId,
-                ShareScanPhase.Failed,
-                startedAt,
-                DateTimeOffset.UtcNow,
-                null,
-                "FilterTimeout"));
-            SharingTelemetry.RecordScanResult("failed");
-            throw;
-        }
-        catch
-        {
-            CleanupUnpublished(paths);
-            SetState(new(
-                generationId,
-                ShareScanPhase.Failed,
-                startedAt,
-                DateTimeOffset.UtcNow,
-                null,
-                "ScanFailed"));
-            SharingTelemetry.RecordScanResult("failed");
+                cancelled ? "Cancelled" : exception is RegexMatchTimeoutException ? "FilterTimeout" : "ScanFailed"));
+            SharingTelemetry.RecordScanResult(cancelled ? "cancelled" : "failed");
             throw;
         }
         finally

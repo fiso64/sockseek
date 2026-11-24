@@ -1,19 +1,14 @@
 using Sockseek.Core;
-using Sockseek.Core.Models;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Services;
 
 namespace Sockseek.Cli;
     public class DiagnosticService
     {
-        private readonly SoulseekClientManager _clientManager;
         private readonly CliOutputController? output;
 
-        internal DiagnosticService(
-            SoulseekClientManager clientManager,
-            CliOutputController? output = null)
+        internal DiagnosticService(CliOutputController? output = null)
         {
-            _clientManager = clientManager;
             this.output = output;
         }
 

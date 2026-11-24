@@ -1,10 +1,7 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Soulseek;
-using Sockseek.Core;
-using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 using Sockseek.Core.Services;
-using Sockseek.Core.Transfers.Downloads.State;
+using Sockseek.Core.Transfers.Downloads;
 using System.Threading.Channels;
 
 namespace Tests.Core;

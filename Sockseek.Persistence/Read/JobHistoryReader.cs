@@ -5,8 +5,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.Sqlite;
 using Sockseek.Persistence.Entities;
 using Sockseek.Persistence.Sqlite;
-using Microsoft.EntityFrameworkCore.Storage;
-using Sockseek.Core.Snapshots;
 
 namespace Sockseek.Persistence.Read;
 

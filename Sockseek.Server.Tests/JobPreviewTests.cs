@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core;
 using Sockseek.Core.Planning;
@@ -122,7 +121,7 @@ public sealed class JobPreviewTests
                     _ => new(TaskCreationOptions.RunContinuationsAsynchronously));
                 void OnJob(JobSummaryDto job)
                 {
-                    if (job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
+                    if (job.Lifecycle.LifecycleState == JobLifecycleState.Terminal)
                         Terminal(job.JobId).TrySetResult(job);
                 }
                 supervisor.StateStore.JobUpserted += OnJob;

@@ -1,9 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
-using Sockseek.Core.Services;
 using Sockseek.Core.Events;
 using Sockseek.Core.Settings;
 using Sockseek.Server.Planning;
@@ -105,14 +103,14 @@ public sealed class PersistenceDaemonTests
                 bool finalObserved = false;
                 while (!finalObserved && await observed.MoveNextAsync())
                     finalObserved = observed.Current.State.Jobs.Any(job => job.JobId == observedChild
-                        && (job.Lifecycle?.LifecycleState ?? job.Added?.Lifecycle.LifecycleState) == ServerJobLifecycleState.Terminal);
+                        && (job.Lifecycle?.LifecycleState ?? job.Added?.Lifecycle.LifecycleState) == JobLifecycleState.Terminal);
                 Assert.IsTrue(finalObserved, "The SDK's scoped final facts do not wait for a held SQL commit.");
                 bool finalListed = false;
                 while (!finalListed && await listed.MoveNextAsync())
                 {
                     Assert.AreEqual(0, listed.Current.RemovedJobIds.Count);
                     finalListed = listed.Current.Jobs.Any(job => job.JobId == root.JobId
-                        && job.Lifecycle?.LifecycleState == ServerJobLifecycleState.Terminal);
+                        && job.Lifecycle?.LifecycleState == JobLifecycleState.Terminal);
                 }
                 Assert.IsTrue(finalListed, "The displayed Jobs list must advance without waiting for SQL.");
                 Assert.IsNotNull(supervisor.StateStore.GetJobDetail(root.JobId),
@@ -123,7 +121,7 @@ public sealed class PersistenceDaemonTests
                 var queries = app.Services.GetRequiredService<JobReadService>();
                 var detail = await queries.GetJobAsync(root.JobId).WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.IsNotNull(detail);
-                Assert.AreEqual(ServerJobLifecycleState.Terminal, detail.Summary.Lifecycle.LifecycleState);
+                Assert.AreEqual(JobLifecycleState.Terminal, detail.Summary.Lifecycle.LifecycleState);
                 Assert.AreEqual(2, detail.ChildCount);
                 Assert.AreEqual(expectedStats, detail.Summary.Stats);
                 var children = await queries.GetJobsAsync(new JobQuery(null, null, null, workflowId,
@@ -133,7 +131,7 @@ public sealed class PersistenceDaemonTests
                     [root.JobId, children.Items[0].JobId, Guid.NewGuid(), root.JobId])).WaitAsync(TimeSpan.FromSeconds(5));
                 CollectionAssert.AreEqual(new[] { root.JobId, children.Items[0].JobId }, summaries.Select(job => job.JobId).ToArray());
                 Assert.AreEqual(expectedStats, summaries[0].Stats);
-                Assert.IsTrue(children.Items.All(job => job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal));
+                Assert.IsTrue(children.Items.All(job => job.Lifecycle.LifecycleState == JobLifecycleState.Terminal));
                 var global = await queries.GetJobsAsync(new JobQuery(null, null, null, null, IncludeAll: true), null, 100)
                     .WaitAsync(TimeSpan.FromSeconds(5));
                 Assert.AreEqual(3, global.Items.Count);
@@ -157,7 +155,7 @@ public sealed class PersistenceDaemonTests
             var retained = await app.Services.GetRequiredService<JobReadService>().GetJobAsync(root.JobId);
             Assert.IsNotNull(retained);
             Assert.AreEqual(2, retained.ChildCount);
-            Assert.AreEqual(ServerJobLifecycleState.Terminal, retained.Summary.Lifecycle.LifecycleState);
+            Assert.AreEqual(JobLifecycleState.Terminal, retained.Summary.Lifecycle.LifecycleState);
             Assert.AreEqual(expectedStats, retained.Summary.Stats,
                 "Read ownership must not change the public completion counts.");
             var snapshot = await client.GetJobListSnapshotAsync(listScope);
@@ -622,7 +620,7 @@ public sealed class PersistenceDaemonTests
             void OnManualJob(JobSummaryDto job)
             {
                 if (job.Display.QueryText?.Contains("Manual Track", StringComparison.Ordinal) == true
-                    && job.Lifecycle.LifecycleState == ServerJobLifecycleState.AwaitingSelection)
+                    && job.Lifecycle.LifecycleState == JobLifecycleState.AwaitingSelection)
                     awaitingSelection.TrySetResult(job);
             }
             supervisor.StateStore.JobUpserted += OnManualJob;
@@ -630,7 +628,7 @@ public sealed class PersistenceDaemonTests
                 new SubmitSongJobRequestDto(
                     new SongQueryDto("Artist", "Manual Track"),
                     DownloadBehavior: new DownloadBehaviorPolicyDto(
-                        Song: ServerDownloadBehavior.Manual)),
+                        Song: DownloadBehavior.Manual)),
                 CancellationToken.None);
             await awaitingSelection.Task.WaitAsync(TimeSpan.FromSeconds(5));
             supervisor.StateStore.JobUpserted -= OnManualJob;
@@ -646,7 +644,7 @@ public sealed class PersistenceDaemonTests
             void OnFirstJob(JobSummaryDto job)
             {
                 if (job.Display.QueryText == "durable submission"
-                    && job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
+                    && job.Lifecycle.LifecycleState == JobLifecycleState.Terminal)
                     firstTerminal.TrySetResult(job);
             }
             supervisor.StateStore.JobUpserted += OnFirstJob;
@@ -683,7 +681,7 @@ public sealed class PersistenceDaemonTests
             {
                 if (job.Display.QueryText != "durable submission"
                     || job.Display.SubmissionId == originalSubmissionId
-                    || job.Lifecycle.LifecycleState != ServerJobLifecycleState.Terminal)
+                    || job.Lifecycle.LifecycleState != JobLifecycleState.Terminal)
                     return;
                 bool noBrowseFolder = supervisor
                     .GetRuntimeJob<Sockseek.Core.Jobs.SearchJob>(job.JobId)?
@@ -718,7 +716,7 @@ public sealed class PersistenceDaemonTests
             void OnHierarchyJob(JobSummaryDto job)
             {
                 if (job.Display.ItemName == "deletion hierarchy"
-                    && job.Lifecycle.LifecycleState == ServerJobLifecycleState.Terminal)
+                    && job.Lifecycle.LifecycleState == JobLifecycleState.Terminal)
                     hierarchyTerminal.TrySetResult(true);
             }
             supervisor.StateStore.JobUpserted += OnHierarchyJob;
@@ -841,7 +839,7 @@ public sealed class PersistenceDaemonTests
                     SearchViewSummaryDto fileView = await CreateCompleteSearchViewAsync(
                         views,
                         search.JobId,
-                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.Files));
+                        new CreateSearchViewRequestDto(SearchViewProjectionKind.Files));
                     SearchViewFilePageDto results = (views.GetFiles(fileView.ViewId, fileView.Revision, null, 10, cancellationToken: CancellationToken.None))!;
                     Assert.AreEqual(1, results.Items.Count);
 
@@ -858,7 +856,7 @@ public sealed class PersistenceDaemonTests
                     SearchViewSummaryDto trackGroupView = await CreateCompleteSearchViewAsync(
                         views,
                         search.JobId,
-                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.TrackGroups));
+                        new CreateSearchViewRequestDto(SearchViewProjectionKind.TrackGroups));
                     SearchViewTrackGroupPageDto trackGroups = (views.GetTrackGroups(trackGroupView.ViewId, trackGroupView.Revision, null, 10, CancellationToken.None))!;
                     Assert.AreEqual(1, trackGroups.Items.Count);
                     trackGroupViewId = trackGroupView.ViewId;
@@ -875,7 +873,7 @@ public sealed class PersistenceDaemonTests
                     SearchViewSummaryDto directoryView = await CreateCompleteSearchViewAsync(
                         views,
                         albumSearch.JobId,
-                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.AlbumDirectories));
+                        new CreateSearchViewRequestDto(SearchViewProjectionKind.AlbumDirectories));
                     SearchViewDirectoryPageDto folders = (views.GetDirectories(directoryView.ViewId, directoryView.Revision, null, 10, cancellationToken: CancellationToken.None))!;
                     Assert.AreEqual(1, folders.Items.Count);
                     directoryViewId = directoryView.ViewId;
@@ -884,7 +882,7 @@ public sealed class PersistenceDaemonTests
                     SearchViewSummaryDto albumGroupView = await CreateCompleteSearchViewAsync(
                         views,
                         albumSearch.JobId,
-                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.AlbumGroups));
+                        new CreateSearchViewRequestDto(SearchViewProjectionKind.AlbumGroups));
                     SearchViewAlbumGroupPageDto albumGroups = (views.GetAlbumGroups(albumGroupView.ViewId, albumGroupView.Revision, null, 10, CancellationToken.None))!;
                     Assert.AreEqual(1, albumGroups.Items.Count);
                     albumGroupViewId = albumGroupView.ViewId;
@@ -911,15 +909,15 @@ public sealed class PersistenceDaemonTests
                     var views = second.Services.GetRequiredService<SearchViewCoordinator>();
                     foreach (Guid expired in new[] { fileViewId, trackGroupViewId, directoryViewId, albumGroupViewId })
                         Assert.IsNull(views.Get(expired, CancellationToken.None));
-                    async Task<(Guid, long)> Rebuild(Guid source, ServerSearchViewProjectionKind kind)
+                    async Task<(Guid, long)> Rebuild(Guid source, SearchViewProjectionKind kind)
                     {
                         var fresh = await CreateCompleteSearchViewAsync(views, source, new CreateSearchViewRequestDto(kind));
                         return (fresh.ViewId, fresh.Revision);
                     }
-                    (fileViewId, fileViewRevision) = await Rebuild(sourceJobId, ServerSearchViewProjectionKind.Files);
-                    (trackGroupViewId, trackGroupViewRevision) = await Rebuild(sourceJobId, ServerSearchViewProjectionKind.TrackGroups);
-                    (directoryViewId, directoryViewRevision) = await Rebuild(albumSearchJobId, ServerSearchViewProjectionKind.AlbumDirectories);
-                    (albumGroupViewId, albumGroupViewRevision) = await Rebuild(albumSearchJobId, ServerSearchViewProjectionKind.AlbumGroups);
+                    (fileViewId, fileViewRevision) = await Rebuild(sourceJobId, SearchViewProjectionKind.Files);
+                    (trackGroupViewId, trackGroupViewRevision) = await Rebuild(sourceJobId, SearchViewProjectionKind.TrackGroups);
+                    (directoryViewId, directoryViewRevision) = await Rebuild(albumSearchJobId, SearchViewProjectionKind.AlbumDirectories);
+                    (albumGroupViewId, albumGroupViewRevision) = await Rebuild(albumSearchJobId, SearchViewProjectionKind.AlbumGroups);
 
                     SearchViewFilePageDto historicalProjection = (views.GetFiles(fileViewId, fileViewRevision, null, 10, cancellationToken: CancellationToken.None))!;
                     Assert.AreEqual(1, historicalProjection.Items.Count);
@@ -998,7 +996,7 @@ public sealed class PersistenceDaemonTests
                     SearchViewSummaryDto hiddenTrackView = await CreateCompleteSearchViewAsync(
                         views,
                         sourceJobId,
-                        new CreateSearchViewRequestDto(ServerSearchViewProjectionKind.TrackGroups,
+                        new CreateSearchViewRequestDto(SearchViewProjectionKind.TrackGroups,
                             FilterText: "no-such-track"));
                     Assert.AreEqual(0, (views.GetTrackGroups(hiddenTrackView.ViewId, hiddenTrackView.Revision, null, 10, CancellationToken.None))!.Items.Count);
                     var hiddenChoiceCount = (views.Selections.CountSelection(hiddenTrackView.ViewId, new CountSearchViewSelectionRequestDto(hiddenTrackView.Revision,

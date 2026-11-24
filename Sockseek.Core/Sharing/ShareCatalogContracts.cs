@@ -15,22 +15,6 @@ public enum ShareBrowseStatus
     UnavailableOversize,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<ShareScanPhase>))]
-public enum ShareScanPhase
-{
-    Idle,
-    Preparing,
-    Enumerating,
-    FinalizingIndex,
-    BuildingBrowseArtifact,
-    Validating,
-    Publishing,
-    Completed,
-    Cancelling,
-    Cancelled,
-    Failed,
-}
-
 public sealed record ShareCatalogMetadata(
     Guid GenerationId,
     DateTimeOffset CreatedAtUtc,

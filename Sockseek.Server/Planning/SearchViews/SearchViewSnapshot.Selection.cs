@@ -1,6 +1,5 @@
 using Sockseek.Api;
 using static Sockseek.Server.Planning.SearchViewCache;
-using Sockseek.Core.Services;
 using Sockseek.Core.Models;
 
 namespace Sockseek.Server.Planning;

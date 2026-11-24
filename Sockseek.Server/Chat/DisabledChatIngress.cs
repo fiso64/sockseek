@@ -1,7 +1,5 @@
 using System.Threading.Channels;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Sockseek.Core;
 using Sockseek.Core.Chat;
 using Sockseek.Core.Diagnostics;
 using Soulseek;

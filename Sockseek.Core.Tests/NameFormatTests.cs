@@ -1,9 +1,6 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Models;
+using Sockseek.Api;
 using Sockseek.Core.Jobs;
 using System.Reflection;
-using Sockseek.Core.Settings;
-using Sockseek.Core.Services;
 
 namespace Tests.NameFormat
 {

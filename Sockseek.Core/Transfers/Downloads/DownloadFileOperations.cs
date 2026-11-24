@@ -1,7 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics;
 using System.Collections.Concurrent;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Sockseek.Core.Models;
 using Sockseek.Core.Jobs;

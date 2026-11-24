@@ -1,8 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Sockseek.Api;
 using Sockseek.Core.Settings;
 using Sockseek.Server;
 

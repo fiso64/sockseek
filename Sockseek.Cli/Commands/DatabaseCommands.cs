@@ -1,7 +1,6 @@
 using Sockseek.Core;
 using Sockseek.Persistence.Sqlite;
 using Sockseek.Server;
-using Microsoft.Extensions.Logging;
 using Sockseek.Core.Diagnostics;
 
 namespace Sockseek.Cli;

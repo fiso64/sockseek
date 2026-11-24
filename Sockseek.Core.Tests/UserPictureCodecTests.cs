@@ -1,7 +1,5 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Buffers.Binary;
 using SkiaSharp;
-using Sockseek.Core.Settings;
 using Sockseek.Core.UserProfiles;
 
 namespace Tests.Core;

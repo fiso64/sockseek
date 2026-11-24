@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Sockseek.Server.Tests;
 
 [TestClass]

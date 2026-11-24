@@ -1,6 +1,4 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Core.Chat;
-using Sockseek.Core.Settings;
 
 namespace Sockseek.Core.Tests;
 
