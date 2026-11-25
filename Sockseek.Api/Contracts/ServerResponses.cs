@@ -28,18 +28,20 @@ public sealed record ServerStatusDto(
 
 /// <summary>
 /// Memory held by the daemon process. The three parts add up to
-/// <see cref="ResidentBytes"/> and are reported on Linux only. A service
-/// manager's figure differs: it also counts file cache.
+/// <see cref="ResidentBytes"/> and are reported on Linux only. Where the
+/// system offers it, a page mapped several times is counted once, so the
+/// total is lower than the resident size other tools show. A service
+/// manager's figure differs again: it also counts file cache.
 /// </summary>
 /// <param name="ResidentBytes">Memory currently in RAM.</param>
-/// <param name="PeakResidentBytes">The highest resident size since the process started.</param>
+/// <param name="PeakResidentBytes">The highest resident size since the process started, where the system keeps one on the same basis.</param>
 /// <param name="HeapBytes">The daemon's own objects and native allocations.</param>
 /// <param name="RuntimeBytes">The runtime's type data and compiled code.</param>
 /// <param name="MappedFileBytes">Libraries and databases mapped from disk, which the system can reclaim.</param>
 /// <param name="SwappedBytes">Memory the system moved to swap.</param>
 public sealed record ProcessMemoryDto(
     long ResidentBytes,
-    long PeakResidentBytes,
+    long? PeakResidentBytes = null,
     long? HeapBytes = null,
     long? RuntimeBytes = null,
     long? MappedFileBytes = null,

@@ -13387,7 +13387,7 @@ export interface components {
             /** Format: int64 */
             residentBytes: number | string;
             /** Format: int64 */
-            peakResidentBytes: number | string;
+            peakResidentBytes?: null | number | string;
             /** Format: int64 */
             heapBytes?: null | number | string;
             /** Format: int64 */

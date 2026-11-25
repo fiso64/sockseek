@@ -146,7 +146,7 @@
       <div><dt>Configuration</dt><dd>{!daemon?.configuration ? '—' : daemon.configuration.reloadFailed ? 'Reload failed' : daemon?.configuration?.restartRequired ? 'Restart required' : daemon?.configuration?.watching ? 'Watching for changes' : 'Automatic reload disabled'}</dd></div>
       <div data-testid="daemon-memory"><dt>Memory</dt><dd>
         {#if memory}
-          {formatBytes(memory.residentBytes)}<span class="memory-note">{" "}· peak {formatBytes(memory.peakResidentBytes)}{Number(memory.swappedBytes) > 0 ? ` · ${formatBytes(memory.swappedBytes)} swapped` : ''}</span>
+          {formatBytes(memory.residentBytes)}<span class="memory-note">{memory.peakResidentBytes == null ? '' : ` · peak ${formatBytes(memory.peakResidentBytes)}`}{Number(memory.swappedBytes) > 0 ? ` · ${formatBytes(memory.swappedBytes)} swapped` : ''}</span>
           {#if memoryParts.length}
             <span class="progress-track memory-line" role="img" aria-label={memoryParts.map(part => `${part.label} ${formatBytes(part.bytes)}`).join(', ')}>
               {#each memoryParts as part (part.id)}<i class={part.id} style={`width:${part.bytes / Number(memory.residentBytes) * 100}%`} title={`${part.label}: ${formatBytes(part.bytes)}`}></i>{/each}
