@@ -12,6 +12,8 @@
   import type { BrowseDirectoryEntryDto, BrowseFileEntryDto, BrowseSearchPageDto, Schema } from '../../api/types';
   import { formatBytes, formatCount } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
+  import UsernameLink from '../../components/UsernameLink.svelte';
+  import type { UserLinkActions } from '../../app/navigation';
   import LockedIndicator from '../../components/LockedIndicator.svelte';
   import ResultFilterControl from '../../components/ResultFilterControl.svelte';
   import SelectionToolbar from '../../components/SelectionToolbar.svelte';
@@ -30,8 +32,10 @@
   interface TreeRowPage { kind: 'page'; parentKey: string; page: PageState; depth: number; }
   type TreeRow = TreeRowDirectory | TreeRowFile | TreeRowPage;
 
-  let { source: input, session = {}, position, filterActions, connected = true, configurationRevision }: {
+  let { source: input, session = {}, position, filterActions, connected = true, configurationRevision, userActions }: {
     source: ShareBrowserSource; session?: ShareBrowserSession; position?: ShareBrowserPosition; filterActions?: Snippet; connected?: boolean; configurationRevision?: number;
+    /** Makes a peer's name the usual username link; the daemon's own shares have none. */
+    userActions?: UserLinkActions;
   } = $props();
   // The parent keys the browser by immutable generation.
   const source = untrack(() => input);
@@ -587,7 +591,7 @@
       <div class="shares-overview">
         <div class="shares-title-row">
           <div>
-            <span class="shares-username">{browse.username}</span>
+            <span class:peer-identity={Boolean(userActions)} data-testid="shares-username">{#if userActions}<UsernameLink username={browse.username} actions={userActions} />{:else}<span class="shares-username">{browse.username}</span>{/if}</span>
             <strong>{formatBytes(browse.totalFileBytes)} shared</strong>
           </div>
         </div>

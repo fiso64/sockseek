@@ -15,6 +15,7 @@
   import ProfilePicture from '../../components/ProfilePicture.svelte';
 
   import type { UserBrowserSession, UserBrowseView } from './session';
+  import type { UserLinkActions } from '../../app/navigation';
 
   interface Props {
     session: UserBrowserSession;
@@ -25,9 +26,10 @@
     liveClient: DaemonLiveClient;
     onviewchange: (view: UserBrowseView) => void;
     onmessageuser: (username: string) => void;
+    userActions: UserLinkActions;
   }
 
-  let { session, view, liveStatus, documentVisible, configurationRevision, liveClient, onviewchange, onmessageuser }: Props = $props();
+  let { session, view, liveStatus, documentVisible, configurationRevision, liveClient, onviewchange, onmessageuser, userActions }: Props = $props();
   // App keys this component by session. A new user starts a fresh lifetime;
   // ordinary navigation restores the saved view without keeping its DOM alive.
   const username = untrack(() => session.username);
@@ -352,7 +354,7 @@
       {/if}
     {/if}
     {#if displayedBrowse}
-      <ShareBrowser {configurationRevision} source={peerShareSource(displayedBrowse)} session={session.shares} connected={liveStatus === 'connected' && documentVisible} filterActions={refreshShares} />
+      <ShareBrowser {configurationRevision} source={peerShareSource(displayedBrowse)} session={session.shares} connected={liveStatus === 'connected' && documentVisible} filterActions={refreshShares} {userActions} />
     {/if}
   {/if}
 </section>

@@ -353,7 +353,8 @@
     }
     activePage = page;
     if (page === 'chat') initialChatUsername = null;
-    if (page === 'users' || page === 'shares') userBrowse = { query: activeUsername || userBrowse.query, mode: userView };
+    // The bar keeps what was typed; only its User/Shares mode follows the tab.
+    if (page === 'users' || page === 'shares') userBrowse = { ...userBrowse, mode: userView };
     setPath((page === 'users' || page === 'shares') && activeUsername
       ? `/${page}/${encodeURIComponent(activeUsername)}` : `/${page}`);
     if (page === 'downloads' || page === 'uploads') {
@@ -375,7 +376,6 @@
   async function submit(next: SearchDraft): Promise<void> {
     if (searchBusy) return;
     searchResults.load();
-    search = { ...next };
     searchBusy = true;
     const origin = routeLocation();
     mutationError = null;
@@ -578,7 +578,7 @@
   function openUserView(mode: UserBrowseView, username: string): void {
     selectBrowseUser(mode, username);
     activePage = mode === 'shares' ? 'shares' : 'users';
-    userBrowse = { query: username, mode };
+    userBrowse = { ...userBrowse, mode };
     setPath(`/${activePage}/${encodeURIComponent(username)}`);
   }
 
@@ -627,7 +627,7 @@
   applyPath(routePathname());
 </script>
 
-<AppShell activePage={navigationPage} {liveStatus} {liveState} {search} {userBrowse} {searchBusy} onnavigate={navigate} onsearchchange={(value) => (search = value)} onsearchsubmit={(value) => void submit(value)} ondownloadrequest={composeSearchDownload} onuserbrowsechange={changeUserBrowse} onuserbrowsesubmit={submitUserBrowse}>
+<AppShell activePage={navigationPage} {liveStatus} {liveState} {search} {userBrowse} {searchBusy} onnavigate={navigate} onsearchchange={(value) => (search = value)} onsearchsubmit={(value) => { if (!searchBusy) search = { ...value }; void submit(value); }} ondownloadrequest={composeSearchDownload} onuserbrowsechange={changeUserBrowse} onuserbrowsesubmit={submitUserBrowse}>
   {#if activePage === 'jobs' && pendingJobId && jobRouteError}
     <section class="page page-search redesigned-search-page">
       <div class={`resource-state-notice ${liveStatus === 'offline' ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Job unavailable'}</strong><small>{liveStatus === 'offline' ? 'This can’t be loaded while the daemon is offline.' : jobRouteError.message}</small></span>{#if liveStatus !== 'offline'}<button class="button" type="button" onclick={() => void openJobFromPath(pendingJobId!, routeLocation())}>Retry</button>{/if}<button class="button" type="button" onclick={backToJobs}>Back to jobs</button></div>
@@ -780,7 +780,7 @@
       {#key userBrowsers[userView]}
         <LazyView view={usersPage}>
           {#snippet children(UsersPage)}
-            <UsersPage {configurationRevision} session={userBrowsers[userView]} {documentVisible} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} />
+            <UsersPage {configurationRevision} session={userBrowsers[userView]} {documentVisible} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} {userActions} />
           {/snippet}
         </LazyView>
       {/key}

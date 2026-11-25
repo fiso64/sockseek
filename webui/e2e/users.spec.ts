@@ -77,7 +77,7 @@ test('renders populated and partial peer profiles without inventing missing fact
   await expect(navigation.getByRole('button', { name: 'Shares', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
   await expect(card).toHaveCount(0);
-  await expect(page.locator('.shares-username')).toHaveText('fixture-peer');
+  await expect(page.getByTestId('shares-username')).toHaveText('fixture-peer');
   await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
   await page.getByRole('navigation', { name: 'User browser views' }).getByRole('button', { name: 'User', exact: true }).click();
   await expect(navigation.getByRole('button', { name: 'Users', exact: true })).toHaveAttribute('aria-current', 'page');
@@ -108,7 +108,7 @@ test('renders populated and partial peer profiles without inventing missing fact
   const previousBrowseRequests = browseRequests.length;
   await navigation.getByRole('button', { name: 'Shares', exact: true }).click();
   await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
-  await expect(page.locator('.shares-username')).toHaveText('fixture-peer');
+  await expect(page.getByTestId('shares-username')).toHaveText('fixture-peer');
   // Revalidate the saved browse ID without fetching its tree or contacting the peer.
   expect(browseRequests.slice(previousBrowseRequests).map(url => new URL(url).pathname))
     .toEqual([expect.stringMatching(/^\/api\/user-browses\/[\da-f-]+$/)]);

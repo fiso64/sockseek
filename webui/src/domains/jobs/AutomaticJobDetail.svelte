@@ -217,6 +217,8 @@
   ));
   let showRelatedJobs = $derived(showRelatedChildren && (relatedTotal !== 0 || Boolean(relatedList?.loading) || Boolean(relatedList?.error)) || Boolean(sourceJobId));
   let displayedRelatedRows = $derived(showRelatedChildren ? relatedRows : []);
+  // A lone source is named for what it is: the same kind of job is the attempt this one repeats.
+  let onlySource = $derived(Boolean(sourceJobId) && !displayedRelatedRows.length);
   let displayedRelatedTotal = $derived((showRelatedChildren ? relatedTotal ?? relatedRows.length : 0)
     + (sourceJobId ? 1 : 0));
   let planStateLabel = $derived(!manifest && manifestMissing && job?.lifecycle.lifecycleState === 'Terminal'
@@ -617,8 +619,8 @@
   {/if}
   {#if showRelatedJobs}
     <section class="job-related-section">
-      <header class="job-section-heading"><h2>{sourceJobId ? 'Related jobs' : payload?.kind === 'extract' ? 'Result' : payload?.kind === 'song-groups' ? 'Generated songs' : payload?.kind === 'album-groups' ? 'Generated albums' : payload?.kind === 'album' ? 'Related jobs' : 'Jobs'}</h2>
-        {#if !info?.counts.length || sourceJobId}<span>{formatCount(displayedRelatedTotal)} {showRelatedChildren && relatedTotal == null ? 'loaded ' : ''}{displayedRelatedTotal === 1 ? 'job' : 'jobs'}</span>{/if}
+      <header class="job-section-heading"><h2>{onlySource ? sourceJob?.display.kind === job?.display.kind ? 'Earlier attempt' : 'Started from' : sourceJobId ? 'Related jobs' : payload?.kind === 'extract' ? 'Result' : payload?.kind === 'song-groups' ? 'Generated songs' : payload?.kind === 'album-groups' ? 'Generated albums' : payload?.kind === 'album' ? 'Related jobs' : 'Jobs'}</h2>
+        {#if !onlySource && (!info?.counts.length || sourceJobId)}<span>{formatCount(displayedRelatedTotal)} {showRelatedChildren && relatedTotal == null ? 'loaded ' : ''}{displayedRelatedTotal === 1 ? 'job' : 'jobs'}</span>{/if}
       </header>
       <div class="job-child-list">
         {#if sourceJobId}

@@ -38,6 +38,8 @@ test('explains a job whose results were all rejected and searches for it again u
   await card.getByTestId('job-search-again').click();
   await expect(page).toHaveURL(/results=album/);
   expect(page.url()).not.toContain(job.jobId!);
+  // Like opening or repeating a search, this leaves the search bar as it was.
+  await expect(page.getByPlaceholder('Album title…')).toHaveValue('');
   // Its conditions are shown, and removing the one that rejected everything
   // brings back the folders the job could not use.
   const condition = page.locator('.search-condition-pill');
