@@ -1,5 +1,5 @@
 <script lang="ts">
-  import ManualLink, { manualAvailable } from './ManualLink.svelte';
+  import ManualLink from './ManualLink.svelte';
   import { onMount } from 'svelte';
   import { daemonApi } from '../api/client';
   import type { Schema } from '../api/types';
@@ -61,7 +61,7 @@
         </label>
       {/each}
       {#if error}<p role="alert">{error} <button class="button" type="button" disabled={loading} onclick={() => void load()}>Retry</button></p>{/if}
-      {#if manualAvailable()}<p class="profile-help"><ManualLink topic="profiles">About profiles</ManualLink></p>{/if}
+      <p class="profile-help"><ManualLink topic="profiles">About profiles</ManualLink></p>
     </div>
   </div>
 {/if}

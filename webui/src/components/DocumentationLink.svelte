@@ -1,17 +1,15 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { manualAvailable } from './ManualLink.svelte';
+  import { manualUrl } from './ManualLink.svelte';
 
   let { quiet = false }: { quiet?: boolean } = $props();
 </script>
 
-{#if manualAvailable()}
-  <!-- A new tab, like every other link into the manual: the manual has no way back to the app. -->
-  <a class="button auth-button docs-link" class:quiet href="docs/" target="_blank" rel="noopener" aria-label="Documentation" title="Documentation">
-    <Icon name="book" />
-    <span class="full-label">Documentation</span><span class="short-label">Help</span>
-  </a>
-{/if}
+<!-- A new tab, like every other link into the manual: the manual has no way back to the app. -->
+<a class="button auth-button docs-link" class:quiet href={manualUrl()} target="_blank" rel="noopener" aria-label="Documentation" title="Documentation">
+  <Icon name="book" />
+  <span class="full-label">Documentation</span><span class="short-label">Help</span>
+</a>
 
 <style>
   .docs-link {

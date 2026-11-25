@@ -19,6 +19,8 @@
   import { buildDownloadOptionsPatch, downloadOptionsFromResolved, mergeSettingsPatch, profileSettingsSections, rebaseOptions, changedOptions, type DownloadOptions } from './download-options';
   import JobTypeNav, { jobChoiceMetadata } from './JobTypeNav.svelte';
   import JobInputs from './JobInputs.svelte';
+  import HelpPopover from '../../components/HelpPopover.svelte';
+  import ManualLink from '../../components/ManualLink.svelte';
   import CsvMapping from './CsvMapping.svelte';
   import ImportOptionsPanel from './ImportOptions.svelte';
   import { buildImportPatch, createImportOptions, importOptionsCustomized, importOptionsFromResolved, type ImportOptions } from './import-options';
@@ -359,7 +361,17 @@
     <JobTypeNav value={draft.choice} onchange={choose} />
     <div class="new-job-workspace">
       <div class="new-job-scroll-area">
-        <header class="new-job-current-choice"><div><strong>{choiceMetadata.label}</strong><small>{choiceMetadata.detail}</small></div>
+        <header class="new-job-current-choice"><div><strong>{choiceMetadata.label}</strong><small>{choiceMetadata.detail}</small>
+          <!-- What the input needs, with the manual's section for it. -->
+          {#if draft.choice === 'csv'}
+            <HelpPopover title="CSV file" testId="csv-input-help">A row with a track title is a song; a row without one is an album. Only a title or album column is needed, and columns with common names are found automatically. <ManualLink topic="csvInput">CSV files in the manual</ManualLink></HelpPopover>
+          {:else if draft.choice === 'list'}
+            <HelpPopover title="List file" testId="list-input-help">One input per line: a search string, a URL or the path of another file. Conditions for that line can follow it, separated by at least two spaces or a tab. <ManualLink topic="listInput">List files in the manual</ManualLink></HelpPopover>
+          {:else if draft.choice === 'spotify'}
+            <HelpPopover title="Spotify input" testId="spotify-input-help">Liked songs and albums use the Spotify account configured for the daemon. <ManualLink topic="spotifyInput">Setting up Spotify</ManualLink></HelpPopover>
+          {:else if draft.choice === 'soundcloud'}
+            <HelpPopover title="SoundCloud input" testId="soundcloud-input-help">SoundCloud needs an OAuth token in the daemon's config, also for public items. <ManualLink topic="soundcloudInput">Setting up SoundCloud</ManualLink></HelpPopover>
+          {/if}</div>
           <ProfilePicker value={profileNames} applied={appliedProfiles} disabled={Boolean(preview.committing)} onchange={selectProfiles} />
         </header>
         <div class="new-job-config">

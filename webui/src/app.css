@@ -2807,6 +2807,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .new-job-current-choice { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 3px; }
 .new-job-current-choice > div { min-width: 0; display: flex; align-items: baseline; gap: 9px; }
 .new-job-current-choice strong { font-size: .88rem; font-weight: 650; }
+.new-job-current-choice .help-popover { align-self: center; }
 .new-job-current-choice small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .66rem; }
 .new-job-config { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 10px; }
 .new-job-config > label:not(.new-job-drop-zone),
