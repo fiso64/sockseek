@@ -606,6 +606,9 @@ test.describe('live album conditions', () => {
     await expect(preferredHelp).toBeFocused();
     await preferredHelp.press('Enter');
     await expect(preferredExplanation).toBeVisible();
+    // Focus moves into the popover, through its controls in reading order.
+    await page.keyboard.press('Tab');
+    await expect(preferredExplanation.getByTestId('manual-fileConditions')).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(preferredExplanation.getByTestId('edit-search-preferences')).toBeFocused();
     await page.getByRole('heading', { name: 'Album', exact: true }).click();
