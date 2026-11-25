@@ -120,17 +120,22 @@ public sealed partial class SqliteShareCatalogBuilder : IShareCatalogGenerationW
                     comparison_alias BLOB NOT NULL UNIQUE
                 );
 
-                CREATE TABLE path_identities (
-                    comparison_path BLOB PRIMARY KEY,
+                -- A file and a directory may not share a path. Only the scan
+                -- asks, so the answer lives with this connection and is gone
+                -- when the generation is published.
+                CREATE TEMP TABLE path_identities (
+                    remote_path TEXT PRIMARY KEY,
                     kind TEXT NOT NULL
                 ) WITHOUT ROWID;
 
+                -- A path is stored once per row. remote_path compares by its
+                -- UTF-8 bytes, which is the identity a peer's request carries,
+                -- and its unique index answers exact lookups and ordering.
                 CREATE TABLE directories (
                     directory_id INTEGER PRIMARY KEY,
                     root_id INTEGER NOT NULL,
                     relative_path TEXT NOT NULL,
-                    remote_path TEXT NOT NULL,
-                    comparison_path BLOB NOT NULL UNIQUE,
+                    remote_path TEXT NOT NULL UNIQUE,
                     FOREIGN KEY (root_id) REFERENCES roots(root_id)
                 );
 
@@ -138,12 +143,12 @@ public sealed partial class SqliteShareCatalogBuilder : IShareCatalogGenerationW
                     file_id INTEGER PRIMARY KEY,
                     root_id INTEGER NOT NULL,
                     directory_id INTEGER NOT NULL,
-                    relative_path TEXT NOT NULL,
-                    remote_path TEXT NOT NULL,
-                    comparison_path BLOB NOT NULL UNIQUE,
-                    search_text TEXT NOT NULL,
+                    -- Null when it is the remote path below its root with
+                    -- this system's separators, which is nearly always.
+                    relative_path TEXT,
+                    remote_path TEXT NOT NULL UNIQUE,
                     size_bytes INTEGER NOT NULL,
-                    modified_at_utc TEXT NOT NULL,
+                    modified_at_utc INTEGER NOT NULL,
                     protocol_code INTEGER NOT NULL,
                     extension TEXT NOT NULL,
                     attributes_json TEXT NOT NULL,
@@ -151,12 +156,8 @@ public sealed partial class SqliteShareCatalogBuilder : IShareCatalogGenerationW
                     FOREIGN KEY (directory_id) REFERENCES directories(directory_id)
                 );
 
-                CREATE INDEX idx_directories_remote_path
-                    ON directories(remote_path);
                 CREATE INDEX idx_files_directory
                     ON files(directory_id, remote_path);
-                CREATE INDEX idx_files_root_relative
-                    ON files(root_id, relative_path);
 
                 -- File facts live only in files. The contentless FTS index owns
                 -- tokens and aligned row IDs, so matching never reads a second
@@ -294,9 +295,15 @@ public sealed partial class SqliteShareCatalogBuilder : IShareCatalogGenerationW
             command.Transaction = indexing;
             command.CommandText = """
                 INSERT INTO file_search(rowid, ascii_terms, unicode_terms)
-                SELECT file.file_id, share_search_terms(file.search_text, 1), share_search_terms(file.search_text, 0)
-                FROM files file
-                WHERE NOT EXISTS (SELECT 1 FROM file_search existing WHERE existing.rowid = file.file_id);
+                SELECT file.file_id,
+                    share_search_terms(replace(file.remote_path, char(92), ' '), 1),
+                    share_search_terms(replace(file.remote_path, char(92), ' '), 0)
+                -- Read the table itself, in row order: the path index also holds
+                -- every value needed here, but feeding the search index rows in
+                -- path order leaves it measurably slower to query.
+                FROM files file NOT INDEXED
+                WHERE NOT EXISTS (SELECT 1 FROM file_search existing WHERE existing.rowid = file.file_id)
+                ORDER BY file.file_id;
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             await indexing.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -379,10 +386,10 @@ public sealed partial class SqliteShareCatalogBuilder : IShareCatalogGenerationW
             writer.Execute(cancellationToken);
         }
 
-        private void AddIdentity(byte[] path, string kind, CancellationToken cancellationToken)
+        private void AddIdentity(string path, string kind, CancellationToken cancellationToken)
         {
             var writer = identities ??= new(connection, transaction, """
-                INSERT INTO path_identities(comparison_path, kind) VALUES($path, $kind);
+                INSERT INTO temp.path_identities(remote_path, kind) VALUES($path, $kind);
                 """);
             writer.Bind(0, path);
             writer.Bind(1, kind);
@@ -391,42 +398,37 @@ public sealed partial class SqliteShareCatalogBuilder : IShareCatalogGenerationW
 
         public void AddDirectory(ShareCatalogDirectory directory, CancellationToken cancellationToken)
         {
-            byte[] path = directory.ComparisonPath.ToArray();
-            AddIdentity(path, "directory", cancellationToken);
+            AddIdentity(directory.RemotePath, "directory", cancellationToken);
             var writer = directories ??= new(connection, transaction, """
-                INSERT INTO directories(directory_id, root_id, relative_path, remote_path, comparison_path)
-                VALUES($id, $root, $relative, $remote, $comparison);
+                INSERT INTO directories(directory_id, root_id, relative_path, remote_path)
+                VALUES($id, $root, $relative, $remote);
                 """);
             writer.Bind(0, directory.DirectoryId);
             writer.Bind(1, directory.RootId);
             writer.Bind(2, directory.RelativePath);
             writer.Bind(3, directory.RemotePath);
-            writer.Bind(4, path);
             writer.Execute(cancellationToken);
         }
 
         public void AddFile(ShareCatalogFile file, CancellationToken cancellationToken)
         {
-            byte[] path = file.ComparisonPath.ToArray();
-            AddIdentity(path, "file", cancellationToken);
+            AddIdentity(file.RemotePath, "file", cancellationToken);
             var writer = files ??= new(connection, transaction, """
                 INSERT INTO files(file_id, root_id, directory_id, relative_path, remote_path,
-                    comparison_path, search_text, size_bytes, modified_at_utc, protocol_code, extension, attributes_json)
-                VALUES($id, $root, $directory, $relative, $remote, $comparison,
-                    $search, $size, $modified, $code, $extension, $attributes);
+                    size_bytes, modified_at_utc, protocol_code, extension, attributes_json)
+                VALUES($id, $root, $directory, $relative, $remote,
+                    $size, $modified, $code, $extension, $attributes);
                 """);
             writer.Bind(0, file.FileId);
             writer.Bind(1, file.RootId);
             writer.Bind(2, file.DirectoryId);
-            writer.Bind(3, file.RelativePath);
+            writer.Bind(3, LocalPathBelowRoot(file.RemotePath) == file.RelativePath ? null : file.RelativePath);
             writer.Bind(4, file.RemotePath);
-            writer.Bind(5, path);
-            writer.Bind(6, file.SearchText);
-            writer.Bind(7, file.SizeBytes);
-            writer.Bind(8, Format(file.ModifiedAtUtc));
-            writer.Bind(9, (long)file.ProtocolCode);
-            writer.Bind(10, file.Extension);
-            writer.Bind(11, JsonSerializer.Serialize(file.Attributes));
+            writer.Bind(5, file.SizeBytes);
+            writer.Bind(6, file.ModifiedAtUtc.UtcTicks);
+            writer.Bind(7, (long)file.ProtocolCode);
+            writer.Bind(8, file.Extension);
+            writer.Bind(9, JsonSerializer.Serialize(file.Attributes));
             writer.Execute(cancellationToken);
         }
 
@@ -438,6 +440,13 @@ public sealed partial class SqliteShareCatalogBuilder : IShareCatalogGenerationW
             files?.Dispose();
         }
     }
+
+    /// <summary>
+    /// The local path a remote path stands for when nothing was renamed on the
+    /// way: everything below the share's name, with this system's separators.
+    /// </summary>
+    internal static string LocalPathBelowRoot(string remotePath)
+        => remotePath[(remotePath.IndexOf('\\') + 1)..].Replace('\\', Path.DirectorySeparatorChar);
 
     private static void Add(SqliteCommand command, string name, object? value)
         => command.Parameters.AddWithValue(name, value ?? DBNull.Value);
@@ -596,10 +605,11 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
                     r.alias, r.local_path, r.comparison_alias
              FROM files f
              INNER JOIN roots r ON r.root_id = f.root_id
-             WHERE f.comparison_path = $comparison_path
+             WHERE f.remote_path = $remote_path
              LIMIT 1;
              """;
-        command.Parameters.AddWithValue("$comparison_path", remotePath.ToArray());
+        string requested = Encoding.UTF8.GetString(remotePath.ToArray());
+        command.Parameters.AddWithValue("$remote_path", requested);
 
         ShareCatalogResolvedFile? exact = await ReadResolvedAsync(command, remotePath, cancellationToken).ConfigureAwait(false);
         if (exact is not null) return exact;
@@ -607,7 +617,6 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         // Soulseek NS requests the paths it was given in lower case. Find the
         // one file whose path differs only by case, through the word index so
         // that a miss never scans the catalog.
-        string requested = Encoding.UTF8.GetString(remotePath.ToArray());
         if (requested.Any(char.IsUpper)) return null;
         // Every word of the path narrows the candidates to this file's folder.
         string words = string.Join(" AND ", SearchTermRegex().Matches(requested)
@@ -640,9 +649,9 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         ShareCatalogFile file = ReadFile(reader, 0, comparisonPath);
         var root = new ShareCatalogRoot(
             file.RootId,
-            reader.GetString(12),
-            reader.GetString(13),
-            RemotePathKey.CreateAlias(reader.GetString(12)));
+            reader.GetString(FileColumnCount),
+            reader.GetString(FileColumnCount + 1),
+            RemotePathKey.CreateAlias(reader.GetString(FileColumnCount)));
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? null : new ShareCatalogResolvedFile(root, file);
     }
 
@@ -793,12 +802,12 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         {
             command.CommandText =
                 """
-                SELECT directory_id, root_id, relative_path, remote_path, comparison_path
+                SELECT directory_id, root_id, relative_path, remote_path
                 FROM directories
-                WHERE comparison_path = $comparison_path
+                WHERE remote_path = $remote_path
                 LIMIT 1;
                 """;
-            command.Parameters.AddWithValue("$comparison_path", remotePath.ToArray());
+            command.Parameters.AddWithValue("$remote_path", Encoding.UTF8.GetString(remotePath.ToArray()));
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             directory = await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
                 ? ReadDirectory(reader, 0)
@@ -833,7 +842,6 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
         command.CommandText =
             $"""
              SELECT d.directory_id, d.root_id, d.relative_path, d.remote_path,
-                    d.comparison_path,
                     COUNT(f.file_id) OVER (PARTITION BY d.directory_id) AS file_count,
                     {FileColumns("f")}
              FROM directories d
@@ -849,7 +857,7 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
             if (currentDirectoryId != directoryId)
             {
                 currentDirectoryId = directoryId;
-                long count = reader.GetInt64(5);
+                long count = reader.GetInt64(4);
                 if (count > int.MaxValue)
                 {
                     throw new BrowseArtifactOversizeException(
@@ -861,8 +869,8 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
                     checked((int)count));
             }
 
-            if (!reader.IsDBNull(6))
-                yield return new ShareCatalogBrowseFileRow(ReadFile(reader, 6));
+            if (!reader.IsDBNull(5))
+                yield return new ShareCatalogBrowseFileRow(ReadFile(reader, 5));
         }
     }
 
@@ -919,30 +927,31 @@ public sealed partial class SqliteShareCatalogReader : IShareCatalogReader
     {
         string remotePath = reader.GetString(offset + 4);
         IReadOnlyList<ShareFileAttribute> attributes =
-            JsonSerializer.Deserialize<List<ShareFileAttribute>>(reader.GetString(offset + 11))
+            JsonSerializer.Deserialize<List<ShareFileAttribute>>(reader.GetString(offset + 9))
             ?? [];
 
         return new ShareCatalogFile(
             reader.GetInt64(offset),
             reader.GetInt64(offset + 1),
             reader.GetInt64(offset + 2),
-            reader.GetString(offset + 3),
+            reader.IsDBNull(offset + 3) ? SqliteShareCatalogBuilder.LocalPathBelowRoot(remotePath) : reader.GetString(offset + 3),
             remotePath,
             comparisonPath ?? RemotePathKey.Create(remotePath),
-            reader.GetString(offset + 5),
-            reader.GetInt64(offset + 6),
-            ParseDate(reader.GetString(offset + 7)),
-            reader.GetInt32(offset + 8),
-            reader.GetString(offset + 9),
+            reader.GetInt64(offset + 5),
+            new DateTimeOffset(reader.GetInt64(offset + 6), TimeSpan.Zero),
+            reader.GetInt32(offset + 7),
+            reader.GetString(offset + 8),
             attributes);
     }
+
+    private const int FileColumnCount = 10;
 
     private static string FileColumns(string alias)
         => $"""
             {alias}.file_id, {alias}.root_id, {alias}.directory_id,
-            {alias}.relative_path, {alias}.remote_path, {alias}.search_text,
+            {alias}.relative_path, {alias}.remote_path,
             {alias}.size_bytes, {alias}.modified_at_utc,
-            {alias}.protocol_code, {alias}.extension, {alias}.comparison_path,
+            {alias}.protocol_code, {alias}.extension,
             {alias}.attributes_json
             """;
 

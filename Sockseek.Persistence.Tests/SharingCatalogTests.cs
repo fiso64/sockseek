@@ -144,16 +144,29 @@ public sealed class SharingCatalogTests
         // search entries or reintroduce the rejected path above.
         var later = CatalogFixture.CreateFile(2, root, catalogDirectory, @"Artist\Later.flac", @"Music\Artist\Later.flac");
         await builder.AddFileAsync(later);
+        // The local path is kept whether or not it follows from the remote one.
+        var renamed = CatalogFixture.CreateFile(3, root, catalogDirectory,
+            Path.Combine("Elsewhere", "Local name.flac"), @"Music\Artist\Renamed.flac");
+        var plain = CatalogFixture.CreateFile(4, root, catalogDirectory,
+            Path.Combine("Artist", "Plain.flac"), @"Music\Artist\Plain.flac");
+        await builder.AddFileAsync(renamed);
+        await builder.AddFileAsync(plain);
         await builder.PrepareForReadAsync();
         await builder.PrepareForReadAsync();
-        await builder.CompleteAsync(metadata with { FileCount = 2, TotalBytes = 2468 });
+        await builder.CompleteAsync(metadata with { FileCount = 4, TotalBytes = 4936 });
         await using var reader = await SqliteShareCatalogReader.OpenAsync(databasePath);
         var restored = (await reader.ResolveFileAsync(valid.ComparisonPath))!.File;
         Assert.AreEqual(valid.RemotePath, restored.RemotePath);
         CollectionAssert.AreEqual(valid.Attributes.ToArray(), restored.Attributes.ToArray());
         Assert.AreEqual(1, (await reader.SearchAsync("Valid", 500, [])).Count);
         Assert.AreEqual(later.RemotePath, (await reader.SearchAsync("Later", 500, [])).Single().Filename);
-        Assert.AreEqual(2, (await reader.SearchAsync("Music", 500, [])).Count);
+        Assert.AreEqual(4, (await reader.SearchAsync("Music", 500, [])).Count);
+        foreach (ShareCatalogFile file in new[] { valid, later, renamed, plain })
+        {
+            ShareCatalogFile read = (await reader.ResolveFileAsync(file.ComparisonPath))!.File;
+            Assert.AreEqual(file.RelativePath, read.RelativePath);
+            Assert.AreEqual(file.ModifiedAtUtc, read.ModifiedAtUtc);
+        }
     }
 
     [TestMethod]
@@ -336,7 +349,6 @@ public sealed class SharingCatalogTests
                 relativePath,
                 remotePath,
                 RemotePathKey.Create(remotePath),
-                remotePath.Replace('\\', ' '),
                 1234,
                 DateTimeOffset.UnixEpoch,
                 1,

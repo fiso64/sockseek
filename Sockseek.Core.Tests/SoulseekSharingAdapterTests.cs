@@ -281,7 +281,6 @@ public sealed class SoulseekSharingAdapterTests
             remotePath[(remotePath.IndexOf('\\') + 1)..],
             remotePath,
             RemotePathKey.Create(remotePath),
-            remotePath,
             100,
             DateTimeOffset.UnixEpoch,
             1,

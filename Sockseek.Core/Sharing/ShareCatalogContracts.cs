@@ -4,7 +4,7 @@ namespace Sockseek.Core.Sharing;
 
 public static class ShareCatalogVersions
 {
-    public const int Schema = 7;
+    public const int Schema = 8;
     public const int BrowseWire = 1;
 }
 
@@ -51,7 +51,6 @@ public sealed record ShareCatalogFile(
     string RelativePath,
     string RemotePath,
     RemotePathKey ComparisonPath,
-    string SearchText,
     long SizeBytes,
     DateTimeOffset ModifiedAtUtc,
     int ProtocolCode,

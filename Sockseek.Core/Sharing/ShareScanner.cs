@@ -452,7 +452,6 @@ public sealed class ShareScanner
                     candidate.RelativePath,
                     candidate.RemotePath,
                     candidate.RemotePathKey,
-                    candidate.RemotePath.Replace('\\', ' '),
                     opened.Fingerprint.SizeBytes,
                     opened.Fingerprint.LastWriteTimeUtc,
                     1,

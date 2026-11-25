@@ -34,7 +34,6 @@ public sealed class SoulseekBrowseArtifactBuilderTests
             @"Artist\Track.flac",
             @"Music\Artist\Track.flac",
             RemotePathKey.Create(@"Music\Artist\Track.flac"),
-            "music artist track flac",
             1234,
             DateTimeOffset.UnixEpoch,
             1,

@@ -627,7 +627,6 @@ public sealed class UploadPersistenceTests
                 name,
                 remotePath,
                 RemotePathKey.Create(remotePath),
-                name,
                 100,
                 DateTimeOffset.UnixEpoch,
                 1,

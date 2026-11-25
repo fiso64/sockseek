@@ -494,7 +494,6 @@ public sealed class UploadCoordinatorTests
                     entry.Name,
                     remotePath,
                     RemotePathKey.Create(remotePath),
-                    entry.Name,
                     opened.Fingerprint.SizeBytes,
                     opened.Fingerprint.LastWriteTimeUtc,
                     1,
