@@ -21,10 +21,13 @@ public sealed class DaemonConfigWatcherTests
         await fixture.StartRuntimeAsync();
         Assert.AreEqual("light", fixture.ServerOptions.WebUi.Theme);
         Assert.AreEqual("song-groups", fixture.ServerOptions.WebUi.DefaultSearchMode);
-        fixture.Write("web-theme = auto\nweb-default-search-mode = album-groups");
+        fixture.Write("web-theme = auto\nweb-default-search-mode = album-groups\nno-docs = true\nno-update-check = true\nweb-session-lifetime = 1.00:00:00");
         Assert.IsTrue(await fixture.Watcher.ReloadAsync());
         Assert.AreEqual("auto", fixture.ServerOptions.WebUi.Theme);
         Assert.AreEqual("song-groups", fixture.ServerOptions.WebUi.DefaultSearchMode);
+        Assert.IsFalse(fixture.ServerOptions.ServeDocumentation);
+        Assert.IsFalse(fixture.ServerOptions.CheckForUpdates);
+        Assert.AreEqual(TimeSpan.FromDays(1), fixture.ServerOptions.Authentication.SessionLifetime);
         Assert.IsFalse(fixture.Supervisor.GetStatus().Configuration!.RestartRequired);
         foreach (string theme in new[] { "2009-dark", "2009-light" })
         {

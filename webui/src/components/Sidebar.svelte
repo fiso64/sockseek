@@ -7,11 +7,12 @@
     downloadCount: number;
     uploadCount: number;
     unreadChats: number;
+    updateAvailable: boolean;
     placement?: 'primary' | 'secondary';
     onnavigate: (page: PageId) => void;
   }
 
-  let { activePage, downloadCount, uploadCount, unreadChats, placement = 'primary', onnavigate }: Props = $props();
+  let { activePage, downloadCount, uploadCount, unreadChats, updateAvailable, placement = 'primary', onnavigate }: Props = $props();
   let items = $derived(navigationItems.filter((item) => item.placement === placement));
 
   function countFor(id: PageId): number | null {
@@ -44,6 +45,9 @@
       <span class="nav-label">{item.label}</span>
       {#if count !== null && count > 0}
         <span class:unread={item.id === 'chat'} class="nav-count" title={countTitle(item.id)}>{count}</span>
+      {/if}
+      {#if item.id === 'system' && updateAvailable}
+        <span class="nav-count unread" title="A newer version is available" data-testid="nav-update">↑</span>
       {/if}
     </button>
   {/each}

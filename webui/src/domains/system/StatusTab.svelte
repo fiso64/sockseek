@@ -10,6 +10,7 @@
   import Notice from '../../components/Notice.svelte';
   import LinkifiedText from '../../components/LinkifiedText.svelte';
   import ProfilePicture from '../../components/ProfilePicture.svelte';
+  import { dismissedUpdate } from './update.svelte';
 
   let { daemon, liveStatus, liveClient, onloadingchange }: {
     liveClient: DaemonLiveClient;
@@ -55,6 +56,7 @@
   });
 
   $effect(() => onloadingchange(!status && !error));
+  const update = $derived(daemon?.update && daemon.update.version !== dismissedUpdate.version ? daemon.update : null);
 
   // Live counters/status already arrive through App's stream. Fetch storage and
   // connection details on entry, reconnect or retry, without polling.
@@ -77,6 +79,9 @@
 </script>
 
 {#if error}<Notice variant="unavailable">{error}<button class="button auth-button" onclick={() => retry++}>Retry</button></Notice>{/if}
+{#if update}
+  <div data-testid="update-notice"><Notice variant="info" ondismiss={() => dismissedUpdate.dismiss(update.version)}>Sockseek {update.version} is available. <a class="text-link" href={update.url} target="_blank" rel="noopener">Release notes</a></Notice></div>
+{/if}
 <div class="status-grid">
   <!-- Keep the card's place while status loads, like the other cards' placeholders. -->
   {#if !status || profile}
@@ -139,7 +144,7 @@
   <section class="panel status-card" aria-labelledby="daemon-heading">
     <h2 id="daemon-heading">Daemon</h2>
     <dl>
-      <div><dt>Version</dt><dd>{info?.version ?? '—'}</dd></div>
+      <div><dt>Version</dt><dd>{info?.version ?? '—'}{#if daemon?.update}{' · '}<a class="text-link" href={daemon.update.url} target="_blank" rel="noopener" data-testid="update-available">{daemon.update.version} available</a>{/if}</dd></div>
       <div><dt>Started</dt><dd>{date(info?.startedAtUtc)}</dd></div>
       <div><dt>Browser connection</dt><dd class:healthy={liveStatus === 'connected'}>{humanizeStateValue(liveStatus)}</dd></div>
       <div><dt>Authentication</dt><dd>{browserSession.data?.authenticationEnabled ? 'Enabled' : 'Disabled'}</dd></div>

@@ -22,8 +22,11 @@ public class DaemonSettings
     [Required, RegularExpression("^(generic|track|album|song-groups|album-groups)$")]
     public string WebDefaultSearchMode { get; set; } = Defaults.WebUi.DefaultSearchMode;
 
-    [SettingOption("--no-docs", Negate = true, DefaultProfileOnly = true)]
+    [SettingOption("--no-docs", Negate = true, DefaultProfileOnly = true), SettingReloadable]
     public bool ServeDocumentation { get; set; } = Defaults.ServeDocumentation;
+
+    [SettingOption("--no-update-check", Negate = true, DefaultProfileOnly = true), SettingReloadable]
+    public bool CheckForUpdates { get; set; } = true;
 
     [SettingOption("--no-config-watch", DefaultProfileOnly = true)]
     public bool NoConfigWatch { get; set; }
@@ -34,7 +37,7 @@ public class DaemonSettings
     public string? WebPasswordFile { get; set; }
     [SettingOption("--web-password-hash", DefaultProfileOnly = true)]
     public string? WebPasswordHash { get; set; }
-    [SettingOption("--web-session-lifetime", Parser = nameof(ParseSessionLifetime), DefaultProfileOnly = true)]
+    [SettingOption("--web-session-lifetime", Parser = nameof(ParseSessionLifetime), DefaultProfileOnly = true), SettingReloadable]
     public TimeSpan WebSessionLifetime { get; set; } = Defaults.Authentication.SessionLifetime;
     [SettingOption("--trusted-proxies", ListSyntax = OptionListSyntax.CommaSeparated, DefaultProfileOnly = true)]
     public string[] TrustedProxies { get; set; } = [.. Defaults.Authentication.TrustedProxies];
@@ -89,15 +92,13 @@ public class DaemonSettings
         var daemonEngine = SettingsCloner.Clone(engine);
         if (daemonEngine.LogLevel == LogLevel.Information)
             daemonEngine.LogLevel = LogLevel.Debug;
-        return new ServerOptions
+        var options = new ServerOptions
         {
             Authentication = CreateAuthenticationOptions(),
-            WebUi = CreateWebUiOptions(),
 #if EMBEDDED_WEB_ASSETS
             WebAssetsAssembly = typeof(DaemonSettings).Assembly,
 #endif
             WebUiDirectory = WebUiDirectory,
-            ServeDocumentation = ServeDocumentation,
             Engine = daemonEngine,
             LaunchDownloadSettings = DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings),
             LaunchProfileNames = invocation.ProfileName?
@@ -116,9 +117,22 @@ public class DaemonSettings
                 RoomMessageHistoryAge = RoomMessageRetention,
             },
         };
+        ApplyReloadable(options);
+        return options;
     }
 
-    public Server.WebUiOptions CreateWebUiOptions() => new(WebTheme, WebDefaultSearchMode);
+    /// <summary>
+    /// Every <see cref="SettingReloadableAttribute"/> setting of this class, written
+    /// to the host's options: at startup, and again on each config reload. The
+    /// host reads these where it uses them, so a reload costs nothing until then.
+    /// </summary>
+    public void ApplyReloadable(ServerOptions options)
+    {
+        options.WebUi = new(WebTheme, WebDefaultSearchMode);
+        options.ServeDocumentation = ServeDocumentation;
+        options.CheckForUpdates = CheckForUpdates;
+        options.Authentication.SessionLifetime = WebSessionLifetime;
+    }
 
     private Server.Authentication.AuthenticationOptions CreateAuthenticationOptions() => new()
     {

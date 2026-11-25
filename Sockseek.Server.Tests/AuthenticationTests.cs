@@ -47,8 +47,8 @@ public sealed class AuthenticationTests
             await File.WriteAllTextAsync(Path.Combine(ui, "api", "route.json"), "asset");
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = root });
             builder.Logging.ClearProviders();
-            builder.Services.AddSingleton<IOptions<ServerOptions>>(Options.Create(new ServerOptions
-                { ServeDocumentation = enabled, WebUiDirectory = customUi ? ui : null }));
+            var options = new ServerOptions { ServeDocumentation = enabled, WebUiDirectory = customUi ? ui : null };
+            builder.Services.AddSingleton<IOptions<ServerOptions>>(Options.Create(options));
             await using var app = builder.Build();
             app.Urls.Add("http://127.0.0.1:0");
             WebUiHosting.Map(app);
@@ -67,6 +67,11 @@ public sealed class AuthenticationTests
             StringAssert.Contains(await client.GetStringAsync("/jobs/selected"), """<base href="../">""");
             Assert.AreEqual("api", await client.GetStringAsync("/api/route.json"));
             Assert.AreEqual(customUi ? HttpStatusCode.NotFound : HttpStatusCode.OK, (await client.GetAsync("/stock.js")).StatusCode);
+
+            // A config reload changes the option on the running host.
+            options.ServeDocumentation = !enabled;
+            Assert.AreEqual(enabled ? HttpStatusCode.NotFound : HttpStatusCode.OK, (await client.GetAsync("/docs/")).StatusCode);
+            Assert.AreEqual(!enabled, (await client.GetStringAsync("/")).Contains("data-docs"));
         }
         finally { Directory.Delete(root, recursive: true); }
     }

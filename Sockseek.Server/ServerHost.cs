@@ -298,6 +298,8 @@ public static class ServerHost
         builder.Services.AddSingleton<ServerEventBroadcaster>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<ServerEventBroadcaster>());
         builder.Services.AddHostedService<EngineRuntimeHostedService>();
+        builder.Services.AddSingleton<UpdateCheck>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<UpdateCheck>());
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SearchViewCoordinator>());
 
         configureServices?.Invoke(builder.Services);

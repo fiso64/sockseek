@@ -186,7 +186,9 @@ public sealed record DaemonStateDto(
     // Post-commit invalidation for retained transfer analytics. Active progress
     // can also change accounting, so clients keep their periodic fallback.
     long TerminalTransferCommitRevision = 0,
-    ConfigurationStatusDto? Configuration = null);
+    ConfigurationStatusDto? Configuration = null,
+    // Null when the daemon is current, has not checked yet or does not check.
+    AvailableUpdateDto? Update = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<DaemonFeatureState>))]
 public enum DaemonFeatureState

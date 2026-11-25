@@ -202,7 +202,7 @@ internal sealed partial class DaemonConfigWatcher : BackgroundService
 
             applying = true;
             WatchPicture(engine.UserPicturePath);
-            await supervisor.Runtime.ReloadConfigurationAsync(engine, daemon.CreateWebUiOptions(), cancellationToken, profilePictureChanged: refreshPicture).ConfigureAwait(false);
+            await supervisor.Runtime.ReloadConfigurationAsync(engine, daemon.ApplyReloadable, cancellationToken, profilePictureChanged: refreshPicture).ConfigureAwait(false);
             supervisor.Submissions.ReloadProfiles(profiles);
             restartRequired = restartChanges.Length != 0;
             if (text != appliedText) revision++;

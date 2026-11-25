@@ -8,6 +8,7 @@
   import type { UserBrowseDraft } from './GlobalSearch.svelte';
   import { keyboardShortcutsBlocked } from '../lib/keyboard';
   import Sidebar from './Sidebar.svelte';
+  import { dismissedUpdate } from '../domains/system/update.svelte';
 
   interface Props {
     activePage: PageId;
@@ -45,6 +46,7 @@
   let downloadCount = $derived(liveState.activitySummary.downloads);
   let uploadCount = $derived(liveState.activitySummary.uploads);
   let unreadChats = $derived(Number(liveState.daemon?.chat.unreadPrivateMessageCount ?? 0) + Number(liveState.daemon?.chat.unreadRoomMessageCount ?? 0));
+  let updateAvailable = $derived(Boolean(liveState.daemon?.update) && liveState.daemon?.update?.version !== dismissedUpdate.version);
   let soulseek = $derived(soulseekStatusLabel(liveState.daemon?.soulseekClient, liveStatus));
   let connectionLabel = $derived(daemonReachable ? soulseek : `Daemon ${liveStatus === 'offline' ? 'disconnected' : humanizeStateValue(liveStatus).toLowerCase()}`);
   function navigateByKey(event: KeyboardEvent): void {
@@ -63,7 +65,7 @@
       <span class="brand-copy"><strong>sockseek</strong></span>
     </button>
 
-    <Sidebar {activePage} {downloadCount} {uploadCount} {unreadChats} {onnavigate} />
+    <Sidebar {activePage} {downloadCount} {uploadCount} {unreadChats} {updateAvailable} {onnavigate} />
     <div class="sidebar-spacer"></div>
 
     <div class="connection-status">
@@ -73,7 +75,7 @@
       </div>
     </div>
 
-    <Sidebar {activePage} {downloadCount} {uploadCount} {unreadChats} placement="secondary" {onnavigate} />
+    <Sidebar {activePage} {downloadCount} {uploadCount} {unreadChats} {updateAvailable} placement="secondary" {onnavigate} />
   </aside>
 
   <div class="workspace">

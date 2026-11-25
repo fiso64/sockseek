@@ -118,7 +118,7 @@ public sealed class ChatApiTests
                     UploadAccess = new() { BlockedUsernames = ["Alice"] },
                 },
             };
-            await supervisor.Runtime.ReloadConfigurationAsync(changedSettings, new());
+            await supervisor.Runtime.ReloadConfigurationAsync(changedSettings, _ => { });
             Assert.IsTrue(restrictionChanges.Any(change => change.Conversation?.ConversationId == conversation.ConversationId
                 && change.Conversation.PrivateMessagesBlocked));
             Assert.IsTrue((await api.GetConversationAsync(conversation.ConversationId))!.PrivateMessagesBlocked);
@@ -127,7 +127,7 @@ public sealed class ChatApiTests
             Assert.IsTrue(profile.UploadAccessBlocked);
             Assert.IsFalse(policy.IsPrivateMessageBlocked("alice"));
             restrictionChanges.Clear();
-            await supervisor.Runtime.ReloadConfigurationAsync(new EngineSettings(), new());
+            await supervisor.Runtime.ReloadConfigurationAsync(new EngineSettings(), _ => { });
             Assert.IsTrue(restrictionChanges.Any(change => change.Conversation?.ConversationId == conversation.ConversationId
                 && !change.Conversation.PrivateMessagesBlocked));
             Assert.IsFalse((await api.GetConversationAsync(conversation.ConversationId))!.PrivateMessagesBlocked);

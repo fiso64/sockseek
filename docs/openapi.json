@@ -12070,6 +12070,21 @@
           }
         }
       },
+      "AvailableUpdateDto": {
+        "required": [
+          "version",
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
       "BandcampSettingsPatchDto": {
         "type": "object",
         "properties": {
@@ -14240,6 +14255,16 @@
               },
               {
                 "$ref": "#/components/schemas/ConfigurationStatusDto"
+              }
+            ]
+          },
+          "update": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AvailableUpdateDto"
               }
             ]
           }
@@ -18051,6 +18076,21 @@
                         ],
                         "format": "int32",
                         "default": 0
+                      }
+                    }
+                  },
+                  "update": {
+                    "required": [
+                      "version",
+                      "url"
+                    ],
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
                       }
                     }
                   }
@@ -26588,6 +26628,21 @@
                     "default": 0
                   }
                 }
+              },
+              "update": {
+                "required": [
+                  "version",
+                  "url"
+                ],
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                }
               }
             }
           },
@@ -29792,6 +29847,21 @@
                         ],
                         "format": "int32",
                         "default": 0
+                      }
+                    }
+                  },
+                  "update": {
+                    "required": [
+                      "version",
+                      "url"
+                    ],
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
                       }
                     }
                   }

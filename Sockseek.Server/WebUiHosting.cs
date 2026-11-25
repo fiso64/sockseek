@@ -19,7 +19,9 @@ internal static class WebUiHosting
 
         var manual = options.WebAssetsAssembly is { } manualAssembly ? new ManifestEmbeddedFileProvider(manualAssembly, "manual")
             : DirectoryFiles(Path.Combine(app.Environment.ContentRootPath, "manual"));
-        bool serveDocs = options.ServeDocumentation && manual.GetFileInfo("index.html").Exists;
+        // Reloadable, like the other options the shell reads per request.
+        bool hasManual = manual.GetFileInfo("index.html").Exists;
+        bool ServeDocs() => hasManual && options.ServeDocumentation;
         app.Map("/docs", docs =>
         {
             docs.Use((context, next) =>
@@ -27,10 +29,7 @@ internal static class WebUiHosting
                 context.Response.Headers["X-Robots-Tag"] = "noindex";
                 return next(context);
             });
-            if (serveDocs)
-            {
-                docs.UseFileServer(new FileServerOptions { FileProvider = manual });
-            }
+            docs.UseWhen(_ => ServeDocs(), served => served.UseFileServer(new FileServerOptions { FileProvider = manual }));
             docs.Run(context =>
             {
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -49,7 +48,6 @@ internal static class WebUiHosting
         }
         using var reader = new StreamReader(index.CreateReadStream());
         string template = reader.ReadToEnd();
-        string docsAttribute = serveDocs ? "data-docs " : "";
 
         Task Shell(HttpContext context)
         {
@@ -62,7 +60,7 @@ internal static class WebUiHosting
             };
             // Include preferences in the initial document: no bootstrap request
             // or wrong-theme flash, and no credentials in the public shell.
-            string attributes = $"{docsAttribute}style=\"color-scheme:{HtmlEncoder.Default.Encode(scheme)}\" "
+            string attributes = $"{(ServeDocs() ? "data-docs " : "")}style=\"color-scheme:{HtmlEncoder.Default.Encode(scheme)}\" "
                 + $"data-theme=\"{HtmlEncoder.Default.Encode(settings.Theme)}\" "
                 + $"data-search-mode=\"{HtmlEncoder.Default.Encode(settings.DefaultSearchMode)}\" ";
             context.Response.Headers.CacheControl = "no-cache";

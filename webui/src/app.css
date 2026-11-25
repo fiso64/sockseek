@@ -2360,6 +2360,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .loading-indicator.compact { padding: 0; }
 .loading-indicator.compact .resource-state-dot { width: 14px; height: 14px; border-width: 1.5px; }
 @keyframes resource-state-spin { to { transform: rotate(360deg); } }
+.resource-state-notice.info .resource-state-dot { background: var(--accent); }
 .resource-state-notice.degraded .resource-state-dot,
 .resource-state-notice.interrupted .resource-state-dot { background: var(--warning); }
 .resource-state-notice.unavailable .resource-state-dot,

@@ -42,7 +42,8 @@ sockseek daemon                 Start the HTTP/SignalR daemon
 --server-port <port>            Port for the daemon HTTP API (default: 5030)
 --data-dir <path>               Directory for daemon data, including sockseek.db
 --no-config-watch               Disable automatic daemon config-file reload
---no-docs                       Disable the bundled manual at /docs/ (requires restart)
+--no-docs                       Disable the bundled manual at /docs/
+--no-update-check               Do not ask GitHub daily whether a newer release exists
 ```
 
 ### WebUI and Access

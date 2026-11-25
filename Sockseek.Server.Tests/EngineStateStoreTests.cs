@@ -2473,4 +2473,41 @@ public class EngineStateStoreTests
         foreach (var search in expected.Searches)
             Assert.AreEqual(search, client.GetSearchState(search.JobId));
     }
+
+    // GitHub's release list as the update check reads it, newest first and in no version order.
+    private const string Releases = """
+        [{"tag_name":"v4.1.0-beta.1","html_url":"u/4.1.0-beta.1","draft":false},
+         {"tag_name":"v9.0.0","html_url":"u/9.0.0","draft":true},
+         {"tag_name":"v4.0.0","html_url":"u/4.0.0","draft":false},
+         {"tag_name":"v4.0.0-beta.10","html_url":"u/4.0.0-beta.10","draft":false},
+         {"tag_name":"v4.0.0-beta.2","html_url":"u/4.0.0-beta.2","draft":false},
+         {"tag_name":"nightly","html_url":"u/nightly","draft":false},
+         {"tag_name":"v3.1.0","html_url":"u/3.1.0","draft":false}]
+        """;
+
+    [TestMethod]
+    [DataRow("4.0.0-beta.2", "4.1.0-beta.1", DisplayName = "A prerelease is offered newer prereleases")]
+    [DataRow("3.1.0", "4.0.0", DisplayName = "A release is not offered prereleases")]
+    [DataRow("4.0.0", null, DisplayName = "A release with only prereleases above it is current")]
+    [DataRow("4.1.0-beta.1", null, DisplayName = "The newest prerelease is current")]
+    public void UpdateCheck_OffersTheNewestReleaseOnTheRunningChannel(string running, string? expected)
+    {
+        using var releases = System.Text.Json.JsonDocument.Parse(Releases);
+        Assert.IsTrue(ReleaseVersion.TryParse(running, out var current));
+
+        var update = UpdateCheck.Newest(current, releases.RootElement);
+
+        Assert.AreEqual(expected, update?.Version);
+        if (expected != null) Assert.AreEqual($"u/{expected}", update!.Url);
+    }
+
+    [TestMethod]
+    public void ReleaseVersions_FollowSemanticVersioningPrecedence()
+    {
+        string[] ascending = ["3.9.9", "4.0.0-alpha.1", "4.0.0-beta", "4.0.0-beta.2", "4.0.0-beta.10", "4.0.0-rc.1", "4.0.0", "4.0.1", "4.10.0"];
+        var parsed = ascending.Select(text => { Assert.IsTrue(ReleaseVersion.TryParse(text, out var version)); return version; }).ToArray();
+        CollectionAssert.AreEqual(parsed, parsed.Reverse().Order().ToArray());
+        Assert.IsTrue(ReleaseVersion.TryParse("v4.0.0-beta.2+abcdef12", out var tagged));
+        Assert.AreEqual("4.0.0-beta.2", tagged.ToString());
+    }
 }

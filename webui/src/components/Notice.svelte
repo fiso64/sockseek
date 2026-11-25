@@ -3,7 +3,7 @@
   import Icon from './Icon.svelte';
 
   let { variant = '', ondismiss, children }: {
-    variant?: '' | 'degraded' | 'unavailable' | 'loading';
+    variant?: '' | 'info' | 'degraded' | 'unavailable' | 'loading';
     ondismiss?: () => void;
     children: Snippet;
   } = $props();

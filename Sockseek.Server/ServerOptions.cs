@@ -11,6 +11,8 @@ public sealed class ServerOptions
     public System.Reflection.Assembly? WebAssetsAssembly { get; init; }
     public string? WebUiDirectory { get; set; }
     public bool ServeDocumentation { get; set; } = true;
+    /// <summary>Ask GitHub daily for a newer release. Off unless the host asks: the `sockseek daemon` launcher does.</summary>
+    public bool CheckForUpdates { get; set; }
     public string Name { get; set; } = "Sockseek";
     public Authentication.AuthenticationOptions Authentication { get; set; } = new();
     /// <summary>Maximum time allowed for graceful connection and service shutdown.</summary>

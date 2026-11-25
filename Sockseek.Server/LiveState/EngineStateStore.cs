@@ -617,6 +617,9 @@ public sealed class EngineStateStore
     public void UpdateConfigurationStatus(ConfigurationStatusDto status)
         => UpdateDaemonState(state => state with { Configuration = status });
 
+    public void UpdateAvailableUpdate(AvailableUpdateDto? update)
+        => UpdateDaemonState(state => state with { Update = update });
+
     public void UpdateSharingRuntime(SharingStateDto sharing, UploadRuntimeStateDto uploads)
         => UpdateDaemonState(state => state with { Sharing = sharing, Uploads = uploads });
 

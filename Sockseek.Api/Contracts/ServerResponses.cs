@@ -53,6 +53,9 @@ public sealed record ProcessMemoryDto(
 /// </summary>
 public sealed record LocalUserProfileDto(string Description, string? PictureUrl);
 
+/// <summary>A release newer than the running daemon, and the page that describes it.</summary>
+public sealed record AvailableUpdateDto(string Version, string Url);
+
 /// <summary>File reload state. Restart-required settings remain at their startup values.</summary>
 public sealed record ConfigurationStatusDto(bool Watching, bool RestartRequired, bool ReloadFailed,
     string? Error = null, int? ErrorLine = null, int Revision = 0);

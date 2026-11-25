@@ -10867,6 +10867,10 @@ export interface components {
             observedAtUtc: string;
             truncated: boolean;
         };
+        AvailableUpdateDto: {
+            version: string;
+            url: string;
+        };
         BandcampSettingsPatchDto: {
             htmlFromFile?: null | string;
         };
@@ -11382,6 +11386,7 @@ export interface components {
              */
             terminalTransferCommitRevision: number | string;
             configuration?: null | components["schemas"]["ConfigurationStatusDto"];
+            update?: null | components["schemas"]["AvailableUpdateDto"];
         };
         DashboardAnalyticsComparisonDto: {
             /** Format: date-time */
@@ -12179,6 +12184,10 @@ export interface components {
                          * @default 0
                          */
                         revision: number | string;
+                    };
+                    update?: {
+                        version: string;
+                        url: string;
                     };
                 };
                 workflows: {
@@ -14189,6 +14198,10 @@ export interface components {
                      */
                     revision: number | string;
                 };
+                update?: {
+                    version: string;
+                    url: string;
+                };
             };
             workflows: {
                 /** Format: int64 */
@@ -14958,6 +14971,10 @@ export interface components {
                          * @default 0
                          */
                         revision: number | string;
+                    };
+                    update?: {
+                        version: string;
+                        url: string;
                     };
                 };
                 workflows: {

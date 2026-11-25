@@ -263,7 +263,7 @@ public sealed class DaemonRuntime
     }
 
     /// <summary>Apply supported changes through the existing feature owners. Calls are serialized by the config watcher.</summary>
-    public async Task ReloadConfigurationAsync(EngineSettings candidate, WebUiOptions webUi,
+    public async Task ReloadConfigurationAsync(EngineSettings candidate, Action<ServerOptions> applyHostOptions,
         CancellationToken cancellationToken = default, bool profilePictureChanged = false)
     {
         // Keep restart-only values at startup even when their enclosing group
@@ -295,8 +295,14 @@ public sealed class DaemonRuntime
             }
             appliedConfiguration = active;
         }
-        options.WebUi = webUi;
+        // Host options are read where they are used. The few owners that hold
+        // work open on one (a timer, say) listen for the reload instead.
+        applyHostOptions(options);
+        HostOptionsReloaded?.Invoke();
     }
+
+    /// <summary>Raised after a config reload has written the reloadable host options.</summary>
+    public event Action? HostOptionsReloaded;
 
     internal static SoulseekClientStatusDto ToSoulseekClientStatusDto(SoulseekClientStates state)
     {
