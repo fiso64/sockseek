@@ -496,15 +496,15 @@
 {/snippet}
 
 <section class="page page-search redesigned-search-page automatic-job-detail">
-  <header class="job-detail-heading">
+  <header class="detail-heading job-detail-heading">
     <button type="button" class="button quiet icon-button back-button" aria-label={job?.relationships.parentJobId ? `Back to ${parentTitle}` : 'Back to jobs'} onclick={() => job?.relationships.parentJobId ? onopenjob(parent ?? job.relationships.parentJobId) : onback()}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5M7.5 10H16" /></svg>
     </button>
-    <div class="job-detail-title">
+    <div class="detail-heading-title job-detail-title">
       <h1>{detail ? title : 'Job'}</h1>
     </div>
     {#if job}
-      <div class="job-detail-meta">
+      <div class="detail-heading-meta job-detail-meta">
         {#each ancestors as ancestor (ancestor.jobId)}
           {@const name = ancestor.display.itemName ?? ancestor.display.queryText ?? 'Parent job'}
           <button type="button" title={name} onclick={() => onopenjob(ancestor)}>{name}</button><span aria-hidden="true">/</span>
@@ -516,9 +516,11 @@
 
     {#if job}
       {@const statusLabel = jobStatusLabel(job)}
-      <div class="job-detail-heading-summary">
-        {#if job.display.createdAtUtc}<span class="job-detail-header-fact job-detail-age"><RelativeTime timestamp={job.display.createdAtUtc} /></span>{/if}
+      <div class="detail-heading-facts job-detail-heading-summary">
+        {#if job.display.createdAtUtc}<span class="job-detail-age"><RelativeTime timestamp={job.display.createdAtUtc} /></span>{/if}
         {#if !info && !hasContent}<TransferStateLabel transfer={detailTransfer} class={`search-status-badge ${jobStatusClass(job)}`}>{statusLabel}</TransferStateLabel>{/if}
+      </div>
+      <div class="detail-heading-actions">
         {#if repeatOptions?.canRunAgain}
           <!-- The main action reads the source as it is now when there is one.
                Replaying the saved items is the alternative, not the default. -->

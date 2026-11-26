@@ -60,7 +60,7 @@
   {:else if name === 'log-out'}
     <path d="M15 5h4a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4M15 12H3m4-4-4 4 4 4" />
   {:else if name === 'sort'}
-    <path d="M4 7h16M7 12h10M10 17h4" />
+    <path d="M7 20V4M3.5 7.5 7 4l3.5 3.5M17 4v16M13.5 16.5 17 20l3.5-3.5" />
   {:else if name === 'sliders'}
     <path d="M4 6h4M12 6h8" />
     <circle cx="10" cy="6" r="2" />

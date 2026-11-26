@@ -1,7 +1,7 @@
 /**
- * Renders a long list a slice per frame, so building it never blocks input for
- * long. Only the first slice is rendered on mount and after `restart()`; later
- * growth (appended pages, live additions) keeps what is already shown.
+ * Renders a long list a slice per frame when it first appears, so building it
+ * never blocks input for long. Later growth (appended pages, live additions)
+ * keeps what is already shown.
  */
 export function progressiveCount(total: () => number, slice = 6) {
   let count = $state(slice);
@@ -13,7 +13,6 @@ export function progressiveCount(total: () => number, slice = 6) {
   });
   return {
     get count() { return count; },
-    /** Call when the user replaces the list (new sort or filter), before it arrives. */
-    restart() { count = slice; },
+    slice,
   };
 }

@@ -221,8 +221,10 @@
   let hasBareFileGroups = $derived(genericMode && viewState.rows.some(row =>
     row.kind === 'directory' && row.value.ref.folderPath.length === 0));
   let selectionUsesEarlierRevision = $derived(usesEarlierRevision(viewState));
-  let selectionReadOnly = $derived(selectionUsesEarlierRevision || viewState.selectionNeedsReview
-    || viewUnavailable || viewState.refining);
+  // Rows keep their shape while a refinement runs (the page dims and ignores clicks
+  // instead): reshaping every row on each filter change rebuilt the whole list twice.
+  let rowsReadOnly = $derived(selectionUsesEarlierRevision || viewState.selectionNeedsReview || viewUnavailable);
+  let selectionReadOnly = $derived(rowsReadOnly || viewState.refining);
   // Generic directory jobs group transfers internally. For a fully accepted
   // revision-bound selection, report the public file count the user reviewed.
   let mutationDownloadCount = $derived(viewState.receipt && genericMode
@@ -383,19 +385,16 @@
   });
 
   function changeFilter(value: string): void {
-    rendered.restart();
     filterEdited = true;
     filterText = value;
   }
 
   function reverseSort(): void {
-    rendered.restart();
     sortEdited = true;
     sizeDirection = sizeDirection === 'desc' ? 'asc' : 'desc';
   }
 
   function changeSort(event: Event): void {
-    rendered.restart();
     sortEdited = true;
     const next = (event.currentTarget as HTMLSelectElement).value as typeof sort;
     sort = next;
@@ -727,18 +726,21 @@
   let groupedRows: SearchRow[] | null = null;
   let groupedByPreference = false;
   let cachedGroups: ReturnType<typeof groupRows> = [];
-  // Long result lists render a slice per frame; a new sort or filter starts over.
+  // A results page builds its list a slice per frame when it opens. Later filters
+  // and sorts update the keyed list in place, which reuses the rows they keep.
   const rendered = progressiveCount(() => viewState.rows.length);
   // Until every row is built, reserve their estimated height so the scrollbar
   // shows the whole list from the start instead of growing under the reader.
   let reserve = $state<HTMLElement>();
-  let reservedHeight = $state(0);
+  let rowHeight = $state(0);
+  let reservedHeight = $derived(rowHeight && Math.max(0, Math.round(rowHeight * (viewState.rows.length - rendered.count))));
   $effect(() => {
-    const remaining = viewState.rows.length - rendered.count;
+    // Measure the first slice once: reading layout on every frame would force
+    // the whole growing list to lay out again each time.
+    if (rendered.count !== rendered.slice) return;
     const first = reserve?.parentElement?.querySelector('.result-tier-heading, .result-tier, .group-results-list');
-    if (!reserve || !first || remaining <= 0) return;
-    const perRow = (reserve.getBoundingClientRect().top - first.getBoundingClientRect().top) / rendered.count;
-    reservedHeight = Math.max(0, Math.round(perRow * remaining));
+    if (!reserve || !first) return;
+    rowHeight = (reserve.getBoundingClientRect().top - first.getBoundingClientRect().top) / rendered.count;
   });
   let visibleTiers = $derived.by(() => {
     let budget = rendered.count;
@@ -827,7 +829,7 @@
           {#if viewState.staleChoices.has(row.ref)}<button class="button" type="button" onclick={() => onopenoptions(row.ref)}>Choose another</button>{/if}
         </div>
       {/if}
-      <FileItemCard {highlight} path={representative.remoteFilename} sizeBytes={Number(representative.file.size)} audio={audio(representative.file)} locked={representative.visibility === 'Locked'} selected={isselected(row.ref)} selectable={!selectionReadOnly} onselect={(checked) => ontoggle(row.ref, checked)} />
+      <FileItemCard {highlight} path={representative.remoteFilename} sizeBytes={Number(representative.file.size)} audio={audio(representative.file)} locked={representative.visibility === 'Locked'} selected={isselected(row.ref)} selectable={!rowsReadOnly} onselect={(checked) => ontoggle(row.ref, checked)} />
     </section>
   {:else}
     {@const chosenDirectory = choiceIsCurrent(row.ref) && viewState.chosenOptions.get(row.ref)?.kind === 'album' ? viewState.chosenOptions.get(row.ref)?.value as Schema<'SearchViewDirectoryDto'> : row.value.representative}
@@ -868,7 +870,7 @@
         locked={directory.visibility === 'Locked'}
         selected={albumFull(row.ref)}
         partial={albumPartial(row.ref)}
-        selectable={!selectionReadOnly}
+        selectable={!rowsReadOnly}
         selectedFileIds={new Set(files.filter((file) => !file.locked && isselected(file.id, row.ref)).map((file) => file.id))}
         onselectall={(checked) => ontoggle(row.ref, checked)}
         onselectfiles={(files, checked) => ontogglealbumfile(row.ref, files.map(file => file.id), checked)}
@@ -880,7 +882,7 @@
   {/if}
 {/snippet}
 
-<section class="page page-search redesigned-search-page" use:keyboardList={{
+<section class="page page-search redesigned-search-page" class:refining={viewState.refining} use:keyboardList={{
   scope: `${viewState.job?.jobId}:${viewState.summary?.viewId}:${viewState.sortOrder}`,
   revision: [viewState.rows, viewState.loadingMore, rendered.count],
   enabled: viewState.phase === 'ready' && !refinementPending,
@@ -890,15 +892,15 @@
   retrieve: retrieveSelectedFolders,
   loadPage: onloadmore,
 }}>
-  <header class="search-results-heading">
+  <header class="detail-heading search-results-heading">
     <button type="button" class="button quiet icon-button back-button" aria-label="Back to jobs" onclick={onback}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5M7.5 10H16" /></svg>
     </button>
-    <div class="search-results-title">
+    <div class="detail-heading-title search-results-title">
       <h1>{queryTitle()}</h1>
     </div>
-    <p class="search-results-meta">{viewState.draft ? searchModeLabel(viewState.draft.resultMode) : 'Search'}</p>
-    <div class="search-results-summary">
+    <p class="detail-heading-meta search-results-meta">{viewState.draft ? searchModeLabel(viewState.draft.resultMode) : 'Search'}</p>
+    <div class="detail-heading-facts search-results-summary">
       {#if viewState.phase === 'ready'}
       {#if statusLabel !== 'Complete'}
         <span class={`status-label search-status-badge ${isActive ? 'searching' : retentionNotice ? '' : 'complete'}`}>{statusLabel}</span>
@@ -912,7 +914,7 @@
       {/if}
       {/if}
     </div>
-    <div class="search-results-actions">
+    <div class="detail-heading-actions search-results-actions">
       <button
         type="button"
         class="button action-button collapse-narrow"
@@ -1152,7 +1154,7 @@
                       locked={row.value.visibility === 'Locked'}
                       selected={isselected(row.ref)}
                       preferred={tier === 'Preferred'}
-                      selectable={!selectionReadOnly}
+                      selectable={!rowsReadOnly}
                       onselect={(checked) => ontoggle(row.ref, checked)}
                     />
                   {:else}
@@ -1183,12 +1185,12 @@
                       selected={folderSelection.selected && !filteredOnly}
                       partial={folderSelection.partial || filteredOnly}
                       preferred={tier === 'Preferred'}
-                      selectable={!selectionReadOnly}
+                      selectable={!rowsReadOnly}
                       {selectedFileIds}
                       onselectall={(checked) => hidden && checked && (folderSelection.partial || filteredOnly)
                         ? onselectfolder(row.ref, '', true, true) : ontoggle(row.ref, checked)}
                       onselectfiles={(files, checked) => ontoggle(files.map(file => file.id), checked, row.ref)}
-                      onselectfolder={genericMode && !selectionReadOnly ? (path, checked, partial) => onselectfolder(row.ref, path, checked, checked && partial && hiddenPaths.has(path)) : undefined}
+                      onselectfolder={genericMode && !rowsReadOnly ? (path, checked, partial) => onselectfolder(row.ref, path, checked, checked && partial && hiddenPaths.has(path)) : undefined}
                       isfolderselected={genericMode ? (path) => isfolderselected(row.ref, path) && (!hiddenPaths.has(path) || isfolderselected(row.ref, path, true) && !partialPaths.has(path)) : undefined}
                     />
                     {#if !children || (children.loading && !children.refreshing) || children.error || children.nextCursor}
