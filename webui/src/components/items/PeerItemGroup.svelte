@@ -11,7 +11,9 @@
     itemNoun?: string;
     itemNounPlural?: string;
     userActions: UserLinkActions;
-    children: Snippet;
+    children?: Snippet;
+    /** Only the header, invisible, so a peer not yet rendered already sizes the shared columns. */
+    sizer?: boolean;
   }
 
   let {
@@ -21,6 +23,7 @@
     itemNounPlural = `${itemNoun}s`,
     userActions,
     children,
+    sizer = false,
   }: Props = $props();
 
   let collapsed = $state(false);
@@ -49,9 +52,9 @@
     {/if}
   </div>
 
-  {#if !collapsed}
+  {#if !collapsed && !sizer}
     <div class="result-peer-items">
-      {@render children()}
+      {@render children?.()}
     </div>
   {/if}
 </section>

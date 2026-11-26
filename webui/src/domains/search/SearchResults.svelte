@@ -729,20 +729,33 @@
   let cachedGroups: ReturnType<typeof groupRows> = [];
   // Long result lists render a slice per frame; a new sort or filter starts over.
   const rendered = progressiveCount(() => viewState.rows.length);
+  // Until every row is built, reserve their estimated height so the scrollbar
+  // shows the whole list from the start instead of growing under the reader.
+  let reserve = $state<HTMLElement>();
+  let reservedHeight = $state(0);
+  $effect(() => {
+    const remaining = viewState.rows.length - rendered.count;
+    const first = reserve?.parentElement?.querySelector('.result-tier-heading, .result-tier, .group-results-list');
+    if (!reserve || !first || remaining <= 0) return;
+    const perRow = (reserve.getBoundingClientRect().top - first.getBoundingClientRect().top) / rendered.count;
+    reservedHeight = Math.max(0, Math.round(perRow * remaining));
+  });
   let visibleTiers = $derived.by(() => {
     let budget = rendered.count;
-    const visible: typeof groupedTiers = [];
+    const visible: (typeof groupedTiers[number] & { pending: typeof groupedTiers[number]['groups'] })[] = [];
     for (const { tier, groups } of groupedTiers) {
       if (budget <= 0) break;
       const kept: typeof groups = [];
+      // Peers not built yet still size this tier's columns, so none shift as they arrive.
+      const pending: typeof groups = [];
       for (const group of groups) {
-        if (budget <= 0) break;
+        if (budget <= 0) { pending.push(group); continue; }
         // Never empty: a group is only visited while budget remains.
         const rows = (group.rows.length > budget ? group.rows.slice(0, budget) : group.rows) as typeof group.rows;
         budget -= rows.length;
         kept.push(rows === group.rows ? group : { ...group, rows });
       }
-      visible.push({ tier, groups: kept });
+      visible.push({ tier, groups: kept, pending });
     }
     return visible;
   });
@@ -1066,7 +1079,9 @@
     </div>
   {/if}
 
-  {#if viewState.phase === 'loading' && viewState.rows.length === 0}
+  <!-- Results wait for the view's definition too (read in parallel), so its filter
+       pills never arrive after the list and push it down. -->
+  {#if (viewState.phase === 'loading' || configurationLoading) && viewState.rows.length === 0}
     <LoadingIndicator label="Loading search results" blocking />
   {:else if viewState.rows.length === 0 && !viewState.error && !viewUnavailable}
     {#if !retentionNotice && !viewState.summary?.isComplete && !daemonOffline}
@@ -1094,7 +1109,7 @@
       {/each}
     </div>
   {:else}
-    {#each visibleTiers as { tier, groups } (tier)}
+    {#each visibleTiers as { tier, groups, pending } (tier)}
         {#if tier !== 'All' && (tier !== 'Other' || groupedTiers.some(group => group.tier === 'Preferred'))}
           <div class:preferred={tier === 'Preferred'} class="result-tier-heading">
             <span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span>
@@ -1183,10 +1198,16 @@
                 {/each}
             </PeerItemGroup>
           {/each}
+          {#if pending.length}
+            <div class="peer-sizers" aria-hidden="true" inert>
+              {#each pending as group (group.key)}<PeerItemGroup sizer peer={group.rows[0].value.peer} {userActions} />{/each}
+            </div>
+          {/if}
         </div>
     {/each}
   {/if}
 
+  {#if rendered.count < viewState.rows.length}<div class="progressive-reserve" bind:this={reserve} style:height={`${reservedHeight}px`} aria-hidden="true"></div>{/if}
   {#if viewState.nextCursor}<div data-keyboard-page="results" data-loading={viewState.loadingMore} data-failed={Boolean(viewState.error)}><LoadMoreButton loading={viewState.loadingMore} disabled={viewState.refining} onclick={onloadmore}/></div>{/if}
   {/if}
   <SelectionToolbar

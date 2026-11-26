@@ -1266,7 +1266,9 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 /* Peer groups share one column grid, sized by their content: names (capped)
    and each stat line up across peers, and every header spans the same width. */
 .peer-group-list { grid-template-columns: 18px fit-content(28ch) repeat(3, max-content) minmax(0, 1fr); column-gap: 14px; }
-.peer-group-list > .peer-item-group { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-content: start; }
+.peer-group-list > .peer-item-group, .peer-sizers > .peer-item-group { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-content: start; }
+/* Invisible headers of peers not rendered yet, so the shared columns are final from the start. */
+.peer-group-list > .peer-sizers { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; height: 0; overflow: hidden; visibility: hidden; }
 .peer-group-list .result-peer-header { grid-column: 1 / 6; grid-template-columns: subgrid; width: auto; }
 .peer-group-list .result-peer-items { grid-column: 1 / -1; }
 .peer-group-list .peer-identity { min-width: 16ch; }

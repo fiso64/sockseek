@@ -22,7 +22,7 @@
   import type { SystemTab } from './domains/system/tabs';
   import { DaemonLiveClient, type LiveConnectionStatus } from './api/live';
     import { updatedJob } from './api/state.svelte';
-  import { daemonApi } from './api/client';
+  import { daemonApi, type SubmittedSearch } from './api/client';
   import { type JobSummaryDto, type Schema } from './api/types';
   import { SearchViewController, type SearchViewState } from './domains/search/controller';
   import { selectedSearchCount as countSearchSelection } from './domains/search/selection';
@@ -373,6 +373,21 @@
     composer = { start: newJobStartFromSearch($state.snapshot(draft)) };
   }
 
+  // The results page reads the view's definition (its filters and condition pills).
+  // Start that read alongside the rows rather than after they render.
+  let prefetchedDefinition: { viewId: string; read: Promise<Schema<'SearchViewDefinitionDto'>> } | null = null;
+  function openSearch(submitted: SubmittedSearch): Promise<void> {
+    const read = daemonApi.getSearchViewDefinition(submitted.view.viewId);
+    read.catch(() => {}); // An unused prefetch must not report an unhandled failure.
+    prefetchedDefinition = { viewId: submitted.view.viewId, read };
+    return searchController.open(submitted);
+  }
+  function loadDefinition(viewId: string): Promise<Schema<'SearchViewDefinitionDto'>> {
+    const prefetched = prefetchedDefinition?.viewId === viewId ? prefetchedDefinition.read : null;
+    prefetchedDefinition = null;
+    return prefetched ?? daemonApi.getSearchViewDefinition(viewId);
+  }
+
   async function submit(next: SearchDraft): Promise<void> {
     if (searchBusy) return;
     searchResults.load();
@@ -385,7 +400,7 @@
         searchModeByJob.set(submitted.job.jobId, submitted.draft.resultMode);
       }
       if (routeLocation() !== origin) return;
-      await searchController.open(submitted);
+      await openSearch(submitted);
       if (routeLocation() !== origin) return;
       jobsTab = 'searches';
       automaticJobId = null;
@@ -417,7 +432,7 @@
         searchModeByJob.set(submitted.job.jobId, submitted.draft.resultMode);
       }
       if (routeLocation() !== origin) return;
-      await searchController.open(submitted);
+      await openSearch(submitted);
       if (routeLocation() !== origin) return;
       pendingJobId = submitted.job.jobId ?? null;
       if (pendingJobId) setPath(searchJobPath(pendingJobId, submitted.draft.resultMode));
@@ -507,7 +522,7 @@
         ?? searchModeByJob.get(job.jobId);
       const opened = await daemonApi.openSearchJob(job, undefined, detail, requestedMode);
       if (openingJobKey !== openKey || routeLocation() !== route) return;
-      await searchController.open(opened);
+      await openSearch(opened);
       if (openingJobKey !== openKey || routeLocation() !== route) return;
       searchModeByJob.set(job.jobId, opened.draft.resultMode);
       activePage = 'jobs';
@@ -675,7 +690,7 @@
           onlibrarymatches={(id, request, signal) => daemonApi.getSearchViewLibraryMatches(id, request, signal)}
           onresolvesettings={(options) => searchController.resolveSelectionSettings(options)}
           oncheckrevision={(id, revision, signal) => daemonApi.getSearchViewRevisionLifetime(id, revision, signal)}
-          onloaddefinition={(viewId) => daemonApi.getSearchViewDefinition(viewId)}
+          onloaddefinition={loadDefinition}
           onrefine={(request, resetSelection) => searchController.refine(request, resetSelection)}
           onsort={(order) => searchController.sort(order)}
           onloadmore={() => void searchController.loadMore()}
