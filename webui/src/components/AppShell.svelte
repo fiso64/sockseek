@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { flushSync, type Snippet } from 'svelte';
   import { navigationItems, type PageId } from '../app/navigation';
   import type { LiveConnectionStatus, ReplicatedDaemonState } from '../api/live';
   import type { SearchDraft } from '../domains/search/model';
@@ -49,6 +49,15 @@
   let updateAvailable = $derived(Boolean(liveState.daemon?.update) && liveState.daemon?.update?.version !== dismissedUpdate.version);
   let soulseek = $derived(soulseekStatusLabel(liveState.daemon?.soulseekClient, liveStatus));
   let connectionLabel = $derived(daemonReachable ? soulseek : `Daemon ${liveStatus === 'offline' ? 'disconnected' : humanizeStateValue(liveStatus).toLowerCase()}`);
+  // On phones the Search tab opens straight into typing. iOS only raises the
+  // keyboard for focus inside the tap, so the bar is rendered synchronously first.
+  function navigateFromTab(page: PageId): void {
+    onnavigate(page);
+    if (page !== 'searches' || !matchMedia('(max-width: 640px)').matches) return;
+    flushSync();
+    document.querySelector<HTMLInputElement>('.global-search input:not(:disabled)')?.focus();
+  }
+
   function navigateByKey(event: KeyboardEvent): void {
     if (event.repeat || keyboardShortcutsBlocked(event) || !/^[1-9]$/.test(event.key)) return;
     const item = navigationItems[Number(event.key) - 1];
@@ -58,14 +67,15 @@
 
 <svelte:window onkeydown={navigateByKey} />
 
-<div class="app-shell">
+<!-- Phones show the search bar only where searching happens. -->
+<div class="app-shell" class:search-context={activePage === 'searches' || activePage === 'users' || activePage === 'shares'}>
   <aside class="sidebar">
     <button type="button" class="brand" aria-label="sockseek dashboard" onclick={() => onnavigate('dashboard')}>
       <img class="brand-mark" src="sockseek-logo.svg" alt="" />
       <span class="brand-copy"><strong>sockseek</strong></span>
     </button>
 
-    <Sidebar {activePage} {downloadCount} {uploadCount} {unreadChats} {updateAvailable} {onnavigate} />
+    <Sidebar {activePage} {downloadCount} {uploadCount} {unreadChats} {updateAvailable} onnavigate={navigateFromTab} />
     <div class="sidebar-spacer"></div>
 
     <div class="connection-status">
@@ -75,7 +85,7 @@
       </div>
     </div>
 
-    <Sidebar {activePage} {downloadCount} {uploadCount} {unreadChats} {updateAvailable} placement="secondary" {onnavigate} />
+    <Sidebar {activePage} {downloadCount} {uploadCount} {unreadChats} {updateAvailable} placement="secondary" onnavigate={navigateFromTab} />
   </aside>
 
   <div class="workspace">

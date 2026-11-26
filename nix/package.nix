@@ -44,7 +44,7 @@ let
       ../webui
       ../docs/openapi.json
     ];
-    hash = "sha256-AGocwGakRK9z4MdToLuy0s7DLVNhqt6it7hjtUsSBSU=";
+    hash = "sha256-g505iOLp1/G0in5gFqQzNtbQAqOihWqJVQlAZ1C2zs8=";
     dist = "dist";
   };
   manual = assets {

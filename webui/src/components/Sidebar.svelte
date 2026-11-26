@@ -1,5 +1,6 @@
 <script lang="ts">
   import { navigationItems, type PageId } from '../app/navigation';
+  import { MediaQuery } from 'svelte/reactivity';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -13,7 +14,10 @@
   }
 
   let { activePage, downloadCount, uploadCount, unreadChats, updateAvailable, placement = 'primary', onnavigate }: Props = $props();
-  let items = $derived(navigationItems.filter((item) => item.placement === placement));
+  // Phones fold Shares into the Users tab; the page's own switcher moves between them.
+  const phone = new MediaQuery('max-width: 640px');
+  let items = $derived(navigationItems.filter((item) => item.placement === placement && !(phone.current && item.id === 'shares')));
+  const isActive = (id: PageId) => id === activePage || (phone.current && id === 'users' && activePage === 'shares');
 
   function countFor(id: PageId): number | null {
     if (id === 'downloads') return downloadCount;
@@ -37,8 +41,8 @@
       type="button"
       aria-label={item.label}
       aria-keyshortcuts={String(navigationItems.findIndex(candidate => candidate.id === item.id) + 1)}
-      class:active={item.id === activePage}
-      aria-current={item.id === activePage ? 'page' : undefined}
+      class:active={isActive(item.id)}
+      aria-current={isActive(item.id) ? 'page' : undefined}
       onclick={() => onnavigate(item.id)}
     >
       <span class="nav-icon" aria-hidden="true"><Icon name={item.icon} /></span>

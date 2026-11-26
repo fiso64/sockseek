@@ -59,7 +59,7 @@
 {#if display.visible}
   <div class="selection-space" style:height={`${toolbarHeight}px`} aria-hidden="true"></div>
   <div class="floating-selection-actions" aria-label="Selection actions" bind:clientHeight={toolbarHeight}>
-    {#if detail}<span class="floating-selection-detail">{detail}</span>{/if}
+    {#if detail}<span class="floating-selection-detail"><span>{detail}</span></span>{/if}
     {#if display.selectAll}<button type="button" class="button floating-select-action" onclick={onselectall}>Select all</button>{/if}
     <button type="button" class="button floating-deselect-action" onclick={onclear}>Deselect all</button>
     {#if onoptions}

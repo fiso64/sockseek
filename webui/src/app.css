@@ -36,6 +36,8 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 .app-shell {
   height: 100dvh;
   min-height: 0;
+  /* Installed on a phone, the app may draw under a notch or rounded corners. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   overflow: hidden;
@@ -146,6 +148,8 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 
 
 .page-content {
+  /* The content row stays the stretching one even when phones hide the top bar. */
+  grid-row: 2;
   width: 100%;
   min-width: 0;
   min-height: 0;
@@ -174,14 +178,17 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 .progress { width: min(100%, 580px); height: 7px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: var(--surface-subtle); }
 .progress span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 
+/* Chat fills the content area through grid stretching, not percentage heights,
+   which some browsers (Firefox for Android) leave unresolved. */
+.page-content.chat-content { display: grid; grid-template-rows: minmax(0, 1fr); }
 .chat-page {
-  height: 100%;
   min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   padding-top: 0;
   padding-bottom: 0;
 }
 .chat-layout {
-  height: 100%;
   min-height: 520px;
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr);
@@ -2446,13 +2453,9 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
     flex-wrap: wrap;
     justify-content: flex-end;
   }
-  .floating-selection-detail {
-    flex: 1 0 100%;
-    max-width: 100%;
-    padding: 4px 6px;
-    border-radius: 6px;
-    background: var(--surface);
-  }
+  /* The detail takes its own line; only the text itself gets a backing. */
+  .floating-selection-detail { flex: 1 0 100%; max-width: 100%; }
+  .floating-selection-detail > span { display: inline-block; padding: 4px 6px; border-radius: 6px; background: var(--surface); }
   .floating-select-action,
   .floating-deselect-action,
   .floating-download-action { flex-shrink: 0; white-space: nowrap; }
@@ -3188,3 +3191,30 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   .transfer-bulk-actions .action-button > span { display: none; }
   .transfer-bulk-actions .action-button { width: 36px; padding: 0; }
 }
+
+/* Phones: the search bar is one slim field (mode and settings inside it), shown
+   only on the pages that search; the bottom tab bar reaches it everywhere else. */
+@media (max-width: 640px) {
+  .app-shell:not(.search-context) .topbar { display: none; }
+  .topbar { height: 56px; }
+  .search-controls-row {
+    height: 44px;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--well);
+    box-shadow: var(--field-shadow);
+  }
+  .search-controls-row:focus-within { border-color: var(--accent); outline: 3px solid var(--accent-soft); }
+  .search-controls-row :is(.search-bar, .search-bar.split) { height: 42px; border: 0; background: transparent; box-shadow: none; }
+  .search-controls-row .search-bar:focus-within { outline: 0; }
+  .search-controls-row :is(.mode-icon-button, .search-settings-button) {
+    height: 42px; border: 0; background-color: transparent; background-image: none; box-shadow: none;
+  }
+  .search-controls-row :is(.mode-icon-toggle, .mode-icon-button) { width: 42px; }
+  .search-controls-row .search-bar.has-mode-picker { padding-left: 42px; }
+  .search-controls-row .search-settings-button { width: 40px; flex-basis: 40px; }
+  /* Splitting into artist and title fields is a desktop affordance; a split search still shows both. */
+  .search-bar.simple .search-mode-button, .search-settings-spacer { display: none; }
+}
+

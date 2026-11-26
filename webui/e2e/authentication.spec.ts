@@ -17,6 +17,13 @@ test('signs in, manages a CLI key in System, and revokes the browser session on 
   await page.unroute('**/api/auth/session');
   await page.getByRole('button', { name: 'Retry connection' }).click();
   await expect(page.getByRole('form', { name: 'Log in to Sockseek' })).toBeVisible();
+  // Installing the app fetches its manifest and icons without the session cookie.
+  for (const path of ['/manifest.webmanifest', '/icon-192.png']) {
+    const response = await page.request.get(path);
+    expect(response.status(), path).toBe(200);
+  }
+  const manifest = await (await page.request.get('/manifest.webmanifest')).json() as { icons: { src: string }[] };
+  for (const icon of manifest.icons) expect((await page.request.get(`/${icon.src}`)).status(), icon.src).toBe(200);
   await page.getByLabel('Username').fill('admin');
   await page.getByLabel('Password').fill('wrong');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();

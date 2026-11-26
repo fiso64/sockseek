@@ -50,15 +50,23 @@ test('keeps private-chat presence live without loading the full profile', async 
   await page.setViewportSize({ width: 390, height: 844 });
   const tab = await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Dashboard' }).boundingBox();
   expect(tab!.y + tab!.height).toBeGreaterThan(844 - 60);
+  // Shares folds into the Users tab on phones.
+  await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Shares', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Back to chats', exact: true }).click();
   await expect(page.locator('.chat-thread')).toBeHidden();
   await page.getByRole('button', { name: 'Open conversation with Presence Peer', exact: true }).click();
   await expect(page.locator('.chat-messages')).toContainText('Hello');
   await expect(page.locator('.chat-sidebar')).toBeHidden();
+  // The conversation fills the screen: its input sits just above the tab bar.
+  const composerBox = await page.locator('.chat-composer').boundingBox();
+  expect(composerBox!.y + composerBox!.height).toBeGreaterThan(844 - 100);
   await page.goBack();
   await expect(page.locator('.chat-sidebar')).toBeVisible();
   await expect(page.locator('.chat-thread')).toBeHidden();
   await expect(page).toHaveURL(/\/chat/);
+  // The Search tab opens straight into typing.
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Searches' }).click();
+  await expect(page.locator('#global-search-simple')).toBeFocused();
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/chat/users/New%20Peer');
   await expect(presence).toHaveAttribute('data-presence', 'online');

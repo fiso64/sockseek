@@ -35,8 +35,8 @@ configured storage, and ordinary local administration are trusted.
 * Phone layout is one breakpoint (`max-width: 640px`), written as CSS beside each
   feature's desktop rules. Layouts that depend on their own width rather than the
   screen's (the two-line file rows) use a container query. Reuse the shared phone
-  patterns (bottom tab bar, two-line file rows, full-screen sheets,
-  title-and-actions headings) instead of phone-specific components or
+  patterns (bottom tab bar, slim search field on search pages only, two-line file
+  rows, full-screen sheets, title-and-actions headings) instead of phone-specific components or
   per-variant phone grids.
 * For high-volume persistence, assess SQL round trips and write amplification as
   well as latency. Prefer set-based operations or prepared, batched writes when
