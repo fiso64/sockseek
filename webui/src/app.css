@@ -15,7 +15,7 @@
 * { box-sizing: border-box; }
 
 html { min-width: 320px; min-height: 100%; }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); color: var(--text); }
+body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); }
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 button, select { cursor: pointer; }
@@ -34,19 +34,22 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 }
 
 .app-shell {
-  height: 100dvh;
+  /* Pinned to the visible viewport rather than sized by a viewport unit: phone
+     browsers resolve vh/dvh against a toolbar state that may not be the current one. */
+  position: fixed;
+  inset: 0;
   min-height: 0;
   /* Installed on a phone, the app may draw under a notch or rounded corners. */
   padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
   display: grid;
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
 }
 
 .sidebar, .new-job-type-nav { background: var(--sidebar-background); }
 
 .sidebar {
-  height: 100dvh;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -100,7 +103,6 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 .workspace {
   min-width: 0;
   min-height: 0;
-  height: 100dvh;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
@@ -511,7 +513,6 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 /* Phones: the same navigation becomes a bottom tab bar. */
 @media (max-width: 640px) {
   .app-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
-  .workspace { height: auto; }
   .sidebar {
     grid-row: 2;
     height: auto;
