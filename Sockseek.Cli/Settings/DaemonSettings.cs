@@ -15,8 +15,12 @@ public class DaemonSettings
     public string? WebUiDirectory { get; set; }
 
     [SettingOption("--web-theme", DefaultProfileOnly = true), SettingReloadable]
-    [Required, RegularExpression("^(dark|light|auto|2009-dark|2009-light)$")]
+    [Required, RegularExpression("^(flat|soft|2009)$")]
     public string WebTheme { get; set; } = Defaults.WebUi.Theme;
+
+    [SettingOption("--web-color-scheme", DefaultProfileOnly = true), SettingReloadable]
+    [Required, RegularExpression("^(dark|light|auto)$")]
+    public string WebColorScheme { get; set; } = Defaults.WebUi.ColorScheme;
 
     [SettingOption("--web-default-search-mode", DefaultProfileOnly = true), SettingReloadable]
     [Required, RegularExpression("^(generic|track|album|song-groups|album-groups)$")]
@@ -128,7 +132,7 @@ public class DaemonSettings
     /// </summary>
     public void ApplyReloadable(ServerOptions options)
     {
-        options.WebUi = new(WebTheme, WebDefaultSearchMode);
+        options.WebUi = new(WebTheme, WebColorScheme, WebDefaultSearchMode);
         options.ServeDocumentation = ServeDocumentation;
         options.CheckForUpdates = CheckForUpdates;
         options.Authentication.SessionLifetime = WebSessionLifetime;

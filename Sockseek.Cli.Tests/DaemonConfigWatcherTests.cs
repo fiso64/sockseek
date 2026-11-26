@@ -16,20 +16,20 @@ public sealed class DaemonConfigWatcherTests
     [TestMethod]
     public async Task WebUiPreferencesReloadWithValidationAndCliPrecedence()
     {
-        await using var fixture = new Fixture("web-theme = light\nweb-default-search-mode = track",
+        await using var fixture = new Fixture("web-color-scheme = light\nweb-default-search-mode = track",
             ["--web-default-search-mode", "song-groups"]);
         await fixture.StartRuntimeAsync();
-        Assert.AreEqual("light", fixture.ServerOptions.WebUi.Theme);
+        Assert.AreEqual("light", fixture.ServerOptions.WebUi.ColorScheme);
         Assert.AreEqual("song-groups", fixture.ServerOptions.WebUi.DefaultSearchMode);
-        fixture.Write("web-theme = auto\nweb-default-search-mode = album-groups\nno-docs = true\nno-update-check = true\nweb-session-lifetime = 1.00:00:00");
+        fixture.Write("web-color-scheme = auto\nweb-default-search-mode = album-groups\nno-docs = true\nno-update-check = true\nweb-session-lifetime = 1.00:00:00");
         Assert.IsTrue(await fixture.Watcher.ReloadAsync());
-        Assert.AreEqual("auto", fixture.ServerOptions.WebUi.Theme);
+        Assert.AreEqual("auto", fixture.ServerOptions.WebUi.ColorScheme);
         Assert.AreEqual("song-groups", fixture.ServerOptions.WebUi.DefaultSearchMode);
         Assert.IsFalse(fixture.ServerOptions.ServeDocumentation);
         Assert.IsFalse(fixture.ServerOptions.CheckForUpdates);
         Assert.AreEqual(TimeSpan.FromDays(1), fixture.ServerOptions.Authentication.SessionLifetime);
         Assert.IsFalse(fixture.Supervisor.GetStatus().Configuration!.RestartRequired);
-        foreach (string theme in new[] { "2009-dark", "2009-light" })
+        foreach (string theme in new[] { "soft", "2009" })
         {
             fixture.Write($"web-theme = {theme}");
             Assert.IsTrue(await fixture.Watcher.ReloadAsync());
@@ -40,12 +40,13 @@ public sealed class DaemonConfigWatcherTests
         Assert.IsFalse(await fixture.Watcher.ReloadAsync());
         Assert.AreEqual(1, fixture.Supervisor.GetStatus().Configuration!.ErrorLine);
         Assert.IsFalse(string.IsNullOrWhiteSpace(fixture.Supervisor.GetStatus().Configuration!.Error));
-        Assert.AreEqual("2009-light", fixture.ServerOptions.WebUi.Theme);
+        Assert.AreEqual("2009", fixture.ServerOptions.WebUi.Theme);
         fixture.Write("web-default-search-mode = invalid");
         Assert.IsFalse(await fixture.Watcher.ReloadAsync());
         fixture.Write("");
         Assert.IsTrue(await fixture.Watcher.ReloadAsync());
-        Assert.AreEqual("dark", fixture.ServerOptions.WebUi.Theme);
+        Assert.AreEqual("flat", fixture.ServerOptions.WebUi.Theme);
+        Assert.AreEqual("dark", fixture.ServerOptions.WebUi.ColorScheme);
         Assert.IsNull(fixture.Supervisor.GetStatus().Configuration!.Error);
         Assert.IsNull(fixture.Supervisor.GetStatus().Configuration!.ErrorLine);
     }

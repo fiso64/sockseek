@@ -43,7 +43,8 @@
     observeJobs: DaemonLiveClient['observeJobs'];
     observeJobList: DaemonLiveClient['observeJobList'];
     onback: () => void;
-    onopenjob: (job: JobSummaryDto | string, detail?: Schema<'JobDetailDto'>) => void;
+    /** `replace` swaps the current history entry, for redirects that must not trap Back. */
+    onopenjob: (job: JobSummaryDto | string, detail?: Schema<'JobDetailDto'>, replace?: boolean) => void;
     oneditagain: (start: NewJobStart) => void;
     onsearch: (draft: SearchDraft) => void;
     ondelete: (job: JobSummaryDto) => void;
@@ -356,7 +357,8 @@
         if (request.signal.aborted) return;
         if (completedExtract(next.summary)) {
           const result = await resolvePresentedJob(next, (resultId) => daemonApi.getJob(resultId, request.signal), request.signal);
-          if (!request.signal.aborted) onopenjob(result.summary, result);
+          // A finished import is shown as the job it produced.
+          if (!request.signal.aborted) onopenjob(result.summary, result, true);
           return;
         }
         const lifecycleChanged = detail?.summary.lifecycle.lifecycleState !== next.summary.lifecycle.lifecycleState;

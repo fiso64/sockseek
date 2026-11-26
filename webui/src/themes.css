@@ -75,50 +75,53 @@
   --brand-filter: none;
 }
 
-:root:is([data-theme="2009-dark"], [data-theme="2009-light"]) {
-  --bg: light-dark(#eeeae5, #16191d);
-  --surface: light-dark(#faf8f5, #20242a);
-  --surface-subtle: light-dark(#f1eeea, #292e35);
-  --surface-raised: light-dark(#fffdfa, #30363e);
+/* Raised themes share one set of bevels, gradients and shadows. This block is
+   soft, whose dark side keeps its surfaces flat; 2009 below only replaces the
+   values that give it its period gloss. */
+:root:is([data-theme="soft"], [data-theme="2009"]) {
+  --bg: light-dark(#eeeae5, #0e1013);
+  --surface: light-dark(#faf8f5, #16191d);
+  --surface-subtle: light-dark(#f1eeea, #1c1f24);
+  --surface-raised: light-dark(#fffdfa, #23272d);
   --text: light-dark(#292b30, #eeece8);
   --muted: light-dark(#676b70, #adb2b8);
   --faint: light-dark(#777b7f, #868e97);
-  --border: light-dark(#dcd8d2, #353b43);
-  --border-strong: light-dark(#c9c4bd, #505761);
+  --border: light-dark(#dcd8d2, #262a30);
+  --border-strong: light-dark(#c9c4bd, #2f333a);
   --accent: light-dark(#294db5, #7294f0);
   --accent-strong: light-dark(#203e91, #a9bff9);
   --accent-fill: light-dark(#294db5, #355bb7);
   --accent-soft: light-dark(#e0e8fa, #283857);
   --accent-text: light-dark(#29468f, #c3d2fa);
 
-  --edge-light: light-dark(#ffffffd9, #ffffff24);
+  --edge-light: light-dark(#ffffffd9, #ffffff08);
   --edge-dark: light-dark(#8c827638, #00000099);
-  --panel-background: linear-gradient(145deg, light-dark(#fffdfa, #2b3038), var(--surface));
+  --panel-background: linear-gradient(145deg, light-dark(#fffdfa, #16191d), var(--surface));
   --panel-subtle-background: var(--panel-background);
   --panel-border: var(--edge-dark);
-  --panel-shadow: inset 0 1px var(--edge-light), 0 2px 3px var(--edge-dark), 0 9px 18px light-dark(#443a2f12, #00000030);
+  --panel-shadow: inset 0 1px var(--edge-light), 0 2px 3px var(--edge-dark), 0 9px 18px light-dark(#443a2f12, transparent);
   --popover-background: var(--panel-background);
   --popover-shadow: inset 0 1px var(--edge-light), 0 12px 32px light-dark(#443a2f40, #0007);
   --modal-shadow: var(--popover-shadow);
   --form-popover-border: var(--border-strong);
   --form-popover-shadow: var(--popover-shadow);
-  --well: light-dark(#e4e0da, #191d23);
+  --well: light-dark(#e4e0da, #0b0d10);
   --field-shadow: inset 0 2px 5px light-dark(#0003, #0007), 0 1px var(--edge-light);
-  --control-image: linear-gradient(180deg, #ffffff20, transparent 52%, #00000016);
+  --control-image: linear-gradient(180deg, light-dark(#ffffff20, #ffffff05), transparent 56%, light-dark(#00000016, transparent));
   --option-control-background: var(--surface);
   --secondary-control-background: var(--surface);
   --control-shadow: inset 0 1px var(--edge-light), 0 2px 3px var(--edge-dark);
   --control-pressed-shadow: inset 0 2px 4px #0004, 0 1px var(--edge-light);
   --control-press-offset: 1px;
-  --selected-image: linear-gradient(180deg, #ffffff1c, transparent);
+  --selected-image: linear-gradient(180deg, light-dark(#ffffff1c, #ffffff0d), transparent);
   --selected-shadow: inset 0 1px var(--edge-light), 0 2px 4px var(--edge-dark);
-  --surface-image: linear-gradient(145deg, light-dark(#ffffffcc, #ffffff0c), transparent);
+  --surface-image: linear-gradient(145deg, light-dark(#ffffffcc, transparent), transparent);
   --surface-shadow: inset 0 1px var(--edge-light), 0 2px 5px var(--edge-dark);
   --selectable-card-background: var(--surface);
   --selectable-card-selected-background: var(--accent-soft);
-  --badge-image: linear-gradient(180deg, #ffffff18, transparent 65%);
+  --badge-image: linear-gradient(180deg, light-dark(#ffffff18, transparent), transparent 65%);
   --badge-shadow: inset 0 1px #ffffff1a, 0 1px 2px #0003;
-  --progress-image: linear-gradient(180deg, #ffffff55, transparent 65%);
+  --progress-image: linear-gradient(180deg, light-dark(#ffffff55, #ffffff2e), transparent 65%);
   --progress-shadow: inset 0 1px #ffffff40;
   --progress-track-shadow: inset 0 1px 3px #0007, 0 1px var(--edge-light);
   --checkbox-background: light-dark(var(--surface-subtle), var(--well));
@@ -126,12 +129,42 @@
   --checkbox-checked-shadow: inset 0 1px #ffffff55, 0 1px 2px var(--edge-dark);
   --divider-shadow: inset -1px 0 var(--edge-light);
   --indicator-shadow: 0 0 4px color-mix(in srgb, currentColor 40%, transparent);
-  --stripe: light-dark(#00000006, #ffffff06);
+  --stripe: transparent;
 
-  --header-background: linear-gradient(180deg, light-dark(#f8f6f2, #30353d), light-dark(#e8e4de, #20242a));
-  --header-shadow: inset 0 -1px var(--edge-light), 0 4px 14px #0003;
-  --sidebar-background: linear-gradient(145deg, light-dark(#fffdfa, #282d35), light-dark(var(--surface), #191d23));
+  --header-background: linear-gradient(180deg, light-dark(#f8f6f2, #15181c), light-dark(#e8e4de, #15181c));
+  --header-shadow: inset 0 -1px var(--edge-light), 0 4px 14px light-dark(#0003, transparent);
+  --sidebar-background: linear-gradient(145deg, light-dark(#fffdfa, #131519), light-dark(var(--surface), #131519));
+  --sidebar-shadow: 4px 0 18px light-dark(#3a322a1a, transparent);
+  --workspace-image: radial-gradient(ellipse at 55% 0%, light-dark(#ffffff5c, transparent), transparent 65%);
+  --brand-filter: none;
+}
+
+/* Period gloss: grey chrome, hard-stop highlights, deeper bevels and
+   lighter, bluer slate when dark. */
+:root[data-theme="2009"] {
+  --bg: light-dark(#e2e0dc, #16191d);
+  --surface: light-dark(#faf8f5, #20242a);
+  --surface-subtle: light-dark(#f1eeea, #292e35);
+  --surface-raised: light-dark(#fffdfa, #30363e);
+  --border: light-dark(#cbc7c0, #353b43);
+  --border-strong: light-dark(#aca79f, #505761);
+  --well: light-dark(#e9e7e3, #191d23);
+  --edge-light: light-dark(#ffffffee, #ffffff24);
+  --edge-dark: light-dark(#4a403542, #00000099);
+  --panel-background: linear-gradient(145deg, light-dark(#fffdfa, #2b3038), var(--surface));
+  --panel-shadow: inset 0 1px var(--edge-light), 0 1px 3px light-dark(#00000030, #00000099), 0 9px 18px light-dark(#3a302514, #00000030);
+  --field-shadow: inset 0 2px 4px light-dark(#00000033, #0007), 0 1px var(--edge-light);
+  --control-image: linear-gradient(180deg, light-dark(#ffffffcc, #ffffff20), light-dark(#ffffff59, #ffffff03) 49%, light-dark(#00000008, transparent) 51%, light-dark(#0000001c, #00000016));
+  --control-shadow: inset 0 1px var(--edge-light), 0 1px 2px light-dark(#00000047, #00000099);
+  --selected-image: linear-gradient(180deg, light-dark(#ffffffa6, #ffffff1c), light-dark(#ffffff33, #ffffff0e) 49%, light-dark(#00000005, transparent) 51%, light-dark(#00000014, transparent));
+  --surface-image: linear-gradient(145deg, light-dark(#ffffffcc, #ffffff0c), transparent);
+  --badge-image: linear-gradient(180deg, light-dark(#ffffff99, #ffffff18), light-dark(#ffffff26, #ffffff08) 49%, transparent 51%);
+  --progress-image: linear-gradient(180deg, #ffffff55, transparent 65%);
+  --stripe: light-dark(#0000000a, #ffffff06);
+  --header-background: linear-gradient(180deg, light-dark(#fbfaf8, #30353d), light-dark(#e6e3de, #282c33) 49%, light-dark(#dbd7d0, #262a30) 51%, light-dark(#cfcac3, #20242a));
+  --header-shadow: inset 0 1px light-dark(#ffffff, transparent), inset 0 -1px light-dark(#0000002e, #ffffff24), 0 3px 10px light-dark(#00000024, #0003);
+  --sidebar-background: linear-gradient(180deg, light-dark(#eeece8, #282d35), light-dark(#dcd8d2, #191d23));
   --sidebar-shadow: 4px 0 18px light-dark(#3a322a1a, #0006);
-  --workspace-image: radial-gradient(ellipse at 55% 0%, light-dark(#ffffff5c, #4852602e), transparent 65%);
+  --workspace-image: radial-gradient(ellipse at 55% 0%, light-dark(transparent, #4852602e), transparent 65%);
   --brand-filter: drop-shadow(0 2px 2px #0007);
 }

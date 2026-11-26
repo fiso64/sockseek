@@ -46,6 +46,20 @@ test('keeps private-chat presence live without loading the full profile', async 
     await composer.clear();
     expect(await composer.evaluate(node => node.getBoundingClientRect().height)).toBe(38);
   }
+  // Phones: navigation is a bottom tab bar, and chat shows the list or one conversation.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const tab = await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Dashboard' }).boundingBox();
+  expect(tab!.y + tab!.height).toBeGreaterThan(844 - 60);
+  await page.getByRole('button', { name: 'Back to chats', exact: true }).click();
+  await expect(page.locator('.chat-thread')).toBeHidden();
+  await page.getByRole('button', { name: 'Open conversation with Presence Peer', exact: true }).click();
+  await expect(page.locator('.chat-messages')).toContainText('Hello');
+  await expect(page.locator('.chat-sidebar')).toBeHidden();
+  await page.goBack();
+  await expect(page.locator('.chat-sidebar')).toBeVisible();
+  await expect(page.locator('.chat-thread')).toBeHidden();
+  await expect(page).toHaveURL(/\/chat/);
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/chat/users/New%20Peer');
   await expect(presence).toHaveAttribute('data-presence', 'online');
   expect(profileRequests).toBe(0);

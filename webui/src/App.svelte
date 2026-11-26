@@ -441,7 +441,10 @@
       const detail = await jobRoutes.resolve(jobId, request.signal);
       if (request.signal.aborted || routeLocation() !== route) return;
 
-      await openJob(detail.summary, detail);
+      // A link to an import shows the job it produced; that redirect replaces
+      // the import's entry so Back leaves instead of redirecting again.
+      await openJob(detail.summary, detail, detail.summary.jobId !== jobId
+        && route.split('?')[0] === `/jobs/${encodeURIComponent(jobId)}`);
     } catch (error) {
       if (request.signal.aborted || routeLocation() !== route) return;
       jobRouteError = asError(error);
@@ -449,7 +452,7 @@
     }
   }
 
-  function openAutomaticJob(jobId: string, detail: Schema<'JobDetailDto'> | null = null): void {
+  function openAutomaticJob(jobId: string, detail: Schema<'JobDetailDto'> | null = null, replace = false): void {
     routeRequest?.abort();
     jobRouteError = null;
     jobsTab = 'downloads';
@@ -461,10 +464,10 @@
     activePage = 'jobs';
     pendingJobId = jobId;
     mutationError = null;
-    setPath(`/jobs/${encodeURIComponent(jobId)}`);
+    setPath(`/jobs/${encodeURIComponent(jobId)}`, replace);
   }
 
-  async function openJob(job: JobSummaryDto | string, detail?: Schema<'JobDetailDto'>): Promise<void> {
+  async function openJob(job: JobSummaryDto | string, detail?: Schema<'JobDetailDto'>, replace = false): Promise<void> {
     if (typeof job === 'string') {
       await openJobFromPath(job, routeLocation());
       return;
@@ -478,7 +481,7 @@
         const source = detail ?? await jobRoutes.read(job.jobId, request.signal);
         const result = await jobRoutes.resolveDetail(source, request.signal);
         if (request.signal.aborted || routeLocation() !== origin) return;
-        await openJob(result.summary, result);
+        await openJob(result.summary, result, replace);
       } catch (cause) {
         if (!request.signal.aborted && routeLocation() === origin) mutationError = asError(cause);
       }
@@ -486,7 +489,7 @@
     }
     jobsTab = job.display.kind === 'search' ? 'searches' : 'downloads';
     if (!showsSearchResults(job)) {
-      openAutomaticJob(job.jobId, detail);
+      openAutomaticJob(job.jobId, detail, replace);
       return;
     }
     searchResults.load();
@@ -511,7 +514,7 @@
       showingSearch = true;
       pendingJobId = job.jobId;
       setPath(searchJobPath(job.jobId, opened.draft.resultMode),
-        route.split('?')[0] === `/jobs/${encodeURIComponent(job.jobId)}`);
+        replace || route.split('?')[0] === `/jobs/${encodeURIComponent(job.jobId)}`);
     } catch (error) {
       if (openingJobKey !== openKey || routeLocation() !== route) return;
       mutationError = asError(error);
@@ -702,7 +705,7 @@
             connected={liveStatus === 'connected' && documentVisible}
             {liveStatus} visible={documentVisible}
             {observeJobs} observeJobList={(scope, next, error) => liveClient.observeJobList(scope, next, error)}
-            onback={backToJobs} oneditagain={(start) => { if (!composingJobCommitPending) composer = { start }; }} onsearch={(draft) => void submit(draft)} onopenjob={(job, detail) => void openJob(job, detail)} ondelete={(job) => void deleteOpenedSubmission(job)}
+            onback={backToJobs} oneditagain={(start) => { if (!composingJobCommitPending) composer = { start }; }} onsearch={(draft) => void submit(draft)} onopenjob={(job, detail, replace) => void openJob(job, detail, replace)} ondelete={(job) => void deleteOpenedSubmission(job)}
             deletingSubmissions={deletingSubmissionIds} deleteError={mutationError} />
         {/snippet}
       </LazyView>
@@ -786,7 +789,7 @@
       {/key}
     {:else}
       <section class="page user-browser-page">
-        <header class="user-browser-heading"><div><h1>{activePage === 'shares' ? 'Shares' : 'Users'}</h1></div></header>
+        <header class="page-heading user-browser-heading"><div><h1>{activePage === 'shares' ? 'Shares' : 'Users'}</h1></div></header>
         <EmptyState icon={activePage === 'shares' ? 'folder' : 'user'}
           title={activePage === 'shares' ? 'No shares to display' : 'No user to display'} />
       </section>

@@ -751,7 +751,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     string[] parts = preferences.Split(':');
                     app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<ServerOptions>>().Value.WebUi = new()
                     {
-                        Theme = parts[1], DefaultSearchMode = parts[2],
+                        Theme = parts[1], ColorScheme = parts[2], DefaultSearchMode = parts[3],
                     };
                     break;
                 }

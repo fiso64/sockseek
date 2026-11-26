@@ -54,5 +54,5 @@
 
 {#snippet matchedPath(text: string, pattern: RegExp | undefined, parentLength: number, transfer = false)}
   {@const parts = textParts(text, pattern)}
-  <span class="folder-path-ancestors">{@render slice(text, parts, 0, parentLength)}</span><b class:folder-transfer-name={transfer}>{@render slice(text, parts, parentLength, text.length)}</b>
+  <span class="folder-path-ancestors"><bdi dir="ltr">{@render slice(text, parts, 0, parentLength)}</bdi></span><b class:folder-transfer-name={transfer}>{@render slice(text, parts, parentLength, text.length)}</b>
 {/snippet}

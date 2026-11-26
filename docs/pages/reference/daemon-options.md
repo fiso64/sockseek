@@ -59,7 +59,8 @@ sockseek daemon                 Start the HTTP/SignalR daemon
 --no-auth                       Grant anonymous full access (default: false)
 
 --web-ui-dir <path>             Serve a custom WebUI from this directory (requires restart)
---web-theme <theme>             WebUI theme: dark (default), light, auto, 2009-dark, 2009-light
+--web-theme <theme>             WebUI theme: flat (default), soft, 2009
+--web-color-scheme <scheme>     WebUI color scheme: dark (default), light, auto (follow the browser)
 --web-default-search-mode <mode>
                                 generic, track, album (default), song-groups, album-groups
 ```

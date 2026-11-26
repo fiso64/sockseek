@@ -237,29 +237,41 @@
 </script>
 
 
-{#snippet refreshShares()}
-  <button type="button" class="button user-message-button" data-testid="refresh-user-shares"
-    disabled={browsePending} onclick={() => void acquireBrowse(username, true)}>
-    <Icon name="refresh"/><span>{browsePending ? 'Refreshing…' : 'Refresh'}</span>
-  </button>
-{/snippet}
 
 <section class="page user-browser-page">
-  <header class="user-browser-heading">
-    <div><h1>User browser</h1></div>
-    <div class="user-browser-heading-actions">
+  <header class="page-heading user-browser-heading">
+    <div class="page-heading-title">
+      <!-- Both titles share one cell so the view toggle does not move between them. -->
+      <h1 class="user-browser-title">
+        <span aria-hidden={view === 'shares'}>Users</span><span aria-hidden={view !== 'shares'}>Shares</span>
+      </h1>
+      <div class="page-heading-tabs">
+        <nav class="segmented-control user-view-tabs" aria-label="User browser views">
+          <button type="button" class:active={view === 'user'}
+            aria-current={view === 'user' ? 'page' : undefined}
+            onclick={() => onviewchange('user')}>User</button>
+          <button type="button" class:active={view === 'shares'}
+            aria-current={view === 'shares' ? 'page' : undefined}
+            onclick={() => onviewchange('shares')}>Shares</button>
+        </nav>
+      </div>
+    </div>
+    <div class="user-browser-actions">
       {#if cancellable}
         <button type="button" class="button danger action-button" data-testid="cancel-peer-request"
           onclick={() => void cancelPeerRequest()}><Icon name="x"/><span>Cancel</span></button>
       {/if}
-      <nav class="segmented-control user-view-tabs" aria-label="User browser views">
-        <button type="button" class:active={view === 'user'}
-          aria-current={view === 'user' ? 'page' : undefined}
-          onclick={() => onviewchange('user')}>User</button>
-        <button type="button" class:active={view === 'shares'}
-          aria-current={view === 'shares' ? 'page' : undefined}
-          onclick={() => onviewchange('shares')}>Shares</button>
-      </nav>
+      {#if view === 'user'}
+        <button type="button" class="button action-button" data-testid="refresh-user-profile"
+          disabled={profileLoading || !profile} onclick={() => loadProfile(username, true)}>
+          <Icon name="refresh"/><span>{profileLoading ? 'Refreshing…' : 'Refresh'}</span>
+        </button>
+      {:else}
+        <button type="button" class="button action-button" data-testid="refresh-user-shares"
+          disabled={browsePending || !displayedBrowse} onclick={() => void acquireBrowse(username, true)}>
+          <Icon name="refresh"/><span>{browsePending ? 'Refreshing…' : 'Refresh'}</span>
+        </button>
+      {/if}
     </div>
   </header>
 
@@ -301,10 +313,6 @@
               <p class="user-profile-description"><LinkifiedText text={profile.description}/></p>
             {/if}
             <div class="user-profile-actions">
-              <button type="button" class="button user-message-button" disabled={profileLoading}
-                onclick={() => loadProfile(username, true)}>
-                <Icon name="refresh"/><span>{profileLoading ? 'Refreshing…' : 'Refresh'}</span>
-              </button>
               <button type="button" class="button user-message-button" disabled={profile.privateMessagesBlocked}
                 onclick={() => onmessageuser(profile!.username)}>
                 <Icon name="chat"/>
@@ -337,7 +345,10 @@
           <strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Shares unavailable'}</strong>
           <small>{liveStatus === 'offline' ? 'Shared files can’t be loaded while the daemon is offline.' : browseError.message}</small>
         </span>
-        {#if !displayedBrowse}{@render refreshShares()}{/if}
+        {#if !displayedBrowse}
+          <button type="button" class="button" disabled={browsePending}
+            onclick={() => void acquireBrowse(username, true)}>Retry</button>
+        {/if}
       </div>
     {/if}
     {#if !browseError && !displayedBrowse && (!browse || browsePending)}
@@ -354,7 +365,7 @@
       {/if}
     {/if}
     {#if displayedBrowse}
-      <ShareBrowser {configurationRevision} source={peerShareSource(displayedBrowse)} session={session.shares} connected={liveStatus === 'connected' && documentVisible} filterActions={refreshShares} {userActions} />
+      <ShareBrowser {configurationRevision} source={peerShareSource(displayedBrowse)} session={session.shares} connected={liveStatus === 'connected' && documentVisible} {userActions} />
     {/if}
   {/if}
 </section>

@@ -126,7 +126,7 @@
   input { width: 100%; min-height: 36px; padding: 8px 10px; font-size: .875rem; }
   .error { margin: 0; color: var(--danger); }
   .settings-section > .error { margin-top: 14px; }
-  @media (max-width: 600px) {
+  @media (max-width: 640px) {
     input { font-size: 1rem; }
   }
 </style>

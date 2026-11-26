@@ -52,12 +52,7 @@ internal static class WebUiHosting
         Task Shell(HttpContext context)
         {
             var settings = options.WebUi;
-            string scheme = settings.Theme switch
-            {
-                "light" or "2009-light" => "light",
-                "auto" => "dark light",
-                _ => "dark",
-            };
+            string scheme = settings.ColorScheme == "auto" ? "dark light" : settings.ColorScheme;
             // Include preferences in the initial document: no bootstrap request
             // or wrong-theme flash, and no credentials in the public shell.
             string attributes = $"{(ServeDocs() ? "data-docs " : "")}style=\"color-scheme:{HtmlEncoder.Default.Encode(scheme)}\" "

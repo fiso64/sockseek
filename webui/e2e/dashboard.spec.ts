@@ -210,8 +210,6 @@ test('refreshes retained analytics after the terminal transfer commit', async ({
   expect(refreshes).toContain(128);
   await expect(page.locator('.dashboard-metric-card').first().locator('small')).toHaveText('1 file');
   await expect(page.locator('.dashboard-metric-card').nth(2).locator('small')).toHaveText('—');
-  await expect(page.locator('.dashboard-metric-card').first().locator('.metric-sparkline i:not(.zero)')).toHaveCount(1);
-  await expect(page.locator('.dashboard-metric-card').first().locator('.metric-sparkline i.zero').first()).toHaveCSS('height', '0px');
   await expect(page.getByRole('status', { name: 'Loading analytics', exact: true })).toHaveCount(0);
 
   const ranking = page.locator('.ranking-panel');

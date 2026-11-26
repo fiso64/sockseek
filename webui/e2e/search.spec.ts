@@ -50,7 +50,8 @@ async function sortWithoutCreatingView(page: Page, value: string, order: Schema<
       return response.request().method() === 'GET' && /\/api\/search-views\/[^/]+\/(files|directories)$/.test(url.pathname)
         && url.searchParams.get('sortOrder') === order;
     });
-    await page.getByLabel('Sort', { exact: true }).selectOption(value);
+    // Narrow layouts sort from the compact control inside the filter bar.
+    await page.getByLabel(/^Sort( results)?$/).filter({ visible: true }).selectOption(value);
     const response = await sorted;
     expect(response.ok(), await response.text()).toBe(true);
     await expect(page.locator('.result-refinement-status')).toHaveCount(0);

@@ -116,7 +116,7 @@
   p { color: var(--muted); font-size: .78rem; line-height: 1.5; overflow-wrap: anywhere; }
   .login-notice { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); }
   .login-error { padding: 12px; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--danger) 7%, var(--surface)); color: var(--danger); }
-  @media (max-width: 600px) {
+  @media (max-width: 640px) {
     .config-stack input { min-height: 44px; font-size: 1rem; }
     button { min-height: 44px; }
   }

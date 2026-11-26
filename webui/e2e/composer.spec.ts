@@ -183,7 +183,8 @@ test('keeps Review reachable with edited Album settings on narrow screens', asyn
   await expect(dialog.locator('.new-job-source-disclosure')).not.toHaveAttribute('open', '');
   await expect(dialog.getByRole('button', { name: 'Spotify', exact: true })).not.toBeVisible();
   await dialog.getByPlaceholder('Song title…').fill('Unsubmitted song');
-  await page.mouse.click(5, 5);
+  // Phones show the dialog full screen; closing it still discards the draft.
+  await dialog.getByRole('button', { name: 'Close new job', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: 'New job', exact: false }).click();
   await expect(dialog.getByPlaceholder('Song title…')).toHaveValue('');
@@ -600,6 +601,18 @@ test('reviews and starts daemon CSV and list paths without uploading', async ({ 
     const fresh = await rerun('run-again');
     expect(fresh.status(), await fresh.text()).toBe(202);
     expect(new URL(fresh.url()).searchParams.get('extractAgain')).toBe('true');
+    await expect(page.getByText('Added Later')).toBeVisible();
+    // An import's address shows the job list it produced; that redirect must
+    // replace the import's history entry so Back leaves instead of redirecting again.
+    const listUrl = page.url();
+    const extractId = (await fresh.json() as Schema<'JobSummaryDto'>).jobId;
+    await page.goto('/jobs?tab=downloads');
+    await page.goto(`/jobs/${extractId}`);
+    await expect(page).toHaveURL(listUrl);
+    await expect(page.getByText('Added Later')).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/jobs\?tab=downloads$/);
+    await page.goForward();
     await expect(page.getByText('Added Later')).toBeVisible();
     await writeFile(path, 'artist,title\nFixture Artist,Changed Again\n');
     await page.getByTestId('run-again-menu').click();

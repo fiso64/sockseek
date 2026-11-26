@@ -57,5 +57,5 @@
   .page-tabs:not(.segmented-tabs) button { padding: 10px 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: .85rem; }
   .page-tabs:not(.segmented-tabs) button:hover { color: var(--text); }
   .page-tabs:not(.segmented-tabs) button.active { color: var(--text); border-bottom-color: var(--accent); }
-  @media (max-width: 600px) { .page-tabs:not(.segmented-tabs) { gap: 12px; } }
+  @media (max-width: 640px) { .page-tabs:not(.segmented-tabs) { gap: 12px; } }
 </style>

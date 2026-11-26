@@ -45,6 +45,10 @@
     return failures.length ? new Error(failures.join(' · ')) : null;
   });
   let target = $state<Target | null>(null);
+  // Phones show the list or the open conversation, not both; wider layouts ignore it.
+  // Opening one there adds a history entry, so the system Back returns to the list.
+  const phoneLayout = () => matchMedia('(max-width: 640px)').matches;
+  let threadOpen = $state(history.state?.chatThread === true);
   let targetSnapshot = $state<ChatTargetSnapshotDto | null>(null);
   let historicalMessages = $state<ChatMessageDto[]>([]);
   let messageCursor = $state<string | null>(null);
@@ -135,6 +139,7 @@
     if (!username || username === handledInitialUsername) return;
     handledInitialUsername = username;
     openOrCreateConversation(username);
+    showThread();
   });
 
   $effect(() => {
@@ -535,13 +540,21 @@
       adding = null;
       addDraft = '';
       selectTarget({ kind: 'room', id: room.roomId });
+      showThread();
       mutation = { phase: 'succeeded', label: 'Room joined' };
     } catch (cause) { mutation = { phase: 'rejected', label: 'Join failed', detail: asError(cause).message }; }
   }
 
   function submitAdd(): void {
     if (adding === 'room') void joinRoom();
-    else if (adding === 'user') { openOrCreateConversation(addDraft); addDraft = ''; adding = null; }
+    else if (adding === 'user') { openOrCreateConversation(addDraft); addDraft = ''; adding = null; showThread(); }
+  }
+
+  function showThread(open = true): void {
+    if (open && !threadOpen && phoneLayout()) history.pushState({ chatThread: true }, '', location.href);
+    if (!open && history.state?.chatThread) { history.back(); return; }
+    threadOpen = open;
+    if (open) void tick().then(markVisibleMessagesRead);
   }
 
   function removeConversations(ids: readonly string[]): void {
@@ -590,7 +603,8 @@
 
   function markVisibleMessagesRead(): void {
     const value = targetSnapshot;
-    if (!value || !atLatestMessage() || document.visibilityState !== 'visible') return;
+    // A list-only phone layout hides the thread; nothing in it has been seen.
+    if (!value || !atLatestMessage() || document.visibilityState !== 'visible' || !messagesElement?.checkVisibility()) return;
     const last = value.messages.at(-1);
     if (!last || messagesElement?.lastElementChild?.getAttribute('data-message-id') !== last.messageId) return;
     if (markedRead.get(value.targetId) === last.messageId) return;
@@ -665,7 +679,7 @@
 </script>
 
 <svelte:document onvisibilitychange={markVisibleMessagesRead} />
-<svelte:window
+<svelte:window onpopstate={() => (threadOpen = history.state?.chatThread === true)}
   onresize={resizeComposer}
   onkeydown={(event) => {
     if (event.isComposing) return;
@@ -681,7 +695,7 @@
 />
 
 <section class="page chat-page">
-  <div class="chat-layout">
+  <div class="chat-layout" class:thread-open={threadOpen}>
     <aside class="chat-sidebar" aria-label="Chat destinations">
       <section class="chat-sidebar-section">
         <header class="chat-section-heading">
@@ -700,12 +714,13 @@
             <button class="button" type="button" disabled={!addDraft.trim()} onclick={submitAdd}>Join</button>
           </div>
         {/if}
+        {#if !rooms.length && adding !== 'room'}<p class="chat-sidebar-empty">No rooms joined</p>{/if}
         <div class="chat-destination-list">
           {#each rooms as room (room.roomId)}
             <button type="button" class:active={target?.kind === 'room' && target.id === room.roomId}
               class="choice chat-destination room"
               aria-current={target?.kind === 'room' && target.id === room.roomId ? 'page' : undefined}
-              onclick={() => selectTarget({ kind: 'room', id: room.roomId })}>
+              onclick={() => { selectTarget({ kind: 'room', id: room.roomId }); showThread(); }}>
               <span class="room-mark">#</span>
               <span class="chat-destination-copy">
                 <strong>{room.name}</strong>
@@ -733,13 +748,14 @@
             <button class="button" type="button" disabled={!addDraft.trim()} onclick={submitAdd}>Open</button>
           </div>
         {/if}
+        {#if !conversations.length && !newChats.length && adding !== 'user'}<p class="chat-sidebar-empty">No conversations yet</p>{/if}
         <div class="chat-destination-list">
           {#each newChats as username (username)}
             {@const active = target?.kind === 'draft' && target.username === username}
             <div class:active class="choice chat-destination user draft-target">
               <button type="button" class="chat-destination-open"
                 aria-label={`Open new chat with ${username}`} aria-current={active ? 'page' : undefined}
-                onclick={() => { if (!active) openOrCreateConversation(username); }}></button>
+                onclick={() => { if (!active) openOrCreateConversation(username); showThread(); }}></button>
               <span class="avatar">{userInitials(username)}</span>
               <span class="chat-destination-copy">
                 <strong>{username}</strong>
@@ -756,7 +772,7 @@
               <button type="button" class="chat-destination-open"
                 aria-label={`Open conversation with ${conversation.username}`}
                 aria-current={target?.kind === 'conversation' && target.id === conversation.conversationId ? 'page' : undefined}
-                onclick={() => selectTarget(conversationTarget(conversation))}></button>
+                onclick={() => { selectTarget(conversationTarget(conversation)); showThread(); }}></button>
               <span class="avatar">{userInitials(conversation.username)}</span>
               <span class="chat-destination-copy">
                 <strong>{conversation.username}</strong>
@@ -776,13 +792,17 @@
 
     <div class="chat-thread">
       <header class="chat-thread-heading">
+        <button type="button" class="button quiet icon-button back-button chat-back-button" aria-label="Back to chats"
+          onclick={() => showThread(false)}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5M7.5 10H16" /></svg></button>
         {#if activeConversation || target?.kind === 'draft'}
+          <span class="avatar" aria-hidden="true">{userInitials(activeUsername ?? '')}</span>
           <div class="chat-thread-identity">
             <UsernameLink username={activeUsername ?? ''} actions={userActions}/>
             <small class:blocked={activeUserBlocked}
               data-presence={presence.state}>{activeUserBlocked ? 'Blocked · ' : ''}{presence.label}</small>
           </div>
         {:else if activeRoom}
+          <span class="room-mark" aria-hidden="true">#</span>
           <div class="chat-thread-identity">
             <strong>#{activeRoom.name}</strong>
             <small>{activeRoom.kind === 'Private' ? 'Private room' : 'Public room'} · {formatCount(activeRoom.memberCount)} users · {activeRoom.rosterComplete ? 'roster complete' : 'roster partial'}{activeRoom.phase !== 'Joined' ? ` · ${activeRoom.phase}` : ''}</small>

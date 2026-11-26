@@ -32,6 +32,12 @@ configured storage, and ordinary local administration are trusted.
   badges and progress) and keep feature styles about layout and domain states.
   Keep markup, behavior and responsive layout common to all themes. New features
   using existing primitives should avoid theme-specific selectors or code.
+* Phone layout is one breakpoint (`max-width: 640px`), written as CSS beside each
+  feature's desktop rules. Layouts that depend on their own width rather than the
+  screen's (the two-line file rows) use a container query. Reuse the shared phone
+  patterns (bottom tab bar, two-line file rows, full-screen sheets,
+  title-and-actions headings) instead of phone-specific components or
+  per-variant phone grids.
 * For high-volume persistence, assess SQL round trips and write amplification as
   well as latency. Prefer set-based operations or prepared, batched writes when
   they preserve ordering, replay and per-entry failure behavior.

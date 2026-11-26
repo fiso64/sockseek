@@ -8,7 +8,7 @@
   import { keyboardList } from '../../lib/keyboard';
   import EmptyState from '../../components/EmptyState.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
-  import { onDestroy, untrack, type Snippet } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import type { BrowseDirectoryEntryDto, BrowseFileEntryDto, BrowseSearchPageDto, Schema } from '../../api/types';
   import { formatBytes, formatCount } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
@@ -32,8 +32,8 @@
   interface TreeRowPage { kind: 'page'; parentKey: string; page: PageState; depth: number; }
   type TreeRow = TreeRowDirectory | TreeRowFile | TreeRowPage;
 
-  let { source: input, session = {}, position, filterActions, connected = true, configurationRevision, userActions }: {
-    source: ShareBrowserSource; session?: ShareBrowserSession; position?: ShareBrowserPosition; filterActions?: Snippet; connected?: boolean; configurationRevision?: number;
+  let { source: input, session = {}, position, connected = true, configurationRevision, userActions }: {
+    source: ShareBrowserSource; session?: ShareBrowserSession; position?: ShareBrowserPosition; connected?: boolean; configurationRevision?: number;
     /** Makes a peer's name the usual username link; the daemon's own shares have none. */
     userActions?: UserLinkActions;
   } = $props();
@@ -51,6 +51,16 @@
   let pageStates = $state<Map<string, PageState>>(saved?.pageStates ?? new Map());
   let expanded = $state<Set<string>>(saved?.expanded ?? new Set());
   let filterText = $state(saved?.filterText ?? previous?.filterText ?? '');
+  // Typing only updates the field; the tree and requests follow the settled query,
+  // so a burst of keystrokes costs one re-render instead of one per letter.
+  let filterQuery = $state(untrack(() => filterText.trim()));
+  $effect(() => {
+    const query = filterText.trim();
+    if (query === untrack(() => filterQuery)) return;
+    // Wait for a pause in typing: phone keyboards space letters wider than a short debounce.
+    const timer = setTimeout(() => (filterQuery = query), 300);
+    return () => clearTimeout(timer);
+  });
   let filterPage = $state.raw<BrowseSearchPageDto | null>(saved?.filterPage ?? null);
   let filterItems = $state.raw<BrowseSearchPageDto['items']>(saved?.filterItems ?? []);
   let filterLoading = $state(false);
@@ -163,16 +173,21 @@
     return () => { clearTimeout(timer); request.abort(); };
   });
   $effect(() => {
-    const query = filterText.trim();
+    const query = filterQuery;
     const browseId = browse.browseId;
     const key = JSON.stringify([browseId, query]);
     if (untrack(() => key === filterKey && filterPage !== null)) return;
+    // A refined query keeps the previous matches on screen (inert) until its own
+    // arrive, so the tree is not torn down and rebuilt for every query.
+    const refining = query !== '' && untrack(() => filterKey !== '' && JSON.parse(filterKey)[0] === browseId && filterItems.length > 0);
     if (key !== filterKey) collapsedFiltered = new Set();
     filterKey = key;
     filterRequest = null;
     filterRevision++;
-    filterPage = null;
-    filterItems = [];
+    if (!refining) {
+      filterPage = null;
+      filterItems = [];
+    }
     if (!query || !browseId) {
       filterLoading = false;
       filterError = null;
@@ -182,8 +197,8 @@
     filterError = null;
     const request = new AbortController();
     filterRequest = request;
-    const timer = setTimeout(() => void loadFilter(browseId, query, null, true, request.signal), 100);
-    return () => { clearTimeout(timer); request.abort(); };
+    void loadFilter(browseId, query, null, true, request.signal);
+    return () => request.abort();
   });
 
   function currentOptions() {
@@ -209,7 +224,7 @@
     if (!restorePosition || !previous) return;
     // Wait for the new rows before restoring the scroll offset and keyboard focus.
     if (!pageStates.get('root')?.loaded || [...pageStates.values()].some(page => page.loading)) return;
-    if (filterText.trim() && !filterPage && !filterError) return;
+    if (filterQuery && !filterPage && !filterError) return;
     restorePosition = false;
     if (document.activeElement !== document.body) return;
     let target: HTMLElement | null = null;
@@ -327,7 +342,7 @@
 
   async function loadFilter(browseId: string, query: string, cursor: string | null, reset: boolean, signal: AbortSignal = filterRequest?.signal ?? lifetime.signal): Promise<void> {
     const revision = ++filterRevision;
-    const isCurrent = () => !signal.aborted && revision === filterRevision && browse?.browseId === browseId && query === filterText.trim();
+    const isCurrent = () => !signal.aborted && revision === filterRevision && browse?.browseId === browseId && query === filterQuery;
     filterLoading = true;
     filterError = null;
     try {
@@ -358,7 +373,7 @@
       setSelection(direct, checked, included, excluded);
       return;
     }
-    const query = filterText.trim();
+    const query = filterQuery;
     const signal = filterRequest?.signal ?? lifetime.signal;
     const parents = new Map(selectedParents), sizes = new Map(selectedSizes);
     function collect(items: BrowseSearchPageDto['items']) {
@@ -394,7 +409,7 @@
         if (!cursor) throw new Error('The filtered folder could not be completely read.');
         collectingMatches = true;
         const page = await source.search(query, cursor, sharePageSize, signal);
-        if (signal.aborted || revision !== selectionRevision || query !== filterText.trim()) return;
+        if (signal.aborted || revision !== selectionRevision || query !== filterQuery) return;
         collect(page.items);
         cursor = page.nextCursor;
       }
@@ -405,7 +420,7 @@
       const roots = [...matchingFolders.keys()].filter(key => !included.has(key) && !inheritedSelection(key, included, excluded, selectionParent));
       setSelection(direct, true, new Set([...included, ...roots]), new Set([...excluded, ...roots]));
     } catch (cause) {
-      if (!signal.aborted && revision === selectionRevision && query === filterText.trim()) filterError = browseError(cause);
+      if (!signal.aborted && revision === selectionRevision && query === filterQuery) filterError = browseError(cause);
     } finally {
       if (revision === selectionRevision) collectingMatches = false;
     }
@@ -571,13 +586,13 @@
 }} />
 
 <div bind:this={container} class="share-browser" class:read-only={!source.download} use:keyboardList={{
-  scope: `${browse.browseId}:${filterText.trim()}`,
+  scope: `${browse.browseId}:${filterQuery}`,
   enabled: true,
   revision: [treeRows, filteredRows, filterLoading],
   beginRange: source.download && mutation.phase !== 'pending' ? beginRange : undefined,
   loadPage: key => {
-    if (filterText.trim()) {
-      if (browse) void loadFilter(browse.browseId, filterText.trim(), filterPage?.nextCursor ?? null, false);
+    if (filterQuery) {
+      if (browse) void loadFilter(browse.browseId, filterQuery, filterPage?.nextCursor ?? null, false);
     } else void loadChildren(key === 'root' ? null : key);
   },
 }}>
@@ -594,15 +609,15 @@
             <span class:peer-identity={Boolean(userActions)} data-testid="shares-username">{#if userActions}<UsernameLink username={browse.username} actions={userActions} />{:else}<span class="shares-username">{browse.username}</span>{/if}</span>
             <strong>{formatBytes(browse.totalFileBytes)} shared</strong>
           </div>
-        </div>
-        <div class="shares-refine-row">
-          <ResultFilterControl bind:value={filterText} placeholder="Filter shared files…"
-            ariaLabel="Filter user shares"/>
-          {#if filterText.trim() && filterPage}
-            {@const matchingCount = Number(filterPage.publicMatchingFileCount) + Number(filterPage.lockedMatchingFileCount)}
-            <span class="shares-filter-count">{formatCount(matchingCount)} matching {matchingCount === 1 ? 'file' : 'files'}</span>
-          {/if}
-          {#if filterActions}<div class="shares-filter-actions">{@render filterActions()}</div>{/if}
+          <div class="shares-filter">
+            <ResultFilterControl bind:value={filterText} placeholder="Filter shared files…" ariaLabel="Filter user shares">
+              <!-- The count lives inside the field so the field never changes size. -->
+              {#if filterQuery && filterPage && !filterLoading}
+                {@const matchingCount = Number(filterPage.publicMatchingFileCount) + Number(filterPage.lockedMatchingFileCount)}
+                <span class="shares-filter-count">{formatCount(matchingCount)} matching {matchingCount === 1 ? 'file' : 'files'}</span>
+              {/if}
+            </ResultFilterControl>
+          </div>
         </div>
 
 
@@ -616,7 +631,7 @@
           </section>
         {/if}
 
-        {#if filterText.trim()}
+        {#if filterQuery}
           {#if filterError}
             <div class="resource-state-notice unavailable" role="alert">
               <span class="resource-state-dot"></span>
@@ -625,7 +640,7 @@
                 <small>{filterError.message}</small>
               </span>
               <button class="button" type="button" disabled={filterLoading}
-                onclick={() => browse && void loadFilter(browse.browseId, filterText.trim(), filterPage?.nextCursor ?? null, !filterPage)}>Retry</button>
+                onclick={() => browse && void loadFilter(browse.browseId, filterQuery, filterPage?.nextCursor ?? null, !filterPage)}>Retry</button>
             </div>
           {/if}
           {#if filterLoading && !filterItems.length}
@@ -633,7 +648,7 @@
           {/if}
           {#if collectingMatches}<LoadingIndicator label="Selecting matching files" />{/if}
           {#if filterItems.length}
-            <div class="panel inset share-tree" inert={collectingMatches} aria-busy={collectingMatches} aria-label={`${browse.username} filtered shared files`}>
+            <div class="panel inset share-tree" class:refreshing={filterLoading} inert={collectingMatches || filterLoading} aria-busy={collectingMatches || filterLoading} aria-label={`${browse.username} filtered shared files`}>
               {#each filteredRows as { entry: item, depth } (`${item.kind}:${item.entryId}`)}
                 {@const key = `${item.kind === 'directory' ? 'd' : 'f'}:${item.entryId}`}
                 {#if item.kind === 'directory'}
@@ -670,7 +685,7 @@
           {#if filterPage && !filterLoading && !filterError && !filterItems.length}
             <EmptyState class="search-results-empty" icon="search" title="No matching files" />
           {/if}
-          {#if filterPage?.nextCursor}<div data-keyboard-page="filter" data-loading={filterLoading} data-failed={Boolean(filterError)}><LoadMoreButton loading={filterLoading} onclick={() => browse && void loadFilter(browse.browseId, filterText.trim(), filterPage?.nextCursor ?? null, false)}/></div>{/if}
+          {#if filterPage?.nextCursor}<div data-keyboard-page="filter" data-loading={filterLoading} data-failed={Boolean(filterError)}><LoadMoreButton loading={filterLoading} onclick={() => browse && void loadFilter(browse.browseId, filterQuery, filterPage?.nextCursor ?? null, false)}/></div>{/if}
         {:else if treeRows.length}
           <div class="panel inset share-tree" aria-label={`${browse.username} shared files`}>
             {#each treeRows as row (row.kind === 'page' ? `p:${row.parentKey}` : row.kind === 'directory' ? `d:${row.entry.directoryId}` : `f:${row.entry.fileId}`)}

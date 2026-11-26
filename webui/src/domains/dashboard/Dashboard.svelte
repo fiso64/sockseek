@@ -90,7 +90,6 @@
   let hasDownloadHistory = $derived(downloadBytes.some((value) => value > 0) || Number(summary?.downloadedFiles ?? 0) > 0);
   let hasUploadHistory = $derived(uploadBytes.some((value) => value > 0) || Number(summary?.uploadedFiles ?? 0) > 0);
   let hasHistory = $derived(hasDownloadHistory || hasUploadHistory);
-  let shareRatioSamples = $derived(uploadBytes.map((upload, index) => downloadBytes[index] ? upload / downloadBytes[index]! : 0));
   let daemonReachable = $derived(liveStatus === 'connected');
   const connectionPending = $derived(liveStatus === 'connecting' || liveStatus === 'reconnecting');
 
@@ -104,12 +103,6 @@
 
   function formatFiles(value: number | string | null | undefined): string {
     return value == null ? '— files' : formatCountWithNoun(value, 'file');
-  }
-
-  function metricBarHeight(values: number[], value: number): number {
-    if (value <= 0) return 0;
-    const maximum = Math.max(1, ...values);
-    return Math.round(14 + value / maximum * 86);
   }
 
   function chartY(value: number): number { return 150 - value / activityAxis.maxBytes * 138; }
@@ -196,43 +189,22 @@
 
   <div class="panel dashboard-metrics">
     <article class="dashboard-metric-card">
-      <div class="metric-label download"><span aria-hidden="true">↓</span> Downloaded</div>
+      <div class="metric-label download"><Icon name="download" /> Downloaded</div>
       <strong>{formatBytes(summary?.downloadedBytes)}</strong>
       <small>{formatFiles(summary?.downloadedFiles)}</small>
-      <div class="metric-sparkline" aria-hidden="true">
-        {#if hasDownloadHistory}
-          {#each downloadBytes.slice(-8) as point}
-            <i class:zero={point <= 0} style={`height:${metricBarHeight(downloadBytes, point)}%`}></i>
-          {/each}
-        {/if}
-      </div>
     </article>
     <article class="dashboard-metric-card">
-      <div class="metric-label upload"><span aria-hidden="true">↑</span> Uploaded</div>
+      <div class="metric-label upload"><Icon name="upload" /> Uploaded</div>
       <strong>{formatBytes(summary?.uploadedBytes)}</strong>
       <small>{formatFiles(summary?.uploadedFiles)}</small>
-      <div class="metric-sparkline upload" aria-hidden="true">
-        {#if hasUploadHistory}
-          {#each uploadBytes.slice(-8) as point}
-            <i class:zero={point <= 0} style={`height:${metricBarHeight(uploadBytes, point)}%`}></i>
-          {/each}
-        {/if}
-      </div>
     </article>
     <article class="dashboard-metric-card">
-      <div class="metric-label"><span aria-hidden="true">⇵</span> Share ratio</div>
+      <div class="metric-label"><Icon name="refresh" /> Share ratio</div>
       <strong>{summary?.shareRatio == null ? '—' : Number(summary.shareRatio).toFixed(2)}</strong>
       <small>{ratioContext()}</small>
-      <div class="metric-sparkline ratio" aria-hidden="true">
-        {#if hasHistory}
-          {#each shareRatioSamples.slice(-8) as point}
-            <i class:zero={point <= 0} style={`height:${metricBarHeight(shareRatioSamples, point)}%`}></i>
-          {/each}
-        {/if}
-      </div>
     </article>
     <article class="dashboard-metric-card">
-      <div class="metric-label"><span aria-hidden="true">◎</span> Distinct peers</div>
+      <div class="metric-label"><Icon name="user" /> Distinct peers</div>
       <strong>{formatCount(summary?.distinctPeers)}</strong>
       <small>across transfers</small>
     </article>
@@ -384,7 +356,9 @@
       <section class="panel dashboard-panel health-panel">
         <div class="dashboard-panel-heading compact">
           <h2>Daemon health</h2>
-          <span class:offline={!daemonReachable && !connectionPending} class:pending={connectionPending} class="badge health-badge"><i></i>{connectionPending ? humanizeStateValue(liveStatus) : daemonReachable ? 'Healthy' : 'Offline'}</span>
+          {#if !daemonReachable}
+            <span class:offline={!connectionPending} class="badge health-badge"><i></i>{connectionPending ? humanizeStateValue(liveStatus) : 'Offline'}</span>
+          {/if}
         </div>
         <div class="health-list">
           <div><span>Soulseek</span><strong>{soulseekStatusLabel(soulseek, liveStatus)}</strong></div>

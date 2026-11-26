@@ -28,6 +28,8 @@ interface KeyboardListOptions {
   revision: unknown;
   /** Capture the starting selection once so reversing direction can shrink a range. */
   beginRange?: (additive: boolean) => ApplyRange;
+  /** Rows are independent choices: a plain click toggles one, as Ctrl+click does elsewhere. */
+  toggleOnClick?: boolean;
   retrieve?: () => void;
   horizontal?: (direction: -1 | 1) => void;
   loadPage?: (key: string) => void;
@@ -43,6 +45,12 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
   let applyRange: ApplyRange | undefined;
   let rangeMode: 'select' | 'clear' | 'shrink' = 'select';
   let pointerDown = false;
+  // Firefox for Android delivers a tap's focus after its pointerup. Focus that
+  // lands on the row the pointer was just released in came from that tap.
+  let released: { item: Element | null; at: number } | null = null;
+  const pointerFocus = (target: EventTarget | null) => pointerDown || (released !== null
+    && performance.now() - released.at < 500 && target instanceof Element
+    && target.closest('[data-keyboard-item]') === released.item);
   let disposed = false;
 
   function mark(item: HTMLElement | null, highlight = true): void {
@@ -127,7 +135,7 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
       if (!isPageControl(event.target)) startAt(null);
       return;
     }
-    const additive = event.ctrlKey || event.metaKey;
+    const additive = event.ctrlKey || event.metaKey || Boolean(options.toggleOnClick);
     if (event.shiftKey) {
       if (event.target instanceof HTMLInputElement) {
         // A cancelled checkbox click rolls back checked *after* our render.
@@ -158,10 +166,10 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
     const item = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-keyboard-item]') : null;
     // Moving focus elsewhere while a page loads must not let its response steal focus.
     if (pending && item !== pending.item) pending = null;
-    if (!pointerDown && item && root.contains(item)) {
+    if (!pointerFocus(event.target) && item && root.contains(item)) {
       if (item !== current) { startAt(item); mark(item); }
     } else if (current && !current.contains(event.target as Node)) {
-      if (!pointerDown && !isPageControl(event.target)) startAt(null);
+      if (!pointerFocus(event.target) && !isPageControl(event.target)) startAt(null);
       mark(null);
     }
   }
@@ -176,11 +184,14 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
     }
   }
 
-  function pointerup(): void {
+  function pointerup(event: PointerEvent): void {
     pointerDown = false;
+    const item = event.target instanceof Element ? event.target.closest('[data-keyboard-item]') : null;
+    released = item ? { item, at: performance.now() } : null;
   }
 
   function keydown(event: KeyboardEvent): void {
+    released = null;
     const arrow = event.key === 'ArrowDown' || event.key === 'ArrowUp';
     const extend = Boolean(options.beginRange && event.shiftKey && arrow);
     if (options.enabled === false || keyboardShortcutsBlocked(event, extend, extend)) return;

@@ -157,11 +157,11 @@ test('applies configured search defaults and theme before JavaScript, including 
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/');
   const darkBackground = await page.locator('body').evaluate(element => getComputedStyle(element).backgroundColor);
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'flat');
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(14, 15, 16)');
   await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Album Search/);
 
-  await daemon.command('webui-settings:light:track');
+  await daemon.command('webui-settings:flat:light:track');
   // Even the unauthenticated shell renders the configured theme without JS.
   const context = await browser.newContext({ javaScriptEnabled: false, colorScheme: 'dark' });
   let lightBackground: string;
@@ -175,7 +175,7 @@ test('applies configured search defaults and theme before JavaScript, including 
   await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Track Search/);
   await expect(page.locator('body')).toHaveCSS('background-color', lightBackground);
 
-  await daemon.command('webui-settings:auto:album-groups');
+  await daemon.command('webui-settings:flat:auto:album-groups');
   await page.goto('/system');
   await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Album Groups/);
   await expect(page.locator('body')).toHaveCSS('background-color', lightBackground);
@@ -185,10 +185,9 @@ test('applies configured search defaults and theme before JavaScript, including 
   // All appearances use the same controls and geometry, including dialogs and
   // popovers. Check decoration through real interactions, not just root tokens.
   const geometry = await page.locator('.search-controls-row').boundingBox();
-  for (const theme of ['2009-light', '2009-dark', 'light', 'dark'] as const) {
-    const physical = theme.startsWith('2009-');
-    const scheme = theme.endsWith('light') ? 'light' : 'dark';
-    await daemon.command(`webui-settings:${theme}:album`);
+  for (const [theme, scheme] of [['2009', 'light'], ['soft', 'dark'], ['flat', 'light'], ['flat', 'dark']] as const) {
+    const physical = theme !== 'flat';
+    await daemon.command(`webui-settings:${theme}:${scheme}:album`);
     const shellContext = await browser.newContext({ javaScriptEnabled: false, colorScheme: scheme === 'dark' ? 'light' : 'dark' });
     let background: string;
     try {

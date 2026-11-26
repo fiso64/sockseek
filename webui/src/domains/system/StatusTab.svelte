@@ -201,7 +201,7 @@
   .profile-empty { color: var(--muted); }
   .storage-error { color: var(--danger); font-size: .8125rem; overflow-wrap: anywhere; }
   @media (max-width: 800px) { .status-grid { grid-template-columns: minmax(0, 1fr); } }
-  @media (max-width: 520px) {
+  @media (max-width: 640px) {
     .profile-body { --profile-picture-size: 72px; grid-template-columns: 72px minmax(0, 1fr); gap: 14px; }
   }
 </style>

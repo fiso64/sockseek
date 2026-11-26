@@ -271,7 +271,7 @@
     {/if}
   </div>
   {#if variant === 'content' && settingsMounted}
-    <section data-shortcuts-blocked={settingsOpen} class="popover-panel form search-config-popover" aria-label="Search configuration" style="top: 62px; max-height: calc(100dvh - 87px)" style:display={settingsOpen ? undefined : 'none'}>
+    <section data-shortcuts-blocked={settingsOpen} class="popover-panel form search-config-popover" aria-label="Search configuration" style:display={settingsOpen ? undefined : 'none'}>
       <SearchConfiguration draft={value} active={settingsOpen} bind:resolved={conditionsResolved} bind:customized={configurationCustomized} {onchange} onvalidation={(message, pending) => { configurationError = message; configurationPending = pending; }} onclose={() => settingsOpen = false} />
     </section>
   {/if}

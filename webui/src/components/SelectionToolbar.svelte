@@ -86,7 +86,7 @@
 
 <style>
   .selection-space { display: none; }
-  @media (max-width: 560px) { .selection-space { display: block; } }
+  @media (max-width: 640px) { .selection-space { display: block; } }
   .floating-download-action { font-variant-numeric: tabular-nums; }
   .floating-download-action.recounting:disabled { opacity: 1; }
 </style>

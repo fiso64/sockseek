@@ -176,7 +176,8 @@ test('keeps two completed uploads in one retained folder and Content ranking', a
   await details.getByRole('button', { name: 'Close transfer details', exact: true }).click();
   await expect(folder.locator('.folder-transfer-footer')).toHaveCount(0);
 
-  await expect(folder.locator('.folder-file-row').first()).toHaveCSS('height', '46px');
+  // Phone rows are a name line and a details line; the height stays fixed as the transfer changes.
+  await expect(folder.locator('.folder-file-row').first()).toHaveCSS('height', '54px');
   await expectFolderLayoutUnchanged(page);
   await expect(folder).not.toContainText('128 B/s');
   const workspace = await page.locator('.workspace').boundingBox();
@@ -189,7 +190,7 @@ test('keeps two completed uploads in one retained folder and Content ranking', a
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
   await expect(folder.locator('.folder-file-row')).toHaveCount(2);
   await expect(folder.locator('.folder-file-row').getByRole('button', { name: 'Complete', exact: true })).toHaveCount(2);
-  await expect(folder.locator('.folder-file-row').first()).toHaveCSS('height', '46px');
+  await expect(folder.locator('.folder-file-row').first()).toHaveCSS('height', '54px');
   const retained = await page.request.get('/api/transfers?direction=upload&limit=100');
   expect(retained.ok()).toBeTruthy();
   expect((await retained.json()).items).toHaveLength(2);

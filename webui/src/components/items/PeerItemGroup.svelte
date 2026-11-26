@@ -59,5 +59,4 @@
 <style>
   /* Columns come from the enclosing .peer-group-list (app.css). */
   .result-peer-header { min-height: 44px; padding: 5px 12px 5px 0; font-size: .86rem; }
-  .result-peer-items { padding-left: 26px; }
 </style>

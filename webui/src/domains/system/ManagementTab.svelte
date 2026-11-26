@@ -93,5 +93,5 @@
   .confirmation { display: grid; gap: 14px; }
   .confirmation p { margin: 0; color: var(--muted); font-size: .8125rem; line-height: 1.5; }
   .confirmation-actions { display: flex; justify-content: flex-end; gap: 8px; }
-  @media (max-width: 600px) { .management-groups { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 640px) { .management-groups { grid-template-columns: minmax(0, 1fr); } }
 </style>

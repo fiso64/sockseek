@@ -133,8 +133,7 @@
   .page-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
   .settings-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .settings-actions > :global(.button) { display: inline-flex; align-items: center; gap: 7px; --app-icon-size: 16px; }
-  @media (max-width: 600px) {
-    .system-page { --content-gutter: 18px; }
+  @media (max-width: 640px) {
     .settings-actions { gap: 6px; }
     .settings-actions > :global(.button) { padding-inline: 6px; gap: 5px; }
   }

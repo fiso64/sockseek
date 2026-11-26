@@ -85,6 +85,11 @@
 
   let transferDirectionClass = $derived(transfer?.direction ? `transfer-${transfer.direction}` : '');
 
+  function openTransferDetails(event: MouseEvent): void {
+    if ((event.target as Element).closest('button, a, input')) return;
+    (event.currentTarget as HTMLElement).querySelector<HTMLButtonElement>('.status-label')?.click();
+  }
+
   function transferIcon(value?: TransferPresentation): AppIconName {
     if (value?.tone === 'complete') return 'check';
     if (value?.tone === 'active') return value.direction === 'upload' ? 'upload' : 'download';
@@ -294,7 +299,11 @@
         {@const matchPath = highlight && file.sourcePath?.endsWith(row.displayName) ? file.sourcePath : row.displayName}
         {@const fileDirectionClass = file.transfer?.direction ? `transfer-${file.transfer.direction}` : ''}
         {@const icon = showFileIcons && fileTypeIcon({ filename: row.displayName, hasAudioMetadata: Boolean(file.audio) })}
+        {#snippet dialogActions()}{@render fileActions?.(file)}{/snippet}
+        <!-- A tap on a transfer row opens its details, as the status label does; the label stays the keyboard path. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <svelte:element
+          onclick={file.transfer && !(selectable && !file.locked) ? openTransferDetails : undefined}
           this={selectable && !file.locked ? 'label' : 'div'}
           class:locked={file.locked}
           class:has-transfer={Boolean(file.transfer)}
@@ -345,7 +354,7 @@
               {/if}
               {#if usesCircularTransferState(file.transfer)}
                 <TransferStateLabel transfer={file.transfer} path={file.sourcePath ?? file.relativePath}
-                  sizeBytes={file.sizeUnknown ? null : file.sizeBytes} circular>
+                  sizeBytes={file.sizeUnknown ? null : file.sizeBytes} circular actions={fileActions ? dialogActions : undefined}>
                   {#if !isBusyTransfer(file.transfer)}<Icon name={transferIcon(file.transfer)} />{/if}
                 </TransferStateLabel>
               {:else}
@@ -354,7 +363,7 @@
                     <TransferItemActionButton kind="retry" label={`Retry ${file.relativePath}`} disabled={actionsDisabled} onclick={() => onretryfile(file)} />
                   {/if}
                   <TransferStateLabel transfer={file.transfer} path={file.sourcePath ?? file.relativePath}
-                    sizeBytes={file.sizeUnknown ? null : file.sizeBytes} />
+                    sizeBytes={file.sizeUnknown ? null : file.sizeBytes} actions={fileActions ? dialogActions : undefined} />
                 </span>
               {/if}
             </span>

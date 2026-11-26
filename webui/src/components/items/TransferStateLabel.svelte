@@ -8,7 +8,7 @@
   import { folderSources, isBusyTransfer, type FolderItemFile, type TransferPresentation } from '../../domains/presentation/items';
   import { formatBytes, formatCount, humanizeStateValue } from '../../app/format';
 
-  let { transfer, path, sizeBytes, files, filesComplete = false, circular = false, children, class: extraClass = '' }: {
+  let { transfer, path, sizeBytes, files, filesComplete = false, circular = false, children, actions, class: extraClass = '' }: {
     transfer: TransferPresentation;
     path?: string;
     sizeBytes?: number | null;
@@ -16,6 +16,8 @@
     filesComplete?: boolean;
     circular?: boolean;
     children?: Snippet;
+    /** The row's own actions, repeated in the dialog so a tap on the row reaches them. */
+    actions?: Snippet;
     class?: string;
   } = $props();
   let open = $state(false);
@@ -140,6 +142,7 @@
       </section>
     {/each}
     {#if transfer.job?.display.appliedProfiles?.length}<section><h3>Profiles</h3><AppliedProfiles profiles={transfer.job.display.appliedProfiles} /></section>{/if}
+    {#if actions}<div class="transfer-details-actions">{@render actions()}</div>{/if}
   </Modal>
 {/if}
 
@@ -153,4 +156,6 @@
   dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
   .transfer-details-message { padding: 0.75rem; border: 1px solid var(--border); border-radius: 6px; }
+  .transfer-details-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+  .transfer-details-actions:empty { display: none; }
 </style>

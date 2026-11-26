@@ -75,4 +75,6 @@
   .modal-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 18px; }
   .wide .modal-body { flex: 1; padding: 0; overflow: hidden; }
   @media (max-width: 980px) { dialog, dialog.wide { width: calc(100vw - 32px); max-height: calc(100dvh - 32px); } dialog.wide { height: min(920px, calc(100dvh - 32px)); } }
+  /* Phones: wide dialogs fill the screen; short ones stay centred cards. */
+  @media (max-width: 640px) { dialog.wide { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; } }
 </style>

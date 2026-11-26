@@ -86,7 +86,7 @@ test('renders populated and partial peer profiles without inventing missing fact
   await expect(card.locator('[data-presence]')).toHaveAttribute('data-presence', 'online');
   expect(profileReads).toEqual(['/api/users/fixture-peer/profile']);
   const refreshed = page.waitForResponse(response => response.url().includes('/api/users/fixture-peer/profile?refresh=true'));
-  await card.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.getByTestId('refresh-user-profile').click();
   expect((await refreshed).ok()).toBeTruthy();
   expect(profileReads).toHaveLength(2);
 
@@ -284,11 +284,13 @@ test('filters shared files through the daemon and restores the tree when cleared
   await filter.fill('Unse');
   await page.clock.runFor(60);
   await filter.fill('Unselected');
-  await page.clock.runFor(150);
+  await page.clock.runFor(300);
   await expect(page.locator('.shares-filter-count')).toHaveText('1 matching file');
   expect(filterQueries).toEqual(['Unselected']);
   await filter.fill('');
   await page.clock.resume();
+  // The cleared query settles before the next one is typed.
+  await expect(page.locator('.shares-filter-count')).toHaveCount(0);
   const filterRoute = '**/api/user-browses/*/search?**';
   await page.route(filterRoute, (request) => request.abort());
   await filter.fill('Unselected');
@@ -454,7 +456,7 @@ test('excludes an unloaded subfolder and restores a deeper branch with a file ex
   await expect(page.locator('.share-tree-row.keyboard-current')).toHaveCount(0);
   await page.keyboard.press('ArrowDown');
   await expect(page.locator('.share-tree-row').first()).toBeFocused();
-  await page.getByRole('heading', { name: 'User browser' }).click();
+  await page.getByRole('heading', { name: 'Shares', exact: true }).click();
   await expect(page.locator('.share-tree-row.keyboard-current')).toHaveCount(0);
   await page.keyboard.press('ArrowDown');
   await expect(page.locator('.share-tree-row').first()).toBeFocused();

@@ -69,7 +69,7 @@
           <div class="folder-heading-copy">
             <div class="folder-heading-identity">
               {#if locked}<span class="locked-icon" role="img" aria-label="Locked" title="Locked"><Icon name="lock" /></span>{/if}
-              <strong class="folder-heading-path file-transfer-path" title={path}><bdi dir="ltr"><span class="folder-path-ancestors">{parentPath(path)}</span><b class="file-transfer-name">{basename(path)}</b></bdi></strong>
+              <strong class="folder-heading-path file-transfer-path" title={path}><bdi dir="ltr"><span class="folder-path-ancestors"><bdi dir="ltr">{parentPath(path)}</bdi></span><b class="file-transfer-name">{basename(path)}</b></bdi></strong>
             </div>
             <div class="folder-heading-meta file-transfer-meta">
               {#if audio}

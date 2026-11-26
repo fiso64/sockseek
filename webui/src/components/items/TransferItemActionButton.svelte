@@ -21,4 +21,6 @@
   data-testid={props.kind === 'retry-folder' ? 'retry-directory' : undefined}
   disabled={props.disabled} onclick={props.onclick}>
   <Icon name={retry ? 'refresh' : props.kind === 'remove' ? 'trash' : 'x'} />
+  <!-- Rows show the icon alone; the transfer details dialog shows this text too. -->
+  <span class="transfer-item-action-text">{retry ? 'Retry' : props.kind === 'remove' ? 'Remove from history' : 'Cancel'}</span>
 </button>

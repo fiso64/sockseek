@@ -21,7 +21,7 @@
     text-decoration: none;
   }
   .short-label { display: none; }
-  @media (max-width: 600px) {
+  @media (max-width: 640px) {
     .full-label { display: none; }
     .short-label { display: inline; }
     .docs-link.quiet { min-height: 44px; padding-inline: 6px; }

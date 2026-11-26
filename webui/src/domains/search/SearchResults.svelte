@@ -33,6 +33,7 @@
   import type { UserLinkActions } from '../../app/navigation';
   import { audioAttributes as audio, type FolderItemFile } from '../presentation/items';
   import { directoryTotals, isGroupSearchMode, searchModeFamily, searchModeLabel } from './model';
+  import { progressiveCount } from '../../lib/progressive.svelte';
   import type { SearchRow, SearchViewState, SearchRangeItem } from './controller';
 
   type OrdinaryRow = Extract<SearchRow, { kind: 'file' | 'directory' }>;
@@ -382,16 +383,19 @@
   });
 
   function changeFilter(value: string): void {
+    rendered.restart();
     filterEdited = true;
     filterText = value;
   }
 
   function reverseSort(): void {
+    rendered.restart();
     sortEdited = true;
     sizeDirection = sizeDirection === 'desc' ? 'asc' : 'desc';
   }
 
   function changeSort(event: Event): void {
+    rendered.restart();
     sortEdited = true;
     const next = (event.currentTarget as HTMLSelectElement).value as typeof sort;
     sort = next;
@@ -723,6 +727,25 @@
   let groupedRows: SearchRow[] | null = null;
   let groupedByPreference = false;
   let cachedGroups: ReturnType<typeof groupRows> = [];
+  // Long result lists render a slice per frame; a new sort or filter starts over.
+  const rendered = progressiveCount(() => viewState.rows.length);
+  let visibleTiers = $derived.by(() => {
+    let budget = rendered.count;
+    const visible: typeof groupedTiers = [];
+    for (const { tier, groups } of groupedTiers) {
+      if (budget <= 0) break;
+      const kept: typeof groups = [];
+      for (const group of groups) {
+        if (budget <= 0) break;
+        // Never empty: a group is only visited while budget remains.
+        const rows = (group.rows.length > budget ? group.rows.slice(0, budget) : group.rows) as typeof group.rows;
+        budget -= rows.length;
+        kept.push(rows === group.rows ? group : { ...group, rows });
+      }
+      visible.push({ tier, groups: kept });
+    }
+    return visible;
+  });
   let groupedTiers = $derived.by(() => {
     const rows = viewState.rows;
     const byPreference = viewState.sortOrder === 'Relevance' && !genericMode;
@@ -846,9 +869,11 @@
 
 <section class="page page-search redesigned-search-page" use:keyboardList={{
   scope: `${viewState.job?.jobId}:${viewState.summary?.viewId}:${viewState.sortOrder}`,
-  revision: [viewState.rows, viewState.loadingMore],
+  revision: [viewState.rows, viewState.loadingMore, rendered.count],
   enabled: viewState.phase === 'ready' && !refinementPending,
   beginRange: selectionReadOnly || viewState.committing ? undefined : beginRange,
+  // Each group is a different song or album, so choosing one never drops another.
+  toggleOnClick: groupMode,
   retrieve: retrieveSelectedFolders,
   loadPage: onloadmore,
 }}>
@@ -938,6 +963,14 @@
   <div class="result-refine-wrap">
     <div class="result-refine-row">
       <ResultFilterControl bind:value={() => filterText, changeFilter} placeholder={genericMode ? 'Filter files or directories…' : 'Filter results…'} ariaLabel="Filter search results">
+        {#if !groupMode}
+          <!-- Narrow layouts sort from inside the filter bar; the native picker opens over the icon. -->
+          <label class="result-sort-inline" class:active={sort !== 'relevance'} title="Sort">
+            <Icon name="sort" />
+            <select aria-label="Sort results" value={sort} onchange={changeSort}>{@render sortOptions()}</select>
+          </label>
+          {@render sortDirection('inline')}
+        {/if}
         <button type="button" class:active={conditionsOpen} class="edit-conditions-button" aria-label="Filtering" title="Filtering" aria-expanded={conditionsOpen} disabled={configurationLoading || !baseline} onclick={(event) => { conditionsAnchor = event.currentTarget; conditionsInitialTab = 'conditions'; conditionsOpen = !conditionsOpen; }}>
           <Icon name="sliders" />
         </button>
@@ -945,22 +978,26 @@
       {#if !groupMode}
         <div class="result-sort-control">
           <label for="result-sort">Sort</label>
-          <select class="field" id="result-sort" value={sort} onchange={changeSort}>
-            <option value="relevance">Relevance</option>
-            <option value="speed">Upload speed</option>
-            {#if genericMode}
-              <option value="size">Directory size</option><option value="count">File count</option><option value="name">Directory name</option>
-            {:else}
-              <option value="queue">Queue depth</option><option value="size">Item size</option>
-            {/if}
-          </select>
-          {#if sort === 'size' || (genericMode && (sort === 'count' || sort === 'name'))}
-            <button type="button" class="button size-direction-button" aria-label={`Reverse ${genericMode ? 'directory' : 'item'} sort`} onclick={reverseSort}>
-              <svg class:ascending={sizeDirection === 'asc'} viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M6 8l4-4 4 4" /></svg>
-            </button>
-          {/if}
+          <select class="field" id="result-sort" value={sort} onchange={changeSort}>{@render sortOptions()}</select>
+          {@render sortDirection('')}
         </div>
       {/if}
+      {#snippet sortOptions()}
+        <option value="relevance">Relevance</option>
+        <option value="speed">Upload speed</option>
+        {#if genericMode}
+          <option value="size">Directory size</option><option value="count">File count</option><option value="name">Directory name</option>
+        {:else}
+          <option value="queue">Queue depth</option><option value="size">Item size</option>
+        {/if}
+      {/snippet}
+      {#snippet sortDirection(placement: string)}
+        {#if sort === 'size' || (genericMode && (sort === 'count' || sort === 'name'))}
+          <button type="button" class={`button size-direction-button ${placement}`} aria-label={`Reverse ${genericMode ? 'directory' : 'item'} sort`} onclick={reverseSort}>
+            <svg class:ascending={sizeDirection === 'asc'} viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M6 8l4-4 4 4" /></svg>
+          </button>
+        {/if}
+      {/snippet}
     </div>
     {#if viewState.draft}
       <SearchConditionPills mode={viewState.draft.resultMode} bind:conditions />
@@ -1050,14 +1087,14 @@
       </div>
     {/if}
     <div class="group-results-list">
-      {#each viewState.rows as row (row.ref)}
+      {#each viewState.rows.slice(0, rendered.count) as row (row.ref)}
         {#if row.kind === 'track-group' || row.kind === 'album-group'}
           {@render groupGroupCard(row)}
         {/if}
       {/each}
     </div>
   {:else}
-    {#each groupedTiers as { tier, groups } (tier)}
+    {#each visibleTiers as { tier, groups } (tier)}
         {#if tier !== 'All' && (tier !== 'Other' || groupedTiers.some(group => group.tier === 'Preferred'))}
           <div class:preferred={tier === 'Preferred'} class="result-tier-heading">
             <span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span>
