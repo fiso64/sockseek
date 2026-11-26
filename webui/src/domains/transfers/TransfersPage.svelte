@@ -1,6 +1,6 @@
 <script lang="ts">
   import EmptyState from '../../components/EmptyState.svelte';
-  import LoadingIndicator from '../../components/LoadingIndicator.svelte';
+  import LoadingIndicator, { RENDER_SPINNER_DELAY_MS } from '../../components/LoadingIndicator.svelte';
   import { runTransferCommands } from './commands';
   import { downloadsViews, type DownloadsView, type UserLinkActions } from '../../app/navigation';
   import PageTabs from '../../components/PageTabs.svelte';
@@ -258,7 +258,8 @@
   </div>
 
   {#if deferred}
-    <!-- The cards mount in the next frame; this is not a loading state. -->
+    <!-- The cards mount in the next frame. On a slow phone that takes a while. -->
+    <LoadingIndicator label={`Loading ${direction}s`} blocking delayMs={RENDER_SPINNER_DELAY_MS} />
   {:else if (loading || !coverage && !error) && !groups.length}
     <LoadingIndicator label={`Loading ${direction}s`} blocking />
   {:else if error && !groups.length}

@@ -2404,6 +2404,9 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .loading-indicator.compact { padding: 0; }
 .loading-indicator.compact .resource-state-dot { width: 14px; height: 14px; border-width: 1.5px; }
 @keyframes resource-state-spin { to { transform: rotate(360deg); } }
+/* Fast loads finish before a delayed spinner fades in, so they show no flash. */
+.loading-indicator.delayed { animation: loading-indicator-appear 120ms ease-out var(--loading-delay) both; }
+@keyframes loading-indicator-appear { from { opacity: 0; } }
 .resource-state-notice.info .resource-state-dot { background: var(--accent); }
 .resource-state-notice.degraded .resource-state-dot,
 .resource-state-notice.interrupted .resource-state-dot { background: var(--warning); }

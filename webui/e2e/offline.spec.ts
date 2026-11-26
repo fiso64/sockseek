@@ -66,7 +66,7 @@ test('keeps navigation and drafts usable while a deferred page loads', async ({ 
     await started;
     await expect(page).toHaveURL(/\/chat$/);
     await expect(draft).toHaveValue('Keep this unfinished search');
-    await expect(page.locator('.loading-indicator')).toHaveCount(0);
+    await expect(page.getByRole('status', { name: 'Loading view' })).toBeVisible();
     await navigation.getByRole('button', { name: 'Dashboard', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
   } finally { release(); }

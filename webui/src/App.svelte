@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appPath, routePathname } from './app/paths';
-  import LoadingIndicator from './components/LoadingIndicator.svelte';
+  import LoadingIndicator, { RENDER_SPINNER_DELAY_MS } from './components/LoadingIndicator.svelte';
   import EmptyState from './components/EmptyState.svelte';
   import LazyView from './components/LazyView.svelte';
   import { ViewLoader } from './app/view-loader.svelte';
@@ -650,12 +650,11 @@
     <section class="page page-search redesigned-search-page">
       <div class={`resource-state-notice ${liveStatus === 'offline' ? 'offline' : 'unavailable'} blocking`} role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>{liveStatus === 'offline' ? 'Daemon unavailable' : 'Job unavailable'}</strong><small>{liveStatus === 'offline' ? 'This can’t be loaded while the daemon is offline.' : jobRouteError.message}</small></span>{#if liveStatus !== 'offline'}<button class="button" type="button" onclick={() => void openJobFromPath(pendingJobId!, routeLocation())}>Retry</button>{/if}<button class="button" type="button" onclick={backToJobs}>Back to jobs</button></div>
     </section>
-  {:else if activePage === 'jobs' && showingSearch && pendingJobId && searchState.job?.jobId !== pendingJobId}
+  {:else if activePage === 'jobs' && showingSearch && (deferredRender === 'search' || pendingJobId && searchState.job?.jobId !== pendingJobId)}
     <section class="page page-search redesigned-search-page">
-      <LoadingIndicator label="Opening job" blocking />
+      <LoadingIndicator label="Opening job" blocking delayMs={deferredRender === 'search' ? RENDER_SPINNER_DELAY_MS : 0} />
     </section>
   {:else if activePage === 'jobs' && showingSearch && searchState.draft}
-    {#if deferredRender !== 'search'}
     <LazyView view={searchResults}>
       {#snippet children(SearchResults)}
         <SearchResults
@@ -711,7 +710,6 @@
         />
       {/snippet}
     </LazyView>
-    {/if}
   {:else if activePage === 'jobs'}
     {#if automaticJobId}
       <LazyView view={automaticDetail}>

@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte';
   import { untrack } from 'svelte';
   import type { ViewLoader } from '../app/view-loader.svelte';
+  import LoadingIndicator, { RENDER_SPINNER_DELAY_MS } from './LoadingIndicator.svelte';
   import Notice from './Notice.svelte';
 
   let { view, children }: { view: ViewLoader<T>; children: Snippet<[T]> } = $props();
@@ -26,6 +27,8 @@
       </div>
     </Notice>
   </div>
+{:else}
+  <section class="page"><LoadingIndicator label="Loading view" blocking delayMs={RENDER_SPINNER_DELAY_MS} /></section>
 {/if}
 
 <style>

@@ -259,17 +259,12 @@ test('filters shared files through the daemon and restores the tree when cleared
     await route.continue();
   }, { times: 1 });
   const spinner = tree.getByRole('status', { name: 'Loading directory' });
-  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
   try {
     await page.getByRole('button', { name: 'Expand Nested', exact: true }).press('Enter');
     await expect(tree.locator('[data-loading=true]')).toHaveCount(1);
-    await page.clock.runFor(100);
-    await expect(spinner).toHaveCount(0);
-    await page.clock.runFor(200);
     await expect(spinner).toBeVisible();
   } finally {
     releaseFiles();
-    await page.clock.resume();
   }
   await expect(tree.locator('.share-tree-name')).toHaveText(['Fixture', 'Selected.txt', 'Unselected.txt', 'Nested', 'Nested.txt', 'Deep']);
   await expect(spinner).toHaveCount(0);
