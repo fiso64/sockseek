@@ -537,13 +537,13 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 
 
 /* Phones show the chat list or one conversation, with a way back to the list. */
-.chat-back-button { display: none; }
+.chat-thread-heading .chat-back-button { display: none; }
 @media (max-width: 640px) {
   .page-content.chat-content .page { padding: 0; }
   .chat-layout { grid-template-columns: minmax(0, 1fr); min-height: 0; }
   .chat-layout:not(.thread-open) .chat-thread, .chat-layout.thread-open .chat-sidebar { display: none; }
   .chat-sidebar { padding: 10px 8px 14px; border-right: 0; }
-  .chat-back-button { display: grid; flex: none; place-items: center; }
+  .chat-thread-heading .chat-back-button { display: grid; flex: none; place-items: center; }
   .chat-thread-heading { gap: 6px; padding-inline: 4px; }
   .chat-messages { padding-inline: 12px; }
   .chat-composer { padding: 10px 12px; box-shadow: none; }

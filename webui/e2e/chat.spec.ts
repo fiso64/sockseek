@@ -17,6 +17,8 @@ test('keeps private-chat presence live without loading the full profile', async 
   await daemon.command('presence-away');
   await expect(presence).toHaveAttribute('data-presence', 'away');
   await expect(page.locator('.chat-messages')).toContainText('Hello');
+  // Desktop shows the list and conversation together; only phones need a way back.
+  await expect(page.getByRole('button', { name: 'Back to chats', exact: true })).toBeHidden();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const topGap = await page.locator('.chat-messages').evaluate((messages) =>
