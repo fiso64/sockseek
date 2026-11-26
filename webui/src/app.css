@@ -1515,7 +1515,6 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   .result-refine-row { align-items: stretch; flex-wrap: wrap; }
   .result-filter-control { width: 100%; flex-basis: 100%; }
   .result-peer-header { grid-template-columns: 18px minmax(150px, 1fr) auto; }
-  .peer-upload-stat { display: none; }
   .result-peer-items { padding-left: 18px; }
 }
 
