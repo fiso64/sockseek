@@ -77,11 +77,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v8
         with:
           pattern: packages-*
           merge-multiple: true
           path: packages
+      # A release's notes are its CHANGELOG.md section. A prerelease has none of
+      # its own: it points to Unreleased and lists the commits since the last tag.
       - name: Attach packages to draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -90,8 +96,16 @@ jobs:
           if draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft); then
             [[ $draft == true ]] || { echo "Release $GITHUB_REF_NAME has already been published."; exit 1; }
           else
-            flags=(--draft --verify-tag --generate-notes)
-            if [[ $GITHUB_REF_NAME == *-* ]]; then flags+=(--prerelease); fi
+            flags=(--draft --verify-tag)
+            if [[ $GITHUB_REF_NAME == *-* ]]; then
+              changelog="https://github.com/$GH_REPO/blob/$GITHUB_REF_NAME/CHANGELOG.md#unreleased"
+              flags+=(--prerelease --generate-notes --notes "Prerelease. See the [changelog]($changelog) for everything new since the last release.")
+            else
+              version=${GITHUB_REF_NAME#v}
+              awk -v heading="## [$version]" 'index($0, heading) == 1 { found = 1; next } found && /^## \[/ { exit } found && !/^\[[^]]*\]: /' CHANGELOG.md > notes.md
+              grep -q '[^[:space:]]' notes.md || { echo "CHANGELOG.md has no section for $version."; exit 1; }
+              flags+=(--notes-file notes.md)
+            fi
             gh release create "$GITHUB_REF_NAME" "${flags[@]}"
           fi
           gh release upload "$GITHUB_REF_NAME" packages/* --clobber
