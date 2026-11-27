@@ -192,6 +192,11 @@ test('reopens a search deep link after a fresh offline read fails', async ({ pag
   await expect(offline).toHaveCount(0);
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
   await expect(page).toHaveURL(/\?results=generic$/);
+
+  // A deep link may show the same search in another family's mode.
+  await page.goto(page.url().replace('results=generic', 'results=album'));
+  await expect(page.getByText('Album Search', { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\?results=album$/);
 });
 
 test('recovers an open Chat list and disables sending during a fresh offline start', async ({ page }) => {

@@ -1087,10 +1087,15 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
         AlbumQuery? album = request.AlbumQuery == null
             ? defaultAlbumQuery ?? definition.AlbumQuery?.ToQuery()
             : JobRequestMapper.ToAlbumQuery(request.AlbumQuery);
+        // A search can be viewed in any mode. Another family's query keeps each field's
+        // meaning; a File Search's free text is the title or album, as in a simple search.
         if (kind is SearchViewProjectionKind.Files
             or SearchViewProjectionKind.GenericDirectories
             or SearchViewProjectionKind.TrackGroups)
-            song ??= new SongQuery { Title = definition.NetworkQuery };
+            song ??= album?.ToSongQuery() ?? new SongQuery { Title = definition.NetworkQuery };
+        if (kind is SearchViewProjectionKind.AlbumDirectories or SearchViewProjectionKind.AlbumGroups)
+            album ??= song != null && definition.DefaultProjection == SearchDefaultProjectionKind.Track
+                ? AlbumQuery.ForSong(song) : new AlbumQuery { Album = definition.NetworkQuery };
         var resolved = new SearchViewProjectionDefinition(
             kind,
             song,

@@ -14,6 +14,26 @@ namespace Sockseek.Core.Models;
 
         public AlbumQuery() { }
 
+        /// <summary>The same search seen as albums: the track title only steers the network search.</summary>
+        public static AlbumQuery ForSong(SongQuery song) => new()
+        {
+            Artist = song.Artist,
+            Album = song.Album,
+            SearchHint = song.Title,
+            URI = song.URI,
+            ArtistMaybeWrong = song.ArtistMaybeWrong,
+        };
+
+        /// <summary>The same search seen as tracks: any song-title hint becomes the title.</summary>
+        public SongQuery ToSongQuery() => new()
+        {
+            Artist = Artist,
+            Album = Album,
+            Title = SearchHint,
+            URI = URI,
+            ArtistMaybeWrong = ArtistMaybeWrong,
+        };
+
         public AlbumQuery(AlbumQuery other)
         {
             Artist         = other.Artist;

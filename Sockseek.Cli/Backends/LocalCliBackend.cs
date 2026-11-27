@@ -205,7 +205,8 @@ internal sealed class LocalCliBackend
                     JobRequestMapper.ToSongQuery(request.SongQuery),
                     request.IncludeFullResults)
                 : (searchJob.DefaultFileProjection
-                    ?? new FileSearchProjection(new SongQuery { Title = searchJob.QueryText }))
+                    ?? new FileSearchProjection(searchJob.DefaultFolderProjection?.Query.ToSongQuery()
+                        ?? new SongQuery { Title = searchJob.QueryText }))
                     with { IncludeFullResults = request.IncludeFullResults };
             LocalFileProjectionState state = fileProjectionStates.GetOrAdd(
                 LocalFileProjectionKey.Create(searchJob.Id, projection),
@@ -234,6 +235,10 @@ internal sealed class LocalCliBackend
             Items: songJob.Candidates?.Select(CliSearchProjectionMapper.ToDto).ToList() ?? []));
     }
 
+    // Any search can be viewed as albums, as in daemon Search Views.
+    private static AlbumQuery AlbumViewQuery(SearchJob search)
+        => search.DefaultFileProjection is { } file ? AlbumQuery.ForSong(file.Query) : new AlbumQuery { Album = search.QueryText };
+
     public Task<SearchResultSnapshotDto<AlbumFolderDto>?> GetFolderResultsAsync(Guid jobId, bool includeFiles, CancellationToken ct = default)
         => GetFolderResultsAsync(jobId, null, includeFiles, ct);
 
@@ -251,9 +256,7 @@ internal sealed class LocalCliBackend
                 ? new FolderSearchProjection(JobRequestMapper.ToAlbumQuery(albumQuery), includeFiles)
                 : searchJob.DefaultFolderProjection is { } defaultProjection
                     ? defaultProjection with { IncludeFiles = includeFiles }
-                    : null;
-            if (projection == null)
-                throw new ArgumentException("Album folder projection requires an album query.");
+                    : new FolderSearchProjection(AlbumViewQuery(searchJob), includeFiles);
 
             var snapshot = searchJob.GetAlbumFolders(projection, searchJob.Config.Search, includeLocked: true, peerFailureCounts: engine.GetPeerFailureCounts(searchJob.WorkflowId));
             return Task.FromResult<SearchResultSnapshotDto<AlbumFolderDto>?>(new(
@@ -332,9 +335,7 @@ internal sealed class LocalCliBackend
                 : searchJob.DefaultAlbumGroupProjection
                     ?? (searchJob.DefaultFolderProjection is { } folderProjection
                         ? new AlbumGroupProjection(folderProjection.Query)
-                        : null);
-            if (projection == null)
-                throw new ArgumentException("Grouped album projection requires an album query.");
+                        : new AlbumGroupProjection(AlbumViewQuery(searchJob)));
 
             bool includeFolders = request?.IncludeFolders ?? false;
             var snapshot = searchJob.GetAlbumGroups(projection, searchJob.Config.Search, includeLocked: true, peerFailureCounts: engine.GetPeerFailureCounts(searchJob.WorkflowId));

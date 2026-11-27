@@ -25,7 +25,6 @@ import type {
 import {
   albumQuery,
   networkQuery,
-  searchModeFamily,
   searchSubmissionOptions,
   isGroupSearchMode,
   searchViewKind,
@@ -208,9 +207,8 @@ export class DaemonApiClient {
       : detail.payload?.kind === 'album' ? 'album'
       : detail.payload?.kind === 'song-groups' ? 'song-groups'
       : detail.payload?.kind === 'album-groups' ? 'album-groups' : null;
-    const mode = defaultMode && requestedMode
-      && searchModeFamily(requestedMode) === searchModeFamily(defaultMode)
-      ? requestedMode : defaultMode;
+    // Any search can be viewed in any mode, under its own stored conditions.
+    const mode = requestedMode ?? defaultMode;
     const view = await this.createSearchView(job.jobId, {
       kind: mode ? searchViewKind(mode) : undefined,
     }, signal);
