@@ -368,9 +368,9 @@ it('estimates folder time from unfinished active bytes, excluding failed members
     cancelledCount: 0, interruptedCount: 0,
   } satisfies Schema<'TransferGroupSummaryDto'>;
   const item = buildTransferGroups([loaded], [], 'download', [summary])[0]!.items[0]!;
-  expect(item.transfer.eta).toBe('10s remaining');
+  expect(item.transfer.eta).toBe('10s');
   const unknownFinished = { ...summary, fileCount: 3, failedCount: 2, unknownTotalCount: 1 };
-  expect(buildTransferGroups([loaded], [], 'download', [unknownFinished])[0]!.items[0]!.transfer.eta).toBe('10s remaining');
+  expect(buildTransferGroups([loaded], [], 'download', [unknownFinished])[0]!.items[0]!.transfer.eta).toBe('10s');
   const unknownActive = { ...unknownFinished, unknownActiveTotalCount: 1 };
   expect(buildTransferGroups([loaded], [], 'download', [unknownActive])[0]!.items[0]!.transfer.eta).toBeUndefined();
 });

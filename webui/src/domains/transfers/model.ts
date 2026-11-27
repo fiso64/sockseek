@@ -452,8 +452,7 @@ function remainingEta(remainingBytes: number, bytesPerSecond: number): string | 
   if (!Number.isFinite(remainingBytes) || !Number.isFinite(bytesPerSecond)
       || remainingBytes <= 0 || bytesPerSecond <= 0) return undefined;
   const seconds = Math.ceil(remainingBytes / bytesPerSecond);
-  return seconds < 60 ? `${seconds}s remaining`
-    : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s remaining`;
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
 }
 
 function groupKey(direction: string, username: string | null | undefined, groupRef: string): string {

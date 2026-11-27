@@ -5,6 +5,7 @@
   import LockedIndicator from '../LockedIndicator.svelte';
   import LoadMoreButton from '../LoadMoreButton.svelte';
   import TransferStateLabel from './TransferStateLabel.svelte';
+  import TransferRate from './TransferRate.svelte';
   import TransferItemActionButton from './TransferItemActionButton.svelte';
   import RelativeTime from '../RelativeTime.svelte';
   import { insideModal } from '../../lib/keyboard';
@@ -114,7 +115,7 @@
 
   function fileTransferSecondary(value: TransferPresentation): string {
     // Explanations belong to the state label's details dialog, not beside it.
-    const moving = [value.speed, value.eta].filter(Boolean).join(' · ');
+    const moving = [value.speed, value.eta && `${value.eta} left`].filter(Boolean).join(' · ');
     // The slot is free while nothing moves: say which attempt is waiting.
     return moving || (value.attempt ? `attempt ${value.attempt}` : '');
   }
@@ -246,7 +247,7 @@
       {#if transfer.progressText || transfer.speed || transfer.eta}
         <div class="transfer-progress-meta">
           <span>{transfer.progressText ?? ''}</span>
-          <span>{[transfer.speed, transfer.eta].filter(Boolean).join(' · ')}</span>
+          <span><TransferRate speed={transfer.speed} eta={transfer.eta} /></span>
         </div>
       {/if}
     </div>
@@ -351,7 +352,7 @@
                 </span>
               {/if}
               {#if secondaryTransferText}
-                <small class="folder-file-transfer-detail" class:attempt={!file.transfer.speed && !file.transfer.eta} title={secondaryTransferText}>{secondaryTransferText}</small>
+                <small class="folder-file-transfer-detail" class:attempt={!file.transfer.speed && !file.transfer.eta} title={secondaryTransferText}>{#if file.transfer.speed || file.transfer.eta}<TransferRate speed={file.transfer.speed} eta={file.transfer.eta} />{:else}{secondaryTransferText}{/if}</small>
               {/if}
               {#if usesCircularTransferState(file.transfer)}
                 <TransferStateLabel transfer={file.transfer} path={file.sourcePath ?? file.relativePath}

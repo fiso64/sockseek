@@ -98,16 +98,17 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             await File.WriteAllBytesAsync(Path.Combine(albumDirectory, "Queued.txt"), new byte[128]);
         }
         var peer = SoulseekClientProxy.Create();
+        bool showcase = false; // Documentation screenshots; see Showcase.cs.
         byte[] profilePicture = Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
-        peer.ProfileInfoForPeer = username => username switch
+        peer.ProfileInfoForPeer = username => showcase && Showcase.Info(username) is { } showcaseInfo ? showcaseInfo : username switch
         {
             "fixture-peer" => new Soulseek.UserInfo("A small shared library.\n\nMore at https://example.org/fixture", 3, 1, true, profilePicture),
             "info-unavailable-peer" => throw new IOException("Peer info unavailable."),
             "offline-peer" or "offline-info-peer" => throw new Soulseek.UserOfflineException("Peer is offline."),
             _ => new Soulseek.UserInfo("", 0, 0, false),
         };
-        peer.ProfileStatisticsForPeer = username => username switch
+        peer.ProfileStatisticsForPeer = username => showcase && Showcase.Statistics(username) is { } showcaseStatistics ? showcaseStatistics : username switch
         {
             "fixture-peer" => new Soulseek.UserStatistics(username, 8_450_000, 48_231, 5, 3),
             "mixed-peer" => new Soulseek.UserStatistics(username, 0, 0, 2, 3),
@@ -151,7 +152,8 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     .Select(index => new Soulseek.File(1, $"Unrelated {index:D6}.txt", 128, ".txt", []))]),
             ]);
         }
-        peer.BrowseForPeer = username => largeMusicSearch && username.StartsWith("fixture-peer-", StringComparison.Ordinal)
+        peer.BrowseForPeer = username => showcase && Showcase.Browse(username) is { } showcaseShares ? showcaseShares
+            : largeMusicSearch && username.StartsWith("fixture-peer-", StringComparison.Ordinal)
             ? LargeMusicShares()
             : largePeerShares && username == "large-peer"
             ? new Soulseek.BrowseResponse([new Soulseek.Directory("Library",
@@ -295,6 +297,12 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
             if (emptySearch)
             {
                 await finishSearch!.Task.WaitAsync(cancellationToken);
+                return;
+            }
+            if (showcase)
+            {
+                foreach (var response in Showcase.SearchResponses())
+                    receive(response);
                 return;
             }
             if (longSongFallback)
@@ -614,6 +622,23 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 null, null, null);
             var active = Snapshot(Soulseek.TransferStates.InProgress, 0);
             options.StateChanged?.Invoke(new(Soulseek.TransferStates.Queued, active));
+            if (showcase && Showcase.Download(username, filename) is { State: not Showcase.Progress.Complete } showcaseDownload)
+            {
+                // Stays as it is for as long as the screenshots need.
+                if (showcaseDownload.State == Showcase.Progress.Queued)
+                    options.StateChanged?.Invoke(new(Soulseek.TransferStates.Queued, new Soulseek.Transfer(
+                        Soulseek.TransferDirection.Download, username, filename, 1,
+                        Soulseek.TransferStates.Queued | Soulseek.TransferStates.Remotely, size, 0, 0, 0, null, null, null, null, null)));
+                else
+                {
+                    long partial = (long)(size * showcaseDownload.Fraction);
+                    await WriteBytesAsync(partial);
+                    options.ProgressUpdated?.Invoke(new(0, new Soulseek.Transfer(Soulseek.TransferDirection.Download,
+                        username, filename, 1, Soulseek.TransferStates.InProgress, size, 0, partial, Showcase.TransferSpeed,
+                        DateTime.UtcNow - TimeSpan.FromSeconds(partial / (double)Showcase.TransferSpeed), null, null, null, null)));
+                }
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
             long midpoint = size / 2;
             await WriteBytesAsync(midpoint);
             options.ProgressUpdated?.Invoke(new(0, Snapshot(Soulseek.TransferStates.InProgress, midpoint)));
@@ -980,6 +1005,19 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                 case "fail-next-upload": failNextUpload = true; break;
                 case "release-upload": uploadGate.TrySetResult(); break;
                 case "music-search": musicSearch = true; break;
+                case "showcase":
+                {
+                    showcase = true;
+                    var runtime = app.Services.GetRequiredService<Sockseek.Server.Persistence.PersistenceCoordinator>().Runtime!;
+                    await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                    {
+                        DataSource = SockseekDataPaths.ResolveDatabasePath(Path.Combine(temporary, "data")),
+                        ForeignKeys = true,
+                    }.ToString());
+                    await connection.OpenAsync();
+                    await Showcase.SeedHistoryAsync(connection, runtime.RuntimeId.ToString().ToUpperInvariant());
+                    break;
+                }
                 case "large-search": largeSearch = true; break;
                 case "large-directory-search": largeDirectorySearch = true; break;
                 case "large-distributed-search":

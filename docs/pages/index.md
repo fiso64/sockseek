@@ -4,7 +4,11 @@ Sockseek can run for a single download on your computer or stay connected as a d
 
 ## Soulseek Client
 
-The background daemon is a full Soulseek client and includes a WebUI. You can search in the browser, queue downloads, share a library, and receive messages. You can also submit jobs from the [remote CLI](./using-sockseek/daemon.md#remote-cli). Choose your install option:
+The background daemon is a full Soulseek client and includes a WebUI. You can search in the browser, queue downloads, share a library, and receive messages. You can also submit jobs from the [remote CLI](./using-sockseek/daemon.md#remote-cli).
+
+![The WebUI dashboard](./screenshots/dashboard.png)
+
+Choose your install option:
 
 - [Release archive](./installation/release-archive.md), then [start the daemon](./using-sockseek/daemon.md#start-the-daemon).
 - [Debian package](./installation/debian.md)

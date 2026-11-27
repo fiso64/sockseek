@@ -1596,6 +1596,10 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   font-size: 0.72rem;
 }
 .transfer-progress-meta span:last-child { text-align: right; }
+/* A one-line-high wrapping row: whatever does not fit wraps out of sight. */
+.transfer-rate { display: inline-flex; flex-wrap: wrap; max-width: 100%; max-height: 1lh; overflow: hidden; vertical-align: top; }
+.transfer-rate-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transfer-rate-unit { white-space: nowrap; }
 .folder-transfer-footer { border-top: 1px solid var(--border); }
 .folder-row-icon {
   --app-icon-size: 17px;

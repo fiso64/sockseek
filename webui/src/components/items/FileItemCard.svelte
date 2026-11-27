@@ -2,6 +2,7 @@
   import { matchedPath } from '../MatchedText.svelte';
   import type { Snippet } from 'svelte';
   import TransferStateLabel from './TransferStateLabel.svelte';
+  import TransferRate from './TransferRate.svelte';
   import RelativeTime from '../RelativeTime.svelte';
   import Icon from '../Icon.svelte';
   import LockedIndicator from '../LockedIndicator.svelte';
@@ -44,10 +45,6 @@
   let parentLength = $derived(parentPath(path).length);
   let transferDirectionClass = $derived(transfer?.direction ? `transfer-${transfer.direction}` : '');
 
-  function transferFooterDetail(value: TransferPresentation): string {
-    // Explanations belong to the state label's details dialog, not beside it.
-    return [value.speed, value.eta].filter(Boolean).join(' · ');
-  }
 </script>
 
 <article
@@ -119,17 +116,17 @@
   {/if}
 
   {#if transfer && !isTerminalTransfer(transfer)}
-    {@const footerDetail = transferFooterDetail(transfer)}
     <div class={`transfer-card-footer file-transfer-footer ${transfer.tone ?? ''} ${transferDirectionClass}`}>
       {#if transfer.progressPercent !== undefined}
         <div class="progress-track transfer-progress-track" aria-label={`${transfer.progressPercent.toFixed(0)}% complete`}>
           <span style={`width:${transfer.progressPercent}%`}></span>
         </div>
       {/if}
-      {#if transfer.progressText || footerDetail || transfer.completedAt}
+      <!-- Explanations belong to the state label's details dialog, not beside it. -->
+      {#if transfer.progressText || transfer.speed || transfer.eta || transfer.completedAt}
         <div class="transfer-progress-meta">
           <span>{transfer.progressText ?? ''}</span>
-          <span>{#if transfer.completedAt}<RelativeTime timestamp={transfer.completedAt} lowercase />{#if footerDetail} · {/if}{/if}{footerDetail}</span>
+          <span>{#if transfer.completedAt}<RelativeTime timestamp={transfer.completedAt} lowercase />{#if transfer.speed || transfer.eta} · {/if}{/if}<TransferRate speed={transfer.speed} eta={transfer.eta} /></span>
         </div>
       {/if}
     </div>

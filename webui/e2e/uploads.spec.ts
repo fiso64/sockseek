@@ -74,7 +74,7 @@ test('cancels queued uploads within a mixed folder without cancelling active fil
   await expect(active.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
   await expect(queued.getByRole('button', { name: 'Queued', exact: true })).toBeVisible();
   const activeDetail = active.locator('.folder-file-transfer-detail');
-  await expect(activeDetail).toContainText('remaining');
+  await expect(activeDetail).toContainText('left');
   expect(await activeDetail.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   await page.setViewportSize({ width: 1280, height: 900 });
   expect(await activeDetail.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);

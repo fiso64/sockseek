@@ -13,7 +13,7 @@ export function selectedJobFileTransfer(live: TransferStateDto): TransferPresent
     progressText: transfer.progressPercent == null
       ? transfer.progressText
       : `${Math.round(transfer.progressPercent)}%`,
-    eta: transfer.eta?.replace(/ remaining$/, ''),
+    eta: transfer.eta,
   };
 }
 

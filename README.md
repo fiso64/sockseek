@@ -2,6 +2,16 @@
 
 Sockseek is a self-hosted Soulseek client. Run the daemon to search, download, share files and chat from the WebUI. Give it an artist and album, a playlist, or a CSV file and it can also rank the available files against your preferences and download the best matches automatically.
 
+![The WebUI dashboard](docs/pages/screenshots/dashboard.png)
+
+<table>
+  <tr>
+    <td><img src="docs/pages/screenshots/search-results.png" alt="Album search results"></td>
+    <td><img src="docs/pages/screenshots/downloads.png" alt="Downloads in progress"></td>
+    <td><img src="docs/pages/screenshots/shares.png" alt="Browsing a user's shares"></td>
+  </tr>
+</table>
+
 > [!NOTE]
 > This branch is the 4.0 beta. Its manual is published at [fiso64.github.io/sockseek](https://fiso64.github.io/sockseek/).
 > For the released 3.x version, see the [3.x README](https://github.com/fiso64/sockseek/blob/v3.1.0/README.md). [Coming from 3.x](docs/pages/using-sockseek/coming-from-v3.md) lists what changed.

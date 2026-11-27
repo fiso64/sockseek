@@ -25,6 +25,8 @@ Use the main search bar to inspect results and choose the files or folder you wa
 
 For an automatic download, create a download job. Sockseek can take a search string, a playlist, a CSV, or a list and pick matches using your [file conditions](../downloading/file-conditions.md). Required conditions decide which results qualify. Preferred conditions help choose among the qualifying results. For CSV and list inputs, upload the file from your browser or enter a path on the daemon machine. Downloads are saved on that machine in either case. See [download modes](../downloading/download-modes.md) and [supported inputs](../downloading/inputs.md) for examples.
 
+![Downloads in progress](../screenshots/downloads.png)
+
 ## Share a folder
 
 Add a directory on the daemon machine to your config, for example `share = /path/to/Music`. Use **System → Rescan shares** to update the catalog, then check **System → Shares** to see what peers can browse. See the [sharing and upload options](../reference/daemon-options.md#sharing-uploads-and-chat).
