@@ -117,21 +117,22 @@ it('restores structured track fields from retained detail instead of parsing dis
   });
 });
 
-it('uses only a compatible result mode when reopening a retained search', async () => {
+it('reopens a retained search in the requested result mode, else its own', async () => {
   const http = new DaemonHttpClient();
   const post = vi.spyOn(http, 'post')
-    .mockResolvedValueOnce({ kind: 'Files' })
-    .mockResolvedValueOnce({ kind: 'TrackGroups' });
+    .mockResolvedValueOnce({ kind: 'AlbumGroups' })
+    .mockResolvedValueOnce({ kind: 'Files' });
   vi.spyOn(http, 'get').mockResolvedValue({
     summary: jobSummary({ jobId: 'job' }),
     payload: { kind: 'search', defaultProjection: 'Track', includeFullResults: true,
       songQuery: { title: 'Track', artistMaybeWrong: false } },
   });
   const client = new DaemonApiClient(http);
+  // Any mode may show any search (a Track search as album groups here).
   await client.openSearchJob(jobSummary({ jobId: 'job' }), undefined, undefined, 'album-groups');
-  await client.openSearchJob(jobSummary({ jobId: 'job' }), undefined, undefined, 'song-groups');
-  expect(post.mock.calls[0]?.[1]).toEqual({ kind: 'Files' });
-  expect(post.mock.calls[1]?.[1]).toEqual({ kind: 'TrackGroups' });
+  await client.openSearchJob(jobSummary({ jobId: 'job' }), undefined, undefined, null);
+  expect(post.mock.calls[0]?.[1]).toEqual({ kind: 'AlbumGroups' });
+  expect(post.mock.calls[1]?.[1]).toEqual({ kind: 'Files' });
 });
 
 it('retains the submitted settings when the caller edits its draft during submission', async () => {

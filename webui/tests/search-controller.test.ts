@@ -1786,11 +1786,11 @@ describe('Search View request isolation', () => {
       await controller.commit();
       expect(controller.current().canRetryPendingCommit).toBe(true);
       missingView = true;
-      await controller.commit();
+      const outcome = await controller.commit();
       expect(requests).toHaveLength(2);
       expect(requests[1]).toEqual(requests[0]);
       expect(controller.current().canRetryPendingCommit).toBe(false);
-      expect(controller.current().error).toBeInstanceOf(DaemonApiError);
+      expect(outcome && 'error' in outcome ? outcome.error : null).toBeInstanceOf(DaemonApiError);
     } finally { controller.stop(); }
   });
 
