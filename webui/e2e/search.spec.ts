@@ -1692,7 +1692,7 @@ test('retrieves complete folder contents with retry while preserving selection',
   await expect(page.getByLabel('Full folder loaded', { exact: true })).toBeVisible();
   await expect(page.locator('.folder-file-row')).toHaveCount(5);
   await expect(page.locator('.folder-file-count strong')).toHaveText('5');
-  await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
+  await expect(page.getByText('Selection from earlier results', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeVisible();
   await expect(page.locator('.folder-file-row').filter({ hasText: 'DeepTwo.txt' })).toBeVisible();
   await expect(page.locator('.folder-subfolder-row')).toHaveCount(2);
@@ -1730,7 +1730,7 @@ test('retrieves complete folder contents with retry while preserving selection',
   await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
 });
 
-test('downloads a File Search subfolder with a snapshot-bound path rule and a file exclusion', async ({ page, daemon }) => {
+test('downloads a File Search subfolder with a path rule that follows live arrivals and a file exclusion', async ({ page, daemon }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await daemon.command('directory-selection-search');
   await daemon.command('staged-search');
@@ -1806,13 +1806,17 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
   await expect(page.getByLabel('Full folder loaded', { exact: true })).toBeVisible();
   expect(retrievalRequests).toBe(1);
 
-  // Arrivals update the listing but cannot expand the selected path's snapshot.
+  // The selection follows the live results: a file arriving inside the selected
+  // path joins it, one arriving beside it does not, and the exclusion holds.
   // The callback is still live: no completion-dependent projection is allowed.
   await daemon.command('next-search-batch');
   await expect(page.locator('.folder-file-row')).toHaveCount(7);
   await expect(page.locator('.search-results-summary .search-status-badge')).toBeVisible();
-  await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
+  await expect(page.getByText('Selection from earlier results', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Download 3', exact: true })).toBeEnabled();
+  await expect(page.locator('.folder-file-row').filter({ hasText: 'LateNested.txt' }).getByRole('checkbox')).toBeChecked();
+  await expect(page.locator('.folder-file-row').filter({ hasText: 'LateRoot.txt' }).getByRole('checkbox')).not.toBeChecked();
+  await expect(excluded).not.toBeChecked();
   const liveSummaryResponse = await page.request.get(`/api/search-views/${restoredView.viewId}`);
   expect(liveSummaryResponse.ok()).toBe(true);
   const liveSummary = await liveSummaryResponse.json() as Schema<'SearchViewSummaryDto'>;
@@ -1853,34 +1857,35 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
   expect(completedDirectory.retrievedBytes).toBe(liveDirectory.retrievedBytes);
   expect(completedDirectory.initialFiles?.items.map(item => item.ref).sort())
     .toEqual(liveDirectory.initialFiles?.items.map(item => item.ref).sort());
-  await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Download 3', exact: true })).toBeEnabled();
   expect(retrievalRequests).toBe(1);
   expect(searchRequests).toBe(1);
   expect(countRevisions, 'Unpublished projections cannot provide a useful selection count.').not.toContain(0);
   const committed = page.waitForRequest(request => request.method() === 'POST'
     && /\/api\/search-views\/[^/]+\/commit$/.test(new URL(request.url()).pathname));
-  await page.getByRole('button', { name: 'Download 2', exact: true }).click();
+  await page.getByRole('button', { name: 'Download 3', exact: true }).click();
   const body = (await committed).postDataJSON();
   expect(new URL((await committed).url()).pathname).toBe(`/api/search-views/${restoredView.viewId}/commit`);
   expect(body.selection.mode).toBe('Only');
   expect(body.directoryPathRules).toEqual(expect.arrayContaining([
     expect.objectContaining({ relativePath: 'Nested', selected: true }),
   ]));
-  await expect(page.locator('.app-notification')).toContainText('2 downloads requested');
+  await expect(page.locator('.app-notification')).toContainText('3 downloads requested');
   await page.goto('/downloads');
   await expect(page.locator('.page')).toContainText('Nested.txt');
   await expect(page.locator('.page')).toContainText('DeepOne.txt');
-  await expect(page.locator('.page')).not.toContainText('LateNested.txt');
+  await expect(page.locator('.page')).toContainText('LateNested.txt');
   await expect(page.locator('.page')).not.toContainText('DeepTwo.txt');
   await expect(page.locator('.page')).not.toContainText('LateRoot.txt');
   await expect(page.locator('.page')).not.toContainText('Selected.txt');
   await expect(page.locator('.page')).not.toContainText('Unselected.txt');
-  await expect(page.locator('.folder-file-state.complete')).toHaveCount(2);
+  await expect(page.locator('.folder-file-state.complete')).toHaveCount(3);
   const transfersResponse = await page.request.get('/api/transfers?direction=download&limit=100');
   expect(transfersResponse.ok(), await transfersResponse.text()).toBe(true);
   const transfers = (await transfersResponse.json() as Schema<'TransferTimelinePageDto'>).items;
   expect(transfers.map(item => `${item.identity.username}:${item.status.terminalOutcome}:${item.identity.remotePath}`).sort()).toEqual([
     'fixture-peer:Succeeded:Fixture\\Nested\\Deep\\DeepOne.txt',
+    'fixture-peer:Succeeded:Fixture\\Nested\\LateNested.txt',
     'fixture-peer:Succeeded:Fixture\\Nested\\Nested.txt',
   ].sort());
   for (const transfer of transfers) expect((await stat(transfer.status.localPath!)).size).toBe(128);

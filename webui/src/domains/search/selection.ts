@@ -17,6 +17,8 @@ export interface SearchSelectionState {
   readonly selectionTopLevelCount: number | null;
   readonly selectionRefs: ReadonlySet<string>;
   readonly selectionCounts: Schema<'CountSearchViewSelectionResponseDto'> | null;
+  /** Chosen items a later revision no longer held; reported until the selection next changes. */
+  readonly selectionDroppedCount: number;
   readonly excludedFiles: ReadonlyMap<string, string>;
   readonly excludedFileIdentities: ReadonlyMap<string, Schema<'FileCandidateRefDto'>>;
   readonly includedFiles: ReadonlyMap<string, string>;
@@ -49,9 +51,9 @@ export function selectionUsesEarlierRevision(state: DisplayedSelection): boolean
 
 export function selectedSearchCount(state: DisplayedSelection): number {
   if (!hasPublishedProjection(state.summary) || state.selectionNeedsReview) return 0;
-  if (state.selectionCounts && state.summary
-    && sameWireInteger(state.selectionCounts.revision,
-      state.selectionRevision ?? state.summary.revision))
+  // Counts are dropped whenever the selection changes. Those of the revision a
+  // hand-picked selection just left stay on display until the recount arrives.
+  if (state.selectionCounts && state.summary)
     return Number(state.selectionCounts.publicFileCount) === 0 ? 0
       : Number(state.summary.kind === 'Files' || state.summary.kind === 'TrackGroups'
         ? state.selectionCounts.publicFileCount : state.selectionCounts.selectedItemCount);
@@ -167,8 +169,13 @@ export class SearchSelection {
     if (!this.hasSelection()) {
       if (this.state.selectionRevision !== null)
         this.state = { ...this.state, selectionRevision: null, selectionTopLevelCount: null };
-    } else if (!this.state.selectionNeedsReview && this.state.selectionRevision === null
-      && hasPublishedProjection(summary)) {
+    } else if (!this.state.selectionNeedsReview && hasPublishedProjection(summary)
+      // Results keep their refs between revisions, so hand-picked items follow the
+      // latest one; its count names any that were retired. "Everything" stays with
+      // the revision it was chosen in: later arrivals were never seen.
+      // An uncertain download keeps the selection exactly as it was sent.
+      && (this.state.selectionRevision === null || !this.state.selectedAll && !this.pending
+        && !sameWireInteger(this.state.selectionRevision, summary.revision))) {
       this.state = { ...this.state, selectionRevision: summary.revision,
         selectionTopLevelCount: Number(summary.kind === 'Files'
           ? summary.counters.selectableOptionCount : summary.counters.topLevelItemCount) };
@@ -190,6 +197,7 @@ export class SearchSelection {
 
   private changed(): void {
     this.pending = null;
+    if (this.state.selectionDroppedCount) this.state = { ...this.state, selectionDroppedCount: 0 };
     this.observe(this.summary);
     if (!this.countedSelection || !this.summary || this.countedSelection !== selectionCountKey(this.summary.viewId, this.input()))
       this.clearCounts();
@@ -206,7 +214,17 @@ export class SearchSelection {
         !== selectionCountKey(this.summary.viewId, this.input())) return false;
     this.state = { ...this.state, selectionCounts: counts };
     this.countedSelection = selectionCountKey(this.summary.viewId, request);
+    // A live revision retired these, for example a folder absorbed by its parent.
+    const missing = counts.missingRefs ?? [];
+    if (missing.length && this.toggle(missing, false))
+      this.state = { ...this.state, selectionDroppedCount: missing.length };
     return true;
+  }
+
+  /** Whether the displayed counts belong to the selection as it now stands. */
+  hasCurrentCounts(): boolean {
+    return this.state.selectionCounts !== null && this.summary !== null
+      && this.countedSelection === selectionCountKey(this.summary.viewId, this.input());
   }
 
   selectedCount(): number { return selectedSearchCount({ ...this.state, summary: this.summary }); }
@@ -577,6 +595,7 @@ function emptySelection(): SearchSelectionState {
     selectionTopLevelCount: null,
     selectionRefs: new Set(),
     selectionCounts: null,
+    selectionDroppedCount: 0,
     excludedFiles: new Map(),
     excludedFileIdentities: new Map(),
     includedFiles: new Map(),

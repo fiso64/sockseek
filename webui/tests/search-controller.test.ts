@@ -1160,7 +1160,7 @@ describe('Search View request isolation', () => {
     } finally { controller.stop(); }
   });
 
-  it('keeps selected counts on their original revision while displayed folder contents advance', async () => {
+  it('follows a selected folder to the displayed revision and recounts it as its contents advance', async () => {
     const folder = directorySummary('folder');
     const child = (ref: string) => ({ ref, relativePath: `${ref}.txt`, file: { ...folder.bestChild, ref } });
     const oldCount = deferred<Schema<'CountSearchViewSelectionResponseDto'>>();
@@ -1212,8 +1212,11 @@ describe('Search View request isolation', () => {
         items: [child('continued-2')], nextCursor: null });
       await refresh;
       expect(controller.current().summary?.revision).toBe(2);
-      expect(controller.current().selectionRevision).toBe(1);
-      expect(controller.current().selectionCounts?.publicFileCount).toBe(1);
+      expect(controller.current().selectionRevision).toBe(2);
+      // The earlier count stays on display, without a loading state, until the recount lands.
+      expect(controller.current().selectionCountsLoading).toBe(false);
+      await vi.waitFor(() => expect(controller.current().selectionCounts?.publicFileCount).toBe(2));
+      expect(controller.isSelected('folder')).toBe(true);
     } finally { unsubscribe(); controller.stop(); }
   });
 
@@ -1847,7 +1850,60 @@ describe('Search View request isolation', () => {
     } finally { controller.stop(); }
   });
 
-  it('counts selected files at the bound revision and ignores an earlier count response', async () => {
+  it('keeps a selected album seamlessly selected while live revisions leave it unchanged', async () => {
+    let revision = 1;
+    const view = (id: string, value = 1) => {
+      const result = summary(id, value);
+      result.kind = 'AlbumDirectories';
+      result.isComplete = false;
+      result.counters.topLevelItemCount = value;
+      return result;
+    };
+    const counted: Array<number | string> = [];
+    class Api extends DaemonApiClient {
+      override async getSearchViewDirectories(id: string, requested: number | string) {
+        // The chosen album stays first; later revisions only add other folders.
+        return { revision: view(id, Number(requested)), nextCursor: null, items: [directorySummary('album'),
+          ...Array.from({ length: Number(requested) - 1 }, (_, index) => directorySummary(`other-${index}`))] };
+      }
+      override async getSearchViewUpdate(id: string, requested: number | string) {
+        return { summary: view(id, revision), hasNewRevision: Number(requested) !== revision };
+      }
+      override async countSearchViewSelection(_id: string, request: Schema<'CountSearchViewSelectionRequestDto'>) {
+        counted.push(request.revision);
+        return { revision: request.revision, publicFileCount: 12, lockedFileCount: 0, selectedItemCount: 1 };
+      }
+    }
+    const controller = new SearchViewController(new Api(), 60_000);
+    const seen: unknown[] = [];
+    let unsubscribe = () => {};
+    try {
+      await controller.open({ job: jobSummary({ jobId: 'search' }), view: view('search'),
+        draft: { ...emptySearchDraft, resultMode: 'album' } });
+      controller.toggle('album', true);
+      await vi.waitFor(() => expect(controller.current().selectionCounts?.publicFileCount).toBe(12));
+      unsubscribe = controller.subscribe(state => seen.push({ selected: controller.isSelected('album'),
+        count: controller.selectedCount(), files: state.selectionCounts?.publicFileCount,
+        counting: state.selectionCountsLoading, review: state.selectionNeedsReview, dropped: state.selectionDroppedCount,
+        error: state.selectionCountsError }));
+      for (revision of [2, 3]) {
+        await controller.refresh();
+        await vi.waitFor(() => expect(controller.current().selectionCounts?.revision).toBe(revision));
+        expect(controller.current().rows).toHaveLength(revision);
+      }
+      // Every state the page saw: still ticked, same count, no loading state and no notice.
+      expect(seen.length).toBeGreaterThan(2);
+      for (const state of seen)
+        expect(state).toEqual({ selected: true, count: 1, files: 12, counting: false, review: false, dropped: 0, error: null });
+      expect(controller.current().selectionRevision).toBe(3);
+      expect(counted).toEqual([1, 2, 3]);
+      // The selection can still be edited, and downloads at the latest revision.
+      controller.toggle('other-0', true);
+      expect(controller.isSelected('album') && controller.isSelected('other-0')).toBe(true);
+    } finally { unsubscribe(); controller.stop(); }
+  });
+
+  it('recounts selected files at each displayed revision and ignores an earlier count response', async () => {
     const first = deferred<Schema<'CountSearchViewSelectionResponseDto'>>();
     const second = deferred<Schema<'CountSearchViewSelectionResponseDto'>>();
     const requests: Schema<'CountSearchViewSelectionRequestDto'>[] = [];
@@ -1866,10 +1922,9 @@ describe('Search View request isolation', () => {
       expect(requests[0]?.selection).toEqual({ mode: 'Only', refs: ['directory'] });
       expect(controller.current().selectionCountsLoading).toBe(true);
       await controller.refresh();
-      expect(requests).toHaveLength(1);
-      controller.selectAll(false);
-      controller.toggle('directory', true);
+      expect(requests).toHaveLength(2);
       expect(requests[1]?.revision).toBe(2);
+      expect(controller.isSelected('directory')).toBe(true);
       first.resolve({ revision: 1, publicFileCount: 99, lockedFileCount: 0, selectedItemCount: 1 });
       await Promise.resolve();
       expect(controller.current().selectionCounts).toBeNull();
@@ -1883,7 +1938,7 @@ describe('Search View request isolation', () => {
     } finally { controller.stop(); }
   });
 
-  it.each(['folder', 'excluded-child', 'all-except', 'off-page'] as const)('pins a generic %s selection without validating or recounting it against arrivals', async selection => {
+  it.each(['folder', 'excluded-child', 'all-except', 'off-page'] as const)('follows a hand-picked generic selection to live arrivals and pins a whole-view one: %s', async selection => {
     const requests: Schema<'CountSearchViewSelectionRequestDto'>[] = [];
     const view = (id: string, revision = 1) => {
       const result = summary(id, revision);
@@ -1915,13 +1970,21 @@ describe('Search View request isolation', () => {
       controller.toggle('folder', selection !== 'all-except');
       if (selection === 'excluded-child') controller.toggle('folder-file', false, 'folder');
       await controller.refresh();
-      expect(controller.current().selectionRevision).toBe(1);
-      expect(controller.current().selectionCounts?.publicFileCount).toBe(selection === 'all-except' ? 5 : 1);
-      expect(requests.filter(request => Number(request.revision) === 2)).toHaveLength(0);
+      if (selection === 'all-except') {
+        // "Everything" means the results it was chosen in; later arrivals were never seen.
+        expect(controller.current().selectionRevision).toBe(1);
+        expect(controller.current().selectionCounts?.publicFileCount).toBe(5);
+        expect(requests.filter(request => Number(request.revision) === 2)).toHaveLength(0);
+      } else {
+        expect(controller.current().selectionRevision).toBe(2);
+        await vi.waitFor(() => expect(controller.current().selectionCounts?.publicFileCount)
+          .toBe(selection === 'excluded-child' ? 10 : 11));
+        expect(controller.isSelected('folder')).toBe(true);
+      }
     } finally { controller.stop(); }
   });
 
-  it('keeps a generic directory choice on its reviewed revision when a live parent absorbs it', async () => {
+  it('drops and reports a generic directory choice that a live parent absorbs', async () => {
     const first = summary('search', 1);
     first.kind = 'GenericDirectories';
     first.isComplete = false;
@@ -1946,7 +2009,8 @@ describe('Search View request isolation', () => {
         const missingChild = Number(request.revision) === 2
           && request.selection.refs.includes('child-b');
         return { revision: request.revision, publicFileCount: missingChild ? 0 : 1,
-          lockedFileCount: 0, selectedItemCount: missingChild ? 0 : 1 };
+          lockedFileCount: 0, selectedItemCount: missingChild ? 0 : 1,
+          missingRefs: missingChild ? ['child-b'] : null };
       }
       override async resolveSearchViewSelectionSettings(_id: string, request: Schema<'ResolveSearchViewSelectionSettingsRequestDto'>) {
         resolved.push(request.revision);
@@ -1965,19 +2029,18 @@ describe('Search View request isolation', () => {
       expect(controller.current().selectionRevision).toBe(1);
       await controller.refresh();
       expect(controller.current().rows.map(row => row.ref)).toEqual(['parent-a']);
-      expect(controller.current().selectionRevision).toBe(1);
+      await vi.waitFor(() => expect(controller.current().selectionDroppedCount).toBe(1));
+      expect([...controller.current().selectionRefs]).toEqual([]);
+      expect(counted).toEqual([1, 2]);
       controller.toggle('parent-a', true);
-      expect([...controller.current().selectionRefs]).toEqual(['child-b']);
-      await controller.resolveSelectionSettings();
-      expect(resolved).toEqual([1]);
-      await controller.commit();
-      expect(committed[0]?.[1].revision).toBe(1);
-      expect(committed[0]?.[1].selection.refs).toEqual(['child-b']);
-      expect(counted).toEqual([1]);
-      controller.selectAll(false);
-      controller.toggle('parent-a', true);
+      expect(controller.current().selectionDroppedCount).toBe(0);
       expect(controller.current().selectionRevision).toBe(2);
       expect([...controller.current().selectionRefs]).toEqual(['parent-a']);
+      await controller.resolveSelectionSettings();
+      expect(resolved).toEqual([2]);
+      await controller.commit();
+      expect(committed[0]?.[1].revision).toBe(2);
+      expect(committed[0]?.[1].selection.refs).toEqual(['parent-a']);
     } finally { controller.stop(); }
   });
 

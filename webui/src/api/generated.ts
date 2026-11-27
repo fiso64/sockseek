@@ -11326,6 +11326,7 @@ export interface components {
             lockedFileCount: number | string;
             /** Format: int64 */
             selectedItemCount: number | string;
+            missingRefs?: null | string[];
         };
         CreateApiKeyRequestDto: {
             name: string;

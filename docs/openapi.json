@@ -13972,6 +13972,15 @@
               "string"
             ],
             "format": "int64"
+          },
+          "missingRefs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

@@ -1702,8 +1702,9 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   await daemon.command('next-search-batch');
   await advanced;
   await expect(folder.locator('.folder-file-row')).toHaveCount(nestedPageSize + continuedCount);
-  await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
-  await expect(folder.getByRole('checkbox')).toHaveCount(0);
+  // The hand-picked file follows the live results: no notice, and rows stay selectable.
+  await expect(page.getByText('Selection from earlier results', { exact: true })).toHaveCount(0);
+  await expect(folder.getByRole('checkbox').first()).toBeVisible();
   await expect(page.locator('.search-results-summary')).toContainText('Searching');
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
   const output = testInfo.outputPath('selected-download');
@@ -1727,7 +1728,8 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   const commit = await committed;
   expect(commit.status(), await commit.text()).toBe(202);
   const receipt = await commit.json() as Schema<'CommitSearchViewSelectionResponseDto'>;
-  expect(String(commit.request().postDataJSON().revision)).toBe(String(initialSummary.revision));
+  // A hand-picked file is downloaded at the revision on display, not the one it was picked in.
+  expect(Number(commit.request().postDataJSON().revision)).toBeGreaterThan(Number(initialSummary.revision));
   expect(Number(receipt.submittedCount)).toBe(1);
   expect(Number(receipt.rejectedCount)).toBe(0);
   // The source may have retired while its View still publishes queued results.
@@ -1745,8 +1747,9 @@ test('pages a 100k-file search folder and downloads one continued child @Load', 
   await expect(page.locator('.search-results-summary')).toBeVisible();
   await expect(page.locator('.search-results-summary .search-status-badge')).toHaveCount(0);
   await expect(folder.locator('.folder-file-row')).toHaveCount(nestedPageSize + continuedCount);
-  await expect(page.getByText('Selection from earlier results', { exact: true })).toBeVisible();
-  await expect(folder.getByRole('checkbox')).toHaveCount(0);
+  // The hand-picked file follows the live results: no notice, and rows stay selectable.
+  await expect(page.getByText('Selection from earlier results', { exact: true })).toHaveCount(0);
+  await expect(folder.getByRole('checkbox').first()).toBeVisible();
   page.off('requestfinished', observeFinished);
   await Promise.all(captured);
   expect(captureErrors).toEqual([]);

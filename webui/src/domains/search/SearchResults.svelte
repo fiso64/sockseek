@@ -1057,6 +1057,11 @@
       <span class="resource-state-dot"></span>
       <span class="resource-state-copy"><strong>Selection from earlier results</strong><small>Download the files you selected, or clear the selection to choose from the latest results.</small></span>
     </div>
+  {:else if viewState.selectionDroppedCount}
+    <div class="resource-state-notice degraded" role="status">
+      <span class="resource-state-dot"></span>
+      <span class="resource-state-copy"><strong>Selection updated</strong><small>{viewState.selectionDroppedCount === 1 ? '1 selected item is' : `${viewState.selectionDroppedCount} selected items are`} no longer in the results and {viewState.selectionDroppedCount === 1 ? 'was' : 'were'} deselected.</small></span>
+    </div>
   {/if}
 
 

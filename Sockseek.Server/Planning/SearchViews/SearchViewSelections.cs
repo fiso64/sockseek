@@ -309,11 +309,21 @@ public sealed class SearchViewSelections
             if (adjustedPublic < 0 || adjustedLocked < 0 || adjustedItems < 0)
                 throw new InvalidDataException("The selected file counts are inconsistent with this revision.");
 
-            return new(request.Revision, adjustedPublic, adjustedLocked, adjustedItems);
+            return new(request.Revision, adjustedPublic, adjustedLocked, adjustedItems, baseline.MissingRefs);
         }
-        var counts = CountSelectionWithoutPathRules(snapshot, request, directories, cancellationToken);
+        return CountSelectionWithoutPathRules(snapshot, request, directories, cancellationToken);
+    }
 
-        return counts;
+    // A live search can retire a chosen item, for example a folder absorbed by a
+    // parent that arrived later. Naming those lets a selection that follows the
+    // latest results drop exactly them instead of being frozen at its revision.
+    private static string[] MissingRefs(SearchViewSnapshot snapshot, IReadOnlyCollection<string> chosen,
+        CancellationToken cancellationToken)
+    {
+        var missing = new HashSet<string>(chosen, StringComparer.Ordinal);
+        foreach (var item in snapshot.ReadCommitItems(RefSelectionMode.Only, missing.ToHashSet(StringComparer.Ordinal), cancellationToken))
+            missing.Remove(item.Ref);
+        return missing.Order(StringComparer.Ordinal).ToArray();
     }
 
     private SearchViewSnapshot? FindSnapshot(Guid viewId, long revision, CancellationToken cancellationToken)
@@ -339,6 +349,7 @@ public sealed class SearchViewSelections
         long publicCount = 0;
         long lockedCount = 0;
         long selectedItemCount = 0;
+        IReadOnlyList<string>? missingRefs = null;
 
         bool IsSelectedTopLevel(string itemRef)
             => request.Selection.Mode == RefSelectionMode.Only
@@ -414,8 +425,10 @@ public sealed class SearchViewSelections
         if (request.Selection.Mode == RefSelectionMode.Only)
         {
             refs.UnionWith(included);
+            int resolved = 0;
             foreach (var item in snapshot.ReadCommitItems(RefSelectionMode.Only, refs, cancellationToken))
             {
+                resolved++;
                 if ((item.ParentRef != null && selectedContainers.Contains(item.ParentRef))
                     || item.ContainerRefs?.Any(selectedContainers.Contains) == true)
                     continue;
@@ -427,6 +440,10 @@ public sealed class SearchViewSelections
                 if (item.Directory != null || item.TrackGroup != null || item.AlbumGroup != null)
                     selectedContainers.Add(item.Ref);
             }
+            // Each ref resolves to one item, so this pass already shows whether any
+            // is gone. Only then are the missing ones worked out.
+            if (resolved < refs.Count && MissingRefs(snapshot, request.Selection.Refs, cancellationToken) is { Length: > 0 } missing)
+                missingRefs = missing;
         }
         else
         {
@@ -486,7 +503,7 @@ public sealed class SearchViewSelections
         if (publicCount < 0 || lockedCount < 0)
             throw new InvalidDataException("The selected file counts are inconsistent with this revision.");
         return new CountSearchViewSelectionResponseDto(request.Revision, publicCount, lockedCount,
-            selectedItemCount);
+            selectedItemCount, missingRefs);
     }
 
     private async Task<CommitSearchViewSelectionResponseDto> CommitSelectionCoreAsync(

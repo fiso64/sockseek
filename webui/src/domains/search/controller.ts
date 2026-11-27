@@ -844,13 +844,14 @@ export class SearchViewController {
     this.countRequest = null;
     this.countRequestKey = key;
     // A refinement's membership check may already have supplied this exact count.
-    if (this.selection.value.selectionCounts) {
+    if (this.selection.hasCurrentCounts()) {
       this.state = { ...this.state, selectionCountsLoading: false, selectionCountsError: null };
       return;
     }
     const controller = new AbortController();
     this.countRequest = controller;
-    this.state = { ...this.state, selectionCountsLoading: true, selectionCountsError: null };
+    // Following a live revision recounts behind the counts already on display.
+    this.state = { ...this.state, selectionCountsLoading: !this.selection.value.selectionCounts, selectionCountsError: null };
     void this.api.countSearchViewSelection(summary.viewId, request, controller.signal).then(counts => {
       if (this.stopped || this.countRequestKey !== key || controller.signal.aborted) return;
       if (!this.selection.acceptCounts(request, counts))

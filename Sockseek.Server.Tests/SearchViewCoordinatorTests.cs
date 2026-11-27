@@ -840,6 +840,12 @@ public sealed class SearchViewCoordinatorTests
                 Assert.AreEqual(2L, count.PublicFileCount);
                 Assert.AreEqual(1L, count.LockedFileCount);
                 Assert.AreEqual(2L, count.SelectedItemCount);
+                Assert.IsNull(count.MissingRefs);
+                // A chosen item the revision no longer holds is named, and counts as nothing.
+                var retired = views.Selections.CountSelection(view.ViewId, new(view.Revision,
+                    new RefSelectionExpressionDto(RefSelectionMode.Only, [beta.Ref, "retired"])), CancellationToken.None)!;
+                CollectionAssert.AreEqual(new[] { "retired" }, retired.MissingRefs!.ToArray());
+                Assert.AreEqual(1L, retired.SelectedItemCount);
                 var request = new CommitSearchViewSelectionRequestDto(view.Revision, selection, Guid.NewGuid(),
                     ChosenOptions: chosen, AlbumFileSelections: files, UseRepresentativeWhenUnchosen: true);
                 var receipt = (await views.Selections.CommitSelectionAsync(view.ViewId, request, CancellationToken.None))!;

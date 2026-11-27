@@ -290,11 +290,13 @@ public sealed record CountSearchViewSelectionRequestDto(
     IReadOnlyDictionary<string, FileCandidateRefDto>? ExcludedFileIdentities = null,
     IReadOnlyList<SearchViewDirectoryPathRuleDto>? DirectoryPathRules = null);
 
+/// <param name="MissingRefs">Chosen top-level refs this revision no longer holds; they count as nothing.</param>
 public sealed record CountSearchViewSelectionResponseDto(
     long Revision,
     long PublicFileCount,
     long LockedFileCount,
-    long SelectedItemCount);
+    long SelectedItemCount,
+    IReadOnlyList<string>? MissingRefs = null);
 
 public sealed record CommitSearchViewSelectionResponseDto(
     Guid ViewId,
