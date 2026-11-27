@@ -1,9 +1,13 @@
 name: Docs
 
-# Publishes the manual to GitHub Pages. Doc fixes go live from the branch
-# without a release. Point `branches` at master once 4.0 is merged there.
+# Publishes GitHub Pages: the manual, and the apt repository under /apt. Pages
+# is one site replaced on every deploy, so both are built here together. Doc
+# fixes go live from the branch without a release; a published release
+# refreshes the apt repository. Point `branches` at master once 4.0 is merged.
 on:
   workflow_dispatch:
+  release:
+    types: [published]
   push:
     branches: [v4]
     paths:
@@ -43,6 +47,36 @@ jobs:
         working-directory: docs
         env:
           SOCKSEEK_DOCS_SITE_URL: ${{ steps.pages.outputs.base_url }}/
+      # Rebuilt from the latest published releases each time: no state to keep,
+      # and old versions drop out, which keeps the site under the Pages limit.
+      - name: Build the apt repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          if [[ -z $SIGNING_KEY ]]; then echo "APT_SIGNING_KEY is not set; publishing the manual only."; exit 0; fi
+          repo=docs/.vitepress/dist/apt
+          mkdir -p "$repo/pool/main"
+          gh release list --exclude-drafts --limit 3 --json tagName --jq '.[].tagName' | while read -r tag; do
+            gh release download "$tag" --pattern '*.deb' --dir "$repo/pool/main"
+          done
+          cd "$repo"
+          for arch in amd64 arm64; do
+            mkdir -p "dists/stable/main/binary-$arch"
+            apt-ftparchive --arch "$arch" packages pool > "dists/stable/main/binary-$arch/Packages"
+            gzip -k9 "dists/stable/main/binary-$arch/Packages"
+          done
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin=Sockseek -o APT::FTPArchive::Release::Label=Sockseek \
+            -o APT::FTPArchive::Release::Suite=stable -o APT::FTPArchive::Release::Codename=stable \
+            -o APT::FTPArchive::Release::Architectures="amd64 arm64" -o APT::FTPArchive::Release::Components=main \
+            release dists/stable > dists/stable/Release
+          GNUPGHOME=$(mktemp -d)
+          export GNUPGHOME
+          gpg --batch --import <<< "$SIGNING_KEY"
+          gpg --batch --yes --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes -abs -o dists/stable/Release.gpg dists/stable/Release
+          gpg --armor --export > sockseek.asc
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/.vitepress/dist

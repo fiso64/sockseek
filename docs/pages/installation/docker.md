@@ -1,10 +1,10 @@
 # Install with Docker Compose
 
-Download and extract the source archive for your [Sockseek release](https://github.com/fiso64/sockseek/releases), or use a v4 checkout. Run the commands below alongside `docker-compose.yml`. Compose builds the image from that version and runs the daemon.
+Save [`docker-compose.yml`](https://github.com/fiso64/sockseek/blob/v4/docker-compose.yml) in an empty directory and run the commands below from there. It uses the image `ghcr.io/fiso64/sockseek:4`, which always has the latest Sockseek 4 release. To choose when you update, change the tag to a version such as `:4.0.0`.
 
 ## First run
 
-1. Create the host directories. On Linux, set the container user to the UID and GID that own your downloads. For a fresh checkout:
+1. Create the host directories. On Linux, set the container user to the UID and GID that own your downloads. For example:
 
    ```sh
    mkdir -p instance/config instance/data instance/downloads instance/shares
@@ -14,10 +14,10 @@ Download and extract the source archive for your [Sockseek release](https://gith
 
    The image defaults to UID and GID 1654. If you keep an existing music library under another account, give the container user read access to that library.
 
-2. Build the image and choose a WebUI password. Copy the hash printed by the second command.
+2. Pull the image and choose a WebUI password. Copy the hash printed by the second command.
 
    ```sh
-   docker compose build
+   docker compose pull
    docker compose run --rm sockseek auth hash-password
    ```
 
@@ -54,6 +54,6 @@ The example permits HTTP login on port **5030** and publishes that port only on 
 
 ## Updates and CLI use
 
-After checking out a new release, run `docker compose up -d --build` to replace the container. The mounted directories carry your configuration, jobs and downloads across the update.
+To update, run `docker compose pull`, then `docker compose up -d`. Your configuration, jobs and downloads stay in the mounted directories.
 
 For CLI help, run `docker compose run --rm sockseek --help`. For server maintenance, stop the daemon before running an offline database command. To schedule one-shot jobs, invoke the CLI from the host's scheduler. Use [remote CLI](../using-sockseek/daemon.md#remote-cli) to submit work to an already connected daemon.

@@ -12,6 +12,17 @@ Include `sockseek` in the arguments to `outputs` and add its module to your host
 modules = [ ./configuration.nix sockseek.nixosModules.default ];
 ```
 
+Add Sockseek's binary cache:
+
+```nix
+nix.settings = {
+  extra-substituters = [ "https://sockseek.cachix.org" ];
+  extra-trusted-public-keys = [ "sockseek.cachix.org-1:LnckvcFZn2PnIgScUOlA4oGcmrgIJVpwzy0FXMUB/gk=" ];
+};
+```
+
+Rebuild once with the cache before adding Sockseek. Do not make the `sockseek` input follow your `nixpkgs`.
+
 Without flakes, import `nix/module.nix` from a pinned Sockseek checkout and use nixpkgs with the .NET 11 SDK. Set `services.sockseek.package` to override the package.
 
 In `configuration.nix`, enable the service and supply your credentials. Add the two password files at runtime with read access for the `sockseek` user.

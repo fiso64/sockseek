@@ -1,6 +1,6 @@
 services:
   sockseek:
-    build: .
+    image: ghcr.io/fiso64/sockseek:4
     restart: unless-stopped
     stop_grace_period: 45s
     user: "${SOCKSEEK_USER:-1654:1654}"

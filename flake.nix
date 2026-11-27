@@ -3,6 +3,13 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable-small";
 
+  # Released versions are prebuilt for x86-64 and ARM64. Nix offers this cache when
+  # the flake is used directly (nix run, nix profile); NixOS hosts add it in nix.settings.
+  nixConfig = {
+    extra-substituters = [ "https://sockseek.cachix.org" ];
+    extra-trusted-public-keys = [ "sockseek.cachix.org-1:LnckvcFZn2PnIgScUOlA4oGcmrgIJVpwzy0FXMUB/gk=" ];
+  };
+
   outputs =
     { self, nixpkgs }:
     let
