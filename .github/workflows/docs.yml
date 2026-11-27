@@ -67,6 +67,7 @@ jobs:
           done < <(gh release list --exclude-drafts --limit 50 --json tagName --jq '.[].tagName')
           if (( found == 0 )); then echo "No published release has Debian packages yet; publishing the manual only."; rm -rf "$repo"; exit 0; fi
           cd "$repo"
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends apt-utils > /dev/null
           for arch in amd64 arm64; do
             mkdir -p "dists/stable/main/binary-$arch"
             apt-ftparchive --arch "$arch" packages pool > "dists/stable/main/binary-$arch/Packages"
