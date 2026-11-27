@@ -689,6 +689,10 @@ namespace Tests.Unit
             CollectionAssert.AreEqual(
                 SearchResultProjector.AlbumFolders(fragment.Concat(complete), query, search).Select(folder => folder.Username).ToList(),
                 second.Folders.Select(folder => folder.Username).ToList());
+
+            search.PreferCommonTrackCount = false;
+            Assert.AreEqual("fragment",
+                SearchResultProjector.AlbumFolders(fragment.Concat(complete), query, search)[0].Username);
         }
 
         [TestMethod]

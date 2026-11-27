@@ -232,8 +232,16 @@ public static partial class ProfileConditionEvaluator
 
     internal static bool SatisfiedForContext(
         string cond, DownloadSettings settings, JobSettingsContext? job, ProfileContext? context = null, bool validationOnly = false)
+        => SatisfiedForContext(Tokenize(cond), settings, job, context, validationOnly);
+
+    internal static string[] Tokenize(string cond)
+        => CondTokenRegex().Split(cond).Where(t => !string.IsNullOrWhiteSpace(t)).ToArray();
+
+    // Conditions evaluated for every job are split once and reused.
+    internal static bool SatisfiedForContext(
+        IReadOnlyList<string> condition, DownloadSettings settings, JobSettingsContext? job, ProfileContext? context = null, bool validationOnly = false)
     {
-        var tokens = new Queue<string>(CondTokenRegex().Split(cond).Where(t => !string.IsNullOrWhiteSpace(t)));
+        var tokens = new Queue<string>(condition);
 
         bool ParseExpression()
         {

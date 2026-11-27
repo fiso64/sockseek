@@ -24,6 +24,33 @@ public sealed class JobSettingsComposerTests
     }
 
     [TestMethod]
+    public void BuiltInModeDefaultsDependOnHowTheJobRunsAndYieldToOperatorSettings()
+    {
+        var composer = new JobSettingsComposer(null, ProfileCatalog.Empty);
+        var album = new AlbumJob(new AlbumQuery());
+        var manualSearch = new SearchJob(new AlbumQuery());
+        var interactive = new ProfileContext { Values = { ["interactive"] = true } };
+
+        SearchSettings automatic = composer.Compose(new DownloadSettings(), album).Search;
+        SearchSettings picked = composer.Compose(new DownloadSettings(), album, request: new(ProfileContext: interactive)).Search;
+        var manual = composer.ComposeDetailed(new DownloadSettings(), manualSearch);
+
+        Assert.IsTrue(automatic.PreferCommonTrackCount);
+        Assert.AreEqual(5_000, automatic.SearchTimeout);
+        Assert.IsFalse(picked.PreferCommonTrackCount);
+        Assert.AreEqual(5_000, picked.SearchTimeout);
+        Assert.IsFalse(manual.Settings.Search.PreferCommonTrackCount);
+        Assert.AreEqual(15_000, manual.Settings.Search.SearchTimeout);
+        Assert.AreEqual("built-in", manual.Provenance["Search.SearchTimeout"]);
+
+        var configured = new JobSettingsComposer(null, ProfileCatalog.Empty,
+            operatorDefault: new SettingsPatch([new("Search.PreferCommonTrackCount", true), new("Search.SearchTimeout", 30_000)]));
+        SearchSettings overridden = configured.Compose(new DownloadSettings(), manualSearch).Search;
+        Assert.IsTrue(overridden.PreferCommonTrackCount);
+        Assert.AreEqual(30_000, overridden.SearchTimeout);
+    }
+
+    [TestMethod]
     public void ProcessWideProfileSettingsApplyAtStartupButNotPerRequest()
     {
         var profile = new SettingsProfile { Name = "identity", Engine = new SettingsPatch([new("UserDescription", "Alt")]) };

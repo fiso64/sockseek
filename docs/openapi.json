@@ -23912,6 +23912,12 @@
               "boolean"
             ]
           },
+          "preferCommonTrackCount": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
           "artistMaybeWrong": {
             "type": [
               "null",

@@ -66,6 +66,7 @@ public sealed record SearchSettingsPatchDto(
     bool? NoBrowseFolder = null,
     bool? Relax = null,
     bool? StrictAlbumQuality = null,
+    bool? PreferCommonTrackCount = null,
     bool? ArtistMaybeWrong = null,
     bool? GroupResults = null,
     int? MinGroupShares = null,
@@ -79,7 +80,8 @@ public sealed record SearchSettingsPatchDto(
     public SearchSettingsPatchDto ForResultRefinement() => new(
         NecessaryCond: NecessaryCond, PreferredCond: PreferredCond,
         NecessaryFolderCond: NecessaryFolderCond, PreferredFolderCond: PreferredFolderCond,
-        StrictAlbumQuality: StrictAlbumQuality, MinGroupShares: MinGroupShares,
+        StrictAlbumQuality: StrictAlbumQuality, PreferCommonTrackCount: PreferCommonTrackCount,
+        MinGroupShares: MinGroupShares,
         ClearMinGroupShares: ClearMinGroupShares, GroupLengthTol: GroupLengthTol);
 }
 

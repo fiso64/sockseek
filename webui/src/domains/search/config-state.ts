@@ -41,6 +41,8 @@ export interface SearchRankingPreferences {
   common: CommonSearchRanking;
   track: TrackSearchRanking;
   album: AlbumSearchRanking;
+  /** Ranking only: there is no matching filter. */
+  preferCommonTrackCount: boolean;
 }
 
 /** Numeric conditions are non-negative integers; null leaves the bound unset. */
@@ -94,5 +96,6 @@ export function createEmptySearchRanking(): SearchRankingPreferences {
     album: {
       strictAlbum: false,
     },
+    preferCommonTrackCount: false,
   };
 }

@@ -41,6 +41,7 @@ export function readSearchConditions(settings: Settings, expectedLength?: number
   result.album.strictAlbum = required.strictAlbum ?? false;
   result.ranking.album.strictAlbum = preferred.strictAlbum ?? false;
   result.album.strictAlbumQuality = settings.strictAlbumQuality ?? false;
+  result.ranking.preferCommonTrackCount = settings.preferCommonTrackCount ?? false;
   result.album.minTrackCount = integer(settings.necessaryFolderCond?.minTrackCount);
   result.album.maxTrackCount = integer(settings.necessaryFolderCond?.maxTrackCount);
   result.album.requiredTrackTitles = [...(settings.necessaryFolderCond?.requiredTrackTitles?.replace ?? [])];
@@ -125,6 +126,7 @@ export function searchConditionsPatchForFamily(
     if (JSON.stringify(before.album.requiredTrackTitles) !== JSON.stringify(after.album.requiredTrackTitles)) folder.requiredTrackTitles = { replace: [...after.album.requiredTrackTitles] };
     if (Object.keys(folder).length) patch.necessaryFolderCond = folder;
     if (before.album.strictAlbumQuality !== after.album.strictAlbumQuality) patch.strictAlbumQuality = after.album.strictAlbumQuality;
+    if (before.ranking.preferCommonTrackCount !== after.ranking.preferCommonTrackCount) patch.preferCommonTrackCount = after.ranking.preferCommonTrackCount;
   }
   return patch;
 }

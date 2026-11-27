@@ -376,6 +376,7 @@
                 <label class="config-check"><input type="checkbox" bind:checked={conditions.ranking.album.strictAlbum} /> {fields.strictAlbum.ranking.label}</label>
                 {@render fieldHelp(fields.strictAlbum.ranking, 'strict-album-ranking-help')}
               </div>
+              <label class="config-check"><input type="checkbox" data-testid="prefer-common-track-count" bind:checked={conditions.ranking.preferCommonTrackCount} /> {fields.preferCommonTrackCount.ranking.label}</label>
             {/if}
           </section>
         {/if}

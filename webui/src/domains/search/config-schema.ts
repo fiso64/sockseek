@@ -1,7 +1,7 @@
 import type { SearchResultMode } from './model';
 
 export type SearchConfigTab = 'conditions' | 'ranking';
-export type SearchConfigRelationship = 'paired' | 'partial' | 'conditions-only';
+export type SearchConfigRelationship = 'paired' | 'partial' | 'conditions-only' | 'ranking-only';
 
 export interface SearchConfigSideDefinition {
   label: string;
@@ -13,7 +13,7 @@ export interface SearchConfigFieldDefinition {
   id: string;
   modes: SearchResultMode[] | 'all';
   relationship: SearchConfigRelationship;
-  conditions: SearchConfigSideDefinition;
+  conditions?: SearchConfigSideDefinition;
   ranking?: SearchConfigSideDefinition;
 }
 
@@ -133,6 +133,10 @@ export const SEARCH_CONFIG_FIELDS = {
         'Enable this to require every audio file in the folder to meet your audio quality conditions.',
       ],
     },
+  },
+  preferCommonTrackCount: {
+    id: 'preferCommonTrackCount', modes: ['album'], relationship: 'ranking-only',
+    ranking: { label: 'Prefer the most common track count', section: 'album-structure' },
   },
   trackCount: {
     id: 'trackCount', modes: ['album', 'album-groups'], relationship: 'conditions-only',

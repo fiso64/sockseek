@@ -36,6 +36,7 @@ public class SettingsResolutionTests
         Assert.IsNull(effective.NecessaryFolderCond.MinTrackCount);
         Assert.IsEmpty(effective.NecessaryFolderCond.RequiredTrackTitles);
         Assert.IsFalse(effective.StrictAlbumQuality);
+        Assert.IsFalse(effective.PreferCommonTrackCount);
 
         settings.Output.AlbumArtOnly = false;
         Assert.AreSame(settings.Search, settings.ResolveSearchSettings());

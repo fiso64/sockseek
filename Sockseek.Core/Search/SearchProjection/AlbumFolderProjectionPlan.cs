@@ -144,7 +144,7 @@ internal sealed class AlbumTrackCountConsensus
         bounds = search.NecessaryFolderCond;
         // A search that returns only some of a folder's tracks says nothing
         // about how many it holds.
-        enabled = sortMode == FolderSortMode.AlbumRanked
+        enabled = search.PreferCommonTrackCount && sortMode == FolderSortMode.AlbumRanked
             && ConditionSatisfactionPolicy.SearchResultsLikelyContainCompleteAlbumFolders(query, search);
     }
 

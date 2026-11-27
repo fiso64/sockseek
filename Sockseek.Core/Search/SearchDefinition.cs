@@ -136,10 +136,12 @@ public sealed record SearchProjectionSettingsDefinition(
     FolderConditionsDefinition NecessaryFolder,
     FolderConditionsDefinition PreferredFolder,
     bool StrictAlbumQuality,
+    bool PreferCommonTrackCount,
     int DownrankOn,
     int IgnoreOn,
     int MinGroupShares,
-    int GroupLengthTolerance)
+    int GroupLengthTolerance,
+    bool Relax = false)
 {
     public static SearchProjectionSettingsDefinition From(SearchSettings settings)
         => new(
@@ -148,10 +150,12 @@ public sealed record SearchProjectionSettingsDefinition(
             FolderConditionsDefinition.From(settings.NecessaryFolderCond),
             FolderConditionsDefinition.From(settings.PreferredFolderCond),
             settings.StrictAlbumQuality,
+            settings.PreferCommonTrackCount,
             settings.DownrankOn,
             settings.EffectiveIgnoreOn,
             settings.EffectiveMinGroupShares,
-            settings.GroupLengthTol);
+            settings.GroupLengthTol,
+            settings.Relax);
 
     public SearchSettings ToSettings()
     {
@@ -163,10 +167,12 @@ public sealed record SearchProjectionSettingsDefinition(
         settings.NecessaryFolderCond = NecessaryFolder.ToConditions();
         settings.PreferredFolderCond = PreferredFolder.ToConditions();
         settings.StrictAlbumQuality = StrictAlbumQuality;
+        settings.PreferCommonTrackCount = PreferCommonTrackCount;
         settings.DownrankOn = DownrankOn;
         settings.IgnoreOn = IgnoreOn;
         settings.MinGroupShares = MinGroupShares;
         settings.GroupLengthTol = GroupLengthTolerance;
+        settings.Relax = Relax;
         return settings;
     }
 }

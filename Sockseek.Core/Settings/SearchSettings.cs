@@ -135,6 +135,13 @@ public class SearchSettings
     [SettingOption("--saq", "--strict-album-quality")]
     public bool StrictAlbumQuality { get; set; }
 
+    /// Rank album folders holding fewer tracks than most matching folders share
+    /// after the others. Manual searches default to off: an underspecified query
+    /// matches several releases, whose track counts say nothing about each other.
+    [SettingOption("--pctc", "--pref-common-track-count")]
+    [SettingOption("--no-pref-common-track-count", FixedValue = "false")]
+    public bool PreferCommonTrackCount { get; set; } = true;
+
     // ── Timing ────────────────────────────────────────────────────────────────
 
     [SettingOption("--st", "--search-time", "--search-timeout")]
@@ -249,6 +256,7 @@ public class SearchSettings
             result.NecessaryFolderCond = new();
             result.PreferredFolderCond = new();
             result.StrictAlbumQuality = false;
+            result.PreferCommonTrackCount = false;
             result.AudioConditionsIgnored = true;
         }
         return result;

@@ -13576,6 +13576,7 @@ export interface components {
             noBrowseFolder?: null | boolean;
             relax?: null | boolean;
             strictAlbumQuality?: null | boolean;
+            preferCommonTrackCount?: null | boolean;
             artistMaybeWrong?: null | boolean;
             groupResults?: null | boolean;
             /** Format: int32 */

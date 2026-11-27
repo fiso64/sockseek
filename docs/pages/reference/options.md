@@ -257,6 +257,11 @@ Most common flags:
                                 required quality conditions such as --format, bitrate, sample
                                 rate, and bit depth. By default mixed-quality folders are
                                 ranked by coverage.
+--pref-common-track-count       Prefer album folders holding at least the track count most
+                                matching folders share, so incomplete folders rank after
+                                complete ones (default, except for manual searches and
+                                --interactive)
+--no-pref-common-track-count    Do not rank album folders by the most common track count
 --min-album-track-count <num>   Minimum number of tracks in an album folder
 --max-album-track-count <num>   Maximum number of tracks in an album folder
 --no-extract-min-tracks         Do not set the minimum album track count from extracted

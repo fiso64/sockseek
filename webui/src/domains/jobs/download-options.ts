@@ -88,7 +88,7 @@ export function profileSettingsSections(provenance: Record<string, string>) {
   const has = (...paths: string[]) => fields.some(field => paths.some(path => field === path || field.startsWith(`${path}.`)));
   return {
     filtering: has('Search.NecessaryCond', 'Search.NecessaryFolderCond', 'Search.StrictAlbumQuality'),
-    ranking: has('Search.PreferredCond', 'Search.PreferredFolderCond'),
+    ranking: has('Search.PreferredCond', 'Search.PreferredFolderCond', 'Search.PreferCommonTrackCount'),
     download: has('Skip', 'Output', 'Transfer', 'Search.NoBrowseFolder'),
     import: has('Extraction.MaxTracks', 'Extraction.Offset', 'Extraction.UpgradeToAlbum'),
     csv: has('Csv'),

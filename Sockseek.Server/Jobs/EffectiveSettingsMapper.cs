@@ -136,6 +136,7 @@ internal static class EffectiveSettingsMapper
             NoBrowseFolder: settings.NoBrowseFolder,
             Relax: settings.Relax,
             StrictAlbumQuality: settings.StrictAlbumQuality,
+            PreferCommonTrackCount: settings.PreferCommonTrackCount,
             ArtistMaybeWrong: settings.ArtistMaybeWrong,
             GroupResults: settings.GroupResults,
             MinGroupShares: settings.EffectiveMinGroupShares,

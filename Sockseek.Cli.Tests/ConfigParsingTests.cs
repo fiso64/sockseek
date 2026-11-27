@@ -263,6 +263,17 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void PreferCommonTrackCount_NoFlag_IsIncludedInRemoteDownloadSettingsPatch()
+        {
+            var config = new DownloadSettings();
+            Assert.IsTrue(config.Search.PreferCommonTrackCount);
+
+            ConfigManager.CreateCliDownloadSettingsPatch(["--no-pref-common-track-count"])?.ApplyTo(config);
+
+            Assert.IsFalse(config.Search.PreferCommonTrackCount);
+        }
+
+        [TestMethod]
         public void IncompleteAlbumAction_Flag_IsIncludedInRemoteDownloadSettingsPatch()
         {
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--incomplete-album-action", "move:failed-target"]);

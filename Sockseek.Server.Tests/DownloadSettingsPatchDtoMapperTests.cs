@@ -1,4 +1,5 @@
 using Sockseek.Api;
+using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Server;
 
@@ -20,6 +21,51 @@ public sealed class DownloadSettingsPatchDtoMapperTests
                 ? settings.EffectiveMinGroupShares : scalar.Get(settings);
             Assert.IsNotNull(expected, $"Supply a value for {scalar.Path} to check its effective settings mapping.");
             Assert.AreEqual(expected, property.GetValue(dto), scalar.Path);
+        }
+    }
+
+    // A search's views rank its results with the settings captured at submission. A
+    // setting missing there silently reverts to its default in every view, so each
+    // search scalar is either captured or declared here as not about collected results.
+    [TestMethod]
+    public void EverySearchScalarIsCapturedWithTheSearchOrDeclaredIrrelevantToItsResults()
+    {
+        string[] notAboutCollectedResults =
+        [
+            // How the network search runs.
+            nameof(SearchSettings.SearchTimeout), nameof(SearchSettings.ResponseLimit), nameof(SearchSettings.MaxStaleTime),
+            nameof(SearchSettings.FastSearch), nameof(SearchSettings.FastSearchDelay), nameof(SearchSettings.FastSearchMinUpSpeed),
+            nameof(SearchSettings.DesperateSearch), nameof(SearchSettings.FallbackLevel), nameof(SearchSettings.MaxFallbackAttempts),
+            nameof(SearchSettings.NoRemoveSpecialChars), nameof(SearchSettings.RemoveSingleCharSearchTerms),
+            // How a chosen result is downloaded.
+            nameof(SearchSettings.NoBrowseFolder),
+            // Captured with the search's query and projection instead.
+            nameof(SearchSettings.ArtistMaybeWrong), nameof(SearchSettings.GroupResults),
+        ];
+        // Captured, but fixed for the search: a view cannot refine them.
+        string[] notRefinable = [nameof(SearchSettings.DownrankOn), nameof(SearchSettings.IgnoreOn), nameof(SearchSettings.Relax)];
+
+        foreach (var scalar in SettingsSchema.For(typeof(SearchSettings)).Leaves.Values.Where(member => !member.Path.Contains('.')))
+        {
+            var settings = new SearchSettings();
+            object changed = scalar.Get(settings) switch
+            {
+                bool value => !value,
+                int value => value + 1,
+                double value => value + 1,
+                null when scalar.ValueType == typeof(int?) => 7,
+                _ => throw new InvalidOperationException($"Supply a changed value for {scalar.Path}."),
+            };
+            new SettingsPatch([new(scalar.Path, changed)]).ApplyTo(settings);
+
+            bool captured = Equals(changed, scalar.Get(SearchProjectionSettingsDefinition.From(settings).ToSettings()));
+            bool refinable = typeof(SearchSettingsPatchDto).GetProperty(scalar.Path)!
+                .GetValue(EffectiveSettingsMapper.ToSearchSettings(settings).ForResultRefinement()) != null;
+
+            Assert.AreEqual(!notAboutCollectedResults.Contains(scalar.Path), captured,
+                $"{scalar.Path}: capture it in {nameof(SearchProjectionSettingsDefinition)} or declare it irrelevant to collected results.");
+            Assert.AreEqual(captured && !notRefinable.Contains(scalar.Path), refinable,
+                $"{scalar.Path}: result refinement must carry exactly the captured settings a view may change.");
         }
     }
 
