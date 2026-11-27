@@ -9,13 +9,14 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Sockseek.Persistence.PeerBrowsing;
 
 /// <summary>
-/// Owns short-lived peer-browse resources and one immutable compressed artifact per
-/// successful generation. It is deliberately separate from Sockseek's domain
+/// Owns short-lived peer-browse resources and one immutable memory-mapped artifact
+/// per successful generation. It is deliberately separate from Sockseek's domain
 /// history database.
 /// </summary>
 public sealed class PeerBrowseArtifactStore : IAsyncDisposable
 {
-    internal const int ArtifactFormatVersion = 11;
+    internal const int ArtifactFormatVersion = 12;
+    private const string ArtifactExtension = ".browse";
     public static readonly TimeSpan DefaultResourceRetention = TimeSpan.FromHours(24);
     public const long DefaultArtifactByteBudget = 2L * 1024 * 1024 * 1024;
     public const int DefaultResourceCountTarget = 4_096;
@@ -34,11 +35,9 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
     private readonly HashSet<Guid> evicting = [];
     private long lastCleanupLogTick = long.MinValue;
     private long lastBudgetLogTick = long.MinValue;
-    private const long ArtifactMemoryTarget = 256L * 1024 * 1024;
-    private readonly Dictionary<Guid, (PeerBrowseArtifact Artifact, LinkedListNode<Guid> Node)> loadedArtifacts = [];
-    private readonly LinkedList<Guid> artifactRecency = new();
-    private readonly Dictionary<Guid, Task<PeerBrowseArtifact>> artifactLoads = [];
-    private long loadedArtifactBytes;
+    // Mapping costs address space, not memory: the operating system pages
+    // artifacts in while they are read and reclaims them under pressure.
+    private readonly Dictionary<Guid, PeerBrowseArtifact> openArtifacts = [];
     private bool initialized;
     private bool disposed;
     private readonly ILogger<PeerBrowseArtifactStore> logger;
@@ -150,6 +149,15 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
                 Add(interrupted, "$now", Format(now));
                 Add(interrupted, "$expires", Format(now + resourceRetention));
                 await interrupted.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+                // Browses are short-lived: ones in an earlier artifact format are
+                // dropped (and their files removed below), not converted.
+                await using (var outdated = connection.CreateCommand())
+                {
+                    outdated.CommandText = "DELETE FROM browse_resources WHERE artifact_file IS NOT NULL AND artifact_file NOT LIKE $current;";
+                    Add(outdated, "$current", "%" + ArtifactExtension);
+                    await outdated.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
             }
 
             OwnerOnlyFilePermissions.EnsureFile(registryPath);
@@ -400,7 +408,7 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
         PeerBrowseResource resource = await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
         if (!StringComparer.Ordinal.Equals(resource.Username, identity.Username))
             throw new ArgumentException("The directory peer does not match the browse resource.", nameof(identity));
-        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false)).ReadDirectory(identity, cancellationToken);
+        return await ReadAsync(browseId, artifact => artifact.ReadDirectory(identity, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PeerBrowseDirectoryEntry?> ReadDirectoryEntryAsync(Guid browseId, long directoryId,
@@ -408,15 +416,15 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
     {
         if (directoryId <= 0)
             throw new ArgumentOutOfRangeException(nameof(directoryId));
-        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false)).DirectoryEntry(directoryId);
+        return await ReadAsync(browseId, artifact => artifact.DirectoryEntry(directoryId), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PeerBrowsePage<PeerBrowseDirectoryEntry>> ReadDirectoriesAsync(Guid browseId, long? parentId,
         string? query, bool recursive, string? afterSortKey, long? afterId, int limit, CancellationToken cancellationToken = default)
     {
         ValidatePage(afterSortKey, afterId, limit);
-        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false))
-            .ReadDirectories(parentId, query, recursive, afterSortKey, afterId, limit, cancellationToken);
+        return await ReadAsync(browseId, artifact => artifact.ReadDirectories(
+            parentId, query, recursive, afterSortKey, afterId, limit, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PeerBrowsePage<PeerBrowseFileEntry>> ReadFilesAsync(Guid browseId, long directoryId, string? query,
@@ -425,8 +433,8 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
         if (directoryId <= 0)
             throw new ArgumentOutOfRangeException(nameof(directoryId));
         ValidatePage(afterSortKey, afterId, limit);
-        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false))
-            .ReadFiles(directoryId, query, afterSortKey, afterId, limit, cancellationToken);
+        return await ReadAsync(browseId, artifact => artifact.ReadFiles(
+            directoryId, query, afterSortKey, afterId, limit, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PeerBrowseFileEntry?> ReadFileEntryAsync(Guid browseId, long fileId,
@@ -434,7 +442,7 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
     {
         if (fileId <= 0)
             throw new ArgumentOutOfRangeException(nameof(fileId));
-        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false)).FileEntry(fileId);
+        return await ReadAsync(browseId, artifact => artifact.FileEntry(fileId), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PeerBrowseSearchPage> SearchAsync(Guid browseId, string query, string? afterSortKey,
@@ -442,8 +450,8 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
         ValidateSearchPage(afterSortKey, afterKind, afterId, limit);
-        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false))
-            .Search(query.Trim(), afterSortKey, afterKind, afterId, limit, cancellationToken);
+        return await ReadAsync(browseId, artifact => artifact.Search(
+            query.Trim(), afterSortKey, afterKind, afterId, limit, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<string?> ReadSearchSortKeyAsync(Guid browseId, PeerBrowseSearchEntryKind kind, long entryId,
@@ -451,7 +459,7 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
     {
         if (entryId <= 0)
             throw new ArgumentOutOfRangeException(nameof(entryId));
-        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false)).SearchSortKey(kind, entryId);
+        return await ReadAsync(browseId, artifact => artifact.SearchSortKey(kind, entryId), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PeerBrowseDownloadResolution> ResolveDownloadSelectionAsync(Guid browseId,
@@ -461,83 +469,32 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(directoryIds);
         ArgumentNullException.ThrowIfNull(fileIds);
         var resource = await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
-        return (await ReadArtifactAsync(browseId, cancellationToken).ConfigureAwait(false))
-            .Resolve(resource.Username, directoryIds, fileIds, excludedFileIds ?? [], excludedDirectoryIds ?? [], cancellationToken);
+        return await ReadAsync(browseId, artifact => artifact.Resolve(resource.Username, directoryIds, fileIds,
+            excludedFileIds ?? [], excludedDirectoryIds ?? [], cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<PeerBrowseArtifact> ReadArtifactAsync(Guid browseId, CancellationToken cancellationToken)
+    // The lease spans the whole query, so eviction cannot unmap the artifact
+    // underneath it. Opening maps the file; nothing is read until a query runs.
+    private async Task<T> ReadAsync<T>(Guid browseId, Func<PeerBrowseArtifact, T> read, CancellationToken cancellationToken)
     {
         await RequireCompleteAsync(browseId, cancellationToken).ConfigureAwait(false);
         await using ArtifactLease lease = await AcquireLeaseAsync(browseId, cancellationToken).ConfigureAwait(false);
-        TaskCompletionSource<PeerBrowseArtifact>? producer = null;
-        Task<PeerBrowseArtifact> task;
+        PeerBrowseArtifact artifact;
         lock (leaseGate)
         {
-            if (loadedArtifacts.TryGetValue(browseId, out var cached))
-            {
-                artifactRecency.Remove(cached.Node);
-                artifactRecency.AddFirst(cached.Node);
-                return cached.Artifact;
-            }
-            if (!artifactLoads.TryGetValue(browseId, out task!))
-            {
-                producer = new(TaskCreationOptions.RunContinuationsAsynchronously);
-                task = producer.Task;
-                artifactLoads.Add(browseId, task);
-            }
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (!openArtifacts.TryGetValue(browseId, out artifact!))
+                openArtifacts.Add(browseId, artifact = PeerBrowseArtifact.Open(lease.ArtifactPath));
         }
-        if (producer is not null)
-            _ = Task.Run(() => LoadArtifactAsync(browseId, producer));
-        return await task.WaitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task LoadArtifactAsync(Guid browseId, TaskCompletionSource<PeerBrowseArtifact> completion)
-    {
-        try
-        {
-            // The load owns a lease and survives an individual cancelled waiter.
-            await using var lease = await AcquireLeaseAsync(browseId).ConfigureAwait(false);
-            var artifact = PeerBrowseArtifact.Read(lease.ArtifactPath, CancellationToken.None);
-            RememberArtifact(browseId, artifact);
-            completion.TrySetResult(artifact);
-        }
-        catch (Exception exception)
-        {
-            completion.TrySetException(exception);
-            _ = completion.Task.Exception; // Observe failure even if every waiter cancelled.
-        }
-        finally
-        {
-            lock (leaseGate)
-                artifactLoads.Remove(browseId);
-        }
-    }
-
-    private void RememberArtifact(Guid browseId, PeerBrowseArtifact artifact)
-    {
-        lock (leaseGate)
-        {
-            if (disposed)
-                return;
-            ForgetArtifact(browseId);
-            // A working-set target, never an admission limit. Keep one oversized
-            // artifact usable; evict idle cache references, not active readers.
-            while (artifactRecency.Last is { } last && loadedArtifactBytes + artifact.EstimatedBytes > ArtifactMemoryTarget)
-                ForgetArtifact(last.Value);
-            var node = artifactRecency.AddFirst(browseId);
-            loadedArtifacts.Add(browseId, (artifact, node));
-            loadedArtifactBytes += artifact.EstimatedBytes;
-        }
+        return read(artifact);
     }
 
     private void ForgetArtifact(Guid browseId)
     {
         lock (leaseGate)
         {
-            if (!loadedArtifacts.Remove(browseId, out var old))
-                return;
-            artifactRecency.Remove(old.Node);
-            loadedArtifactBytes -= old.Artifact.EstimatedBytes;
+            if (openArtifacts.Remove(browseId, out var artifact))
+                artifact.Dispose();
         }
     }
 
@@ -739,25 +696,21 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
     }
 
     internal string GetStagingPath(Guid browseId)
-        => Path.Combine(stagingDirectory, browseId.ToString("N") + ".browse.gz.staging");
+        => Path.Combine(stagingDirectory, browseId.ToString("N") + ArtifactExtension + ".staging");
 
     internal async Task PromoteAsync(
         PeerBrowseResource resource,
         string stagingPath,
         PeerBrowseIndexProgress progress,
-        PeerBrowseArtifact artifact,
         CancellationToken cancellationToken)
     {
-        string fileName = resource.BrowseId.ToString("N") + ".browse.gz";
+        string fileName = resource.BrowseId.ToString("N") + ArtifactExtension;
         string finalPath = Path.Combine(artifactDirectory, fileName);
         File.Move(stagingPath, finalPath, overwrite: false);
         OwnerOnlyFilePermissions.EnsureFile(finalPath);
         long artifactBytes = new FileInfo(finalPath).Length;
         DateTimeOffset now = timeProvider.GetUtcNow();
 
-        // Readers require Complete, so install the immutable model before the
-        // registry publishes Ready; the first reader must not reload it from disk.
-        RememberArtifact(resource.BrowseId, artifact);
         try
         {
             await using SqliteConnection connection = await OpenRegistryAsync(
@@ -798,7 +751,6 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
         }
         catch
         {
-            ForgetArtifact(resource.BrowseId);
             TryDeleteCleanupFile(finalPath);
             throw;
         }
@@ -986,30 +938,25 @@ public sealed class PeerBrowseArtifactStore : IAsyncDisposable
     internal void DeleteStagingBestEffort(string path)
         => TryDeleteCleanupFile(path);
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        Task[] pending;
         lock (leaseGate)
         {
             if (disposed)
-                return;
+                return ValueTask.CompletedTask;
             disposed = true;
-            pending = artifactLoads.Values.Cast<Task>().ToArray();
-            loadedArtifacts.Clear();
-            artifactRecency.Clear();
-            loadedArtifactBytes = 0;
+            // A query still running keeps its mapping until it finishes.
+            foreach (PeerBrowseArtifact artifact in openArtifacts.Values)
+                artifact.Dispose();
+            openArtifacts.Clear();
         }
-        try
-        {
-            await Task.WhenAll(pending).ConfigureAwait(false);
-        }
-        catch { /* Read failures belong to their waiting requests. */ }
         foreach (SqliteOpenMode mode in new[]
                  { SqliteOpenMode.ReadWriteCreate, SqliteOpenMode.ReadWrite, SqliteOpenMode.ReadOnly })
         {
             using var connection = new SqliteConnection(RegistryConnectionString(mode));
             SqliteConnection.ClearPool(connection);
         }
+        return ValueTask.CompletedTask;
     }
 
     private string RegistryConnectionString(SqliteOpenMode mode)

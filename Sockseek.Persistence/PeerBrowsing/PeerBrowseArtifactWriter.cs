@@ -5,22 +5,21 @@ using Sockseek.Core.PeerBrowsing;
 
 namespace Sockseek.Persistence.PeerBrowsing;
 
-/// <summary>Validates one browse generation and durably publishes its immutable facts.</summary>
+/// <summary>Validates one browse generation as it streams in and durably publishes its immutable facts.</summary>
 public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
 {
     private readonly PeerBrowseArtifactStore store;
     private readonly PeerBrowseResource resource;
     private readonly string stagingPath;
+    private readonly PeerBrowseArtifactBuilder builder;
     private readonly Dictionary<string, int> directoryIds = new(StringComparer.Ordinal);
-    private readonly List<PeerBrowseArtifact.Directory> directories = [];
-    private readonly List<PeerBrowseArtifact.File> files = [];
-    private readonly Dictionary<string, string> extensions = new(StringComparer.Ordinal);
     private readonly ArrayBufferWriter<byte> attributes = new();
     private string? directoryIdentity;
     private string? directoryWirePath;
     private int directoryId;
     private PeerShareVisibility visibility;
     private PeerBrowseWireFile? file;
+    private long fileCount;
     private PeerBrowseFilePath filePath;
     private string? extension;
     private int attributeCount;
@@ -32,6 +31,7 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
         this.store = store;
         this.resource = resource;
         stagingPath = store.GetStagingPath(resource.BrowseId);
+        builder = new PeerBrowseArtifactBuilder(stagingPath);
     }
 
     internal static ValueTask<PeerBrowseArtifactWriter> CreateAsync(
@@ -51,6 +51,7 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
             throw Invalid("directory file count cannot be negative");
         string identity = PeerBrowsePath.NormalizeDirectoryIdentity(wirePath);
         string[] components = identity.Split('\\');
+        var directories = builder.Directories;
         int parent = 0;
         string prefix = "";
         for (int index = 0; index < components.Length; index++)
@@ -100,13 +101,7 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
         if (file.Size < 0 || file.AttributeCount < 0)
             throw Invalid("file size or attribute count cannot be negative");
         filePath = PeerBrowsePath.ResolveFile(directoryIdentity, directoryWirePath, file.Filename);
-        extension = null;
-        if (file.Extension.Length > 0)
-        {
-            string value = PeerIdentityValidator.ValidateRemotePath(file.Extension);
-            if (!extensions.TryGetValue(value, out extension))
-                extensions.Add(value, extension = value);
-        }
+        extension = file.Extension.Length > 0 ? PeerIdentityValidator.ValidateRemotePath(file.Extension) : null;
         this.file = file;
         attributes.Clear();
         attributeCount = 0;
@@ -139,8 +134,9 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
         // raw leaf. Retain an override only when the peer used different spelling.
         string? wireOverride = StringComparer.Ordinal.Equals(filePath.WireFilename, directoryWirePath + "\\" + filePath.LeafName)
             ? null : filePath.WireFilename;
-        files.Add(new(directoryId, filePath.LeafName, wireOverride, file.Size, extension, file.Code,
-            attributes.WrittenCount == 0 ? null : attributes.WrittenSpan.ToArray(), visibility == PeerShareVisibility.Locked));
+        builder.AddFile(directoryId, filePath.LeafName, wireOverride, file.Size, extension, file.Code,
+            attributes.WrittenSpan, visibility == PeerShareVisibility.Locked);
+        fileCount++;
         totalBytes = PeerBrowseArtifact.Sum(totalBytes, file.Size);
         file = null;
         return ValueTask.CompletedTask;
@@ -151,16 +147,12 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
         EnsureWritable(cancellationToken);
         if (file is not null)
             throw Invalid("the response ended before the current file ended");
-        var artifact = new PeerBrowseArtifact(new(PeerBrowseArtifactStore.ArtifactFormatVersion,
-            directories.ToArray(), files.ToArray()), cancellationToken);
-        artifact.Write(stagingPath, cancellationToken);
+        builder.Complete(cancellationToken);
+        builder.Dispose();
         await store.PromoteAsync(resource, stagingPath,
-            new(wireDirectoryCount, files.Count, totalBytes), artifact, cancellationToken).ConfigureAwait(false);
+            new(wireDirectoryCount, fileCount, totalBytes), cancellationToken).ConfigureAwait(false);
         completed = true;
-        directories.Clear();
-        files.Clear();
         directoryIds.Clear();
-        extensions.Clear();
     }
 
     public ValueTask DisposeAsync()
@@ -168,6 +160,7 @@ public sealed class PeerBrowseArtifactWriter : IPeerBrowseRowSink
         if (disposed)
             return ValueTask.CompletedTask;
         disposed = true;
+        builder.Dispose();
         if (!completed)
             store.DeleteStagingBestEffort(stagingPath);
         return ValueTask.CompletedTask;

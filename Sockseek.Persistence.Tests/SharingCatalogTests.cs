@@ -45,7 +45,7 @@ public sealed class SharingCatalogTests
         Assert.IsTrue(browse.Any(x => x.Directory.RemotePath == @"Music\Empty"));
         Assert.AreEqual(0, browse.Single(x => x.Directory.RemotePath == @"Music\Empty").FileCount);
 
-        var tree = await PeerBrowseArtifact.FromCatalogAsync(reader, CancellationToken.None);
+        using var tree = await PeerBrowseArtifact.FromCatalogAsync(reader, Path.ChangeExtension(fixture.DatabasePath, ".browse"), CancellationToken.None);
         var root = tree.ReadDirectories(null, null, false, null, null, 100, CancellationToken.None).Items.Single();
         Assert.AreEqual(1L, root.RecursiveFileCount);
         var folders = tree.ReadDirectories(root.DirectoryId, null, false, null, null, 1, CancellationToken.None);

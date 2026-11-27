@@ -14,6 +14,9 @@ public sealed class SoulseekPeerBrowseTransport(
     private readonly Func<CancellationToken, Task> ensureSessionStarted = ensureSessionStarted
         ?? clientManager.WaitUntilReadyAsync;
 
+    // Above this, the materialized response is hundreds of MB of objects.
+    private const long LargeResponseFiles = 100_000;
+
     public async Task ReceiveAsync(
         string username,
         IPeerBrowseRowSink sink,
@@ -38,7 +41,7 @@ public sealed class SoulseekPeerBrowseTransport(
         // spike for peers with enormous shares.
         // TODO: Monitor upstream Soulseek.NET and switch this boundary to its public
         // streaming browse API once one is available, without carrying a local fork.
-        BrowseResponse response = await client.BrowseAsync(
+        BrowseResponse? response = await client.BrowseAsync(
             username,
             options,
             cancellationToken).ConfigureAwait(false);
@@ -53,7 +56,13 @@ public sealed class SoulseekPeerBrowseTransport(
         await WriteDirectoriesAsync(
             response.LockedDirectories,
             PeerShareVisibility.Locked).ConfigureAwait(false);
+        response = null;
         await sink.CompleteAsync(cancellationToken).ConfigureAwait(false);
+        // The response is now garbage, but an idle daemon may not collect again for
+        // hours and keeps the grown heap committed meanwhile: gigabytes for an
+        // enormous share. Return it now; the live heap left to compact is small.
+        if (files >= LargeResponseFiles)
+            GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
 
         async Task WriteDirectoriesAsync(
             IReadOnlyCollection<Soulseek.Directory> browseDirectories,

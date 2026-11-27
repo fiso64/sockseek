@@ -160,7 +160,7 @@ public sealed class PeerBrowseArtifactStoreTests
         PeerBrowseResource resource = await CompleteEmptyAsync(store);
         string artifactPath = Directory.EnumerateFiles(
             Path.Combine(store.RootDirectory, "artifacts"),
-            "*.browse.gz").Single();
+            "*.browse").Single();
         File.Delete(artifactPath);
 
         PeerBrowseResource? fresh = await store.FindLatestAsync(

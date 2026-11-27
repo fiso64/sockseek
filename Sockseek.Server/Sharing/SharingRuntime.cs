@@ -1,3 +1,4 @@
+using Sockseek.Core.IO;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Core.Sharing;
@@ -37,7 +38,9 @@ public sealed class SharingRuntime : IAsyncDisposable
     private readonly Dictionary<Guid, ShareScanStateDto> recentScans = [];
     private readonly Queue<Guid> recentScanOrder = [];
     private long scanRevision;
-    private (Guid Generation, Task<PeerBrowseArtifact> Task)? browser;
+    // The operator's own shares, mapped from a file built once per catalog generation.
+    private readonly string browserDirectory;
+    private (Guid Generation, string Path, Task<PeerBrowseArtifact> Task)? browser;
     private ShareScanStateDto? activeScan;
     private ShareScanStateDto? lastScan;
     private Task? manuallyStartedScan;
@@ -62,6 +65,11 @@ public sealed class SharingRuntime : IAsyncDisposable
             Path.GetFullPath(dataDirectory),
             "sharing");
         catalogs = new ShareCatalogManager(catalogDirectory);
+        browserDirectory = Path.Combine(Path.GetFullPath(dataDirectory), "sharing-browser");
+        // Leftovers of an earlier run are never reused.
+        if (System.IO.Directory.Exists(browserDirectory))
+            foreach (string file in System.IO.Directory.EnumerateFiles(browserDirectory))
+                TryDelete(file);
         scans = new ShareScanCoordinator(catalogs);
 
         SoulseekClientManager manager = soulseek.ClientManager;
@@ -108,12 +116,18 @@ public sealed class SharingRuntime : IAsyncDisposable
             else
             {
                 var token = lifetime.Token;
+                // A unique name per build: retiring a failed build never deletes its replacement.
+                string path = Path.Combine(browserDirectory, $"{generation:N}-{Guid.NewGuid():N}.browse");
                 pending = Task.Run(async () =>
                 {
                     await using (lease)
-                        return await PeerBrowseArtifact.FromCatalogAsync(lease.Reader, token).ConfigureAwait(false);
+                    {
+                        OwnerOnlyFilePermissions.EnsureDirectory(browserDirectory);
+                        return await PeerBrowseArtifact.FromCatalogAsync(lease.Reader, path, token).ConfigureAwait(false);
+                    }
                 });
-                browser = (generation, pending);
+                RetireBrowser(browser);
+                browser = (generation, path, pending);
             }
         }
         return await pending.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -375,7 +389,10 @@ public sealed class SharingRuntime : IAsyncDisposable
         lock (stateSync)
         {
             if (state.Phase == ShareScanPhase.Completed && browser?.Generation != scanId)
+            {
+                RetireBrowser(browser);
                 browser = null;
+            }
             if (terminal)
             {
                 activeScan = null;
@@ -694,7 +711,41 @@ public sealed class SharingRuntime : IAsyncDisposable
         inboundRegistration.Dispose();
         Adapter.Dispose();
         await catalogs.DisposeAsync().ConfigureAwait(false);
+        lock (stateSync)
+        {
+            RetireBrowser(browser);
+            browser = null;
+        }
         lifetime.Dispose();
+    }
+
+    // Unmaps a replaced share browser once its readers finish, then deletes its file.
+    private static void RetireBrowser((Guid Generation, string Path, Task<PeerBrowseArtifact> Task)? retired)
+    {
+        if (retired is not { } old)
+            return;
+        _ = old.Task.ContinueWith(task =>
+        {
+            if (task.IsCompletedSuccessfully)
+                task.Result.Dispose();
+            TryDelete(old.Path);
+        }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            System.IO.File.Delete(path);
+        }
+        catch (IOException)
+        {
+            // Removed with the other leftovers on the next start.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Removed with the other leftovers on the next start.
+        }
     }
 }
 

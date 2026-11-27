@@ -85,5 +85,7 @@ internal static class SharingBrowseEndpoints
             return Results.Conflict(new ApiErrorDto("Shares have changed. Refresh the share browser.", "ShareCatalogChanged"));
         try { return read(tree); }
         catch (ArgumentException ex) { return ApiErrors.BadRequest(ex); }
+        // A newer catalog generation replaced this browser while the request was reading.
+        catch (ObjectDisposedException) { return Results.Conflict(new ApiErrorDto("Shares have changed. Refresh the share browser.", "ShareCatalogChanged")); }
     }
 }
