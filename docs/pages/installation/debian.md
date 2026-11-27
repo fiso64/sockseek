@@ -1,6 +1,6 @@
 # Install on Debian
 
-Add Sockseek's apt repository, then install the package. It includes the CLI, daemon, WebUI and .NET runtime, for Debian 13 on `amd64` and `arm64`.
+Add Sockseek's apt repository, then install the package. It includes the CLI, daemon, WebUI and .NET runtime, for Debian 13 and Ubuntu 24.04 or newer, on `amd64` and `arm64`.
 
 ```sh
 sudo install -d -m 0755 /etc/apt/keyrings
@@ -19,7 +19,8 @@ The CLI is ready to use. To start the server:
 2. Run `sudoedit /etc/sockseek/sockseek.conf`. Set `username` and `password` for Soulseek and paste the hash into `web-password-hash`.
 3. Run `sudo systemctl enable --now sockseek`. Open <http://127.0.0.1:5030> on the server and sign in as `admin` with your WebUI password.
 
----
+
+## Logs, storage, other
 
 - **Logs** — Run `journalctl -u sockseek` to read the service log.
 - **Storage** — Sockseek keeps its database and history in the private `/var/lib/sockseek/data`. Downloads go in `/var/lib/sockseek/downloads` by default and are readable by other local users, for example a media server.

@@ -1,5 +1,6 @@
 {
   lib,
+  stdenv,
   buildDotnetModule,
   dotnetCorePackages,
   buildNpmPackage,
@@ -77,6 +78,8 @@ buildDotnetModule {
   nugetDeps = ./deps.json;
   dotnet-sdk = dotnetCorePackages.sdk_11_0-bin;
   dotnet-runtime = dotnetCorePackages.aspnetcore_11_0-bin;
+  # The bundled libSkiaSharp.so (profile pictures) needs libstdc++ at runtime.
+  runtimeDeps = [ stdenv.cc.cc.lib ];
   executables = [ "sockseek" ];
   makeWrapperArgs = [
     "--suffix"

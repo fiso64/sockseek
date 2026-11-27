@@ -9,7 +9,9 @@ Homepage: https://github.com/fiso64/sockseek
 Package: sockseek
 Architecture: amd64 arm64
 Depends: ${misc:Depends}, ${shlibs:Depends}, adduser, ca-certificates,
- libgssapi-krb5-2, libicu76 | libicu74, libssl3t64, procps, tzdata
+ libgssapi-krb5-2,
+ libicu80 | libicu79 | libicu78 | libicu77 | libicu76 | libicu75 | libicu74 | libicu73 | libicu72 | libicu71 | libicu70,
+ libssl3t64 | libssl3, procps, tzdata
 Suggests: yt-dlp, ffmpeg
 Description: Soulseek download client and self-hosted server
  Run downloads from the command line or manage downloads, uploads and shares

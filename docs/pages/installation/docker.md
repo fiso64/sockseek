@@ -56,4 +56,6 @@ The example permits HTTP login on port **5030** and publishes that port only on 
 
 To update, run `docker compose pull`, then `docker compose up -d`. Your configuration, jobs and downloads stay in the mounted directories.
 
+The image does not include `yt-dlp`, so the yt-dlp download fallback and `--get-deleted` are unavailable. To use them, build your own image from `ghcr.io/fiso64/sockseek:4` that installs `yt-dlp`.
+
 For CLI help, run `docker compose run --rm sockseek --help`. For server maintenance, stop the daemon before running an offline database command. To schedule one-shot jobs, invoke the CLI from the host's scheduler. Use [remote CLI](../using-sockseek/daemon.md#remote-cli) to submit work to an already connected daemon.
