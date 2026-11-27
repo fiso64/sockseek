@@ -88,7 +88,6 @@ export interface SearchViewState extends SearchSelectionState {
   selectionCountsError: Error | null;
   committing: boolean;
   canRetryPendingCommit: boolean;
-  receipt: CommitSearchViewSelectionResponseDto | null;
   error: Error | null;
 }
 
@@ -125,7 +124,6 @@ function initialState(): ViewState {
     selectionCountsLoading: false,
     selectionCountsError: null,
     committing: false,
-    receipt: null,
     error: null,
   };
 }
@@ -543,7 +541,7 @@ export class SearchViewController {
   toggle(ref: string | readonly string[], selected: boolean, parentRef?: string): void {
     const files = parentRef ? this.state.directoryFiles.get(parentRef)?.items : undefined;
     if (!this.selection.toggle(ref, selected, parentRef, files)) return;
-    this.state = { ...this.state, receipt: null };
+    this.state = { ...this.state };
     this.emit();
   }
 
@@ -567,7 +565,7 @@ export class SearchViewController {
         if (this.state.summary?.kind === 'AlbumGroups') this.setAlbumGroupFiles(parent, files, selected);
         else this.selection.toggle(files, selected, parent, this.state.directoryFiles.get(parent)?.items);
       }
-      this.state = { ...this.state, receipt: null };
+      this.state = { ...this.state };
       this.emit();
     };
   }
@@ -671,7 +669,7 @@ export class SearchViewController {
     if (!this.selection.choose(groupRef, option, select)) return;
     const directoryFiles = new Map(this.state.directoryFiles);
     if (option.kind === 'album') this.seedDirectoryPreview(option.value, directoryFiles);
-    this.state = { ...this.state, directoryFiles, groupOptions: null, choiceValidationError: null, receipt: null };
+    this.state = { ...this.state, directoryFiles, groupOptions: null, choiceValidationError: null };
     this.emit();
     if (this.state.summary) this.validateVisibleChoices(this.state.summary);
     if (option.kind === 'album' && !option.value.initialFiles) void this.loadDirectoryFiles(option.ref);
@@ -804,7 +802,7 @@ export class SearchViewController {
 
   selectAll(selected: boolean): void {
     if (!this.selection.selectAll(selected)) return;
-    this.state = { ...this.state, receipt: null };
+    this.state = { ...this.state };
     this.emit();
   }
 
@@ -818,7 +816,7 @@ export class SearchViewController {
 
   toggleDirectoryPath(directoryRef: string, relativePath: string, selected: boolean, includeFilteredFiles = false): void {
     if (!this.selection.toggleDirectoryPath(directoryRef, relativePath, selected, includeFilteredFiles)) return;
-    this.state = { ...this.state, receipt: null };
+    this.state = { ...this.state };
     this.emit();
   }
 
@@ -876,7 +874,7 @@ export class SearchViewController {
 
   toggleAlbumGroupFile(groupRef: string, fileRefs: string[], selected: boolean): void {
     if (!this.setAlbumGroupFiles(groupRef, fileRefs, selected)) return;
-    this.state = { ...this.state, choiceValidationError: null, receipt: null };
+    this.state = { ...this.state, choiceValidationError: null };
     this.emit();
     if (this.state.summary) this.validateVisibleChoices(this.state.summary);
   }
@@ -892,36 +890,36 @@ export class SearchViewController {
     return this.selection.toggleAlbumFile(groupRef, row.value.representative, fileRefs, selected, completeRefs);
   }
 
-  async commit(options?: Schema<'SubmissionOptionsDto'>): Promise<void> {
+  /** Resolves with the outcome to report, or null when nothing was sent or the view changed meanwhile. */
+  async commit(options?: Schema<'SubmissionOptionsDto'>): Promise<{ receipt: CommitSearchViewSelectionResponseDto } | { error: Error } | null> {
     const summary = this.state.summary;
-    if (!summary || this.state.committing) return;
+    if (!summary || this.state.committing) return null;
     const generation = this.generation;
     const retry = this.selection.retry(options);
-    if (!retry && (this.state.refining || this.state.refinementError || searchViewUnavailable(this.state))) return;
-    if (!retry && this.selectedCount() === 0) return;
-    if (!retry && this.selection.hasUnreadySelectedChoices(this.visibleGroupRefs())) {
-      this.state = { ...this.state, error: new Error('A chosen source changed. Recheck or reselect it before downloading.') };
-      this.emit();
-      return;
-    }
+    if (!retry && (this.state.refining || this.state.refinementError || searchViewUnavailable(this.state))) return null;
+    if (!retry && this.selectedCount() === 0) return null;
+    if (!retry && this.selection.hasUnreadySelectedChoices(this.visibleGroupRefs()))
+      return { error: new Error('A chosen source changed. Recheck or reselect it before downloading.') };
     const pending = retry ?? this.selection.captureCommit(options);
-    this.state = { ...this.state, committing: true, receipt: null, error: null };
+    this.state = { ...this.state, committing: true, error: null };
     this.emit();
     try {
       const receipt = await this.api.commitSearchView(pending.viewId, pending.request);
-      if (generation !== this.generation) return;
-      this.state = { ...this.state, committing: false, receipt };
+      if (generation !== this.generation) return null;
+      this.state = { ...this.state, committing: false };
       this.selection.finishCommit(pending);
       this.emit();
+      return { receipt };
     } catch (error) {
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) return null;
       // The daemon replays accepted receipts before resolving the issuing View.
       // A received 404 therefore rejects this request; an unknown outcome keeps
       // its exact command/key so a lost response can still be recovered.
       if (error instanceof DaemonApiError && error.status === 404)
         this.selection.finishCommit(pending);
-      this.state = { ...this.state, committing: false, error: asError(error) };
+      this.state = { ...this.state, committing: false };
       this.emit();
+      return { error: asError(error) };
     }
   }
 
@@ -996,7 +994,7 @@ export class SearchViewController {
         this.state = { ...this.state, refining: false, refinementError: null, loadingMore: false,
           groupOptions: null, retrievals: new Map(),
           selectionCountsLoading: false, selectionCountsError: null,
-          choiceValidationLoading: false, choiceValidationError: null, receipt: null };
+          choiceValidationLoading: false, choiceValidationError: null };
       }
       this.state = { ...this.state, sortOrder: order,
         ...(options?.request ? { refining: false, refinementError: null } : {}) };

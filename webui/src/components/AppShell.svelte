@@ -1,6 +1,7 @@
 <script lang="ts">
   import { flushSync, type Snippet } from 'svelte';
   import { navigationItems, type PageId } from '../app/navigation';
+  import Notifications from './Notifications.svelte';
   import type { LiveConnectionStatus, ReplicatedDaemonState } from '../api/live';
   import type { SearchDraft } from '../domains/search/model';
   import { humanizeStateValue, soulseekStatusLabel } from '../app/format';
@@ -99,3 +100,5 @@
     </main>
   </div>
 </div>
+
+<Notifications />

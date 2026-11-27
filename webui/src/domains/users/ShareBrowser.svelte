@@ -18,7 +18,7 @@
   import ResultFilterControl from '../../components/ResultFilterControl.svelte';
   import SelectionToolbar from '../../components/SelectionToolbar.svelte';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
-  import MutationStatus, { type MutationState } from '../../components/MutationStatus.svelte';
+  import { notify } from '../../lib/notifications.svelte';
   import { fileTypeIcon } from '../presentation/file-types';
   import { filteredTreeRows } from './filter-tree';
   import { inheritedSelection, projectSelection, type SelectionSize } from '../../app/tree-selection';
@@ -115,7 +115,7 @@
     optionsOpen = !optionsOpen;
     if (optionsOpen && !optionsLoading && (!baseline || !retryKey)) void loadOptions();
   }
-  let mutation = $state<MutationState>({ phase: 'idle' });
+  let requesting = $state(false);
   let lastRequest = $state.raw(saved?.lastRequest);
   const requestOptions = $derived(JSON.stringify(downloadOptions));
   const retryKey = $derived(lastRequest?.options === requestOptions ? lastRequest.id : null);
@@ -139,7 +139,7 @@
   let selectedCount = $derived(selectionProjection.total);
   const retryAfterExpiry = $derived(Boolean(retryKey) && isExpired(availabilityError));
   const downloadDisabled = $derived(!connected || (!available && !retryKey)
-    || collectingMatches || selectedCount === 0 || mutation.phase === 'pending' || optionsLoading || Boolean(optionsError));
+    || collectingMatches || selectedCount === 0 || requesting || optionsLoading || Boolean(optionsError));
 
   $effect(() => {
     const check = source.checkExpiry;
@@ -261,7 +261,7 @@
     excludedSelection = new Set();
     selectedParents = new Map();
     selectedSizes = new Map();
-    mutation = { phase: 'idle' };
+    requesting = false;
     lastRequest = undefined;
   }
 
@@ -458,7 +458,7 @@
     selectedParents = retainedParents;
     selectedSizes = new Map([...next, ...exclusions].map(key => [key, selectionSize(key)]));
     lastRequest = undefined;
-    mutation = { phase: 'idle' };
+    requesting = false;
   }
 
   function selectionSize(key: string): SelectionSize {
@@ -540,7 +540,7 @@
       : { kind: 'file' as const, fileId: key.slice(2) });
     const requestId = retryKey ?? randomUUID();
     lastRequest = { id: requestId, options: requestOptions };
-    mutation = { phase: 'pending', label: `Requesting ${selectedCount} shared file${selectedCount === 1 ? '' : 's'}…` };
+    requesting = true;
     try {
       const response = await source.download(requestId, selections, [...excludedSelection].filter(key => key.startsWith('f:')).map(key => key.slice(2)), [...excludedSelection].filter(key => key.startsWith('d:')).map(key => key.slice(2)), downloadOptions);
       // Selection changes invalidate the receipt's presentation, not the accepted
@@ -548,21 +548,21 @@
       if (signal.aborted || browse?.browseId !== browseId || retryKey !== requestId) return;
       const resolved = Number(response.resolution.totalPublicFiles);
       const skipped = Number(response.resolution.lockedBranchesSkipped);
-      mutation = {
-        phase: resolved ? skipped ? 'partially-succeeded' : 'succeeded' : 'rejected',
-        label: resolved ? `${resolved} download${resolved === 1 ? '' : 's'} requested` : 'Nothing downloadable',
-        detail: skipped ? `${skipped} locked branch${skipped === 1 ? '' : 'es'} skipped` : undefined,
-      };
+      requesting = false;
+      // The outcome is a notification: the tree may be scrolled far from any inline status.
+      notify({
+        key: 'share-download',
+        tone: resolved ? skipped ? 'warning' : 'success' : 'error',
+        title: resolved ? `${formatCount(resolved)} download${resolved === 1 ? '' : 's'} requested` : 'Nothing downloadable',
+        details: skipped ? [`${formatCount(skipped)} locked branch${skipped === 1 ? '' : 'es'} skipped`] : undefined,
+      });
       lastRequest = undefined;
     } catch (cause) {
       if (signal.aborted || browse?.browseId !== browseId || retryKey !== requestId) return;
       const error = browseError(cause);
-      if (isExpired(error)) {
-        lastRequest = undefined;
-        mutation = { phase: 'idle' };
-      } else {
-        mutation = { phase: 'rejected', label: 'Download request failed', detail: error.message };
-      }
+      requesting = false;
+      if (isExpired(error)) lastRequest = undefined;
+      else notify({ key: 'share-download', tone: 'error', title: 'Download request failed', details: [error.message] });
     }
   }
 
@@ -589,7 +589,7 @@
   scope: `${browse.browseId}:${filterQuery}`,
   enabled: true,
   revision: [treeRows, filteredRows, filterLoading],
-  beginRange: source.download && mutation.phase !== 'pending' ? beginRange : undefined,
+  beginRange: source.download && !requesting ? beginRange : undefined,
   loadPage: key => {
     if (filterQuery) {
       if (browse) void loadFilter(browse.browseId, filterQuery, filterPage?.nextCursor ?? null, false);
@@ -602,7 +602,6 @@
             : 'These shares have expired. Refresh to choose files from the current list.')
           : availabilityError.message}</Notice>
       {/if}
-      <MutationStatus state={mutation}/>
       <div class="shares-overview">
         <div class="shares-title-row">
           <div>
@@ -623,7 +622,7 @@
 
         {#if source.download && selectedCount && optionsOpen}
           <button type="button" class="floating-options-backdrop" aria-label="Close download options" onclick={() => optionsOpen = false}></button>
-          <section class="popover-panel floating-download-options-popover" data-shortcuts-blocked="true" inert={mutation.phase === 'pending'} aria-label="Download options">
+          <section class="popover-panel floating-download-options-popover" data-shortcuts-blocked="true" inert={requesting} aria-label="Download options">
             <header><strong>Download options</strong><div class="download-options-actions"><ProfilePicker value={profileNames} applied={appliedProfiles} onchange={(names) => { profileNames = names; void loadOptions(); }} /><button type="button" aria-label="Close download options" onclick={() => optionsOpen = false}>×</button></div></header>
             {#if optionsLoading}<LoadingIndicator label="Loading download settings" />
             {:else if optionsError}<p role="alert">{optionsError}</p><button type="button" onclick={() => void loadOptions()}>Retry</button>
@@ -748,7 +747,7 @@
 
       </div>
   {#if source.download}<SelectionToolbar {selectedCount} detail={`${formatBytes(selectionProjection.byteDelta.toString())} selected`}
-    floatingLabel={retryAfterExpiry ? 'Retry download' : undefined} actionDisabled={downloadDisabled}
+    floatingLabel={requesting ? 'Requesting…' : retryAfterExpiry ? 'Retry download' : undefined} actionDisabled={downloadDisabled}
     optionsOpen={optionsOpen} optionsCustomized={Object.keys(downloadOptions).length > 0} onoptions={toggleOptions}
     onclear={clearSelection} onaction={() => void downloadSelection()}/>{/if}
 </div>

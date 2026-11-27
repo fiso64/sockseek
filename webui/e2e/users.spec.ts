@@ -421,7 +421,7 @@ test('filters Unicode share names without changing the selected download identit
     && /\/api\/user-browses\/[^/]+\/downloads$/.test(new URL(request.url()).pathname));
   await page.getByRole('button', { name: 'Download 1', exact: true }).click();
   expect((await submitted).postDataJSON().options.profileNames).toEqual(['download-preset']);
-  await expect(page.locator('.mutation-status')).toContainText('1 download requested');
+  await expect(page.locator('.app-notification')).toContainText('1 download requested');
   await page.goto('/downloads');
   const file = page.locator('.folder-item-card');
   await expect(file).toHaveCount(1);

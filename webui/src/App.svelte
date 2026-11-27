@@ -685,7 +685,7 @@
             return searchController.isDirectoryPathSelected(directoryRef, relativePath, filtered);
           }}
           onselectall={(selected) => searchController.selectAll(selected)}
-          ondownload={(options) => void searchController.commit(options)}
+          ondownload={(options) => searchController.commit(options)}
           onlibrarymatches={(id, request, signal) => daemonApi.getSearchViewLibraryMatches(id, request, signal)}
           onresolvesettings={(options) => searchController.resolveSelectionSettings(options)}
           oncheckrevision={(id, revision, signal) => daemonApi.getSearchViewRevisionLifetime(id, revision, signal)}

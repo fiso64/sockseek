@@ -34,6 +34,7 @@
   import { audioAttributes as audio, type FolderItemFile } from '../presentation/items';
   import { directoryTotals, isGroupSearchMode, searchModeFamily, searchModeLabel } from './model';
   import { progressiveCount } from '../../lib/progressive.svelte';
+  import { notify } from '../../lib/notifications.svelte';
   import type { SearchRow, SearchViewState, SearchRangeItem } from './controller';
 
   type OrdinaryRow = Extract<SearchRow, { kind: 'file' | 'directory' }>;
@@ -59,7 +60,7 @@
     onselectfolder: (directoryRef: string, relativePath: string, selected: boolean, includeFiltered?: boolean) => void;
     isfolderselected: (directoryRef: string, relativePath: string, filtered?: boolean) => boolean;
     onselectall: (selected: boolean) => void;
-    ondownload: (options?: Schema<'SubmissionOptionsDto'>) => void;
+    ondownload: (options?: Schema<'SubmissionOptionsDto'>) => Promise<{ receipt: Schema<'CommitSearchViewSelectionResponseDto'> } | { error: Error } | null>;
     onlibrarymatches: (id: string, request: Schema<'SearchViewLibraryMatchesRequestDto'>, signal: AbortSignal) => Promise<string[]>;
     onresolvesettings: (options?: Schema<'SubmissionOptionsDto'>) => Promise<Schema<'ResolveSearchViewSelectionSettingsResponseDto'>>;
     oncheckrevision: (viewId: string, revision: number | string, signal: AbortSignal) => Promise<Schema<'SearchViewRevisionLifetimeDto'>>;
@@ -225,15 +226,35 @@
   // instead): reshaping every row on each filter change rebuilt the whole list twice.
   let rowsReadOnly = $derived(selectionUsesEarlierRevision || viewState.selectionNeedsReview || viewUnavailable);
   let selectionReadOnly = $derived(rowsReadOnly || viewState.refining);
-  // Generic directory jobs group transfers internally. For a fully accepted
-  // revision-bound selection, report the public file count the user reviewed.
-  let mutationDownloadCount = $derived(viewState.receipt && genericMode
-    && Number(viewState.receipt.skippedCount) === 0
-    && Number(viewState.receipt.rejectedCount) === 0
-    && viewState.selectionCounts
-    && String(viewState.selectionCounts.revision) === String(viewState.receipt.viewRevision)
-    ? viewState.selectionCounts.publicFileCount
-    : viewState.receipt?.submittedCount ?? 0);
+  // The outcome is a notification: the list may be scrolled far from any inline status.
+  async function download(): Promise<void> {
+    // Generic directory jobs group transfers internally. For a fully accepted
+    // revision-bound selection, report the public file count the user reviewed.
+    const reviewed = genericMode ? viewState.selectionCounts : null;
+    const outcome = await ondownload(downloadCustomized ? downloadPatch : undefined);
+    if (!outcome) return;
+    if ('error' in outcome) {
+      notify({ key: 'search-download', tone: 'error', title: 'Download request failed', details: [outcome.error.message] });
+      return;
+    }
+    const { receipt } = outcome;
+    const skipped = Number(receipt.skippedCount), rejected = Number(receipt.rejectedCount);
+    const count = !skipped && !rejected && reviewed && String(reviewed.revision) === String(receipt.viewRevision)
+      ? reviewed.publicFileCount : receipt.submittedCount;
+    const { jobId, submissionId } = receipt;
+    notify({
+      key: 'search-download',
+      tone: skipped || rejected ? 'warning' : 'success',
+      title: `${formatCount(count)} download${Number(count) === 1 ? '' : 's'} requested`,
+      details: [
+        ...(skipped || rejected ? [`${formatCount(receipt.skippedCount)} skipped · ${formatCount(receipt.rejectedCount)} rejected`] : []),
+        ...receipt.rejectionReasons.flatMap(reason => reason.message ? [reason.message] : []),
+      ],
+      action: jobId ? { label: 'View download job', testId: 'open-download-job', run: () => onopendownload(jobId) }
+        : submissionId ? { label: 'View download jobs', testId: 'view-download-jobs', run: () => onviewdownloads(submissionId) }
+        : undefined,
+    });
+  }
   let groupMode = $derived(viewState.draft != null && isGroupSearchMode(viewState.draft.resultMode));
   let refinementPending = $derived(viewState.refining || Boolean(localRefinementError || viewState.refinementError)
     || (baseline !== null && lastRequestedFingerprint !== currentFingerprint()));
@@ -1055,25 +1076,6 @@
     </section>
   {/if}
 
-  {#if viewState.receipt}
-    <p class:partially-succeeded={Number(viewState.receipt.skippedCount) > 0 || Number(viewState.receipt.rejectedCount) > 0} class="mutation-status succeeded">
-      {#if viewState.receipt.jobId}<button type="button" class="text-button" data-testid="open-download-job" onclick={() => onopendownload(viewState.receipt!.jobId!)}>View download job</button>
-      {:else if viewState.receipt.submissionId}<button type="button" class="text-button" data-testid="view-download-jobs" onclick={() => onviewdownloads(viewState.receipt!.submissionId!)}>View download jobs</button>{/if}
-      {formatCount(mutationDownloadCount)} download{Number(mutationDownloadCount) === 1 ? '' : 's'} requested
-      {#if Number(viewState.receipt.skippedCount) || Number(viewState.receipt.rejectedCount)}<small>{formatCount(viewState.receipt.skippedCount)} skipped · {formatCount(viewState.receipt.rejectedCount)} rejected</small>{/if}
-    </p>
-    {#if viewState.receipt.rejectionReasons.some(reason => reason.message)}
-      <div class="resource-state-notice unavailable" role="alert">
-        <span class="resource-state-dot"></span>
-        <span class="resource-state-copy"><strong>Downloads rejected</strong>
-          {#each viewState.receipt.rejectionReasons as reason}
-            {#if reason.message}<small>{reason.message}</small>{/if}
-          {/each}
-        </span>
-      </div>
-    {/if}
-  {/if}
-
   {#if retentionNotice && viewState.rows.length > 0}
     <div class="resource-state-notice unavailable" role="status">
       <span class="resource-state-dot"></span>
@@ -1229,7 +1231,7 @@
     onclear={() => onselectall(false)}
     onselectall={selectedCount && !selectionReadOnly && !viewState.committing && !allSearchResultsSelected(viewState) ? () => onselectall(true) : undefined}
     onoptions={selectedCount ? toggleDownloadOptions : undefined}
-    onaction={() => ondownload(downloadCustomized ? downloadPatch : undefined)}
+    onaction={() => void download()}
   />
 </section>
 

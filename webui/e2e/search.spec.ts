@@ -947,7 +947,7 @@ test('downloads only checked public files from a mixed chosen group album folder
   const receipt = await commit.json() as Schema<'CommitSearchViewSelectionResponseDto'>;
   expect(Number(receipt.submittedCount)).toBe(1);
   expect(Number(receipt.rejectedCount)).toBe(0);
-  await expect(page.locator('.mutation-status')).toContainText('1 download requested');
+  await expect(page.locator('.app-notification')).toContainText('1 download requested');
   await page.goto('/downloads');
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
   await expect(page.locator('.folder-file-row')).toHaveCount(1);
@@ -1544,7 +1544,7 @@ test('retains a downloaded result and recovers after raw-search retention', asyn
   expect(replay.ok(), await replay.text()).toBe(true);
   expect(replay.request().postDataJSON()).toEqual(acceptedRequest);
   expect(await replay.json()).toEqual(acceptedReceipt);
-  await expect(page.locator('.mutation-status')).toContainText('1 download requested');
+  await expect(page.locator('.app-notification')).toContainText('1 download requested');
   await page.goto('/downloads');
   await expect(page.locator('.page')).toContainText('Fixture song.txt');
   await expect(page.getByLabel('50% complete', { exact: true }).first()).toBeVisible();
@@ -1866,7 +1866,7 @@ test('downloads a File Search subfolder with a snapshot-bound path rule and a fi
   expect(body.directoryPathRules).toEqual(expect.arrayContaining([
     expect.objectContaining({ relativePath: 'Nested', selected: true }),
   ]));
-  await expect(page.locator('.mutation-status')).toContainText('2 downloads requested');
+  await expect(page.locator('.app-notification')).toContainText('2 downloads requested');
   await page.goto('/downloads');
   await expect(page.locator('.page')).toContainText('Nested.txt');
   await expect(page.locator('.page')).toContainText('DeepOne.txt');

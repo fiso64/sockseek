@@ -2442,6 +2442,60 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .load-more-row { display: flex; justify-content: center; padding: 14px 0 4px; }
 .load-more-row button { min-height: 32px; padding: 0 12px; border-radius: 8px; font-size: 0.72rem; }
 
+.app-notifications {
+  position: fixed;
+  z-index: 60;
+  right: clamp(20px, 2.5vw, 34px);
+  bottom: clamp(20px, 2.5vw, 32px);
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  pointer-events: none;
+}
+/* Above the download bar while a selection is still showing. */
+body:has(.floating-selection-actions) .app-notifications { bottom: calc(clamp(20px, 2.5vw, 32px) + 56px); }
+.app-notification {
+  width: min(380px, calc(100vw - 28px));
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 12px;
+  pointer-events: auto;
+}
+.app-notification-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.app-notification-main:hover { background: var(--surface-subtle); }
+.app-notification .resource-state-dot { width: 8px; height: 8px; }
+.app-notification.success .resource-state-dot { background: var(--success); }
+.app-notification.warning .resource-state-dot { background: var(--warning); }
+.app-notification.error .resource-state-dot { background: var(--danger); }
+.app-notification-copy { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.app-notification-copy strong { font-size: .8rem; font-weight: 600; }
+.app-notification-copy small { color: var(--muted); font-size: .72rem; overflow-wrap: anywhere; }
+.app-notification-action { flex: none; color: var(--accent-text); font-size: .76rem; font-weight: 600; }
+.app-notification-close { flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 1.1rem; line-height: 1; }
+.app-notification-close:hover { background: var(--surface-subtle); color: var(--text); }
+@media (prefers-reduced-motion: no-preference) {
+  .app-notification { animation: app-notification-in 160ms ease-out; }
+}
+@keyframes app-notification-in { from { opacity: 0; transform: translateY(8px); } }
+@media (max-width: 640px) {
+  .app-notifications { right: 14px; left: 14px; bottom: calc(14px + var(--tab-bar-height)); justify-items: stretch; }
+  body:has(.floating-selection-actions) .app-notifications { bottom: calc(14px + var(--tab-bar-height) + 56px); }
+  .app-notification { width: auto; }
+}
 .mutation-status { display: inline-flex; align-items: baseline; gap: 7px; margin: 0 0 12px; color: var(--muted); font-size: 0.7rem; }
 .mutation-status small { color: var(--faint); }
 .mutation-status.pending { color: var(--accent); }
