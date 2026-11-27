@@ -70,7 +70,7 @@
     mutationError = null;
     if (view === 'files') {
       activePage = 'downloads';
-      if (transferTimeline.timeline.download.items.length) renderCachedAfterPaint('transfers');
+      deferCachedPage();
       setPath('/downloads');
       void transferTimeline.load('download', true);
       return;
@@ -119,6 +119,16 @@
     if (deferredRenderFrame !== null) cancelAnimationFrame(deferredRenderFrame);
     deferredRenderFrame = null;
     deferredRender = null;
+  }
+
+  // Every way of reaching a page (tab, link, Back/Forward) goes through here once
+  // the page is chosen, so cached content never mounts in the same frame.
+  function deferCachedPage(): void {
+    if (activePage === 'downloads' || activePage === 'uploads') {
+      if (transferTimeline.timeline[activePage === 'downloads' ? 'download' : 'upload'].items.length)
+        renderCachedAfterPaint('transfers');
+    } else if (activePage === 'jobs' && showingSearch && searchState.draft && searchState.job?.jobId === pendingJobId)
+      renderCachedAfterPaint('search');
   }
 
   function renderCachedAfterPaint(view: 'search' | 'transfers'): void {
@@ -216,6 +226,8 @@
         if (searchState.job?.jobId !== pendingJobId || !searchState.draft
           || (requestedMode && requestedMode !== searchState.draft.resultMode))
           void openJobFromPath(pendingJobId, routeLocation());
+        else
+          deferCachedPage();
       }
       return;
     }
@@ -238,6 +250,7 @@
     }
     if (root === 'downloads' || root === 'uploads' || root === 'dashboard') {
       activePage = root;
+      deferCachedPage();
       return;
     }
     activePage = 'dashboard';
@@ -339,7 +352,7 @@
       }
       if (showingSearch && searchState.job?.jobId === pendingJobId && searchState.draft) {
         pendingJobId = searchState.job.jobId;
-        renderCachedAfterPaint('search');
+        deferCachedPage();
         setPath(searchJobPath(pendingJobId, searchState.draft.resultMode));
         return;
       }
@@ -358,9 +371,8 @@
     setPath((page === 'users' || page === 'shares') && activeUsername
       ? `/${page}/${encodeURIComponent(activeUsername)}` : `/${page}`);
     if (page === 'downloads' || page === 'uploads') {
-      const direction = page === 'downloads' ? 'download' : 'upload';
-      if (transferTimeline.timeline[direction].items.length) renderCachedAfterPaint('transfers');
-      void transferTimeline.load(direction, true);
+      deferCachedPage();
+      void transferTimeline.load(page === 'downloads' ? 'download' : 'upload', true);
     }
   }
 

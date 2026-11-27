@@ -124,7 +124,7 @@ test('browses the served catalog and confirms cleanup without deleting active wo
     await expect(dialog).toBeVisible();
     await expect(dialog.getByTestId('management-confirm')).toBeVisible();
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(page.locator('dialog')).toHaveCount(0);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   }
   expect(requests.filter(path => path === 'POST /api/transfers/remove')).toEqual([]);
   expect(requests.filter(path => path === 'POST /api/jobs/delete-completed')).toEqual([]);

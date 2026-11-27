@@ -11,9 +11,9 @@ export async function copyText(text: string): Promise<boolean> {
   field.value = text;
   field.setAttribute('readonly', '');
   field.style.cssText = 'position:fixed;inset:0 auto auto 0;opacity:0;';
-  // Everything outside an open modal dialog is inert and cannot be selected.
+  // Inside an open modal, so its focus trap keeps the selection.
   const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  (document.querySelector('dialog:modal') ?? document.body).append(field);
+  ([...document.querySelectorAll('[role="dialog"][aria-modal="true"]')].at(-1) ?? document.body).append(field);
   try {
     field.focus();
     field.select();

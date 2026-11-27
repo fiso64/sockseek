@@ -7,6 +7,7 @@
   import TransferStateLabel from './TransferStateLabel.svelte';
   import TransferItemActionButton from './TransferItemActionButton.svelte';
   import RelativeTime from '../RelativeTime.svelte';
+  import { insideModal } from '../../lib/keyboard';
   import { folderItemIconPaths, type AppIconName } from '../../app/icons';
   import type { FolderItemFile, TransferPresentation } from '../../domains/presentation/items';
   import { audioSummary, basename, formatBytes, formatLength, isBusyTransfer, isTerminalTransfer, parentPath } from '../../domains/presentation/items';
@@ -86,7 +87,7 @@
   let transferDirectionClass = $derived(transfer?.direction ? `transfer-${transfer.direction}` : '');
 
   function openTransferDetails(event: MouseEvent): void {
-    if ((event.target as Element).closest('button, a, input')) return;
+    if ((event.target as Element).closest('button, a, input') || insideModal(event.target)) return;
     (event.currentTarget as HTMLElement).querySelector<HTMLButtonElement>('.status-label')?.click();
   }
 

@@ -7,6 +7,14 @@ function keyboardTargetIsEditing(target: EventTarget | null): boolean {
   ));
 }
 
+/**
+ * A modal may be rendered inside a list row. Its events bubble through that row,
+ * but they belong to the modal: row handlers must not select, open or move on them.
+ */
+export function insideModal(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest('.modal-layer'));
+}
+
 function keyboardTargetUsesNativeActivation(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
   return Boolean(target.closest('button, a[href], input, select, textarea, [role="button"], [role="tab"], [role^="menuitem"]'));
@@ -117,7 +125,8 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
   }
 
   function clickRow(event: MouseEvent): HTMLElement | null {
-    if (!options.beginRange || options.enabled === false || !(event.target instanceof Element) || !root.contains(event.target)) return null;
+    if (!options.beginRange || options.enabled === false || !(event.target instanceof Element) || !root.contains(event.target)
+      || insideModal(event.target)) return null;
     const control = event.target.closest('input, button, label, a, select, textarea, [role="button"]');
     if (control && !control.matches('input[type="checkbox"], label, [data-range-toggle], [data-keyboard-disclosure]')) return null;
     const row = event.target.closest<HTMLElement>('[data-keyboard-item]');
@@ -129,6 +138,7 @@ export function keyboardList(root: HTMLElement, initial: KeyboardListOptions) {
   }
 
   function click(event: MouseEvent): void {
+    if (insideModal(event.target)) return;
     pending = null;
     const row = clickRow(event);
     if (!row) {
