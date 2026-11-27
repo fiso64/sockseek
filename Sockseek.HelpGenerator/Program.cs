@@ -88,6 +88,8 @@ static string ToPlainText(string markdown)
             case LineBreakInline:
                 inlineSb.Append(' '); // Treat hard breaks as spaces
                 break;
+            case LinkInline { IsImage: true }:
+                break; // Screenshots have nothing to show in a terminal.
             case ContainerInline container:
                 foreach (var child in container)
                 {
