@@ -57,9 +57,15 @@ jobs:
           if [[ -z $SIGNING_KEY ]]; then echo "APT_SIGNING_KEY is not set; publishing the manual only."; exit 0; fi
           repo=docs/.vitepress/dist/apt
           mkdir -p "$repo/pool/main"
-          gh release list --exclude-drafts --limit 3 --json tagName --jq '.[].tagName' | while read -r tag; do
+          # The latest three published releases that have Debian packages.
+          found=0
+          while read -r tag && (( found < 3 )); do
+            debs=$(gh release view "$tag" --json assets --jq '[.assets[].name | select(endswith(".deb"))] | length')
+            (( debs > 0 )) || continue
             gh release download "$tag" --pattern '*.deb' --dir "$repo/pool/main"
-          done
+            found=$((found + 1))
+          done < <(gh release list --exclude-drafts --limit 50 --json tagName --jq '.[].tagName')
+          if (( found == 0 )); then echo "No published release has Debian packages yet; publishing the manual only."; rm -rf "$repo"; exit 0; fi
           cd "$repo"
           for arch in amd64 arm64; do
             mkdir -p "dists/stable/main/binary-$arch"
