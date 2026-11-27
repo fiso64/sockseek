@@ -855,6 +855,12 @@ public sealed class SearchViewCoordinatorTests
                     .GetSubmissionAsync(receipt.SubmissionId!.Value, CancellationToken.None);
                 Assert.IsNotNull(accepted);
                 var root = (JobList)Sockseek.Core.Planning.SubmissionSpecificationCodec.Deserialize(accepted.SpecificationJson).MaterializeJob();
+                // The batch opens directly from its receipt. It is described by where it was
+                // picked from, without a name that would become an output folder.
+                Assert.IsNotNull(receipt.JobId);
+                Assert.IsNull(root.ItemName);
+                Assert.AreEqual("Search selection · 2 albums", root.SourceInfo?.Detail);
+                Assert.IsFalse(string.IsNullOrEmpty(root.SourceInfo?.Title));
                 var pinned = root.Jobs.OfType<AlbumJob>().Single(album => album.Query.Album == "Album Alpha");
                 Assert.AreEqual(AlbumDirectoryResolutionPolicy.UseSelectedSnapshot, pinned.DirectoryResolutionPolicy);
                 Assert.AreEqual(AlbumValidationRequirement.UserAccepted, pinned.ValidationRequirement);

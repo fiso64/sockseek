@@ -26,10 +26,11 @@
     liveClient: DaemonLiveClient;
     onviewchange: (view: UserBrowseView) => void;
     onmessageuser: (username: string) => void;
+    onopenjob: (jobId: string) => void;
     userActions: UserLinkActions;
   }
 
-  let { session, view, liveStatus, documentVisible, configurationRevision, liveClient, onviewchange, onmessageuser, userActions }: Props = $props();
+  let { session, view, liveStatus, documentVisible, configurationRevision, liveClient, onviewchange, onmessageuser, onopenjob, userActions }: Props = $props();
   // App keys this component by session. A new user starts a fresh lifetime;
   // ordinary navigation restores the saved view without keeping its DOM alive.
   const username = untrack(() => session.username);
@@ -365,7 +366,7 @@
       {/if}
     {/if}
     {#if displayedBrowse}
-      <ShareBrowser {configurationRevision} source={peerShareSource(displayedBrowse)} session={session.shares} connected={liveStatus === 'connected' && documentVisible} {userActions} />
+      <ShareBrowser {configurationRevision} source={peerShareSource(displayedBrowse)} session={session.shares} connected={liveStatus === 'connected' && documentVisible} {userActions} {onopenjob} />
     {/if}
   {/if}
 </section>

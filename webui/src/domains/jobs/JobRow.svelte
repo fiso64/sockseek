@@ -2,9 +2,8 @@
   import type { JobSummaryDto, TransferStateDto } from '../../api/types';
   import { formatCount } from '../../app/format';
   import Icon from '../../components/Icon.svelte';
-  import { searchModeLabel } from '../search/model';
   import { canDeleteSubmission } from './deletion';
-  import { jobKindIcon, jobKindLabel, searchJobMode } from './kind';
+  import { jobKindIcon, jobKindLabel, jobName, jobTypeLine, searchJobMode } from './kind';
   import { automaticJobListStats, automaticJobProgressPercent, searchJobStats } from './list-stats';
   import { jobStatusLabel, jobStatusClass } from './status';
 
@@ -22,11 +21,11 @@
   } = $props();
 
   const identity = $derived(root ?? job);
-  const title = $derived(identity.display.itemName ?? identity.display.queryText ?? `${jobKindLabel(job.display.kind)} #${identity.display.displayId ?? '?'}`);
+  const title = $derived(jobName(identity) ?? `${jobKindLabel(job.display.kind)} #${identity.display.displayId ?? '?'}`);
   const searchMode = $derived(searchJobMode(job));
   const icon = $derived(searchMode ?? jobKindIcon(job.display.kind));
-  const typeLabel = $derived(identity.display.kind === 'extract' ? identity.display.sourceDetail ?? 'Import'
-    : searchMode ? searchModeLabel(searchMode) : jobKindLabel(job.display.kind));
+  // A result shown under its import is labelled as the import; otherwise the job speaks for itself.
+  const typeLabel = $derived(jobTypeLine(identity.display.kind === 'extract' ? identity : job));
   const statusLabel = $derived(resultState === 'unavailable' ? 'Result unavailable'
     : resultState === 'loading' ? 'Loading result' : jobStatusLabel(job, transfer));
   const searchStats = $derived(job.display.kind === 'search' ? searchJobStats(job) : []);

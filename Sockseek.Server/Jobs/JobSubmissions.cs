@@ -281,7 +281,25 @@ public sealed partial class JobSubmissions
             (Job)new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(plan))
             { SelectionSource = JobSelectionSource.PeerShares }).ToArray();
         // A selection batch is not a named collection and must not add an output folder.
-        return jobs.Length == 1 ? jobs[0] : new JobList(jobs: jobs) { SelectionSource = JobSelectionSource.PeerShares };
+        return jobs.Length == 1 ? jobs[0] : new JobList(jobs: jobs)
+        {
+            SelectionSource = JobSelectionSource.PeerShares,
+            SourceInfo = SelectionBatchInfo("Share selection", username, jobs),
+        };
+    }
+
+    // How a batch of hand-picked items presents itself: titled by where it was
+    // picked from, and described by what it holds. Display only; an item name
+    // on the list would become an output folder for its jobs.
+    internal static JobSourceInfo SelectionBatchInfo(string label, string title, IReadOnlyList<Job> jobs)
+    {
+        string item = jobs.All(job => job is AlbumJob) ? "album"
+            : jobs.All(job => job is SongJob) ? "song"
+            : jobs.All(job => job is RemoteFileJob) ? "file"
+            : jobs.All(job => job is RemoteDirectoryJob) ? "folder" : "item";
+        return new JobSourceInfo(
+            Detail: new JobSourceInfo(CollectionLabel: label, CollectionItemName: item).CollectionDescription(jobs.Count),
+            Title: title);
     }
 
     private void EnsureShareSubmissionConnection()

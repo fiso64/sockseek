@@ -40,13 +40,12 @@
   const liveClient = new DaemonLiveClient();
   const observeJobs = liveClient.observeJobs.bind(liveClient);
   const jobLists = {
-    searches: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), id => jobsTabQuery('searches', id)),
-    downloads: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), id => jobsTabQuery('downloads', id)),
+    searches: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), () => jobsTabQuery('searches')),
+    downloads: new JobListController(daemonApi, (scope, next, error) => liveClient.observeJobList(scope, next, error), () => jobsTabQuery('downloads')),
   };
   let jobsTab = $state<JobsTab>('searches');
   let jobList = $derived(jobLists[jobsTab]);
-  const jobsListPath = () => jobsTab === 'downloads'
-    ? `/jobs?tab=downloads${jobLists.downloads.submissionId ? `&submission=${encodeURIComponent(jobLists.downloads.submissionId)}` : ''}` : '/jobs';
+  const jobsListPath = () => jobsTab === 'downloads' ? '/jobs?tab=downloads' : '/jobs';
 
   const jobRoutes = new JobRouteReader(daemonApi, liveClient);
   const transferTimeline = new TransferTimelineController(daemonApi,
@@ -219,7 +218,6 @@
       if (!pendingJobId) {
         const params = new URLSearchParams(window.location.search);
         jobsTab = params.get('tab') === 'downloads' ? 'downloads' : 'searches';
-        if (jobsTab === 'downloads') jobLists.downloads.filterSubmission(params.get('submission'));
       }
       if (pendingJobId) {
         const requestedMode = parseSearchResultMode(new URLSearchParams(window.location.search).get('results'));
@@ -715,8 +713,7 @@
           onloadoptions={() => void searchController.loadMoreGroupOptions()}
           onchooseoption={(ref, option) => searchController.chooseGroupOption(ref, option)}
           ontogglealbumfile={(groupRef, fileRefs, selected) => searchController.toggleAlbumGroupFile(groupRef, fileRefs, selected)}
-          onviewdownloads={(id) => { jobLists.downloads.filterSubmission(id); jobsTab = 'downloads'; backToJobs(); }}
-          onopendownload={(id) => { jobLists.downloads.filterSubmission(null); void openJob(id); }}
+          onopendownload={(id) => void openJob(id)}
           onback={backToJobs}
           onsearchagain={() => void rerunActiveSearch()}
         />
@@ -738,7 +735,6 @@
     {#key jobsTab}
     <JobsList
       tab={jobsTab} ondownloadsview={showDownloadsView} position={jobList}
-      submissionId={jobList.submissionId} onclearfilter={() => { jobList.filterSubmission(null); setPath(jobsListPath()); }}
       connected={liveStatus === 'connected' && documentVisible}
       {observeJobs} readJobTransfer={liveState.readJobTransfer}
       onnew={openJobDraft}
@@ -808,7 +804,7 @@
       {#key userBrowsers[userView]}
         <LazyView view={usersPage}>
           {#snippet children(UsersPage)}
-            <UsersPage {configurationRevision} session={userBrowsers[userView]} {documentVisible} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} {userActions} />
+            <UsersPage {configurationRevision} session={userBrowsers[userView]} {documentVisible} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} {userActions} onopenjob={(id) => void openJob(id)} />
           {/snippet}
         </LazyView>
       {/key}

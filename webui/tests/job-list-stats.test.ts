@@ -110,7 +110,7 @@ function listFixture() {
     subscriptions.push({ next, error, stop });
     return stop;
   });
-  const controller = new JobListController({ getJobListSnapshot }, observe, id => jobsTabQuery('searches', id));
+  const controller = new JobListController({ getJobListSnapshot }, observe, () => jobsTabQuery('searches'));
   return { controller, getJobListSnapshot, observe, subscriptions };
 }
 
@@ -183,7 +183,7 @@ test('Job deletion discards an in-flight snapshot and disconnected reads use the
 
 test('Download jobs scopes exclude searches and retrievals before paging and retain their own window', () => {
   const f = listFixture();
-  const downloads = new JobListController({ getJobListSnapshot: f.getJobListSnapshot }, f.observe, id => jobsTabQuery('downloads', id));
+  const downloads = new JobListController({ getJobListSnapshot: f.getJobListSnapshot }, f.observe, () => jobsTabQuery('downloads'));
   downloads.setActive(true, 'connected');
   expect(f.observe.mock.lastCall?.[0].query).toMatchObject({ kind: null, excludeKinds: ['search', 'retrieve-folder'] });
   f.subscriptions[0]!.next({ ...listSnapshot(listedJob('1')), linkedResults: [listedJob('9')] });
@@ -195,8 +195,4 @@ test('Download jobs scopes exclude searches and retrievals before paging and ret
   f.controller.setActive(false, 'connected');
   downloads.setActive(true, 'connected');
   expect(f.observe.mock.lastCall?.[0].limit).toBe(2 * nestedPageSize);
-  downloads.filterSubmission('request-1');
-  expect(f.observe.mock.lastCall?.[0]).toMatchObject({ limit: nestedPageSize, query: { submissionId: 'request-1' } });
-  downloads.filterSubmission(null);
-  expect(f.observe.mock.lastCall?.[0].query.submissionId).toBeNull();
 });

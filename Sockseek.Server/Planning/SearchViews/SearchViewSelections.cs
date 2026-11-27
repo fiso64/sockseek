@@ -708,6 +708,8 @@ public sealed class SearchViewSelections
         // Once assembled, the jobs own their complete targets independently of it.
 
         // A batch needs a container; one chosen file/folder is already a root.
+        if (root.Count > 1)
+            root.SourceInfo = JobSubmissions.SelectionBatchInfo("Search selection", sourceView.Definition.Source.NetworkQuery, root.Jobs);
         Job acceptedRoot = root.Count == 1 ? root[0] : root;
         long resolutionMs = started.ElapsedMilliseconds;
         var receipt = new CommitSearchViewSelectionResponseDto(
@@ -724,7 +726,7 @@ public sealed class SearchViewSelections
                 .ThenBy(pair => pair.Key.Message, StringComparer.Ordinal)
                 .Select(pair => new SubmissionReasonCountDto(pair.Key.Reason, pair.Value, pair.Key.Message))
                 .ToArray(),
-            root.Count == 1 ? acceptedRoot.Id : null);
+            root.Count == 0 ? null : acceptedRoot.Id);
         if (root.Count > 0)
         {
             await submissions.AcceptSearchSelectionAsync(

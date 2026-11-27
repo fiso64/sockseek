@@ -282,24 +282,40 @@ public static class CoreSnapshotFactory
         if (job is ExtractJob { SourceInfo.UseResultName: true, Result.ItemName: { } title }) return title;
         return job switch
         {
+            // Albums picked from one search share its query; the chosen folder tells them apart.
+            AlbumJob { IsHandPicked: true, ResolvedTarget: { } folder }
+                when Utils.GetBaseNameSlsk(folder.FolderPath) is { Length: > 0 } name => name,
             SongJob song => MusicTitle(song.Query.Artist, song.Query.Title),
             AlbumJob album => MusicTitle(album.Query.Artist, album.Query.Album),
+            // A list without a name is a batch, not a collection: it takes the title of
+            // where it was picked from, or else describes what it holds.
+            JobList { Jobs.Count: > 0 } list => list.SourceInfo?.Title ?? ContentsTitle(list),
             _ => null,
         };
+    }
+
+    private static string ContentsTitle(JobList list)
+    {
+        string first = JobTitle(list.Jobs[0]) ?? list.Jobs[0].ToString(noInfo: true);
+        return list.Jobs.Count == 1 ? first : $"{first} and {list.Jobs.Count - 1} more";
     }
 
     private static string? MusicTitle(string artist, string title)
         => artist.Length == 0 ? title.Length == 0 ? null : title
             : title.Length == 0 ? artist : $"{artist} — {title}";
 
-    private static string? SourceDetail(Job job) => job.SourceInfo?.Detail ?? (job switch
+    // What follows a job's type where it is listed: "Album · peer", "Spotify import",
+    // "Search selection · 2 albums". A song or album names only the peer it was
+    // picked from; its position in a list or CSV is not worth a place there.
+    private static string? SourceDetail(Job job) => job switch
     {
+        SongJob song => song.IsHandPicked ? song.ResolvedPeerTarget?.Username : null,
+        AlbumJob album => album.IsHandPicked ? album.ResolvedTarget?.Username : null,
+        _ when job.SourceInfo?.Detail is { } detail => detail,
         RetrieveFolderJob folder => folder.Directory.Username,
         ExtractJob extract when extract.InputType is { } type && type != InputType.None => $"{ExtractorRegistry.SourceName(type)} import",
-        SongJob when job.SourceInputType is null && job.SemanticRole == JobSemanticRole.UserRoot => "Automatic song download",
-        AlbumJob when job.SourceInputType is null && job.SemanticRole == JobSemanticRole.UserRoot => "Automatic album download",
         _ => null,
-    });
+    };
 
     private static JobSnapshotPayload CreatePayload(Job job, HashSet<Guid> visited)
         => job switch

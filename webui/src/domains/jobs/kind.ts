@@ -1,7 +1,7 @@
 import type { JobSummaryDto, Schema } from '../../api/types';
 import { humanizeStateValue } from '../../app/format';
 import type { AppIconName } from '../../app/icons';
-import type { SearchResultMode } from '../search/model';
+import { searchModeLabel, type SearchResultMode } from '../search/model';
 
 export function searchJobMode(job: JobSummaryDto): SearchResultMode | null {
   if (job.display.kind !== 'search' || job.display.searchDefaultProjection == null || job.display.searchGroupResults == null) return null;
@@ -23,6 +23,25 @@ export function jobKindLabel(kind: Schema<'ServerJobKind'> | null | undefined): 
     case 'album-groups': return 'Album Groups';
     default: return humanizeStateValue(kind ?? 'Job');
   }
+}
+
+/** The name a job is shown by, when it has one. */
+export function jobName(job: JobSummaryDto | null | undefined): string | null {
+  return job?.display.itemName ?? job?.display.queryText ?? null;
+}
+
+/**
+ * What a job is, as shown under its name. An import or a batch describes itself;
+ * a song or album picked by hand adds the peer it came from.
+ */
+export function jobTypeLine(job: JobSummaryDto): string {
+  const { kind, sourceDetail } = job.display;
+  if (kind === 'extract') return sourceDetail ?? 'Import';
+  const searchMode = searchJobMode(job);
+  if (searchMode) return searchModeLabel(searchMode);
+  const label = jobKindLabel(kind);
+  if (kind === 'job-list') return sourceDetail ?? label;
+  return (kind === 'song' || kind === 'album') && sourceDetail ? `${label} · ${sourceDetail}` : label;
 }
 
 export function jobKindIcon(kind: Schema<'ServerJobKind'> | undefined): AppIconName {

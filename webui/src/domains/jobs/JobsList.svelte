@@ -18,8 +18,6 @@
     /** Result jobs of displayed extractions, provided with the list. */
     linkedResults: ReadonlyMap<string, JobSummaryDto>;
     tab: JobsTab;
-    submissionId: string | null;
-    onclearfilter: () => void;
     ondownloadsview: (view: DownloadsView) => void;
     position: { scrollTop: number };
     connected: boolean;
@@ -39,7 +37,7 @@
     onnew: () => void;
   }
 
-  let { jobs, linkedResults, tab, submissionId, onclearfilter, ondownloadsview, position, connected, observeJobs, readJobTransfer, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, ondelete, deletingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
+  let { jobs, linkedResults, tab, ondownloadsview, position, connected, observeJobs, readJobTransfer, loading = false, daemonOffline = false, hasMore = false, error = null, actionError = null, onretry, onopen, oncancel, ondelete, deletingSubmissions = new Set<string>(), onloadmore, onnew }: Props = $props();
   let section: HTMLElement;
   onMount(() => {
     const scroller = section.closest('main')!;
@@ -90,7 +88,7 @@
 </script>
 
 <section bind:this={section} class="page page-search redesigned-search-page" use:keyboardList={{
-  scope: `${tab}:${submissionId}`, revision: [ordered, loading],
+  scope: tab, revision: [ordered, loading],
   horizontal: direction => {
     if (tab !== 'downloads') return;
     if (direction > 0) ondownloadsview('files');
@@ -110,7 +108,6 @@
     <button type="button" data-testid="new-job" class="button action-button new-job-button" onclick={onnew}><span>+</span> New job</button>
   </header>
 
-  {#if submissionId}<div class="jobs-filter">Showing one download request <button type="button" onclick={onclearfilter}>Show all requests</button></div>{/if}
   <div role={tab === 'downloads' ? 'tabpanel' : undefined} id="jobs-tab-panel" aria-labelledby={tab === 'downloads' ? 'downloads-view-requests' : undefined}>
   {#if error && ordered.length}
     <div class="resource-state-notice unavailable" role="alert"><span class="resource-state-dot"></span><span class="resource-state-copy"><strong>Jobs unavailable</strong><small>{error.message}</small></span><button class="button" type="button" disabled={loading} onclick={onretry}>Retry</button></div>

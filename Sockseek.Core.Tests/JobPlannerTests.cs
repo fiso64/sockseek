@@ -248,7 +248,8 @@ public sealed class JobPlannerTests
         Job prepared = JobExtraction.Normalize(source,
             await extractor.ExtractAsync(source.Input, source.Config.Extraction), false, extractor);
         Assert.AreSame(song, prepared, "Preparation must reuse the extractor's Job.");
-        Assert.AreEqual(info.Detail, CoreSnapshotFactory.CreateJob(prepared, 1).SourceDetail);
+        // A song lists only the peer it was picked from; its place in the source stays in the source info.
+        Assert.IsNull(CoreSnapshotFactory.CreateJob(prepared, 1).SourceDetail);
         Job restored = SubmissionSpecificationCodec.Deserialize(SubmissionSpecificationCodec.Serialize(
             SubmissionSpecification.Create(prepared, source.Config))).MaterializeJob();
         Assert.AreEqual(info, restored.SourceInfo);
@@ -370,6 +371,41 @@ public sealed class JobPlannerTests
             if (File.Exists(csv))
                 File.Delete(csv);
         }
+    }
+
+    [TestMethod]
+    public void HandPickedJobsAndUnnamedListsAreTitledByWhatWasPicked()
+    {
+        var query = new AlbumQuery { Artist = "Artist", Album = "Album" };
+        var picked = new AlbumJob(query)
+        {
+            ResolvedTarget = new AlbumFolder("peer-a", @"Music\Artist\Album (1993) [FLAC]", []),
+            SelectionSource = JobSelectionSource.ManualSearch,
+        };
+        var automatic = new AlbumJob(query);
+        var song = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" })
+        {
+            ExactTarget = new PeerFileTarget(new PeerFileIdentity("peer-b", @"Music\Album\01 Track.flac"), 1, ".flac"),
+            SelectionSource = JobSelectionSource.ManualSearch,
+        };
+
+        // Albums picked from one search share its query; the folder and the peer tell them apart.
+        (string? Title, string? Source) Shown(Job job)
+            => (CoreSnapshotFactory.CreateJob(job, 1).ItemName, CoreSnapshotFactory.CreateJob(job, 1).SourceDetail);
+        Assert.AreEqual(("Album (1993) [FLAC]", "peer-a"), Shown(picked));
+        Assert.AreEqual(("Artist — Album", (string?)null), Shown(automatic));
+        Assert.AreEqual(("Artist — Track", "peer-b"), Shown(song));
+        var imported = new SongJob(new SongQuery { Artist = "Artist", Title = "Track" }) { SourceInfo = new JobSourceInfo(Detail: "CSV row 2") };
+        Assert.AreEqual(("Artist — Track", (string?)null), Shown(imported));
+
+        // A batch has no name of its own, since a named list becomes an output folder.
+        Assert.AreEqual(("Album (1993) [FLAC] and 1 more", (string?)null), Shown(new JobList(jobs: [picked, automatic])));
+        var batch = new JobList(jobs: [picked, automatic])
+        {
+            SourceInfo = new JobSourceInfo(Detail: "Search selection · 2 albums", Title: "artist album"),
+        };
+        Assert.AreEqual(("artist album", "Search selection · 2 albums"), Shown(batch));
+        Assert.IsNull(batch.ItemName);
     }
 
     [TestMethod]

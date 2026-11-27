@@ -32,8 +32,10 @@
   interface TreeRowPage { kind: 'page'; parentKey: string; page: PageState; depth: number; }
   type TreeRow = TreeRowDirectory | TreeRowFile | TreeRowPage;
 
-  let { source: input, session = {}, position, connected = true, configurationRevision, userActions }: {
+  let { source: input, session = {}, position, connected = true, configurationRevision, userActions, onopenjob }: {
     source: ShareBrowserSource; session?: ShareBrowserSession; position?: ShareBrowserPosition; connected?: boolean; configurationRevision?: number;
+    /** Opens the job a download request created. */
+    onopenjob?: (jobId: string) => void;
     /** Makes a peer's name the usual username link; the daemon's own shares have none. */
     userActions?: UserLinkActions;
   } = $props();
@@ -555,6 +557,9 @@
         tone: resolved ? skipped ? 'warning' : 'success' : 'error',
         title: resolved ? `${formatCount(resolved)} download${resolved === 1 ? '' : 's'} requested` : 'Nothing downloadable',
         details: skipped ? [`${formatCount(skipped)} locked branch${skipped === 1 ? '' : 'es'} skipped`] : undefined,
+        action: resolved && onopenjob && response.workflow.jobId
+          ? { label: response.workflow.display.kind === 'job-list' ? 'View download jobs' : 'View download job',
+            testId: 'open-download-job', run: () => onopenjob(response.workflow.jobId!) } : undefined,
       });
       lastRequest = undefined;
     } catch (cause) {

@@ -22,7 +22,7 @@
   import { completedExtract, presentedChildren, resolvePresentedJob } from './presentation';
   import { jobDetailInfo } from './detail-info';
   import { jobStatusLabel, jobStatusClass, jobTransferTone } from './status';
-  import { jobKindLabel } from './kind';
+  import { jobKindLabel, jobName, jobTypeLine } from './kind';
   import { canDeleteSubmission } from './deletion';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import { formatCount, humanizeStateValue } from '../../app/format';
@@ -193,11 +193,11 @@
     });
     return () => request.abort();
   });
-  let parentTitle = $derived(parent?.display.itemName ?? parent?.display.queryText ?? 'parent job');
+  let parentTitle = $derived(jobName(parent) ?? 'parent job');
   // A song's album is context when no album job already supplies that breadcrumb.
   let albumContext = $derived(payload?.kind === 'song' && payload.query.album
     && !ancestors.some(ancestor => ancestor.display.kind === 'album'
-      || (ancestor.display.itemName ?? ancestor.display.queryText) === payload.query.album)
+      || jobName(ancestor) === payload.query.album)
     ? payload.query.album : null);
   let relatedTotal = $derived.by(() => {
     const complete = relatedList && !relatedList.loading && !relatedList.cursor && !relatedList.error;
@@ -216,12 +216,9 @@
     || payload?.kind === 'album' && relatedRows.length > 0
     || payload?.kind === 'extract' && (Number(detail?.childCount) > 0 || children.length > 0)
   ));
-  let showRelatedJobs = $derived(showRelatedChildren && (relatedTotal !== 0 || Boolean(relatedList?.loading) || Boolean(relatedList?.error)) || Boolean(sourceJobId));
+  let showChildJobs = $derived(showRelatedChildren && (relatedTotal !== 0 || Boolean(relatedList?.loading) || Boolean(relatedList?.error)));
   let displayedRelatedRows = $derived(showRelatedChildren ? relatedRows : []);
-  // A lone source is named for what it is: the same kind of job is the attempt this one repeats.
-  let onlySource = $derived(Boolean(sourceJobId) && !displayedRelatedRows.length);
-  let displayedRelatedTotal = $derived((showRelatedChildren ? relatedTotal ?? relatedRows.length : 0)
-    + (sourceJobId ? 1 : 0));
+  let displayedRelatedTotal = $derived(showRelatedChildren ? relatedTotal ?? relatedRows.length : 0);
   let planStateLabel = $derived(!manifest && manifestMissing && job?.lifecycle.lifecycleState === 'Terminal'
     ? 'The accepted file plan is not available for this job.' : undefined);
   let activeFileTransfer = $derived(liveTransfers.find((transfer) => transfer.identity.jobId === jobId && !transfer.status.isTerminal));
@@ -312,7 +309,7 @@
   });
   let skippedOutput = $derived(job?.lifecycle.terminalOutcome !== 'Skipped' ? null
     : payload?.kind === 'song' ? payload.file : payload?.kind === 'album' ? payload.directory : null);
-  let title = $derived(job?.display.itemName ?? job?.display.queryText ?? jobKindLabel(job?.display.kind));
+  let title = $derived(jobName(job) ?? jobKindLabel(job?.display.kind));
   let hasContent = $derived(Boolean(selectedFile) || payload?.kind === 'remote-directory'
     || payload?.kind === 'album' && !skippedOutput && Boolean(payload.resolvedFolderPath || manifest));
   let info = $derived(job ? jobDetailInfo(job, payload, hasContent) : null);
@@ -506,11 +503,11 @@
     {#if job}
       <div class="detail-heading-meta job-detail-meta">
         {#each ancestors as ancestor (ancestor.jobId)}
-          {@const name = ancestor.display.itemName ?? ancestor.display.queryText ?? 'Parent job'}
+          {@const name = jobName(ancestor) ?? 'Parent job'}
           <button type="button" title={name} onclick={() => onopenjob(ancestor)}>{name}</button><span aria-hidden="true">/</span>
         {/each}
         {#if albumContext}<span>{albumContext}</span><span aria-hidden="true">/</span>{/if}
-        <span>{jobKindLabel(job.display.kind)}</span>
+        <span>{jobTypeLine(job)}</span>
       </div>
     {/if}
 
@@ -621,21 +618,27 @@
       {#if moreFolderFiles}<button type="button" class="button job-child-load-more" disabled={manifestLoading} onclick={() => void loadMoreFiles()}>Load more</button>{/if}
     </section>
   {/if}
-  {#if showRelatedJobs}
+  {#if sourceJobId}
+    <!-- Where this job came from is not one of its jobs: the same kind of job is the attempt it repeats. -->
+    <section class="job-related-section job-source-section">
+      <header class="job-section-heading"><h2>{sourceJob?.display.kind === job?.display.kind ? 'Earlier attempt' : 'Started from'}</h2></header>
+      <div class="job-child-list">
+        {#if sourceJob}
+          <JobRow job={sourceJob} onopen={onopenjob} />
+        {:else if sourceRead}
+          <div class="resource-state-notice unavailable" role="alert"><span>Source job unavailable: {sourceRead.error?.message ?? 'The source job was removed from history.'}</span><button class="button" type="button" onclick={() => sourceRetry++}>Retry</button></div>
+        {:else}
+          <LoadingIndicator label="Loading related job" />
+        {/if}
+      </div>
+    </section>
+  {/if}
+  {#if showChildJobs}
     <section class="job-related-section">
-      <header class="job-section-heading"><h2>{onlySource ? sourceJob?.display.kind === job?.display.kind ? 'Earlier attempt' : 'Started from' : sourceJobId ? 'Related jobs' : payload?.kind === 'extract' ? 'Result' : payload?.kind === 'song-groups' ? 'Generated songs' : payload?.kind === 'album-groups' ? 'Generated albums' : payload?.kind === 'album' ? 'Related jobs' : 'Jobs'}</h2>
-        {#if !onlySource && (!info?.counts.length || sourceJobId)}<span>{formatCount(displayedRelatedTotal)} {showRelatedChildren && relatedTotal == null ? 'loaded ' : ''}{displayedRelatedTotal === 1 ? 'job' : 'jobs'}</span>{/if}
+      <header class="job-section-heading"><h2>{payload?.kind === 'extract' ? 'Result' : payload?.kind === 'song-groups' ? 'Generated songs' : payload?.kind === 'album-groups' ? 'Generated albums' : payload?.kind === 'album' ? 'Related jobs' : 'Jobs'}</h2>
+        {#if !info?.counts.length}<span>{formatCount(displayedRelatedTotal)} {relatedTotal == null ? 'loaded ' : ''}{displayedRelatedTotal === 1 ? 'job' : 'jobs'}</span>{/if}
       </header>
       <div class="job-child-list">
-        {#if sourceJobId}
-          {#if sourceJob}
-            <JobRow job={sourceJob} onopen={onopenjob} />
-          {:else if sourceRead}
-            <div class="resource-state-notice unavailable" role="alert"><span>Source job unavailable: {sourceRead.error?.message ?? 'The source job was removed from history.'}</span><button class="button" type="button" onclick={() => sourceRetry++}>Retry</button></div>
-          {:else}
-            <LoadingIndicator label="Loading related job" />
-          {/if}
-        {/if}
         {#each displayedRelatedRows as entry (entry.job.jobId)}
           {@const child = entry.job}
           <JobRow job={child} root={entry.root} transfer={child.jobId ? liveTransfersByJob.get(child.jobId) : undefined}
@@ -646,7 +649,7 @@
             <div class="resource-state-notice unavailable" role="alert"><span>Extracted result unavailable: {entry.error?.message ?? 'The linked job was removed from history.'}</span></div>
           {/if}
         {:else}
-          {#if !sourceJobId && relatedList && !relatedList.loading && !relatedList.cursor && !relatedList.error}
+          {#if relatedList && !relatedList.loading && !relatedList.cursor && !relatedList.error}
             <EmptyState class="inline-empty-state" icon="jobs" title="No child jobs" />
           {/if}
         {/each}

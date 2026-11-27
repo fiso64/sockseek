@@ -6,9 +6,9 @@ import type { JobSummaryDto, Schema } from '../../api/types';
 export type JobsTab = 'searches' | 'downloads';
 type JobQuery = Schema<'JobQuery'>;
 
-/** A Jobs page tab: newest-first execution roots, optionally of one submission. */
-export function jobsTabQuery(tab: JobsTab, submissionId: string | null): JobQuery {
-  return { kind: tab === 'searches' ? 'search' : null, submissionId, includeAll: false, newestFirst: true,
+/** A Jobs page tab: newest-first execution roots. */
+export function jobsTabQuery(tab: JobsTab): JobQuery {
+  return { kind: tab === 'searches' ? 'search' : null, includeAll: false, newestFirst: true,
     excludeExtractResults: true, excludeKinds: tab === 'downloads' ? ['search', 'retrieve-folder'] : null };
 }
 
@@ -26,17 +26,6 @@ export class JobListController {
   loading = $state(false);
   error = $state<Error | null>(null);
   scrollTop = 0;
-  submissionId = $state<string | null>(null);
-
-  filterSubmission(id: string | null): void {
-    if (this.submissionId === id) return;
-    this.submissionId = id;
-    this.items = [];
-    this.cursor = null;
-    this.limit = nestedPageSize;
-    this.scrollTop = 0;
-    this.refresh();
-  }
   private rows = new Map<string, JobSummaryDto>();
   private ids: string[] = [];
   private limit = nestedPageSize;
@@ -48,7 +37,7 @@ export class JobListController {
 
   constructor(private readonly api: Pick<DaemonApiClient, 'getJobListSnapshot'>,
     private readonly observe: DaemonLiveClient['observeJobList'],
-    private readonly query: (submissionId: string | null) => JobQuery) {}
+    private readonly query: () => JobQuery) {}
 
   setActive(active: boolean, status: LiveConnectionStatus): void {
     if (this.active === active && this.status === status) return;
@@ -85,7 +74,7 @@ export class JobListController {
     this.loading = true;
     this.error = null;
     if (this.status === 'connecting' || this.status === 'reconnecting') return;
-    const query = this.query(this.submissionId);
+    const query = this.query();
     this.newestFirst = query.newestFirst;
     const scope: Schema<'JobListScopeDto'> = { query, limit: this.limit };
     const next = (value: Schema<'JobListUpdateDto'>) => {

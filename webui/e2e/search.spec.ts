@@ -1008,6 +1008,58 @@ test('pages album alternative files without hiding the card picker', async ({ pa
   await expect(page.locator('.group-options-button')).toContainText('100 / 101');
 });
 
+test('opens several picked albums as one described batch whose jobs are told apart', async ({ page, daemon }) => {
+  await daemon.command('album-group-search');
+  await page.goto('/jobs');
+  await page.locator('#global-search-simple').fill('Fixture Album');
+  await page.locator('#global-search-simple').press('Enter');
+  const cards = page.locator('.folder-item-card');
+  await expect(cards).toHaveCount(2);
+  for (const index of [0, 1]) {
+    await cards.nth(index).focus();
+    await page.keyboard.press('Space');
+  }
+  const download = page.getByRole('button', { name: /^Download \d+$/ });
+  await expect(download).toBeEnabled();
+  const committed = page.waitForResponse(response => response.request().method() === 'POST'
+    && new URL(response.url()).pathname.endsWith('/commit'));
+  await download.click();
+  const receipt = await (await committed).json() as Schema<'CommitSearchViewSelectionResponseDto'>;
+  expect(Number(receipt.submittedCount)).toBe(2);
+
+  // The batch opens directly instead of a Jobs list filtered to one row.
+  await page.getByTestId('open-download-job').click();
+  await expect(page).toHaveURL(new RegExp(`/jobs/${receipt.jobId}`));
+  await expect(page).not.toHaveURL(/submission=/);
+
+  // The detail page describes the batch the same way its row does.
+  await expect(page.locator('.job-detail-title h1')).toHaveText('Fixture Album');
+  await expect(page.locator('.job-detail-meta')).toContainText('Search selection · 2 albums');
+
+  // The search it came from is where it started, not one of its jobs.
+  const source = page.locator('.job-source-section');
+  await expect(source.getByRole('heading')).toHaveText('Started from');
+  await expect(source.getByTestId('job-row')).toHaveCount(1);
+  const jobs = page.locator('.job-related-section:not(.job-source-section)');
+  await expect(jobs.getByRole('heading')).toHaveText('Jobs');
+  const rows = jobs.getByTestId('job-row');
+  await expect(rows).toHaveCount(2);
+
+  // Each pick is titled by its folder and names its peer after the type.
+  const shown = await rows.evaluateAll(items => items.map(item => ({
+    title: item.querySelector('.search-history-query')!.textContent!.trim(),
+    type: item.querySelector('.search-history-copy small')!.textContent!.trim() })));
+  for (const row of shown) expect(row.type).toMatch(/^Album · \S/);
+  expect(new Set(shown.map(row => `${row.title} | ${row.type}`)).size).toBe(2);
+
+  // In the Jobs list the batch is described by where it came from and what it holds.
+  await page.getByRole('button', { name: 'Back to jobs', exact: true }).click();
+  const batch = page.getByTestId('job-row').filter({ hasText: 'Search selection · 2 albums' });
+  await expect(batch).toHaveCount(1);
+  await expect(batch.locator('.search-history-query')).toHaveText('Fixture Album');
+  await expect(page.getByText('Showing one download request')).toHaveCount(0);
+});
+
 test('preserves an independent global draft when opening a retained search', async ({ page, daemon }) => {
   await daemon.command('album-group-search');
   await page.goto('/jobs');
@@ -2090,6 +2142,6 @@ test('retrieves selected folders with R and downloads only with Ctrl+Enter', asy
   await page.getByRole('button', { name: 'Download 5', exact: true }).focus();
   await page.keyboard.press('Control+Enter');
   expect((await accepted).ok()).toBe(true);
-  await expect(page.getByTestId('open-download-job').or(page.getByTestId('view-download-jobs'))).toBeVisible();
+  await expect(page.getByTestId('open-download-job')).toBeVisible();
   expect(commits).toBe(1);
 });

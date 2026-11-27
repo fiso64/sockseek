@@ -17,7 +17,10 @@ public sealed record JobSourceInfo(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? NestedPreviewTitle = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PreviewDetail = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CollectionLabel = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CollectionItemName = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CollectionItemName = null,
+    // What a job without a name of its own is shown as. Unlike an item name,
+    // it never becomes part of an output path.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Title = null)
 {
     public string? CollectionDescription(int count) => CollectionLabel is null ? null
         : CollectionItemName is null ? CollectionLabel

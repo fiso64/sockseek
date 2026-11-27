@@ -20,6 +20,7 @@
   import UsernameLink from '../../components/UsernameLink.svelte';
   import ProfilePicker from '../../components/ProfilePicker.svelte';
   import { rebaseOptions } from '../jobs/download-options';
+  import { jobName } from '../jobs/kind';
   import DownloadOptionsPanel from '../../components/DownloadOptionsPanel.svelte';
   import ResultFilterControl from '../../components/ResultFilterControl.svelte';
   import { filterPattern, matchedText } from '../../components/MatchedText.svelte';
@@ -78,7 +79,6 @@
     onloadoptions: () => void;
     onchooseoption: (groupRef: string, option: GroupOption) => void;
     ontogglealbumfile: (groupRef: string, fileRefs: string[], selected: boolean) => void;
-    onviewdownloads: (submissionId: string) => void;
     onopendownload: (jobId: string) => void;
     onback: () => void;
     onsearchagain: () => void;
@@ -123,7 +123,6 @@
     onloadoptions,
     onchooseoption,
     ontogglealbumfile,
-    onviewdownloads,
     onopendownload,
     onback,
     onsearchagain,
@@ -241,7 +240,7 @@
     const skipped = Number(receipt.skippedCount), rejected = Number(receipt.rejectedCount);
     const count = !skipped && !rejected && reviewed && String(reviewed.revision) === String(receipt.viewRevision)
       ? reviewed.publicFileCount : receipt.submittedCount;
-    const { jobId, submissionId } = receipt;
+    const { jobId } = receipt;
     notify({
       key: 'search-download',
       tone: skipped || rejected ? 'warning' : 'success',
@@ -250,9 +249,9 @@
         ...(skipped || rejected ? [`${formatCount(receipt.skippedCount)} skipped · ${formatCount(receipt.rejectedCount)} rejected`] : []),
         ...receipt.rejectionReasons.flatMap(reason => reason.message ? [reason.message] : []),
       ],
-      action: jobId ? { label: 'View download job', testId: 'open-download-job', run: () => onopendownload(jobId) }
-        : submissionId ? { label: 'View download jobs', testId: 'view-download-jobs', run: () => onviewdownloads(submissionId) }
-        : undefined,
+      // One pick is a job of its own; several share a list. Either way it opens directly.
+      action: jobId ? { label: Number(receipt.submittedCount) === 1 ? 'View download job' : 'View download jobs',
+        testId: 'open-download-job', run: () => onopendownload(jobId) } : undefined,
     });
   }
   let groupMode = $derived(viewState.draft != null && isGroupSearchMode(viewState.draft.resultMode));
@@ -683,7 +682,7 @@
   }
 
   function queryTitle(): string {
-    const title = viewState.job?.display.itemName ?? viewState.job?.display.queryText;
+    const title = jobName(viewState.job);
     if (title != null) return title;
     const draft = viewState.draft;
     if (!draft) return '';
