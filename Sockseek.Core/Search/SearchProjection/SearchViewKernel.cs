@@ -18,7 +18,48 @@ public sealed record SearchViewCounters(
     long PreferredFileCount,
     long OtherFileCount,
     long TopLevelItemCount = 0,
-    long SelectableOptionCount = 0);
+    long SelectableOptionCount = 0,
+    SearchPreferenceMisses OtherMisses = default);
+
+/// <summary>
+/// For each preferred condition, how many listed results outside the preferred
+/// tier miss it: files in Track searches, folders in Album searches. Other views report none.
+/// </summary>
+public readonly struct SearchPreferenceMisses : IEquatable<SearchPreferenceMisses>
+{
+    internal static readonly int ConditionCount = Enum.GetValues<SearchPreferenceCondition>().Length;
+    private readonly long[]? counts;
+
+    internal SearchPreferenceMisses(long[] counts) => this.counts = counts;
+
+    public long this[SearchPreferenceCondition condition] => counts?[(int)condition] ?? 0;
+
+    public IEnumerable<(SearchPreferenceCondition Condition, long Count)> Missed
+    {
+        get
+        {
+            for (int index = 0; index < ConditionCount; index++)
+                if (this[(SearchPreferenceCondition)index] is > 0 and var count)
+                    yield return ((SearchPreferenceCondition)index, count);
+        }
+    }
+
+    public bool Equals(SearchPreferenceMisses other)
+    {
+        for (int index = 0; index < ConditionCount; index++)
+            if (this[(SearchPreferenceCondition)index] != other[(SearchPreferenceCondition)index]) return false;
+        return true;
+    }
+
+    public override bool Equals(object? obj) => obj is SearchPreferenceMisses other && Equals(other);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        for (int index = 0; index < ConditionCount; index++) hash.Add(this[(SearchPreferenceCondition)index]);
+        return hash.ToHashCode();
+    }
+}
 
 public sealed record SearchViewProjectionDefinition(
     SearchViewProjectionKind Kind,
@@ -181,6 +222,9 @@ public sealed class SearchViewKernel
     private long otherFileCount;
     private long topLevelItemCount;
     private long selectableOptionCount;
+    // Only Track and Album searches list results in tiers. An album folder's
+    // misses are its best file's, read from the stored folder when it changes.
+    private readonly long[] otherMisses = new long[SearchPreferenceMisses.ConditionCount];
     private int observedPeerCount;
     private int sourceRevision;
     private bool isComplete;
@@ -297,6 +341,8 @@ public sealed class SearchViewKernel
             otherFileCount = seed.Counters.OtherFileCount;
             topLevelItemCount = seed.Counters.TopLevelItemCount;
             selectableOptionCount = seed.Counters.SelectableOptionCount;
+            foreach (var (condition, count) in seed.Counters.OtherMisses.Missed)
+                otherMisses[(int)condition] = count;
         }
     }
 
@@ -428,6 +474,8 @@ public sealed class SearchViewKernel
                 foreach (ProjectedFileCandidate file in changed)
                 {
                     CountProjectedFile(file);
+                    if (projectionKind == SearchViewProjectionKind.Files)
+                        CountMisses(file.ConditionFacts, 1);
                 }
                 if (projectionKind == SearchViewProjectionKind.GenericDirectories)
                 {
@@ -502,7 +550,23 @@ public sealed class SearchViewKernel
             preferredFileCount,
             otherFileCount,
             topLevelItemCount,
-            selectableOptionCount);
+            selectableOptionCount,
+            new SearchPreferenceMisses((long[])otherMisses.Clone()));
+
+    /// <summary>Adds or removes what one listed Other result contributes to the misses.</summary>
+    private void CountMisses(SearchConditionFacts facts, int direction)
+    {
+        if (facts.PreferenceTier != SearchPreferenceTier.Other || facts.ConfiguredPreferredConditions is not { } configured)
+            return;
+        IReadOnlyList<SearchPreferenceCondition> satisfied = facts.SatisfiedPreferredConditions ?? [];
+        foreach (SearchPreferenceCondition condition in configured)
+        {
+            bool missed = true;
+            foreach (SearchPreferenceCondition met in satisfied)
+                if (met == condition) { missed = false; break; }
+            if (missed) otherMisses[(int)condition] += direction;
+        }
+    }
 
     private bool ContainsFilter(string? value)
         => filterText != null
@@ -713,6 +777,9 @@ public sealed class SearchViewKernel
                     preferred, currentFiles.Count - preferred);
                 albumDirectoryCounts[directoryKey] = counts;
                 ChangeAlbumProjectionFileCounts(counts, 1);
+                if (albumDirectories.TryGetValue(directoryKey, out var prior))
+                    CountMisses(prior.BestChild.ConditionFacts, -1);
+                CountMisses(best.ConditionFacts, 1);
             }
             albumDirectories[directoryKey] = projectedDirectory;
             albumDirectoryChildren[directoryKey] = currentKeys;
@@ -725,10 +792,12 @@ public sealed class SearchViewKernel
     private void RemoveAlbumDirectory(PeerDirectoryIdentity directory, List<PeerDirectoryIdentity> removed)
     {
         var key = new PeerPathKey(directory.Username, directory.FolderPath);
-        if (!albumDirectories.Remove(key)) return;
+        if (!albumDirectories.Remove(key, out var prior)) return;
         albumDirectoryChildren.Remove(key);
         if (albumDirectoryCounts.Remove(key, out var counts))
             ChangeAlbumProjectionFileCounts(counts, -1);
+        if (projectionKind == SearchViewProjectionKind.AlbumDirectories)
+            CountMisses(prior.BestChild.ConditionFacts, -1);
         removed.Add(directory);
     }
 

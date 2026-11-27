@@ -628,6 +628,10 @@ public sealed class SearchViewKernelTests
             wrongArtist.ConditionFacts.UnsatisfiedPreferredConditions.ToArray());
         Assert.AreEqual(1L, snapshot.Counters.PreferredFileCount);
         Assert.AreEqual(2L, snapshot.Counters.OtherFileCount);
+        // Each listed Other row counts once per condition it misses; only Track and Album searches list tiers.
+        var expectedMisses = kind is not (SearchViewProjectionKind.Files or SearchViewProjectionKind.AlbumDirectories)
+            ? [] : new[] { (SearchPreferenceCondition.Bitrate, 1L), (SearchPreferenceCondition.Artist, 1L) };
+        CollectionAssert.AreEquivalent(expectedMisses, snapshot.Counters.OtherMisses.Missed.ToArray());
 
         var withoutConditions = new SearchViewKernel(projection, new SearchSettings
         {

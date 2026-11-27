@@ -45,7 +45,7 @@ export default defineConfig({
       { text: 'Downloading', items: [
         { text: 'Input types', link: '/downloading/inputs' },
         { text: 'Download modes', link: '/downloading/download-modes' },
-        { text: 'File conditions', link: '/downloading/file-conditions' },
+        { text: 'Ranking and filtering', link: '/downloading/ranking-and-filtering' },
         { text: 'Name format', link: '/downloading/name-format' },
         { text: 'On-complete actions', link: '/downloading/on-complete' },
         { text: 'Troubleshooting & tips', link: '/downloading/tips' },

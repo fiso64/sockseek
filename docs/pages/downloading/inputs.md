@@ -143,7 +143,7 @@ A string input is a name of the track, album, or artist to search for. They come
    - `sockseek "Artist - Album"` downloads an album
    - `sockseek "Artist - Song" -s` downloads a song
 
-   It's always better to split the artist from song/album like this when you want to provide an artist due to [ranking and filtering](./file-conditions.md).
+   It's always better to split the artist from song/album like this when you want to provide an artist due to [ranking and filtering](./ranking-and-filtering.md).
 
    _This is equivalent to `sockseek "artist=Artist, album=Album"` in the first case, and to `sockseek "artist=Artist, title=Song"` in the second case._
 

@@ -15,7 +15,7 @@ function summary(viewId: string, revision = 1): SearchViewSummaryDto {
     counters: { publicFileCount: 0, lockedFileCount: 0, publicBytes: 0, lockedBytes: 0,
       observedPeerCount: 0, projectedFileCount: 0, projectedPublicFileCount: 0,
       projectedLockedFileCount: 0, preferredFileCount: 0, otherFileCount: 0,
-      topLevelItemCount: 1, selectableOptionCount: 0 },
+      topLevelItemCount: 1, selectableOptionCount: 0, otherMisses: { format: 0, length: 0, bitrate: 0, sampleRate: 0, bitDepth: 0, title: 0, artist: 0, album: 0, username: 0, excludeLocked: 0 } },
   };
 }
 

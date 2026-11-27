@@ -2,7 +2,7 @@
   /** Where the manual explains what the UI can only hint at. Paths are relative
    * to the manual's root. */
   export const manualPages = {
-    fileConditions: 'downloading/file-conditions.html',
+    rankingAndFiltering: 'downloading/ranking-and-filtering.html',
     downloadModes: 'downloading/download-modes.html',
     nameFormat: 'downloading/name-format.html',
     csvInput: 'downloading/inputs.html#csv-file',

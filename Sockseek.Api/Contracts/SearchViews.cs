@@ -39,7 +39,24 @@ public sealed record SearchViewCountersDto(
     long PreferredFileCount,
     long OtherFileCount,
     long TopLevelItemCount,
-    long SelectableOptionCount);
+    long SelectableOptionCount,
+    SearchPreferenceMissesDto OtherMisses);
+
+/// <summary>
+/// For each preferred condition, how many listed results outside the preferred
+/// tier miss it. Properties are named after <see cref="SearchPreferenceCondition"/>.
+/// </summary>
+public sealed record SearchPreferenceMissesDto(
+    long Format,
+    long Length,
+    long Bitrate,
+    long SampleRate,
+    long BitDepth,
+    long Title,
+    long Artist,
+    long Album,
+    long Username,
+    long ExcludeLocked);
 
 public sealed record SearchViewSummaryDto(
     Guid ViewId,

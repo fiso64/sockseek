@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { daemonApi } from '../../api/client';
   import SearchConfigPanel from '../../components/SearchConfigPanel.svelte';
+  import { searchPanels } from '../../lib/search-panels.svelte';
   import ProfilePicker from '../../components/ProfilePicker.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import type { Schema } from '../../api/types';
@@ -133,6 +134,7 @@
     {#if displayedMode}
       <div class:waiting={loading} inert={loading}>
         <SearchConfigPanel mode={displayedMode} bind:conditions {onclose}
+          title="New search" notice={searchPanels.resultsShown > 0 ? scopeNotice : undefined}
           {profiles}
           loadDefaults={async signal => {
             const response = await daemonApi.resolveEffectiveSettings({ job: searchJobDraft(draft), options: { profileNames: draft.profileNames } }, signal);
@@ -147,6 +149,12 @@
     {/if}
   </div>
 {/if}
+
+{#snippet scopeNotice()}
+  Applies to your next search.
+  <button type="button" class="text-link" data-testid="open-this-search-settings"
+    onclick={() => { onclose(); searchPanels.openResultsSettings++; }}>Change this search's settings</button>
+{/snippet}
 
 <style>
   .configuration-content { position: relative; }

@@ -267,18 +267,18 @@
       </div>
 
     </div>
-    <button type="button" data-testid="search-config-toggle" class="button search-settings-button" aria-label="Search configuration" aria-expanded={settingsOpen} onclick={() => { settingsMounted = true; settingsOpen = !settingsOpen; }}><Icon name="sliders" />{#if configurationCustomized}<i class="settings-disclosure-customized" aria-hidden="true"></i>{/if}</button>
+    <button type="button" data-testid="search-config-toggle" class="button search-settings-button" aria-label="New search settings" aria-expanded={settingsOpen} onclick={() => { settingsMounted = true; settingsOpen = !settingsOpen; }}><Icon name="sliders" />{#if configurationCustomized}<i class="settings-disclosure-customized" aria-hidden="true"></i>{/if}</button>
     {/if}
   </div>
   {#if variant === 'content' && settingsMounted}
-    <section data-shortcuts-blocked={settingsOpen} class="popover-panel form search-config-popover" aria-label="Search configuration" style:display={settingsOpen ? undefined : 'none'}>
+    <section data-shortcuts-blocked={settingsOpen} class="popover-panel form search-config-popover" aria-label="New search settings" style:display={settingsOpen ? undefined : 'none'}>
       <SearchConfiguration draft={value} active={settingsOpen} bind:resolved={conditionsResolved} bind:customized={configurationCustomized} {onchange} onvalidation={(message, pending) => { configurationError = message; configurationPending = pending; }} onclose={() => settingsOpen = false} />
     </section>
   {/if}
   {#if variant === 'content' && settingsOpen}
     <button class="search-focus-backdrop" type="button" tabindex="-1" aria-label="Close focused search" onclick={dismissSearch}></button>
   {/if}
-  {#if variant === 'content' && !settingsOpen && configurationError}<p role="alert">{configurationError} Open Search configuration to resolve it.</p>{/if}
+  {#if variant === 'content' && !settingsOpen && configurationError}<p role="alert">{configurationError} Open the new search settings to resolve it.</p>{/if}
 </div>
 
 

@@ -98,7 +98,7 @@ test('Ctrl+Enter opens New Job with the current query and edited search conditio
     await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
     await page.getByRole('menuitemradio', { name: mode, exact: true }).click();
     await page.locator('#global-search-simple').fill(mode === 'Album Search' ? 'Fixture artist - Fixture album' : 'Fixture song');
-    await page.getByRole('button', { name: 'Search configuration', exact: true }).click();
+    await page.getByRole('button', { name: 'New search settings', exact: true }).click();
     const panel = page.locator('.search-config-popover');
     await panel.getByRole('button', { name: 'Any', exact: true }).click();
     await panel.getByRole('button', { name: format, exact: true }).click();

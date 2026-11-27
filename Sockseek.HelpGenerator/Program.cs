@@ -239,7 +239,7 @@ __HELP_TEXT_MAIN__"";
 
     const string downloadModesHelp = @""__HELP_TEXT_DOWNLOAD_MODES__"";
 
-    const string fileConditionsHelp = @""__HELP_TEXT_FILE_CONDITIONS__"";
+    const string rankingAndFilteringHelp = @""__HELP_TEXT_RANKING_AND_FILTERING__"";
 
     const string nameFormatHelp = @""__HELP_TEXT_NAME_FORMAT__"";
 
@@ -266,7 +266,7 @@ __COMMAND_TOPICS__
         .Replace("__HELP_TEXT_MAIN__", string.Join("\n", topics["main"], topics["daemon-cli"], topics["cli-notes"]))
         .Replace("__HELP_TEXT_INPUT__", topics["input"])
         .Replace("__HELP_TEXT_DOWNLOAD_MODES__", topics["download-modes"])
-        .Replace("__HELP_TEXT_FILE_CONDITIONS__", topics["file-conditions"])
+        .Replace("__HELP_TEXT_RANKING_AND_FILTERING__", topics["ranking-and-filtering"])
         .Replace("__HELP_TEXT_NAME_FORMAT__", topics["name-format"])
         .Replace("__HELP_TEXT_VARIABLES__", topics["variables"])
         .Replace("__HELP_TEXT_CONFIG__", topics["config"])

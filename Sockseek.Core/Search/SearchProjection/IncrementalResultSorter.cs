@@ -56,13 +56,13 @@ public readonly record struct SearchProjectionSortKey(
     int BitRate,
     int StableTieBreaker) : IComparable<SearchProjectionSortKey>
 {
-    // The thirteenth identity flag, then four quality flags, then availability.
-    // Construction and folder adjustment share these positions; neither
-    // reevaluates conditions.
+    // The thirteenth identity flag, then preferred users and four quality flags,
+    // then availability. Construction and folder adjustment share these
+    // positions; neither reevaluates conditions.
     internal const uint CompleteFolder = 1u << 19;
-    private const uint UnlockedPreference = 1u << 14;
-    private const uint AllPreferences = 1u << 13;
-    private const uint FreeSlot = 1u << 12;
+    private const uint UnlockedPreference = 1u << 13;
+    private const uint AllPreferences = 1u << 12;
+    private const uint FreeSlot = 1u << 11;
 
     internal static uint AvailabilityFlags(bool unlocked, bool allPreferences, bool freeSlot)
         => (unlocked ? UnlockedPreference : 0) | (allPreferences ? AllPreferences : 0) | (freeSlot ? FreeSlot : 0);

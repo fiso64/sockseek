@@ -381,7 +381,7 @@ test('applies projection-only sort and live track conditions through an all-exce
   await expect(page.locator('.folder-item-card')).toHaveCount(1);
   await sortWithoutCreatingView(page, 'name', 'DirectoryNameAscending');
   await page.getByRole('button', { name: 'Filtering', exact: true }).click();
-  const panel = page.getByRole('region', { name: 'Result search configuration' });
+  const panel = page.getByRole('region', { name: "This search's settings" });
   await panel.getByRole('button', { name: 'PDF', exact: true }).click();
   await page.clock.fastForward(350);
   await expect(page.locator('.folder-item-card')).toHaveCount(0);
@@ -541,7 +541,7 @@ test.describe('live album conditions', () => {
     await expect(page.locator('.folder-item-card')).not.toHaveClass(/selected/);
 
     await page.getByRole('button', { name: 'Filtering', exact: true }).click();
-    const panel = page.getByRole('region', { name: 'Result search configuration' });
+    const panel = page.getByRole('region', { name: "This search's settings" });
     await panel.getByRole('button', { name: 'custom…', exact: true }).click();
     const required = page.waitForResponse(response => response.ok()
       && response.request().method() === 'POST'
@@ -609,7 +609,7 @@ test.describe('live album conditions', () => {
     await expect(preferredExplanation).toBeVisible();
     // Focus moves into the popover, through its controls in reading order.
     await page.keyboard.press('Tab');
-    await expect(preferredExplanation.getByTestId('manual-fileConditions')).toBeFocused();
+    await expect(preferredExplanation.getByTestId('manual-rankingAndFiltering')).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(preferredExplanation.getByTestId('edit-search-preferences')).toBeFocused();
     await page.getByRole('heading', { name: 'Album', exact: true }).click();
@@ -842,7 +842,7 @@ test('downloads only checked public files from a mixed chosen group album folder
   await expect(page.locator('.search-results-summary')).toContainText('2 locked');
   await expect(page.locator('.group-result-group').getByText('In library', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Filtering', exact: true }).click();
-  const config = page.getByRole('region', { name: 'Result search configuration' });
+  const config = page.getByRole('region', { name: "This search's settings" });
   await config.getByLabel('Hide locked files', { exact: true }).check();
   await expect(page.locator('.folder-file-row.locked')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Remove locked files filter' })).toBeVisible();
@@ -1362,7 +1362,7 @@ test('applies named profiles to a search and refines its results independently',
 test('keeps search configuration resolved when splitting and merging', async ({ page }) => {
   await page.goto('/jobs');
   await page.locator('#global-search-simple').fill('Casiopea');
-  await page.getByRole('button', { name: 'Search configuration', exact: true }).click();
+  await page.getByRole('button', { name: 'New search settings', exact: true }).click();
   const panel = page.locator('.search-config-popover');
   await expect(panel.getByRole('button', { name: 'Ranking', exact: true })).toBeVisible();
   let requests = 0;
@@ -1836,7 +1836,7 @@ test('downloads a File Search subfolder with a path rule that follows live arriv
   await expect(nested).toBeChecked({ indeterminate: true });
   await expect(page.getByRole('button', { name: 'Download 2', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Filtering', exact: true }).click();
-  const panel = page.getByRole('region', { name: 'Result search configuration' });
+  const panel = page.getByRole('region', { name: "This search's settings" });
   const noMatches = page.waitForResponse(response => response.ok() && response.request().method() === 'POST'
     && /\/api\/jobs\/[^/]+\/search-views$/.test(new URL(response.url()).pathname)
     && response.request().postDataJSON()?.refinementSettings?.necessaryCond?.formats?.replace?.includes('pdf'));

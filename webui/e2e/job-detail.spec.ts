@@ -45,7 +45,7 @@ test('explains a job whose results were all rejected and searches for it again u
   const condition = page.locator('.search-condition-pill');
   await expect(condition).toHaveCount(1);
   await expect(page.locator('.folder-heading-path')).toHaveCount(0);
-  await condition.getByRole('button').click();
+  await condition.locator('[data-action="remove-condition"]').click();
   await expect(page.locator('.folder-heading-path')).toHaveCount(2);
 });
 

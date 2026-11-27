@@ -1,7 +1,8 @@
 <script lang="ts">
   import ManualLink from '../../components/ManualLink.svelte';
   import HelpPopover from '../../components/HelpPopover.svelte';
-  import { tick, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
+  import { searchPanels } from '../../lib/search-panels.svelte';
   import { keyboardList } from '../../lib/keyboard';
   import EmptyState from '../../components/EmptyState.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
@@ -25,6 +26,7 @@
   import ResultFilterControl from '../../components/ResultFilterControl.svelte';
   import { filterPattern, matchedText } from '../../components/MatchedText.svelte';
   import SearchConditionPills from '../../components/SearchConditionPills.svelte';
+  import { missCounts, missedPreferences } from './applied-conditions';
   import SearchConfigPanel from '../../components/SearchConfigPanel.svelte';
   import { anchoredPopover } from '../../lib/anchored-menu';
   import { readSearchConditions, rebaseSearchConditions, editedSearchSettings, searchExpectedLength } from './config-mapping';
@@ -154,6 +156,25 @@
   let configurationLoading = $state(false);
   let configurationError = $state<Error | null>(null);
   let conditionsOpen = $state(false);
+  let conditionsHighlight = $state<{ tab: 'conditions' | 'ranking'; fields: readonly string[] }>();
+  let conditionsButton = $state<HTMLButtonElement>();
+  // The search bar's settings can hand off to this search's own.
+  onMount(() => {
+    searchPanels.resultsShown++;
+    return () => { searchPanels.resultsShown--; };
+  });
+  let handledSettingsRequest = searchPanels.openResultsSettings;
+  $effect(() => {
+    const request = searchPanels.openResultsSettings;
+    if (request === handledSettingsRequest) return;
+    handledSettingsRequest = request;
+    untrack(() => {
+      if (!conditionsButton || conditionsButton.disabled) return;
+      conditionsAnchor = conditionsButton;
+      conditionsInitialTab = 'conditions';
+      conditionsOpen = true;
+    });
+  });
   let conditionsInitialTab = $state<'conditions' | 'ranking'>('conditions');
   let conditionsAnchor = $state<HTMLButtonElement>();
   let conditionsPopover = $state<HTMLElement>();
@@ -781,6 +802,10 @@
     }
     return visible;
   });
+  // Preferences that some listed result misses are the ones deciding the tiers, which only exist under Relevance.
+  let missed = $derived(viewState.sortOrder === 'Relevance' && !genericMode && viewState.summary ? missCounts(viewState.summary.counters.otherMisses) : []);
+  let rankingConditions = $derived(missed.map(miss => miss.condition));
+  let otherMisses = $derived(missedPreferences(missed, conditions));
   let groupedTiers = $derived.by(() => {
     const rows = viewState.rows;
     const byPreference = viewState.sortOrder === 'Relevance' && !genericMode;
@@ -1006,7 +1031,7 @@
           </label>
           {@render sortDirection('inline')}
         {/if}
-        <button type="button" class:active={conditionsOpen} class="edit-conditions-button" aria-label="Filtering" title="Filtering" aria-expanded={conditionsOpen} disabled={configurationLoading || !baseline} onclick={(event) => { conditionsAnchor = event.currentTarget; conditionsInitialTab = 'conditions'; conditionsOpen = !conditionsOpen; }}>
+        <button type="button" bind:this={conditionsButton} class:active={conditionsOpen} class="edit-conditions-button" aria-label="Filtering" title="Filtering" aria-expanded={conditionsOpen} disabled={configurationLoading || !baseline} onclick={(event) => { conditionsAnchor = event.currentTarget; conditionsInitialTab = 'conditions'; conditionsOpen = !conditionsOpen; }}>
           <Icon name="sliders" />
         </button>
       </ResultFilterControl>
@@ -1035,13 +1060,20 @@
       {/snippet}
     </div>
     {#if viewState.draft}
-      <SearchConditionPills mode={viewState.draft.resultMode} bind:conditions />
+      <SearchConditionPills mode={viewState.draft.resultMode} bind:conditions ranking={rankingConditions}
+        onedit={pill => {
+          if (!conditionsButton || conditionsButton.disabled) return;
+          conditionsAnchor = conditionsButton;
+          conditionsInitialTab = pill.tab;
+          conditionsHighlight = { tab: pill.tab, fields: pill.fields };
+          conditionsOpen = true;
+        }} />
     {/if}
     {#if conditionsOpen && viewState.draft}
-      <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="popover-panel form search-config-popover results-config-popover" aria-label="Result search configuration" use:anchoredPopover={{ anchor: conditionsAnchor, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
-        <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="Search configuration"
+      <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="popover-panel form search-config-popover results-config-popover" aria-label="This search's settings" use:anchoredPopover={{ anchor: conditionsAnchor, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
+        <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="This search"
           profiles={{ value: viewProfileNames, onchange: names => viewProfileNames = names }}
-          loadDefaults={() => inheritedConditions!} initialTab={conditionsInitialTab} onclose={() => (conditionsOpen = false)} />
+          loadDefaults={() => inheritedConditions!} initialTab={conditionsInitialTab} highlight={conditionsHighlight} onclose={() => (conditionsOpen = false)} />
       </section>
     {/if}
   </div>
@@ -1121,11 +1153,19 @@
         {#if tier !== 'All' && (tier !== 'Other' || groupedTiers.some(group => group.tier === 'Preferred'))}
           <div class:preferred={tier === 'Preferred'} class="result-tier-heading">
             <span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span>
+            {#if tier === 'Other' && otherMisses.length}
+              <HelpPopover title="Other matches" icon="info" testId="other-matches-misses">
+                {#snippet children()}
+                  <span>These results miss at least one ranking preference:</span>
+                  <ul class="result-tier-misses">{#each otherMisses as line}<li>{line}</li>{/each}</ul>
+                {/snippet}
+              </HelpPopover>
+            {/if}
             {#if tier === 'Preferred'}
               <HelpPopover title="Preferred matches" testId="preferred-matches-help">
                 {#snippet children(close, anchor)}
                   <span>These results satisfy all your ranking conditions when using "Relevance" sorting. Other matches remain available below.</span>
-                  <span>Edit your preferences in your config, e.g. set <code>pref-format = flac</code> to prefer FLAC files. <ManualLink topic="fileConditions">How ranking works</ManualLink></span>
+                  <span>Edit your preferences in your config, e.g. set <code>pref-format = flac</code> to prefer FLAC files. <ManualLink topic="rankingAndFiltering">How ranking works</ManualLink></span>
                   <span><button type="button" class="text-link" data-testid="edit-search-preferences" disabled={configurationLoading || !baseline}
                     onclick={async () => {
                       conditionsAnchor = anchor;

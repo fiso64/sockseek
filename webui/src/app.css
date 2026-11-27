@@ -654,6 +654,18 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   font-size: 0.75rem;
   white-space: nowrap;
 }
+.result-condition-pills .ranking-order { align-self: center; margin-inline: -2px; color: var(--faint); font-size: 0.9rem; line-height: 1; }
+.search-condition-pill.ranking { background-color: transparent; box-shadow: inset 0 0 0 1px var(--border); color: var(--muted); }
+/* The label button covers the whole pill; only × sits above it. */
+.search-condition-pill:has(.search-condition-pill-edit) { position: relative; }
+.search-condition-pill .search-condition-pill-edit { position: static; padding: 0; border: 0; background: none; box-shadow: none; color: inherit; font: inherit; cursor: pointer; }
+.search-condition-pill .search-condition-pill-edit::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.search-condition-pill .search-condition-pill-edit:focus-visible { outline: none; }
+.search-condition-pill:has(.search-condition-pill-edit:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.search-condition-pill:has(.search-condition-pill-edit:hover) { box-shadow: inset 0 0 0 1px var(--accent); }
+/* × stays small but takes clicks well around it, over the pill-wide edit button. */
+.search-condition-pill [data-action="remove-condition"] { position: relative; z-index: 1; }
+.search-condition-pill [data-action="remove-condition"]::before { content: ''; position: absolute; inset: -8px -9px -8px -7px; }
 .search-condition-pill button {
   border: 0;
   padding: 0;
@@ -1186,33 +1198,40 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   margin-top: 9px;
   padding: 0 2px;
 }
-.result-filter-control .edit-conditions-button {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+/* Sort and filter controls are full-height segments of the bar, divided by
+   their left border, like the layout toggle in the main search bar. */
+.result-filter-control:has(> .edit-conditions-button) { padding-right: 0; overflow: hidden; }
+/* The sort segments only show on phones; see below. */
+.result-filter-control > .edit-conditions-button { display: grid; }
+.result-filter-control > :is(.edit-conditions-button, .result-sort-inline, .size-direction-button.inline) {
+  position: relative;
+  align-self: stretch;
+  width: 44px;
+  height: auto;
+  flex: none;
+  place-items: center;
   padding: 0;
-  margin-right: -7px;
-  border-radius: 6px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   color: var(--muted);
-  font-size: 0.76rem;
+  --app-icon-size: 18px;
 }
-.result-filter-control .edit-conditions-button:hover,
-.result-filter-control .edit-conditions-button.active { color: var(--text); background: var(--surface-raised); }
+.result-filter-control > :is(.edit-conditions-button, .result-sort-inline, .size-direction-button.inline)
+  + :is(.edit-conditions-button, .result-sort-inline, .size-direction-button.inline) { margin-left: -9px; }
+.result-filter-control > :is(.edit-conditions-button, .result-sort-inline, .size-direction-button.inline):is(:hover, :focus-within, .active) {
+  color: var(--text);
+  background: var(--surface-subtle);
+}
 .edit-conditions-button .app-icon { --app-icon-size: 18px; width: 18px; height: 18px; }
 /* The compact sort control only appears on narrow layouts, inside the filter bar. */
 .result-sort-inline, .size-direction-button.inline { display: none; }
 @media (max-width: 640px) {
   .result-sort-control { display: none; }
-  .result-sort-inline {
-    position: relative; width: 32px; height: 32px; flex: none;
-    display: grid; place-items: center; border-radius: 6px; color: var(--muted); --app-icon-size: 18px;
-  }
-  .result-sort-inline:is(:hover, :focus-within, .active) { color: var(--text); background: var(--surface-raised); }
+  .result-sort-inline, .size-direction-button.inline { display: grid; }
   .result-sort-inline select { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-  .size-direction-button.inline { display: grid; width: 32px; height: 32px; border: 0; background: transparent; box-shadow: none; }
 }
 .results-config-popover {
   position: fixed;
@@ -1275,6 +1294,7 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   font-weight: 600;
 }
 .result-tier-heading.preferred { color: var(--accent); }
+.result-tier-misses { margin: 0; padding-left: 18px; color: var(--text); }
 
 
 .result-tier { display: grid; gap: 10px; }
@@ -2500,6 +2520,16 @@ body:has(.floating-selection-actions) .app-notifications { bottom: calc(clamp(20
   body:has(.floating-selection-actions) .app-notifications { bottom: calc(14px + var(--tab-bar-height) + 56px); }
   .app-notification { width: auto; }
 }
+/* A pill's setting: a border zooms in around it, stays a moment, then fades. */
+.config-highlight { border-radius: 8px; outline: 2px solid transparent; animation: config-highlight 2.4s ease-out; }
+@keyframes config-highlight {
+  0% { outline-color: transparent; outline-offset: 16px; }
+  14%, 70% { outline-color: var(--accent); outline-offset: 3px; }
+  100% { outline-color: transparent; outline-offset: 3px; }
+}
+
+.search-config-notice { margin: 0 0 12px; color: var(--muted); font-size: .76rem; }
+.search-config-notice .text-link { padding: 0; font-size: inherit; }
 .mutation-status { display: inline-flex; align-items: baseline; gap: 7px; margin: 0 0 12px; color: var(--muted); font-size: 0.7rem; }
 .mutation-status small { color: var(--faint); }
 .mutation-status.pending { color: var(--accent); }

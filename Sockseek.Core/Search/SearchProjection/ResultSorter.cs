@@ -130,7 +130,9 @@ public static partial class ResultSorter
             bool bitrateMatch = preferredCond.BitrateSatisfies(input.BitRate);
             bool sampleRateMatch = preferredCond.SampleRateSatisfies(input.SampleRate);
             bool bitDepthMatch = preferredCond.BitDepthSatisfies(input.BitDepth);
-            bool preferredUserConditionsMet = preferredCond.UsernameSatisfies(input.Username);
+            bool notDownrankedUser = preferredCond.BannedUsernameSatisfies(input.Username);
+            bool preferredUser = preferredCond.AllowedUsernameSatisfies(input.Username);
+            bool preferredUserConditionsMet = notDownrankedUser && preferredUser;
 
             ResultRejection necessaryRejection = NecessaryRejection(input);
             bool qualityPreferencesMet = formatMatch && lengthToleranceMatch && bitrateMatch
@@ -164,7 +166,8 @@ public static partial class ResultSorter
             return new SortKey(
                 (peerFailureCount ?? PeerFailureCounts.GetValueOrDefault(input.Username, 0)) < Search.DownrankOn,
                 necessaryRejection == ResultRejection.None,
-                preferredUserConditionsMet,
+                notDownrankedUser,
+                preferredUser,
                 Search.AudioConditionsIgnored || (input.Length != null && input.Length > 0) || Search.PreferredCond.AcceptNoLength,
                 ignoreStringSortConditions || strictTitleMatch,
                 fuzzyTitleMatch,
@@ -297,7 +300,8 @@ public static partial class ResultSorter
         public SortKey(
             bool peerBelowFailureThreshold,
             bool necessaryConditionsMet,
-            bool preferredUserConditionsMet,
+            bool notDownrankedUser,
+            bool preferredUser,
             bool hasValidLength,
             bool strictTitleMatch,
             bool fuzzyTitleMatch,
@@ -326,10 +330,12 @@ public static partial class ResultSorter
             // Identity beats quality: an MP3 from the requested album outranks
             // a FLAC from an unrelated album. Album coverage uses this prefix too.
             // An unrequested version of the requested song still beats another song.
+            // Downranked users are a last resort, but a preferred user's wrong
+            // item never beats someone else's right one.
             var identity = BoolSortKey.CreateDescending()
                 .Then(peerBelowFailureThreshold)
                 .Then(necessaryConditionsMet)
-                .Then(preferredUserConditionsMet)
+                .Then(notDownrankedUser)
                 .Then(hasValidLength)
                 .Then(strictTitleMatch)
                 .Then(fuzzyTitleMatch)
@@ -344,6 +350,7 @@ public static partial class ResultSorter
                 .Then(true);
             AlbumBeforeQualityFlags = identity.Value;
             uint highFlags = identity
+                .Then(preferredUser)
                 .Then(formatMatch)
                 .Then(bitrateMatch)
                 .Then(sampleRateMatch)

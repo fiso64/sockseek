@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptySearchConditions } from '../src/domains/search/config-state';
-import { conditionPills, visibleFormatPills } from '../src/domains/search/applied-conditions';
+import { conditionPills, missedPreferences, rankingPills, visibleFormatPills } from '../src/domains/search/applied-conditions';
 import { readSearchConditions, rebaseSearchConditions, searchConditionsPatch, searchConditionsPatchForFamily, mergeSearchSettings, searchExpectedLength } from '../src/domains/search/config-mapping';
 
 describe('resolved search configuration edits', () => {
@@ -117,6 +117,22 @@ it('hides only the complete built-in music format set, retaining other filters a
   expect(conditionPills('track', conditions).length).toBeGreaterThan(0);
 });
 
+
+it('shows the ranking preferences the daemon applies, and removing one turns that preference off', () => {
+  const conditions = readSearchConditions({ preferredCond: { formats: { replace: ['flac'] }, strictAlbum: true, excludeLocked: true,
+    allowedUsers: { replace: ['friend'] }, bannedUsers: { replace: ['flaky'] } } });
+  // Ranking order: downranked users, matching, preferred users, then audio quality.
+  expect(rankingPills(['Format', 'Album', 'Username'], conditions).map(pill => pill.fields[0]))
+    .toEqual(['bannedUsers', 'strictAlbum', 'allowedUsers', 'formats']);
+  const pills = rankingPills(['Format', 'Album'], conditions);
+  expect(pills).toHaveLength(2);
+  for (const pill of pills) pill.remove();
+  expect(conditions.ranking.common.formats).toEqual([]);
+  expect(conditions.ranking.album.strictAlbum).toBe(false);
+  expect(conditions.ranking.common.excludeLocked).toBe(true);
+  const summary = missedPreferences([{ condition: 'Album', count: 12 }, { condition: 'Format', count: '31' }], conditions);
+  expect(summary.map(line => line.match(/\d+/)?.[0])).toEqual(['31', '12']);
+});
 
 it('keeps required, preferred and separate draft values independent', () => {
   const first = createEmptySearchConditions(), second = createEmptySearchConditions();

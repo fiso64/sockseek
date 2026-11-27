@@ -27,7 +27,7 @@ Sockseek 4.0 turns the daemon into a full Soulseek client with a WebUI. One-shot
 - **No format or quality is preferred by default.** 3.x preferred MP3 files between 200 and 2500 kbps, up to 48 kHz.
 - Peers are downranked after 2 failed downloads and ignored after 3, instead of 1 and 2.
 - **The daemon requires sign-in.** The remote CLI needs an API key, unless the daemon runs with `--no-auth`.
-- I honestly forgot.
+- Many ranking and other changes I honestly forgot. Who cares? It's better.
 
 ### Removed
 

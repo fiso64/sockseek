@@ -1200,7 +1200,21 @@ public sealed class SearchViewCoordinator : IHostedService, IAsyncDisposable
             counters.PreferredFileCount,
             counters.OtherFileCount,
             counters.TopLevelItemCount,
-            counters.SelectableOptionCount);
+            counters.SelectableOptionCount,
+            ToDto(counters.OtherMisses));
+
+    private static SearchPreferenceMissesDto ToDto(SearchPreferenceMisses misses)
+        => new(
+            misses[SearchPreferenceCondition.Format],
+            misses[SearchPreferenceCondition.Length],
+            misses[SearchPreferenceCondition.Bitrate],
+            misses[SearchPreferenceCondition.SampleRate],
+            misses[SearchPreferenceCondition.BitDepth],
+            misses[SearchPreferenceCondition.Title],
+            misses[SearchPreferenceCondition.Artist],
+            misses[SearchPreferenceCondition.Album],
+            misses[SearchPreferenceCondition.Username],
+            misses[SearchPreferenceCondition.ExcludeLocked]);
 
     private static SearchViewFileDto ToDto(SearchViewFile row)
         => new(

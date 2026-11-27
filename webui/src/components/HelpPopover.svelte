@@ -3,9 +3,11 @@
   import Icon from './Icon.svelte';
   import { anchoredMenu } from '../lib/anchored-menu';
 
-  let { title, testId, children }: {
+  let { title, testId, icon = 'help', children }: {
     title: string;
     testId: string;
+    /** "help" explains a feature; "info" shows details about what is on screen. */
+    icon?: 'help' | 'info';
     children: Snippet<[close: () => void, anchor: HTMLButtonElement]>;
   } = $props();
   const id = $props.id();
@@ -58,7 +60,7 @@
   <button bind:this={button} type="button" class="help-button" data-testid={testId}
     aria-label={`About ${title.toLowerCase()}`} aria-haspopup="dialog" aria-expanded={open}
     aria-controls={open ? id : undefined} onfocus={() => { cancelHover(); open = true; }}
-    onclick={() => { cancelHover(); pinned = !pinned; open = pinned; }}><Icon name="help" /></button>
+    onclick={() => { cancelHover(); pinned = !pinned; open = pinned; }}><Icon name={icon} /></button>
   {#if open}
     <span {id} role="dialog" aria-label={title} class="popover-panel help-panel" data-testid={`${testId}-content`}
       use:anchoredMenu={{ anchor: button, gap: 0, viewportMargin: 12 }}>

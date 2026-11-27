@@ -23679,6 +23679,103 @@
           "ExcludeLocked"
         ]
       },
+      "SearchPreferenceMissesDto": {
+        "required": [
+          "format",
+          "length",
+          "bitrate",
+          "sampleRate",
+          "bitDepth",
+          "title",
+          "artist",
+          "album",
+          "username",
+          "excludeLocked"
+        ],
+        "type": "object",
+        "properties": {
+          "format": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "length": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "bitrate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "sampleRate": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "bitDepth": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "title": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "artist": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "album": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "username": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "excludeLocked": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
       "SearchPreferenceTier": {
         "enum": [
           "Preferred",
@@ -24191,7 +24288,8 @@
           "preferredFileCount",
           "otherFileCount",
           "topLevelItemCount",
-          "selectableOptionCount"
+          "selectableOptionCount",
+          "otherMisses"
         ],
         "type": "object",
         "properties": {
@@ -24290,6 +24388,9 @@
               "string"
             ],
             "format": "int64"
+          },
+          "otherMisses": {
+            "$ref": "#/components/schemas/SearchPreferenceMissesDto"
           }
         }
       },

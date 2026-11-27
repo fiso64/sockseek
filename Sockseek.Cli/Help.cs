@@ -8,7 +8,7 @@ public static partial class Help
     {
         ["input"] = inputHelp,
         ["download-modes"] = downloadModesHelp,
-        ["file-conditions"] = fileConditionsHelp,
+        ["ranking-and-filtering"] = rankingAndFilteringHelp,
         ["name-format"] = nameFormatHelp,
         ["variables"] = variablesHelp,
         ["on-complete"] = onCompleteHelp,

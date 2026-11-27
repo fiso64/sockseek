@@ -13,7 +13,7 @@ sockseek "Song Title" -s
 sockseek "Artist - Song Title" -s
 ```
 
-The hyphen ` - ` determines what part of the input is the artist and title, which can be important for [ranking and filtering](../downloading/file-conditions.md) (see also [search string syntax](../downloading/inputs.md#search-string)).
+The hyphen ` - ` determines what part of the input is the artist and title, which can be important for [ranking and filtering](../downloading/ranking-and-filtering.md) (see also [search string syntax](../downloading/inputs.md#search-string)).
 
 ### Download an album
 
@@ -68,7 +68,7 @@ You can make it prefer lossless files while still accepting other formats when n
 sockseek "Artist - Album Title" --pref-format flac,wav
 ```
 
-To ban lossy files altogether, use `--format` instead of `--pref-format`. Note that format lists are unordered; `flac,wav` is equivalent to `wav,flac` and does not change the sorting. See [file conditions](../downloading/file-conditions.md) for more information about ranking and filtering downloads.
+To ban lossy files altogether, use `--format` instead of `--pref-format`. Note that format lists are unordered; `flac,wav` is equivalent to `wav,flac` and does not change the sorting. See [ranking and filtering](../downloading/ranking-and-filtering.md) for more information.
 
 ### Skipping existing items
 

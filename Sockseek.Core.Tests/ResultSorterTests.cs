@@ -11,7 +11,8 @@ namespace Tests.ResultSorterTests
         private static ResultSorter.SortKey Key(
             bool peerBelowFailureThreshold = false,
             bool necessaryConditionsMet = false,
-            bool preferredUserConditionsMet = false,
+            bool notDownrankedUser = false,
+            bool preferredUser = false,
             bool hasValidLength = false,
             bool strictTitleMatch = false,
             bool fuzzyTitleMatch = false,
@@ -37,7 +38,8 @@ namespace Tests.ResultSorterTests
             => new(
                 peerBelowFailureThreshold,
                 necessaryConditionsMet,
-                preferredUserConditionsMet,
+                notDownrankedUser,
+                preferredUser,
                 hasValidLength,
                 strictTitleMatch,
                 fuzzyTitleMatch,
@@ -121,7 +123,7 @@ namespace Tests.ResultSorterTests
             {
                 ("PeerBelowFailureThreshold", () => Key(peerBelowFailureThreshold: true)),
                 ("NecessaryConditionsMet", () => Key(necessaryConditionsMet: true)),
-                ("PreferredUserConditionsMet", () => Key(preferredUserConditionsMet: true)),
+                ("NotDownrankedUser", () => Key(notDownrankedUser: true)),
                 ("HasValidLength", () => Key(hasValidLength: true)),
                 ("StrictTitleMatch", () => Key(strictTitleMatch: true)),
                 ("FuzzyTitleMatch", () => Key(fuzzyTitleMatch: true)),
@@ -131,6 +133,7 @@ namespace Tests.ResultSorterTests
                 ("FuzzyArtistMatch", () => Key(fuzzyArtistMatch: true)),
                 ("NoUnrequestedVersionTag", () => Key(noUnrequestedVersionTag: true)),
                 ("LengthToleranceMatch", () => Key(lengthToleranceMatch: true)),
+                ("PreferredUser", () => Key(preferredUser: true)),
                 ("FormatMatch", () => Key(formatMatch: true)),
                 ("BitrateMatch", () => Key(bitrateMatch: true)),
                 ("SampleRateMatch", () => Key(sampleRateMatch: true)),
@@ -507,6 +510,29 @@ namespace Tests.ResultSorterTests
 
             Assert.AreEqual(2, ordered.Count);
             Assert.AreEqual("preferred", ordered[0].Username);
+        }
+
+        [TestMethod]
+        public void OrderedResults_MatchingBeatsPreferredUsersButNotDownrankedUsers()
+        {
+            var wrongTrack = TestHelpers.CreateSlFile("Music\\Other Song.mp3", bitrate: 320, length: 200);
+            var match = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);
+            var downrankedMatch = TestHelpers.CreateSlFile("Music\\Track.mp3", bitrate: 320, length: 200);
+            var results = new List<(SearchResponse, File)>
+            {
+                (CreateResponse("downranked", files: downrankedMatch), downrankedMatch),
+                (CreateResponse("preferred", files: wrongTrack), wrongTrack),
+                (CreateResponse("other", files: match), match),
+            };
+
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            config.Search.PreferredCond.AllowedUsers = ["preferred"];
+            config.Search.PreferredCond.BannedUsers = ["downranked"];
+            var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
+
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, new ConcurrentDictionary<string, int>()).ToList();
+
+            CollectionAssert.AreEqual(new[] { "other", "preferred", "downranked" }, ordered.Select(result => result.Username).ToArray());
         }
 
         [TestMethod]

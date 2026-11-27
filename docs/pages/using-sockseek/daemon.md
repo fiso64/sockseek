@@ -23,7 +23,7 @@ Open [http://127.0.0.1:5030](http://127.0.0.1:5030) and sign in as `admin` with 
 
 Use the main search bar to inspect results and choose the files or folder you want. For an album, try `Artist - Album Title`. Group modes collect related songs or albums so you can compare the versions offered by different peers. Filtering a results page works on the responses already received. You can change the filter after the search finishes.
 
-For an automatic download, create a download job. Sockseek can take a search string, a playlist, a CSV, or a list and pick matches using your [file conditions](../downloading/file-conditions.md). Required conditions decide which results qualify. Preferred conditions help choose among the qualifying results. For CSV and list inputs, upload the file from your browser or enter a path on the daemon machine. Downloads are saved on that machine in either case. See [download modes](../downloading/download-modes.md) and [supported inputs](../downloading/inputs.md) for examples.
+For an automatic download, create a download job. Sockseek can take a search string, a playlist, a CSV, or a list and pick matches using your [file conditions](../downloading/ranking-and-filtering.md). Required conditions decide which results qualify. Preferred conditions help choose among the qualifying results. For CSV and list inputs, upload the file from your browser or enter a path on the daemon machine. Downloads are saved on that machine in either case. See [download modes](../downloading/download-modes.md) and [supported inputs](../downloading/inputs.md) for examples.
 
 ![Downloads in progress](../screenshots/downloads.png)
 

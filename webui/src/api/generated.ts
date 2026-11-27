@@ -13527,6 +13527,28 @@ export interface components {
         SearchDefaultProjectionKind: "GenericFile" | "Track" | "Album" | null;
         /** @enum {unknown} */
         SearchPreferenceCondition: "Format" | "Length" | "Bitrate" | "SampleRate" | "BitDepth" | "Title" | "Artist" | "Album" | "Username" | "ExcludeLocked";
+        SearchPreferenceMissesDto: {
+            /** Format: int64 */
+            format: number | string;
+            /** Format: int64 */
+            length: number | string;
+            /** Format: int64 */
+            bitrate: number | string;
+            /** Format: int64 */
+            sampleRate: number | string;
+            /** Format: int64 */
+            bitDepth: number | string;
+            /** Format: int64 */
+            title: number | string;
+            /** Format: int64 */
+            artist: number | string;
+            /** Format: int64 */
+            album: number | string;
+            /** Format: int64 */
+            username: number | string;
+            /** Format: int64 */
+            excludeLocked: number | string;
+        };
         /** @enum {unknown} */
         SearchPreferenceTier: "Preferred" | "Other";
         SearchRawResultDto: {
@@ -13657,6 +13679,7 @@ export interface components {
             topLevelItemCount: number | string;
             /** Format: int64 */
             selectableOptionCount: number | string;
+            otherMisses: components["schemas"]["SearchPreferenceMissesDto"];
         };
         SearchViewDefinitionDto: {
             /** Format: uuid */

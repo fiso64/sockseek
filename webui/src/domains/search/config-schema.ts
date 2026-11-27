@@ -18,16 +18,17 @@ export interface SearchConfigFieldDefinition {
 }
 
 const artistMatchHelp = [
-  'Peers can return a path with the search words in different places. This match looks for the artist’s name as a contiguous string anywhere in the path.',
-  'Casing, underscores, spaces and special strings are ignored when comparing.',
+  'The artist’s name must appear in the path with a boundary on each side: a space, punctuation such as - . , ( ) [ ], or the start or end of a name.',
+  '“Joe Yamanaka” matches “Joe Yamanaka - Best” but not “Joe Yamanakas”. Casing and accents are ignored.',
 ] as const;
 
 const titleMatchHelp = [
-  'Like the artist match option above, but for the track title. Matches only against the filename instead of full path.',
+  'Like the artist match above, but for the track title, and only in the filename.',
 ] as const;
 
 const albumMatchHelp = [
-  'Like the artist match option above, but for the album name.',
+  'The album name must appear in a folder name with a boundary on each side: punctuation such as - . , ( ) [ ], or the start or end of the name. Unlike the artist match, a space alone is not a boundary, except after a number such as a year.',
+  'For “Ashita no Joe”, “Artist - Ashita no Joe [FLAC]” and “1980 Ashita no Joe” match, but “Ashita no Joe 2 Soundtrack” does not. Casing and accents are ignored.',
 ] as const;
 
 // TODO: Consider moving some matching and other options to an "advanced" (maybe collapsed) part of the search config panel.
@@ -70,18 +71,18 @@ export const SEARCH_CONFIG_FIELDS = {
   },
   strictArtist: {
     id: 'strictArtist', modes: ['track', 'album', 'song-groups', 'album-groups'], relationship: 'paired',
-    conditions: { label: 'Require artist name in path', section: 'matching', help: artistMatchHelp },
-    ranking: { label: 'Prefer artist name in path', section: 'matching', help: artistMatchHelp },
+    conditions: { label: 'Require exact artist name in path', section: 'matching', help: artistMatchHelp },
+    ranking: { label: 'Prefer exact artist name in path', section: 'matching', help: artistMatchHelp },
   },
   strictTitle: {
     id: 'strictTitle', modes: ['track', 'song-groups'], relationship: 'paired',
-    conditions: { label: 'Require track title in filename', section: 'matching', help: titleMatchHelp },
-    ranking: { label: 'Prefer track title in filename', section: 'matching', help: titleMatchHelp },
+    conditions: { label: 'Require exact track title in filename', section: 'matching', help: titleMatchHelp },
+    ranking: { label: 'Prefer exact track title in filename', section: 'matching', help: titleMatchHelp },
   },
   strictAlbum: {
     id: 'strictAlbum', modes: ['album', 'album-groups'], relationship: 'paired',
-    conditions: { label: 'Require album name in folder path', section: 'matching', help: albumMatchHelp },
-    ranking: { label: 'Prefer album name in folder path', section: 'matching', help: albumMatchHelp },
+    conditions: { label: 'Require exact album name in folder path', section: 'matching', help: albumMatchHelp },
+    ranking: { label: 'Prefer exact album name in folder path', section: 'matching', help: albumMatchHelp },
   },
   expectedLength: {
     id: 'expectedLength', modes: ['track', 'song-groups'], relationship: 'conditions-only',

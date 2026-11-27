@@ -1129,8 +1129,8 @@ for (const { mode, shape } of [
     await page.getByRole('button', { name: /Search result mode:.*Choose mode/ }).click();
     await page.getByRole('menuitemradio', { name: mode.label, exact: true }).click();
     if (singlePeer && mode.kind === 'AlbumGroups') {
-      await page.getByRole('button', { name: 'Search configuration', exact: true }).click();
-      const panel = page.getByRole('region', { name: 'Search configuration', exact: true });
+      await page.getByRole('button', { name: 'New search settings', exact: true }).click();
+      const panel = page.getByRole('region', { name: 'New search settings', exact: true });
       await panel.getByLabel('Minimum sharers').fill('1');
       await panel.getByRole('button', { name: 'Close search configuration', exact: true }).click();
     }
