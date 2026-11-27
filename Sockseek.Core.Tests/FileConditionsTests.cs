@@ -392,6 +392,31 @@ namespace Tests.FileConditionsTests
         }
 
         [TestMethod]
+        [DataRow(@"Music\Led Zeppelin\Led Zeppelin (1969)\01 - Good Times Bad Times.flac", true)]
+        [DataRow(@"Music\Led Zeppelin\1969 - Led Zeppelin - Led Zeppelin [FLAC]\CD1\01 - Good Times Bad Times.flac", true)]
+        [DataRow(@"Music\Led Zeppelin\Led Zeppelin II (1969)\01 - Whole Lotta Love.flac", false)]
+        [DataRow(@"Music\Led Zeppelin\Led Zeppelin - 2\01 - Whole Lotta Love.flac", false)]
+        [DataRow(@"Music\Led Zeppelin\Led Zeppelin - Houses of the Holy (1973)\01 - The Song Remains the Same.flac", false)]
+        [DataRow(@"Music\Led Zeppelin\Presence\01 - Achilles Last Stand.flac", false)]
+        public void StrictAlbumTrue_SelfTitled_FolderMustNameNothingElse(string path, bool expected)
+        {
+            var fc = new FileConditions { StrictAlbum = true };
+            Assert.AreEqual(expected, fc.StrictAlbumSatisfies(path, "Led Zeppelin", "Led Zeppelin"));
+            Assert.IsTrue(fc.StrictAlbumSatisfies(path, "Led Zeppelin"), "Without an artist the name is matched anywhere in the path.");
+        }
+
+        [TestMethod]
+        [DataRow("01 - Iron Maiden.flac", true)]
+        [DataRow("Iron Maiden - Iron Maiden - 1-08 - Iron Maiden (1998 Remaster).flac", true)]
+        [DataRow("Iron Maiden - Killers - 11 - Drifter.flac", false)]
+        [DataRow("Iron Maiden - Iron Maiden - 02 - Remember Tomorrow.flac", false)]
+        public void StrictTitleTrue_SelfTitled_FilenameMustNameNothingElse(string filename, bool expected)
+        {
+            var fc = new FileConditions { StrictTitle = true };
+            Assert.AreEqual(expected, fc.StrictTitleSatisfies(@"Music\Iron Maiden\Album\" + filename, "Iron Maiden", artist: "Iron Maiden"));
+        }
+
+        [TestMethod]
         public void StrictAlbumTrue_FuzzyPunctuationOnlyMatch_ReturnsFalse()
         {
             var fc = new FileConditions { StrictAlbum = true };

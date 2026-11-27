@@ -264,7 +264,7 @@ internal static class ConditionSatisfactionPolicy
         return true;
     }
 
-    private static bool SearchResultsLikelyContainCompleteAlbumFolders(AlbumQuery query, SearchSettings search)
+    internal static bool SearchResultsLikelyContainCompleteAlbumFolders(AlbumQuery query, SearchSettings search)
     {
         if (query.SearchHint.Length == 0)
             return true;

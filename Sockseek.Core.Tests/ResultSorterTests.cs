@@ -13,13 +13,13 @@ namespace Tests.ResultSorterTests
             bool necessaryConditionsMet = false,
             bool preferredUserConditionsMet = false,
             bool hasValidLength = false,
-            bool bracketCheckPassed = false,
             bool strictTitleMatch = false,
             bool fuzzyTitleMatch = false,
             bool strictAlbumMatch = false,
             bool fuzzyAlbumMatch = false,
             bool strictArtistMatch = false,
             bool fuzzyArtistMatch = false,
+            bool noUnrequestedVersionTag = false,
             bool lengthToleranceMatch = false,
             bool formatMatch = false,
             bool bitrateMatch = false,
@@ -39,13 +39,13 @@ namespace Tests.ResultSorterTests
                 necessaryConditionsMet,
                 preferredUserConditionsMet,
                 hasValidLength,
-                bracketCheckPassed,
                 strictTitleMatch,
                 fuzzyTitleMatch,
                 strictAlbumMatch,
                 fuzzyAlbumMatch,
                 strictArtistMatch,
                 fuzzyArtistMatch,
+                noUnrequestedVersionTag,
                 lengthToleranceMatch,
                 formatMatch,
                 bitrateMatch,
@@ -123,13 +123,13 @@ namespace Tests.ResultSorterTests
                 ("NecessaryConditionsMet", () => Key(necessaryConditionsMet: true)),
                 ("PreferredUserConditionsMet", () => Key(preferredUserConditionsMet: true)),
                 ("HasValidLength", () => Key(hasValidLength: true)),
-                ("BracketCheckPassed", () => Key(bracketCheckPassed: true)),
                 ("StrictTitleMatch", () => Key(strictTitleMatch: true)),
                 ("FuzzyTitleMatch", () => Key(fuzzyTitleMatch: true)),
                 ("StrictAlbumMatch", () => Key(strictAlbumMatch: true)),
                 ("FuzzyAlbumMatch", () => Key(fuzzyAlbumMatch: true)),
                 ("StrictArtistMatch", () => Key(strictArtistMatch: true)),
                 ("FuzzyArtistMatch", () => Key(fuzzyArtistMatch: true)),
+                ("NoUnrequestedVersionTag", () => Key(noUnrequestedVersionTag: true)),
                 ("LengthToleranceMatch", () => Key(lengthToleranceMatch: true)),
                 ("FormatMatch", () => Key(formatMatch: true)),
                 ("BitrateMatch", () => Key(bitrateMatch: true)),
@@ -253,51 +253,75 @@ namespace Tests.ResultSorterTests
         }
 
         [TestMethod]
-        public void CheapBracketCheck_DownranksBracketedFilename_WhenQueryHasNoBrackets()
+        public void OrderedResults_DownranksUnrequestedVersions_BelowTitleMatch()
         {
-            var clean = TestHelpers.CreateSlFile("Music\\Artist\\Track.mp3", bitrate: 320, length: 200);
-            var remix = TestHelpers.CreateSlFile("Music\\Artist\\Track (Remix).mp3", bitrate: 320, length: 200);
-            var cleanResponse = CreateResponse("clean", files: clean);
-            var remixResponse = CreateResponse("remix", files: remix);
-            var results = new List<(SearchResponse, File)> { (remixResponse, remix), (cleanResponse, clean) };
-
+            var paths = new[]
+            {
+                "Music\\Artist\\Live at Somewhere\\Track.mp3",
+                "Music\\Artist\\Album\\Track (tommy hardcore REdrum).mp3",
+                "Music\\Artist\\Album\\Track - Some Remix.mp3",
+                "Music\\Artist\\Album\\Other Song.mp3",
+                "Music\\Artist\\Album\\Track.mp3",
+            };
+            var results = paths.Select((path, i) =>
+            {
+                var file = TestHelpers.CreateSlFile(path, bitrate: 320, length: 200);
+                return (CreateResponse($"user{i}", uploadSpeed: 1000 - i, files: file), file);
+            }).ToList();
             var config = TestHelpers.CreateDefaultSettings().Download;
-            var counts = new ConcurrentDictionary<string, int>();
             var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
 
-            var ordered = TestHelpers.OrderResults(
-                results,
-                track,
-                config.Search,
-                counts).ToList();
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, new ConcurrentDictionary<string, int>());
 
-            Assert.AreEqual("clean", ordered[0].Username);
+            Assert.AreEqual("user4", ordered[0].Username);
+            Assert.AreEqual("user3", ordered[^1].Username, "Another song ranks below every version of the requested one.");
         }
 
         [TestMethod]
-        public void CheapBracketCheck_AllowsBracketedFilename_WhenQueryHasBrackets()
+        public void UnrequestedVersionTags_AllowsWhatTheQueryNames()
         {
-            var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track (Remix)");
-
-            Assert.IsTrue(ResultSorter.CheapBracketCheck(track, "Music\\Artist\\Track (Remix).mp3"));
+            Assert.IsFalse(new ResultSorter.UnrequestedVersionTags(TestHelpers.CreateQuery(artist: "Artist", title: "Track (Remix)"))
+                .Present("Music\\Artist\\Track (Remix).mp3"));
+            Assert.IsFalse(new ResultSorter.UnrequestedVersionTags(TestHelpers.CreateQuery(artist: "Live", title: "Lightning Crashes"))
+                .Present("Music\\Live\\Throwing Copper\\05 - Live - Lightning Crashes.mp3"));
+            var track = new ResultSorter.UnrequestedVersionTags(TestHelpers.CreateQuery(artist: "Artist", title: "Track"));
+            Assert.IsFalse(track.Present("Music\\Artist\\(01) Track.mp3"));
+            Assert.IsFalse(track.Present("Music\\Artist\\[1-07] Track.mp3"));
+            Assert.IsFalse(track.Present("Music\\Artist\\Track (feat. Guest).mp3"));
+            Assert.IsFalse(track.Present("Music\\Artist\\Track [ft. Guest].mp3"));
         }
 
         [TestMethod]
-        public void CheapBracketCheck_IgnoresLeadingBracketedTrackNumber()
+        [DataRow("Track (1960).mp3", false)]
+        [DataRow("Track [THGO-009].mp3", false)]
+        [DataRow("Track (TIRCD001) [M3-57].mp3", false)]
+        [DataRow("Track (1960) (Live).mp3", true)]
+        [DataRow("Track (Remastered 2011).mp3", true)]
+        public void UnrequestedVersionTags_IgnoresBracketedNumbersAndCatalogueNumbers(string filename, bool present)
         {
-            var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
-
-            Assert.IsTrue(ResultSorter.CheapBracketCheck(track, "Music\\Artist\\(01) Track.mp3"));
-            Assert.IsTrue(ResultSorter.CheapBracketCheck(track, "Music\\Artist\\[1-07] Track.mp3"));
+            var track = new ResultSorter.UnrequestedVersionTags(TestHelpers.CreateQuery(artist: "Artist", title: "Track"));
+            Assert.AreEqual(present, track.Present("Music\\Artist\\Album\\" + filename));
         }
 
         [TestMethod]
-        public void CheapBracketCheck_IgnoresFeaturedArtistBrackets()
+        public void OrderedResults_SelfTitledSong_RequiresFilenameToNameNothingElse()
         {
-            var track = TestHelpers.CreateQuery(artist: "Artist", title: "Track");
+            var other = TestHelpers.CreateSlFile(
+                "Music\\Black Sabbath\\Sabbath Bloody Sabbath\\Black Sabbath - Sabbath Bloody Sabbath - 02 - A National Acrobat.flac",
+                bitrate: 1000, length: 376);
+            var song = TestHelpers.CreateSlFile(
+                "Music\\Black Sabbath\\Black Sabbath (1970)\\Black Sabbath - Black Sabbath - 01 - Black Sabbath.mp3", bitrate: 320, length: 378);
+            var results = new List<(SearchResponse, File)>
+            {
+                (CreateResponse("other", uploadSpeed: 100000, files: other), other),
+                (CreateResponse("song", uploadSpeed: 10, files: song), song),
+            };
+            var config = TestHelpers.CreateDefaultSettings().Download;
+            var track = TestHelpers.CreateQuery(artist: "Black Sabbath", title: "Black Sabbath", length: 378);
 
-            Assert.IsTrue(ResultSorter.CheapBracketCheck(track, "Music\\Artist\\Track (feat. Guest).mp3"));
-            Assert.IsTrue(ResultSorter.CheapBracketCheck(track, "Music\\Artist\\Track [ft. Guest].mp3"));
+            var ordered = TestHelpers.OrderResults(results, track, config.Search, new ConcurrentDictionary<string, int>());
+
+            Assert.AreEqual("song", ordered[0].Username);
         }
 
         [TestMethod]

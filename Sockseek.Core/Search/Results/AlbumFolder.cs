@@ -15,12 +15,22 @@ public class AlbumFolder
     public AlbumAudioQualityCoverage SearchAudioQualityCoverage { get; }
     public bool HasSearchMetadata { get; }
     public bool IsFullyRetrieved { get; set; }
-    internal ResultSorter.SortEntry? SearchGroupSortEntry { get; }
+    internal ResultSorter.SortEntry? SearchGroupSortEntry { get; private set; }
 
     // Search metadata reads share admitted facts. Files remains the explicit
     // execution/CLI conversion, with independent lazy queries per snapshot.
     internal IReadOnlyList<ProjectedFileCandidate>? ProjectionFiles { get; }
-    internal ProjectedFileCandidate? BestProjectionFile { get; }
+    internal ProjectedFileCandidate? BestProjectionFile { get; private set; }
+
+    // The same folder, ranked as holding fewer tracks than most peers share.
+    internal AlbumFolder AsIncomplete()
+    {
+        if (SearchGroupSortEntry is not { } entry) return this;
+        var folder = (AlbumFolder)MemberwiseClone();
+        folder.SearchGroupSortEntry = entry with { Key = entry.Key.ForIncompleteFolder() };
+        folder.BestProjectionFile = BestProjectionFile?.ForIncompleteFolder();
+        return folder;
+    }
 
     public PeerDirectoryIdentity DirectoryIdentity => new(Username, FolderPath);
 

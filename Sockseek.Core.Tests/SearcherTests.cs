@@ -662,6 +662,53 @@ namespace Tests.Unit
             }
         }
 
+        private static (SearchResponse Response, Soulseek.File File)[] AlbumPeer(string user, int tracks, int uploadSpeed)
+        {
+            var files = Enumerable.Range(1, tracks).Select(i =>
+                TestHelpers.CreateSlFile($@"Music\Artist\Album\{i:D2} - Track {i}.mp3", bitrate: 320, length: 180)).ToArray();
+            var response = new SearchResponse(user, 1, true, uploadSpeed, 0, files);
+            return files.Select(file => (response, file)).ToArray();
+        }
+
+        [TestMethod]
+        public void AlbumFolders_RankFoldersBelowTheCommonTrackCountAfterCompleteOnes()
+        {
+            var query = new AlbumQuery { Artist = "Artist", Album = "Album" };
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            var fragment = AlbumPeer("fragment", 2, 10_000_000);
+            var complete = AlbumPeer("complete1", 12, 1000).Concat(AlbumPeer("complete2", 12, 1000)).ToArray();
+            var incremental = new IncrementalAlbumFolderProjector(query, search, new ConcurrentDictionary<string, int>());
+
+            AlbumFolderProjectionChanges first = incremental.AddRangeAndGetChanges(fragment);
+            AlbumFolderProjectionChanges second = incremental.AddRangeAndGetChanges(complete);
+
+            Assert.AreEqual("fragment", first.Folders[0].Username);
+            Assert.AreEqual("fragment", second.Folders[^1].Username);
+            Assert.IsTrue(second.Updated.Any(folder => folder.Username == "fragment"),
+                "A moved reference republishes the folder it re-ranks.");
+            CollectionAssert.AreEqual(
+                SearchResultProjector.AlbumFolders(fragment.Concat(complete), query, search).Select(folder => folder.Username).ToList(),
+                second.Folders.Select(folder => folder.Username).ToList());
+        }
+
+        [TestMethod]
+        [DataRow(null, "deluxe")]
+        [DataRow(12, "standard")]
+        public void AlbumFolders_TrackCountReferenceStaysWithinRequestedBounds(int? maxTrackCount, string expectedFirst)
+        {
+            var query = new AlbumQuery { Artist = "Artist", Album = "Album" };
+            var search = TestHelpers.CreateDefaultSettings().Download.Search;
+            search.NecessaryFolderCond.MaxTrackCount = maxTrackCount;
+            var results = AlbumPeer("standard1", 12, 2000).Concat(AlbumPeer("standard2", 12, 1000))
+                .Concat(AlbumPeer("deluxe1", 14, 2000)).Concat(AlbumPeer("deluxe2", 14, 1000)).Concat(AlbumPeer("deluxe3", 14, 1000))
+                .Concat(AlbumPeer("fragment", 2, 20_000_000)).ToArray();
+
+            List<AlbumFolder> folders = SearchResultProjector.AlbumFolders(results, query, search);
+
+            Assert.IsTrue(folders.Take(2).All(folder => folder.Username.StartsWith(expectedFirst)));
+            Assert.IsTrue(folders.FindIndex(folder => folder.Username == "fragment") >= 2);
+        }
+
         [TestMethod]
         public void IncrementalAlbumFolders_MergesParentAndChildDirectories_WhenParentArrivesLast()
         {

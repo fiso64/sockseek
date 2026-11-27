@@ -182,19 +182,22 @@ namespace Sockseek.Core.Models;
                 : !BitrateSatisfies(file.Bitrate) ? ResultRejection.Bitrate
                 : !SampleRateSatisfies(file.SampleRate) ? ResultRejection.SampleRate
                 : !BitDepthSatisfies(file.BitDepth) ? ResultRejection.BitDepth
-                : filenameChecks && !StrictTitleSatisfies(file.Path, title) ? ResultRejection.StrictTitle
+                : filenameChecks && !StrictTitleSatisfies(file.Path, title, artist: artist) ? ResultRejection.StrictTitle
                 : filenameChecks && !StrictArtistSatisfies(file.Path, artist) ? ResultRejection.StrictArtist
-                : filenameChecks && !StrictAlbumSatisfies(file.Path, album) ? ResultRejection.StrictAlbum
+                : filenameChecks && !StrictAlbumSatisfies(file.Path, album, artist) ? ResultRejection.StrictAlbum
                 : checkUser && !UsernameSatisfies(username) ? ResultRejection.User
                 : ResultRejection.None;
         }
 
-        public bool StrictTitleSatisfies(string fname, string tname, bool noPath = true)
+        public bool StrictTitleSatisfies(string fname, string tname, bool noPath = true, string artist = "")
         {
             if (!StrictTitle || tname.Length == 0)
                 return true;
 
             fname = noPath ? Utils.GetFileNameWithoutExtSlsk(fname) : fname;
+            if (noPath && QueryMatching.NamesArtist(tname, artist))
+                return SelfTitledTitleMatches(StrictStringPreprocess(fname),
+                    QueryMatching.Titles(tname).Select(title => StrictStringPreprocess(title, removeSlash: true)).ToArray());
             return Utils.HasFeatureCredit(tname)
                 ? StrictStringAny(fname, QueryMatching.Titles(tname))
                 : StrictString(fname, tname, diacrRemove: true, ignoreCase: true);
@@ -213,12 +216,81 @@ namespace Sockseek.Core.Models;
                 : StrictString(fname, aname, diacrRemove: true, ignoreCase: true, boundarySkipWs: false);
         }
 
-        public bool StrictAlbumSatisfies(string fname, string alname)
+        public bool StrictAlbumSatisfies(string fname, string alname, string artist = "")
         {
             if (!StrictAlbum || alname.Length == 0)
                 return true;
+            if (QueryMatching.NamesArtist(alname, artist))
+                return SelfTitledAlbumMatches(fname, StrictStringPreprocess(alname, removeSlash: true));
 
             return StrictString(Utils.GetDirectoryNameSlsk(fname), alname, diacrRemove: true, ignoreCase: true, boundarySkipWs: true);
+        }
+
+        // Self-titled requests ("Black Sabbath" by Black Sabbath): every path naming the
+        // artist contains the name, so the file name or album folder must say nothing else.
+        internal static bool SelfTitledTitleMatches(string preparedFilenameNoExt, string[] preparedTitles)
+        {
+            foreach (string title in preparedTitles)
+                if (IsOnlyName(preparedFilenameNoExt, title, ignoreShortNumbers: true))
+                    return true;
+            return false;
+        }
+
+        internal static bool SelfTitledAlbumMatches(string filename, string preparedAlbum)
+            => SelfTitledAlbumFolderMatches(SelfTitledAlbumFolder(filename), preparedAlbum);
+
+        // The folder holding the file; a disc folder defers to the album folder above it.
+        internal static ReadOnlySpan<char> SelfTitledAlbumFolder(string filename)
+            => SearchResultProjector.AlbumDirectoryPath(filename.AsSpan(), combineDiscs: true);
+
+        internal static bool SelfTitledAlbumFolderMatches(ReadOnlySpan<char> folder, string preparedAlbum)
+        {
+            folder = folder[(Math.Max(folder.LastIndexOf('\\'), folder.LastIndexOf('/')) + 1)..];
+            return IsOnlyName(StrictStringPreprocess(folder.ToString()), preparedAlbum, ignoreShortNumbers: false);
+        }
+
+        // Whether the text names nothing but the given name. Bracketed text, punctuation and
+        // years never count. Other numbers do ("Led Zeppelin 2"), except short ones in file
+        // names, where they are track and disc numbers.
+        private static bool IsOnlyName(string prepared, string preparedName, bool ignoreShortNumbers)
+        {
+            if (preparedName.Length == 0)
+                return false;
+            bool found = false;
+            char first = char.ToUpperInvariant(preparedName[0]);
+            for (int i = 0; i < prepared.Length;)
+            {
+                char c = prepared[i];
+                if (c is '(' or '[' or '{' && prepared.IndexOf(c == '(' ? ')' : c == '[' ? ']' : '}', i + 1) is > 0 and int close)
+                {
+                    i = close + 1;
+                }
+                else if (char.ToUpperInvariant(c) == first
+                    && prepared.AsSpan(i).StartsWith(preparedName, StringComparison.OrdinalIgnoreCase))
+                {
+                    found = true;
+                    i += preparedName.Length;
+                }
+                else if (char.IsDigit(c))
+                {
+                    int start = i;
+                    while (i < prepared.Length && char.IsDigit(prepared[i]))
+                        i++;
+                    int digits = i - start;
+                    bool year = digits == 4 && prepared.AsSpan(start, 2) is "19" or "20";
+                    if (!year && !(ignoreShortNumbers && digits <= 3))
+                        return false;
+                }
+                else if (char.IsLetter(c))
+                {
+                    return false;
+                }
+                else
+                {
+                    i++;
+                }
+            }
+            return found;
         }
 
         // Equivalent to: replace '_' and Windows-invalid chars (optionally also '/' and '\') with spaces,

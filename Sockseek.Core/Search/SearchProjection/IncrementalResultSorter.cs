@@ -43,6 +43,9 @@ public sealed record ProjectedFileCandidate(
         return facts == ConditionFacts ? this : this with { ConditionFacts = facts,
             SortKey = SortKey.WithoutLockedPreference() };
     }
+
+    internal ProjectedFileCandidate ForIncompleteFolder()
+        => this with { SortKey = SortKey.WithoutCompleteFolder() };
 }
 
 public readonly record struct SearchProjectionSortKey(
@@ -53,17 +56,22 @@ public readonly record struct SearchProjectionSortKey(
     int BitRate,
     int StableTieBreaker) : IComparable<SearchProjectionSortKey>
 {
-    // Availability follows the sixteen identity/quality flags. Construction and
-    // folder adjustment share these positions; neither reevaluates conditions.
-    private const uint UnlockedPreference = 1u << 15;
-    private const uint AllPreferences = 1u << 14;
-    private const uint FreeSlot = 1u << 13;
+    // The thirteenth identity flag, then four quality flags, then availability.
+    // Construction and folder adjustment share these positions; neither
+    // reevaluates conditions.
+    internal const uint CompleteFolder = 1u << 19;
+    private const uint UnlockedPreference = 1u << 14;
+    private const uint AllPreferences = 1u << 13;
+    private const uint FreeSlot = 1u << 12;
 
     internal static uint AvailabilityFlags(bool unlocked, bool allPreferences, bool freeSlot)
         => (unlocked ? UnlockedPreference : 0) | (allPreferences ? AllPreferences : 0) | (freeSlot ? FreeSlot : 0);
 
     internal SearchProjectionSortKey WithoutLockedPreference()
         => this with { HighFlags = HighFlags & ~(UnlockedPreference | AllPreferences) };
+
+    internal SearchProjectionSortKey WithoutCompleteFolder()
+        => this with { HighFlags = HighFlags & ~CompleteFolder };
 
     // Larger keys rank better. Result lists reverse this comparison.
     public int CompareTo(SearchProjectionSortKey other)

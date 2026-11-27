@@ -110,7 +110,8 @@ public static partial class SearchResultProjector
             sortMode,
             enforceMinimumTrackCount);
         List<EvaluatedAlbumProjectionInput> evaluated = plan.EvaluateToList(rawResults, rejections);
-        return plan.ProjectEvaluatedResults(evaluated, rejections);
+        List<AlbumFolder> folders = plan.ProjectEvaluatedResults(evaluated, rejections);
+        return sortMode == FolderSortMode.AlbumRanked ? AlbumTrackCountConsensus.Rank(folders, query, search) : folders;
     }
 
     // All callers supply admitted rows with their original condition/ranking

@@ -21,6 +21,11 @@ internal static class QueryMatching
             : [title];
     }
 
+    // A title or album that is (part of) the artist's name appears in every path
+    // that names the artist, so finding it there says nothing about the file.
+    public static bool NamesArtist(string value, string artist)
+        => value.Length > 0 && artist.ContainsWithBoundary(value, ignoreCase: true);
+
     public static bool GroupIdentityMatches(SongQuery candidate, SongQuery query)
     {
         if (query.Title.Length > 0 && !FileConditions.StrictStringAny(candidate.Title, Titles(query.Title)))

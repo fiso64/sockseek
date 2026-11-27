@@ -36,10 +36,13 @@ public static partial class ResultSorter
         private readonly string fuzzyAlbum;
         private readonly FileConditions necessaryCond;
         private readonly FileConditions preferredCond;
-        private readonly bool queryTitleAllowsBrackets;
+        private readonly UnrequestedVersionTags versionTags;
+        private readonly bool titleNamesArtist;
+        private readonly bool albumNamesArtist;
         private readonly bool ignoreStringSortConditions;
         private readonly Func<SearchProjectionInput, ResultRejection>? necessaryConditionEvaluator;
         private Dictionary<string, string>? strictDirectoryNames;
+        private Dictionary<string, bool>? selfTitledAlbumFolders;
         private Dictionary<string, string>? fuzzyDirectoryNames;
 
         public SortKeyContext(
@@ -64,7 +67,9 @@ public static partial class ResultSorter
             // Ranking may ignore strings; public facts must retain every configured
             // preference. Preserve the existing frozen settings for that ranking mode.
             preferredCond = ignoreStringSortConditions ? new FileConditions(search.PreferredCond) : search.PreferredCond;
-            queryTitleAllowsBrackets = query.Title.RemoveFt().Replace('[', '(').Contains('(');
+            versionTags = new UnrequestedVersionTags(query);
+            titleNamesArtist = QueryMatching.NamesArtist(query.Title, query.Artist);
+            albumNamesArtist = QueryMatching.NamesArtist(query.Album, query.Artist);
         }
 
         public SongQuery Query { get; }
@@ -100,13 +105,17 @@ public static partial class ResultSorter
             // Reuse exact string checks for facts and ranking tie-breakers.
             bool? albumStringMatch = null;
             bool? artistStringMatch = null;
-            bool matchesAlbum() => albumStringMatch ??= StrictStringPrepared(getStrictDirectoryName(), strictAlbum);
+            bool matchesAlbum() => albumStringMatch ??= albumNamesArtist
+                ? SelfTitledAlbumMatches(filename)
+                : FileConditions.StrictStringPrepared(getStrictDirectoryName(), strictAlbum);
             bool matchesArtist() => artistStringMatch ??= FileConditions.StringMatchesAnyPrepared(getStrictFullFilename(), strictArtist, boundarySkipWs: false);
 
             // TODO: Rank track and album offers by edition clues in the request and peer path.
             // For example, prefer a requested clean edit and downrank an unrequested remaster.
             bool strictTitleMatch = !preferredCond.StrictTitle || strictTitle.Length == 0
-                || FileConditions.StringMatchesAnyPrepared(getStrictFilenameNoExt(), strictTitle);
+                || (titleNamesArtist
+                    ? FileConditions.SelfTitledTitleMatches(getStrictFilenameNoExt(), strictTitle)
+                    : FileConditions.StringMatchesAnyPrepared(getStrictFilenameNoExt(), strictTitle));
             bool fuzzyTitleMatch = ignoreStringSortConditions || !preferredCond.StrictTitle || fuzzyTitle.Length == 0 || strictTitleMatch
                 || FileConditions.StringMatchesAnyPrepared(getFuzzyFilenameNoExt(), fuzzyTitle, boundarySkipWs: false);
             bool strictAlbumMatch = !preferredCond.StrictAlbum || strictAlbum.Length == 0 || matchesAlbum();
@@ -157,13 +166,13 @@ public static partial class ResultSorter
                 necessaryRejection == ResultRejection.None,
                 preferredUserConditionsMet,
                 Search.AudioConditionsIgnored || (input.Length != null && input.Length > 0) || Search.PreferredCond.AcceptNoLength,
-                AlbumMode || CheapBracketCheck(queryTitleAllowsBrackets, filename),
                 ignoreStringSortConditions || strictTitleMatch,
                 fuzzyTitleMatch,
                 ignoreStringSortConditions || strictAlbumMatch,
                 fuzzyAlbumMatch,
                 ignoreStringSortConditions || strictArtistMatch,
                 fuzzyArtistMatch,
+                AlbumMode || !versionTags.Present(filename),
                 lengthToleranceMatch,
                 formatMatch,
                 bitrateMatch,
@@ -190,6 +199,16 @@ public static partial class ResultSorter
                 StrictArtist = false,
                 StrictAlbum = false,
             };
+
+        // Files of one folder share the answer; look it up without copying the path.
+        private bool SelfTitledAlbumMatches(string filename)
+        {
+            ReadOnlySpan<char> folder = FileConditions.SelfTitledAlbumFolder(filename);
+            var folders = (selfTitledAlbumFolders ??= new(StringComparer.Ordinal)).GetAlternateLookup<ReadOnlySpan<char>>();
+            if (!folders.TryGetValue(folder, out bool matches))
+                folders[folder] = matches = FileConditions.SelfTitledAlbumFolderMatches(folder, strictAlbum);
+            return matches;
+        }
 
         private string StrictDirectoryName(string filename)
         {
@@ -223,17 +242,6 @@ public static partial class ResultSorter
             int forwardSlash = filename.LastIndexOf('/');
             int index = Math.Max(slash, forwardSlash);
             return index <= 0 ? string.Empty : filename[..index];
-        }
-
-        private static bool StrictStringPrepared(string fname, string tname, bool boundarySkipWs = true)
-        {
-            if (tname.Length == 0)
-                return true;
-
-            if (boundarySkipWs)
-                return fname.ContainsWithBoundaryIgnoreWs(tname, ignoreCase: true, acceptLeftDigit: true);
-
-            return fname.ContainsWithBoundary(tname, ignoreCase: true);
         }
 
         private static bool FuzzyPhrasePrepared(string fname, string tname, bool boundarySkipWs = true)
@@ -281,7 +289,7 @@ public static partial class ResultSorter
 
     internal readonly record struct SortKey : IComparable<SortKey>
     {
-        private readonly uint albumBeforeQualityFlags;
+        private uint AlbumBeforeQualityFlags { get; init; }
 
         public SearchConditionFacts ConditionFacts { get; init; }
         public SearchProjectionSortKey Rank { get; init; }
@@ -291,13 +299,13 @@ public static partial class ResultSorter
             bool necessaryConditionsMet,
             bool preferredUserConditionsMet,
             bool hasValidLength,
-            bool bracketCheckPassed,
             bool strictTitleMatch,
             bool fuzzyTitleMatch,
             bool strictAlbumMatch,
             bool fuzzyAlbumMatch,
             bool strictArtistMatch,
             bool fuzzyArtistMatch,
+            bool noUnrequestedVersionTag,
             bool lengthToleranceMatch,
             bool formatMatch,
             bool bitrateMatch,
@@ -317,20 +325,24 @@ public static partial class ResultSorter
         {
             // Identity beats quality: an MP3 from the requested album outranks
             // a FLAC from an unrelated album. Album coverage uses this prefix too.
+            // An unrequested version of the requested song still beats another song.
             var identity = BoolSortKey.CreateDescending()
                 .Then(peerBelowFailureThreshold)
                 .Then(necessaryConditionsMet)
                 .Then(preferredUserConditionsMet)
                 .Then(hasValidLength)
-                .Then(bracketCheckPassed)
                 .Then(strictTitleMatch)
                 .Then(fuzzyTitleMatch)
                 .Then(strictAlbumMatch)
                 .Then(fuzzyAlbumMatch)
                 .Then(strictArtistMatch)
                 .Then(fuzzyArtistMatch)
-                .Then(lengthToleranceMatch);
-            albumBeforeQualityFlags = identity.Value;
+                .Then(noUnrequestedVersionTag)
+                .Then(lengthToleranceMatch)
+                // A file is never incomplete; album projection clears this for
+                // folders holding fewer tracks than most peers share.
+                .Then(true);
+            AlbumBeforeQualityFlags = identity.Value;
             uint highFlags = identity
                 .Then(formatMatch)
                 .Then(bitrateMatch)
@@ -349,7 +361,14 @@ public static partial class ResultSorter
         }
 
         internal int CompareAlbumBeforeQualityTo(SortKey other)
-            => albumBeforeQualityFlags.CompareTo(other.albumBeforeQualityFlags);
+            => AlbumBeforeQualityFlags.CompareTo(other.AlbumBeforeQualityFlags);
+
+        internal SortKey ForIncompleteFolder()
+            => this with
+            {
+                Rank = Rank.WithoutCompleteFolder(),
+                AlbumBeforeQualityFlags = AlbumBeforeQualityFlags & ~SearchProjectionSortKey.CompleteFolder,
+            };
 
         public int CompareTo(SortKey other) => Rank.CompareTo(other.Rank);
     }
@@ -393,26 +412,94 @@ public static partial class ResultSorter
         }
     }
 
-    public static bool CheapBracketCheck(SongQuery query, string filename)
+    // Unrequested version tags: bracketed filename text (artists put arbitrary edition
+    // names there, "(tommy hardcore REdrum)") or a common version word anywhere in the
+    // path, unless the query itself contains it. Bracketed numbers (track, disc, year)
+    // and label catalogue numbers ("THGO-009", "C104", "TIRCD001") name no version.
+    internal sealed class UnrequestedVersionTags
     {
-        bool queryTitleAllowsBrackets = query.Title.RemoveFt().Replace('[', '(').Contains('(');
-        return CheapBracketCheck(queryTitleAllowsBrackets, filename);
+        private static readonly string[] VersionWords =
+        [
+            "live", "bootleg", "rehearsal", "demo", "demos", "remix", "remixes", "rmx", "mix", "mixes",
+            "edit", "acoustic", "instrumental", "karaoke", "cover", "covers", "acapella", "nightcore", "slowed",
+        ];
+
+        private static readonly System.Buffers.SearchValues<string> AnyVersionWord =
+            System.Buffers.SearchValues.Create(VersionWords, StringComparison.OrdinalIgnoreCase);
+        private static readonly HashSet<string>.AlternateLookup<ReadOnlySpan<char>> VersionWordSet =
+            new HashSet<string>(VersionWords, StringComparer.OrdinalIgnoreCase).GetAlternateLookup<ReadOnlySpan<char>>();
+
+        private readonly bool queryAllowsBrackets;
+        // Version words the query itself contains; usually none.
+        private readonly string[] requested = [];
+
+        public UnrequestedVersionTags(SongQuery query)
+        {
+            queryAllowsBrackets = query.Title.RemoveFt().Replace('[', '(').Contains('(');
+            foreach (string field in (ReadOnlySpan<string>)[query.Title, query.Artist, query.Album])
+                for (ReadOnlySpan<char> rest = field; NextVersionWord(ref rest) is { Length: > 0 } word;)
+                    requested = [.. requested, word.ToString()];
+        }
+
+        public bool Present(string filename)
+        {
+            if (!queryAllowsBrackets && HasBracketedVersionText(filename))
+                return true;
+            for (ReadOnlySpan<char> rest = filename; NextVersionWord(ref rest) is { Length: > 0 } word;)
+                if (!Requested(word))
+                    return true;
+            return false;
+        }
+
+        // The next whole word that is a version word, searching all of them at once.
+        private static ReadOnlySpan<char> NextVersionWord(ref ReadOnlySpan<char> rest)
+        {
+            for (int hit; (hit = rest.IndexOfAny(AnyVersionWord)) >= 0;)
+            {
+                int end = hit;
+                while (end < rest.Length && char.IsLetter(rest[end]))
+                    end++;
+                ReadOnlySpan<char> word = rest[hit..end];
+                bool wordStart = hit == 0 || !char.IsLetter(rest[hit - 1]);
+                rest = rest[end..];
+                if (wordStart && VersionWordSet.Contains(word))
+                    return word;
+            }
+            return default;
+        }
+
+        private bool Requested(ReadOnlySpan<char> word)
+        {
+            foreach (string requestedWord in requested)
+                if (word.Equals(requestedWord, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        private static bool HasBracketedVersionText(string filename)
+        {
+            string name = Utils.GetFileNameWithoutExtSlsk(filename);
+            if (!name.Contains('(') && !name.Contains('['))
+                return false;
+
+            ReadOnlySpan<char> rest = name.RemoveFt();
+            for (int open; (open = rest.IndexOfAny('(', '[')) >= 0;)
+            {
+                rest = rest[(open + 1)..];
+                int close = rest.IndexOfAny(')', ']');
+                var text = (close < 0 ? rest : rest[..close]).Trim();
+                if (text.ContainsAnyExcept(NumberChars) && !CatalogueNumberRegex().IsMatch(text))
+                    return true;
+                if (close < 0)
+                    break;
+                rest = rest[(close + 1)..];
+            }
+            return false;
+        }
+
+        private static readonly System.Buffers.SearchValues<char> NumberChars = System.Buffers.SearchValues.Create("0123456789 -./");
     }
 
-    private static bool CheapBracketCheck(bool queryTitleAllowsBrackets, string filename)
-    {
-        if (queryTitleAllowsBrackets)
-            return true;
-
-        string name = Utils.GetFileNameWithoutExtSlsk(filename);
-        if (!name.Contains('(') && !name.Contains('['))
-            return true;
-
-        name = LeadingBracketTrackNumberRegex().Replace(name, "", 1);
-        name = name.RemoveFt();
-        return !name.Contains('(') && !name.Contains('[');
-    }
-
-    [GeneratedRegex(@"^\s*[\(\[]\s*\d{1,3}(?:\s*[-./]\s*\d{1,3})?\s*[\)\]]\s*")]
-    private static partial Regex LeadingBracketTrackNumberRegex();
+    [GeneratedRegex(@"^[A-Z][A-Z0-9]*[-_ ]?\d+$")]
+    private static partial Regex CatalogueNumberRegex();
 }

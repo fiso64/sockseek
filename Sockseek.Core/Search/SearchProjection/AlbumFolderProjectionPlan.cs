@@ -128,3 +128,92 @@ internal readonly struct AlbumFolderProjectionPlan
             enforceMinimumTrackCount: enforceMinimumTrackCount,
             rejections: rejections);
 }
+
+// Peers often share a few tracks of an album under the album's name. The track
+// count most matching folders share is the reference: a folder below it ranks
+// after the identity checks and before quality. Only folders within the
+// requested track-count bounds vote, so the reference never leaves them.
+internal sealed class AlbumTrackCountConsensus
+{
+    private readonly FolderConditions bounds;
+    private readonly bool enabled;
+    private readonly Dictionary<int, int> votes = [];
+
+    public AlbumTrackCountConsensus(AlbumQuery query, SearchSettings search, FolderSortMode sortMode)
+    {
+        bounds = search.NecessaryFolderCond;
+        // A search that returns only some of a folder's tracks says nothing
+        // about how many it holds.
+        enabled = sortMode == FolderSortMode.AlbumRanked
+            && ConditionSatisfactionPolicy.SearchResultsLikelyContainCompleteAlbumFolders(query, search);
+    }
+
+    public void Add(AlbumFolder folder)
+    {
+        if (Votes(folder))
+            votes[folder.SearchAudioFileCount] = votes.GetValueOrDefault(folder.SearchAudioFileCount) + 1;
+    }
+
+    public void Remove(AlbumFolder folder)
+    {
+        if (Votes(folder) && --votes[folder.SearchAudioFileCount] == 0)
+            votes.Remove(folder.SearchAudioFileCount);
+    }
+
+    public void Clear() => votes.Clear();
+
+    // A tie goes to the smaller count, so it cannot mark a complete folder.
+    public int Reference
+    {
+        get
+        {
+            int reference = 0, most = 0;
+            foreach (var (count, folders) in votes)
+                if (folders > most || folders == most && count < reference)
+                    (reference, most) = (count, folders);
+            return reference;
+        }
+    }
+
+    public static bool IsBelow(AlbumFolder folder, int reference)
+        => folder.SearchAudioFileCount < reference;
+
+    public static AlbumFolder Rank(AlbumFolder folder, int reference)
+        => IsBelow(folder, reference) ? folder.AsIncomplete() : folder;
+
+    // One-shot projection: the same reference and order as the incremental projector.
+    public static List<AlbumFolder> Rank(List<AlbumFolder> folders, AlbumQuery query, SearchSettings search)
+    {
+        var consensus = new AlbumTrackCountConsensus(query, search, FolderSortMode.AlbumRanked);
+        foreach (AlbumFolder folder in folders)
+            consensus.Add(folder);
+        int reference = consensus.Reference;
+        if (!folders.Any(folder => IsBelow(folder, reference)))
+            return folders;
+
+        bool compareCoverage = AlbumQualityPolicy.ActiveConditions(search.NecessaryCond).IsActive;
+        return folders
+            .Select(folder => Rank(folder, reference))
+            .Order(Comparer<AlbumFolder>.Create((x, y) =>
+            {
+                int rank = AlbumFolderGroupComparer.CompareRank(x.SearchGroupSortEntry, y.SearchGroupSortEntry,
+                    x.SearchAudioQualityCoverage, y.SearchAudioQualityCoverage, compareCoverage);
+                if (rank == 0) rank = string.Compare(x.Username, y.Username, StringComparison.Ordinal);
+                return rank != 0 ? rank : string.Compare(x.FolderPath, y.FolderPath, StringComparison.Ordinal);
+            }))
+            .ToList();
+    }
+
+    private bool Votes(AlbumFolder folder)
+    {
+        int count = folder.SearchAudioFileCount;
+        if (!enabled || count == 0
+            || bounds.MinTrackCount is int min and > 0 && count < min
+            || bounds.MaxTrackCount is int max and > 0 && count > max)
+            return false;
+        // The folder must be the requested album by name, when names are compared at all.
+        var facts = folder.SearchGroupSortEntry?.Key.ConditionFacts;
+        return facts?.ConfiguredPreferredConditions?.Contains(SearchPreferenceCondition.Album) != true
+            || facts.Value.SatisfiedPreferredConditions?.Contains(SearchPreferenceCondition.Album) == true;
+    }
+}

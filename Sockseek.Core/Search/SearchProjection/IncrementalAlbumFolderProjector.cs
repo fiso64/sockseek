@@ -27,6 +27,8 @@ public sealed class IncrementalAlbumFolderProjector
     private readonly HashSet<(PeerPathKey Path, SearchResultVisibility Visibility)> seen = [];
     private readonly Dictionary<PeerPathKey, OrderedFolderEntry> orderEntries = [];
     private readonly SortedSet<OrderedFolderEntry> orderedFolders;
+    private readonly AlbumTrackCountConsensus trackCounts;
+    private int trackCountReference;
     private int nextOriginalIndex;
 
     public IncrementalAlbumFolderProjector(
@@ -41,6 +43,7 @@ public sealed class IncrementalAlbumFolderProjector
         rankQualityCoverage = AlbumQualityPolicy.ActiveConditions(search.NecessaryCond).IsActive;
         orderedFolders = new SortedSet<OrderedFolderEntry>(
             Comparer<OrderedFolderEntry>.Create(CompareOrdered));
+        trackCounts = new AlbumTrackCountConsensus(query, search, sortMode);
         projectionPlan = new AlbumFolderProjectionPlan(
             query,
             search,
@@ -99,6 +102,8 @@ public sealed class IncrementalAlbumFolderProjector
         seen.Clear();
         orderEntries.Clear();
         orderedFolders.Clear();
+        trackCounts.Clear();
+        trackCountReference = 0;
         nextOriginalIndex = 0;
     }
 
@@ -172,6 +177,9 @@ public sealed class IncrementalAlbumFolderProjector
         List<AlbumFolder>? removed)
     {
         if (dirtyRoots.Count == 0) return;
+        // Publication reports each folder as it is finally ranked.
+        var addedKeys = new List<PeerPathKey>();
+        var updatedKeys = new List<PeerPathKey>();
         var removedByUser = removedRoots.ToLookup(key => key.Username, StringComparer.Ordinal);
         foreach (var user in dirtyRoots.GroupBy(key => key.Username).OrderBy(group => group.Key, StringComparer.Ordinal))
         {
@@ -185,16 +193,21 @@ public sealed class IncrementalAlbumFolderProjector
             List<AlbumFolder> projected = projectionPlan.ProjectEvaluatedResults(rows);
             var previous = user.Concat(removedByUser[user.Key]).ToHashSet();
             foreach (var key in previous)
-                if (orderEntries.TryGetValue(key, out var prior)) orderedFolders.Remove(prior);
+                if (orderEntries.TryGetValue(key, out var prior))
+                {
+                    orderedFolders.Remove(prior);
+                    trackCounts.Remove(prior.Source);
+                }
             foreach (AlbumFolder folder in projected)
             {
                 PeerPathKey key = FolderKey(folder);
                 previous.Remove(key);
-                if (!orderEntries.TryGetValue(key, out var prior)) added?.Add(folder);
-                else if (updated != null && !SameSearchMetadata(prior.Folder, folder)) updated.Add(folder);
+                if (!orderEntries.TryGetValue(key, out var prior)) addedKeys.Add(key);
+                else if (!SameSearchMetadata(prior.Folder, folder)) updatedKeys.Add(key);
                 IReadOnlyList<ProjectedFileCandidate> projectionFiles = folder.ProjectionFiles
                     ?? throw new InvalidDataException("An album projection has no admitted file facts.");
-                var entry = new OrderedFolderEntry(key, folder,
+                trackCounts.Add(folder);
+                var entry = new OrderedFolderEntry(key, AlbumTrackCountConsensus.Rank(folder, trackCountReference), folder,
                     projectionFiles.Count == 0 ? long.MaxValue : projectionFiles.Min(file => file.Input.Sequence));
                 orderEntries[key] = entry;
                 if (!orderedFolders.Add(entry))
@@ -207,6 +220,26 @@ public sealed class IncrementalAlbumFolderProjector
         }
         dirtyRoots.Clear();
         removedRoots.Clear();
+
+        // A moved reference re-ranks only the folders between the old and new count.
+        int reference = trackCounts.Reference;
+        if (reference != trackCountReference)
+        {
+            trackCountReference = reference;
+            var reported = addedKeys.Concat(updatedKeys).ToHashSet();
+            foreach (OrderedFolderEntry entry in orderEntries.Values.ToArray())
+            {
+                bool incomplete = !ReferenceEquals(entry.Folder, entry.Source);
+                if (AlbumTrackCountConsensus.IsBelow(entry.Source, reference) == incomplete) continue;
+                orderedFolders.Remove(entry);
+                var ranked = entry with { Folder = AlbumTrackCountConsensus.Rank(entry.Source, reference) };
+                orderEntries[entry.Key] = ranked;
+                orderedFolders.Add(ranked);
+                if (reported.Add(entry.Key)) updatedKeys.Add(entry.Key);
+            }
+        }
+        added?.AddRange(addedKeys.Select(key => orderEntries[key].Folder));
+        updated?.AddRange(updatedKeys.Select(key => orderEntries[key].Folder));
     }
 
     private List<AlbumFolder> OrderedFolders()
@@ -247,9 +280,11 @@ public sealed class IncrementalAlbumFolderProjector
     private static PeerPathKey FolderKey(AlbumFolder folder)
         => new(folder.Username, folder.FolderPath);
 
+    // Folder is Source as currently ranked against the track-count reference.
     private sealed record OrderedFolderEntry(
         PeerPathKey Key,
         AlbumFolder Folder,
+        AlbumFolder Source,
         long FirstSequence);
 
     private static bool SameSearchMetadata(AlbumFolder a, AlbumFolder b)

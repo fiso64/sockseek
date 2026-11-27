@@ -206,6 +206,7 @@ public partial class Searcher : IDisposable
         session.ChangePublished += downloadEvents.RaiseSearchChange;
         using var progress = new DiscoveryProgress(this, song, session);
 
+        var versionTags = new ResultSorter.UnrequestedVersionTags(song.Query);
         void OnSongResponse(SearchResponse response)
         {
             session.AddResponse(response);
@@ -216,7 +217,7 @@ public partial class Searcher : IDisposable
             {
                 var candidate = SoulseekSearchAdapter.ToFileCandidate(response, file);
                 if (response.HasFreeUploadSlot && response.UploadSpeed / 1024.0 / 1024.0 >= search.FastSearchMinUpSpeed
-                    && ResultSorter.CheapBracketCheck(song.Query, file.Filename)
+                    && !versionTags.Present(file.Filename)
                     && ConditionSatisfactionPolicy.SearchFileSatisfies(search.PreferredCond, response, file, song.Query))
                 {
                     onFastSearchCandidate(candidate);
