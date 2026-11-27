@@ -11,7 +11,7 @@ The background daemon is a full Soulseek client and includes a WebUI. You can se
 Choose your install option:
 
 - [Release archive](./installation/release-archive.md), then [start the daemon](./using-sockseek/daemon.md#start-the-daemon).
-- [Debian package](./installation/debian.md)
+- [Debian and Ubuntu package](./installation/debian.md)
 - [NixOS](./installation/nixos.md)
 - [Docker Compose](./installation/docker.md)
 

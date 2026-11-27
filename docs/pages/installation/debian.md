@@ -1,4 +1,4 @@
-# Install on Debian
+# Install on Debian and Ubuntu
 
 Add Sockseek's apt repository, then install the package. It includes the CLI, daemon, WebUI and .NET runtime, for Debian 13 and Ubuntu 24.04 or newer, on `amd64` and `arm64`.
 
