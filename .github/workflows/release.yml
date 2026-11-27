@@ -96,6 +96,19 @@ jobs:
           fi
           gh release upload "$GITHUB_REF_NAME" packages/* --clobber
 
+  # Flakes follow the `latest` branch: it is moved to every published release,
+  # betas included, so `nix flake update` gets the newest release from the cache.
+  latest-branch:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - run: git push --force origin HEAD:refs/heads/latest
+
   image:
     if: github.event_name == 'release'
     runs-on: ubuntu-latest

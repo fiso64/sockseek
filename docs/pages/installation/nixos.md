@@ -3,7 +3,7 @@
 Add Sockseek to your system flake.
 
 ```nix
-inputs.sockseek.url = "github:fiso64/sockseek/v4";
+inputs.sockseek.url = "github:fiso64/sockseek/latest";
 ```
 
 Include `sockseek` in the arguments to `outputs` and add its module to your host alongside your existing modules.
@@ -81,5 +81,5 @@ Enabling the service also installs the `sockseek` CLI. To install just the CLI, 
 You can also try the CLI before installing it.
 
 ```sh
-nix run github:fiso64/sockseek/v4 -- --help
+nix run github:fiso64/sockseek/latest -- --help
 ```
