@@ -59,6 +59,28 @@ For debugging, you can run a song search with `--print results-full` to reveal t
 
 For album downloads, conditions like format, bitrate and sample rate operate based on coverage: A folder with 9 FLAC files and 1 MP3 is preferred over a mostly-MP3 folder, and the selected folder is still downloaded as a whole. Use `--strict-album-quality` to require every audio file in the folder to satisfy the conditions.
 
+## Setting conditions
+
+See [the options reference](../reference/options.md#filtering-ranking-options) for all filtering and ranking options.
+
+Conditions can also be supplied as a semicolon-delimited string with `--cond` and `--pref`, e.g.:
+
+```bash
+--cond "br>=320; format=mp3,ogg; sr<96000; album-track-count>=8"
+```
+
+File Search in the UI starts with no file conditions. To set defaults for a particular search mode, use an auto-profile with an `input-type` or a `download-mode` condition. See [search defaults](../using-sockseek/configuration.md#webui-search-defaults).
+
+## Unknown metadata
+
+Some info may be unavailable depending on the client used by the peer (like the bitrate). This is why if you set a `--min-bitrate`, Sockseek will still accept any file with **unknown** bitrate as a precaution.
+
+To reject all files where one or more of the checked properties is null (unknown), use `--strict-conditions`.
+
+This flag should be used with care: It's easy to accidentally exclude all files from users with
+certain clients. For example, because the SoulseekQt client does not broadcast the bitrate,
+enabling `--strict-conditions` and setting a `--min-bitrate` will effectively exclude all files shared by users with the standard client(!). 
+
 ## Strict-artist, strict-album, strict-title
 
 These check that the result filepaths contain what you searched for, as a whole name rather than part of a longer one:
@@ -81,26 +103,14 @@ Some cases are handled specially:
 - **Several artists** separated by `;` match if any one of them appears. Featured artists (`feat.`) are optional.
 - **Self-titled songs and albums**, where the album has the artist's name, would match every folder of that artist. For these, the album folder must contain nothing but the name, apart from bracketed text, years and punctuation. `Led Zeppelin (Remaster)` matches, but `Led Zeppelin II` doesn't. Note that for Sockseek to be able to recognize that your input is self-titled in the first place, you must fill in both the artist and album/song inputs when searching.
 
-## Setting conditions
+## Other ranking heuristics
 
-See [the options reference](../reference/options.md#filtering-ranking-options) for all filtering and ranking options.
+Sockseek uses other heuristics in addition to the `pref-strict-*` checks, most of which are not worth mentioning. The notable ones:
 
-Conditions can also be supplied as a semicolon-delimited string with `--cond` and `--pref`, e.g.:
-
-```bash
---cond "br>=320; format=mp3,ogg; sr<96000; album-track-count>=8"
-```
-
-File Search in the UI starts with no file conditions. To set defaults for a particular search mode, use an auto-profile with an `input-type` or a `download-mode` condition. See [search defaults](../using-sockseek/configuration.md#webui-search-defaults).
-
-## Unknown metadata
-
-Some info may be unavailable depending on the client used by the peer (like the bitrate). This is why if you set a `--min-bitrate`, Sockseek will still accept any file with **unknown** bitrate as a precaution.
-
-To reject all files where one or more of the checked properties is null (unknown), use `--strict-conditions`.
-
-This flag should be used with care: It's easy to accidentally exclude all files from users with
-certain clients. For example, because the SoulseekQt client does not broadcast the bitrate,
-enabling `--strict-conditions` and setting a `--min-bitrate` will effectively exclude all files shared by users with the standard client(!). 
+- **Incomplete albums.** Peers sometimes share only some tracks of an album. Sockseek takes the track count that most matching folders share as the reference, and ranks folders with fewer tracks below complete ones, after matching but before audio quality. This is `pref-common-track-count`, on by default except in manual searches and `--interactive`.
+- **Unrequested versions.** For songs, a file marked as a different version in brackets, such as `(Live)`, `(Remix)` or `[Instrumental]`, ranks below the original unless your search includes that word.
+- **Near matches.** Results that contain your search terms loosely rank between strict matches and results that don't contain them.
+- **Unreliable peers in automated downloads.** A peer with 2 failed downloads in a run ranks lower; after 3, it's ignored.
+- **Availability.** Among otherwise equal results, a free upload slot and a faster upload speed come first.
 
 <!-- sockseek-help:end -->

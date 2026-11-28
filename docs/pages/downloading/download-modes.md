@@ -30,6 +30,8 @@ See [Album options](../reference/options.md#album-download-options) for album-sp
 
 Album Groups mode is activated when `-g/--group` is enabled for album inputs. In this mode, Sockseek will attempt to group folders returned by Soulseek and download one of each distinct album, starting with the one shared by the most peers.
 
+Folders are grouped by their track count and track lengths, each within `--group-length-tol` (3 seconds by default). When lengths can't tell albums apart, as with a single track, titles must match too. Within a group, the versions are ranked by your other preferences.
+
 Note that `--min-group-shares` is set to 2 by default, meaning that albums shared by only one user will be ignored. Album Groups mode can be used to determine the most common version of a particular album, or download the most popular (or all) albums by an artist. It's recommended to pair it with `-t`/`--interactive` in the CLI, which allows you to pick the particular version of the album in each group and skip groups you don't want.
 
 CLI Example:
@@ -43,6 +45,8 @@ See [Grouping options](../reference/options.md#group-download-options) for group
 ## Song Groups
 
 Song Groups mode is enabled with `--group --song` (or `-gs` for short). Sockseek will attempt to group files returned by Soulseek and download one of each distinct song, starting with the one shared by the most peers.
+
+Files are grouped by the artist and title read from each file name, with lengths within `--group-length-tol` (3 seconds by default).
 
 As in Album Groups mode, `--min-group-shares` is set to 2 by default, meaning that songs shared by only one user will be ignored. This mode is useful for downloading all songs by an artist available on Soulseek.
 

@@ -526,6 +526,9 @@ Download modes
     Album Groups mode is activated when -g/--group is enabled for album inputs. In this mode,
     Sockseek will attempt to group folders returned by Soulseek and download one of each distinct
     album, starting with the one shared by the most peers.
+    Folders are grouped by their track count and track lengths, each within --group-length-tol (3
+    seconds by default). When lengths can't tell albums apart, as with a single track, titles must
+    match too. Within a group, the versions are ranked by your other preferences.
     Note that --min-group-shares is set to 2 by default, meaning that albums shared by only one user
     will be ignored. Album Groups mode can be used to determine the most common version of a
     particular album, or download the most popular (or all) albums by an artist. It's recommended to
@@ -541,6 +544,8 @@ Download modes
     Song Groups mode is enabled with --group --song (or -gs for short). Sockseek will attempt to
     group files returned by Soulseek and download one of each distinct song, starting with the one
     shared by the most peers.
+    Files are grouped by the artist and title read from each file name, with lengths within
+    --group-length-tol (3 seconds by default).
     As in Album Groups mode, --min-group-shares is set to 2 by default, meaning that songs shared by
     only one user will be ignored. This mode is useful for downloading all songs by an artist
     available on Soulseek.
@@ -614,6 +619,26 @@ Ranking and filtering
     folder is still downloaded as a whole. Use --strict-album-quality to require every audio file in
     the folder to satisfy the conditions.
 
+  Setting conditions
+    See the options reference for all filtering and ranking options.
+    Conditions can also be supplied as a semicolon-delimited string with --cond and --pref, e.g.:
+
+    --cond ""br>=320; format=mp3,ogg; sr<96000; album-track-count>=8""
+
+    File Search in the UI starts with no file conditions. To set defaults for a particular search
+    mode, use an auto-profile with an input-type or a download-mode condition. See search defaults.
+
+  Unknown metadata
+    Some info may be unavailable depending on the client used by the peer (like the bitrate). This
+    is why if you set a --min-bitrate, Sockseek will still accept any file with unknown bitrate as a
+    precaution.
+    To reject all files where one or more of the checked properties is null (unknown), use
+    --strict-conditions.
+    This flag should be used with care: It's easy to accidentally exclude all files from users with
+    certain clients. For example, because the SoulseekQt client does not broadcast the bitrate,
+    enabling --strict-conditions and setting a --min-bitrate will effectively exclude all files
+    shared by users with the standard client(!).
+
   Strict-artist, strict-album, strict-title
     These check that the result filepaths contain what you searched for, as a whole name rather than
     part of a longer one:
@@ -642,25 +667,22 @@ Ranking and filtering
       doesn't. Note that for Sockseek to be able to recognize that your input is self-titled in the
       first place, you must fill in both the artist and album/song inputs when searching.
 
-  Setting conditions
-    See the options reference for all filtering and ranking options.
-    Conditions can also be supplied as a semicolon-delimited string with --cond and --pref, e.g.:
-
-    --cond ""br>=320; format=mp3,ogg; sr<96000; album-track-count>=8""
-
-    File Search in the UI starts with no file conditions. To set defaults for a particular search
-    mode, use an auto-profile with an input-type or a download-mode condition. See search defaults.
-
-  Unknown metadata
-    Some info may be unavailable depending on the client used by the peer (like the bitrate). This
-    is why if you set a --min-bitrate, Sockseek will still accept any file with unknown bitrate as a
-    precaution.
-    To reject all files where one or more of the checked properties is null (unknown), use
-    --strict-conditions.
-    This flag should be used with care: It's easy to accidentally exclude all files from users with
-    certain clients. For example, because the SoulseekQt client does not broadcast the bitrate,
-    enabling --strict-conditions and setting a --min-bitrate will effectively exclude all files
-    shared by users with the standard client(!).";
+  Other ranking heuristics
+    Sockseek uses other heuristics in addition to the pref-strict-* checks, most of which are not
+    worth mentioning. The notable ones:
+    - Incomplete albums. Peers sometimes share only some tracks of an album. Sockseek takes the
+      track count that most matching folders share as the reference, and ranks folders with fewer
+      tracks below complete ones, after matching but before audio quality. This is
+      pref-common-track-count, on by default except in manual searches and --interactive.
+    - Unrequested versions. For songs, a file marked as a different version in brackets, such as
+      (Live), (Remix) or [Instrumental], ranks below the original unless your search includes that
+      word.
+    - Near matches. Results that contain your search terms loosely rank between strict matches and
+      results that don't contain them.
+    - Unreliable peers in automated downloads. A peer with 2 failed downloads in a run ranks lower;
+      after 3, it's ignored.
+    - Availability. Among otherwise equal results, a free upload slot and a faster upload speed come
+      first.";
 
     const string nameFormatHelp = @"
 Name format
