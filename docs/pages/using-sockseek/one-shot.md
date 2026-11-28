@@ -176,4 +176,4 @@ You can also just manually run it, for example in interactive mode (`-t`).
 
 ## About failed or incorrect downloads
 
-Sockseek searches the Soulseek P2P network. Sources like Spotify and YouTube are only used as metadata sources; no audio is downloaded from them. It usually does a good job downloading items, provided they actually exist on the network. The results returned by Soulseek of course depend on spelling, peers, etc. If downloads are missing or wrong, read [why some downloads are wrong or missing](../downloading/troubleshoot.md#why-are-some-of-my-downloads-wrong-or-missing).
+Sockseek searches the Soulseek P2P network. Sources like Spotify and YouTube are only used as metadata sources; no audio is downloaded from them. It usually does a good job downloading items, provided they actually exist on the network. The results returned by Soulseek of course depend on spelling, peers, etc. If downloads are missing or wrong, read [why some downloads are wrong or missing](../downloading/troubleshoot.md#why-are-some-of-my-automated-downloads-wrong-or-missing).

@@ -990,7 +990,7 @@ Troubleshooting and tips
     --searches-renew-time (when the limit is reached, the status of the downloads will be
     'Waiting'). By default it is configured to allow up to 34 searches every 220 seconds.
 
-  Why are some of my downloads wrong or missing?
+  Why are some of my automated downloads wrong or missing?
 
     It downloaded a wrong song or album!
       By default, Sockseek doesn't do any filtering on the results returned by Soulseek, erring on
@@ -1033,16 +1033,15 @@ Troubleshooting and tips
 
   Why does it rank MP3 above FLAC when I prefer FLAC?
     Preferences have an order: matching what you searched for comes before audio quality. With the
-    default pref-strict-album, an MP3 album in a folder named after the album ranks above a FLAC in
-    a folder that isn't, such as Album 2 Soundtrack or Best of Artist. The same applies to song
-    titles with pref-strict-title. See strict matching for what counts as a match.
-    In the WebUI, the info icon next to Other matches shows which preferences the other results
-    miss. The ranking pills above the results show the preferences in their order; select one to
-    change it for this search.
+    default pref-strict-album, an MP3 album folder named after the album ranks above a FLAC folder
+    that isn't. The same applies to song titles with pref-strict-title. See strict matching for what
+    counts as a match.
+    In the GUI, the info icon next to Other matches shows which preferences the other results miss.
+    The ranking pills above the results show the preferences in their order.
     To get only FLAC, filter instead of ranking: use format = flac (--format flac), or select FLAC
-    under Filtering in the WebUI.
+    under Filtering in the GUI.
 
-  Searching
+  CLI Searching
     - It's always best to provide the least input necessary to uniquely identify an album or song.
       - Sometimes including the artist can be undesirable (e.g. ""Various Artists""). For spotify or
         bandcamp inputs, you can remove the artist name with --regex A:.*.
