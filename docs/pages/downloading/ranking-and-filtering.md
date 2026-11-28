@@ -22,8 +22,10 @@ The preferred conditions determine ranking. The defaults are:
 # Prefer songs whose duration differs from the supplied one
 # by at most 3 seconds.
 pref-length-tol = 3
-# Prefer files whose paths contain the exact title and album name.
-# Changing these is not recommended.
+
+# Prefer files whose paths contain the exact title and album name,
+# surrounded by boundary characters like punctuation. 
+# Disabling these is usually not recommended.
 pref-strict-title = true
 pref-strict-album = true
 

@@ -143,6 +143,9 @@ for (const button of ['file', 'folder']) test(`finishes the selected folder thro
   await daemon.command(`wait-job-complete:${(await result.json()).jobId}`);
   const history = async () => (await (await page.request.get('/api/transfers?direction=download')).json()).items as Schema<'TransferStateDto'>[];
   const initial = await history();
+  // A failure names what the completed job left behind.
+  const outcomes = initial.map(row => `${row.identity.remotePath}: ${row.status.terminalOutcome ?? row.status.phase} ${row.status.failureReason ?? ""} ${row.status.failureMessage ?? ""}`);
+  expect(initial.map(row => row.status.terminalOutcome).sort(), outcomes.join(', ')).toEqual(['Failed', 'Succeeded']);
   const kept = initial.find(row => row.status.terminalOutcome === 'Succeeded')!;
   const failed = initial.find(row => row.status.terminalOutcome === 'Failed')!;
   const retryLookups: string[] = [];
