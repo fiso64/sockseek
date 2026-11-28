@@ -36,8 +36,8 @@
       },
       "AngleSharp": {
         "type": "Transitive",
-        "resolved": "1.10.3",
-        "contentHash": "HF2owdhRhy84PJ7dk6e7Olc8D3S8RhU+BSXgCpTcafODrHzUUqUquCUWrM81/PeKHKlFA86LCdZBAQCQRK2y7w=="
+        "resolved": "1.11.0",
+        "contentHash": "1wEWfvt74q9RNAgWYLC9lfS1rT/CNfFw2rvjLJTaZEKRJ3qf35iTbwjH15VTQDwv48CjekHQIcVbxuD/GSiWcQ=="
       },
       "EmbedIO": {
         "type": "Transitive",
@@ -443,8 +443,8 @@
       },
       "Microsoft.OpenApi": {
         "type": "Transitive",
-        "resolved": "3.11.0",
-        "contentHash": "kvQz+mL/fnDw2VaE8zMyQhbMv7FmOYUydIhCVNKxQdrLu9XiMT/07DHwJ5YkRO2uzcxTFvMAKFKKywxoyLKHcA=="
+        "resolved": "3.11.1",
+        "contentHash": "WZL9g2+9NPICW4Es6zjIBj4mmKxAnI8RCru3gAZUliCMZPnuaxRynXq4cXoU+IYvI7kXY4ydSrrJ1R9EEHr+Lw=="
       },
       "Microsoft.Testing.Extensions.Telemetry": {
         "type": "Transitive",
@@ -501,27 +501,27 @@
       },
       "SkiaSharp": {
         "type": "Transitive",
-        "resolved": "4.156.0",
-        "contentHash": "bdBfG346spQvqwvdz7w8yoqquN7MmU89O+TJ9TwnwyFuqhHkBOQnLJ57euu+4XWi99a5uXikDMZmcM4q58HUXw==",
+        "resolved": "4.158.0",
+        "contentHash": "EcQW2hYO9N23HaU3JbuqLJOsowxt9uJBBTUvQK9hNvs+sJOz17IBE6gpd5L8R6RcbvalbuRtI4WslZSfS/edVQ==",
         "dependencies": {
-          "SkiaSharp.NativeAssets.Win32": "4.156.0",
-          "SkiaSharp.NativeAssets.macOS": "4.156.0"
+          "SkiaSharp.NativeAssets.Win32": "4.158.0",
+          "SkiaSharp.NativeAssets.macOS": "4.158.0"
         }
       },
       "SkiaSharp.NativeAssets.Linux.NoDependencies": {
         "type": "Transitive",
-        "resolved": "4.156.0",
-        "contentHash": "VpvL0V18Ffcne/PwqSw0cbVcjs/1NvCGDfDBM81E6NMwLSCnU3N/oeEYiBkAFIC+/H5ciHhkRDHDq4ew74e5ag=="
+        "resolved": "4.158.0",
+        "contentHash": "LKlvs3hQ5i3YlrWnXZEbDaC45BmglLDCH5CQJ3CeAzRiYmrAzw9+86yykh2yrLiKtRhVhdEgcmb+E8b8yRHksQ=="
       },
       "SkiaSharp.NativeAssets.macOS": {
         "type": "Transitive",
-        "resolved": "4.156.0",
-        "contentHash": "pBJ4ARN6ekiBqh+G697sMQmZd4igIEtSdxx9mfxR3nUTxErkrx0JeaU1+IQ4dX8qobG9Fcskv6azW3zPbAEqXQ=="
+        "resolved": "4.158.0",
+        "contentHash": "KldVRYCbwIQtAfUyGGKnkPeGYZohvRikZI0sHe9f4QxN0LtKqn70j4GB4diEVcfpO5/Tt3+H/aIqUCZ1wRgTdg=="
       },
       "SkiaSharp.NativeAssets.Win32": {
         "type": "Transitive",
-        "resolved": "4.156.0",
-        "contentHash": "D4q5I+N/IBH3LTC/SK51MkfdjuX5JZVSS4gTJHbLPZ9btgga3xSC/gL/lyh18mfpwFmnm6b61DsEv6zrhTy0Ow=="
+        "resolved": "4.158.0",
+        "contentHash": "7+7mqPOFD8oINjuVHS358PpOX2yERNnBZbQDFhPeHxEYLpOmMEaO+k7XzKdhPEUiPRZtLvf3RmG1xJRaAaEUZw=="
       },
       "SmallestCSVParser": {
         "type": "Transitive",
@@ -644,10 +644,10 @@
           "Microsoft.AspNetCore.SignalR.Protocols.Json": "[11.0.0, )",
           "Microsoft.EntityFrameworkCore.Sqlite": "[11.0.0, )",
           "SQLitePCLRaw.lib.e_sqlite3": "[3.53.3, )",
-          "Sockseek.Api": "[4.0.0-alpha.1, )",
-          "Sockseek.Core": "[4.0.0-alpha.1, )",
-          "Sockseek.Persistence": "[4.0.0-alpha.1, )",
-          "Sockseek.Server": "[4.0.0-alpha.1, )",
+          "Sockseek.Api": "[4.0.0-beta.1, )",
+          "Sockseek.Core": "[4.0.0-beta.1, )",
+          "Sockseek.Persistence": "[4.0.0-beta.1, )",
+          "Sockseek.Server": "[4.0.0-beta.1, )",
           "Spectre.Console": "[0.57.2, )"
         }
       },
@@ -661,14 +661,14 @@
       "sockseek.core": {
         "type": "Project",
         "dependencies": {
-          "AngleSharp": "[1.10.3, )",
+          "AngleSharp": "[1.11.0, )",
           "Google.Apis.YouTube.v3": "[1.78.0.4325, )",
           "HtmlAgilityPack": "[1.13.1, )",
           "Microsoft.Extensions.Logging": "[11.0.0, )",
-          "SkiaSharp": "[4.156.0, )",
-          "SkiaSharp.NativeAssets.Linux.NoDependencies": "[4.156.0, )",
+          "SkiaSharp": "[4.158.0, )",
+          "SkiaSharp.NativeAssets.Linux.NoDependencies": "[4.158.0, )",
           "SmallestCSVParser": "[1.2.0, )",
-          "Sockseek.Api": "[4.0.0-alpha.1, )",
+          "Sockseek.Api": "[4.0.0-beta.1, )",
           "Soulseek": "[10.0.2, )",
           "SpotifyAPI.Web": "[7.4.2, )",
           "SpotifyAPI.Web.Auth": "[7.4.2, )",
@@ -681,17 +681,17 @@
         "dependencies": {
           "Microsoft.EntityFrameworkCore.Sqlite": "[11.0.0, )",
           "SQLitePCLRaw.lib.e_sqlite3": "[3.53.3, )",
-          "Sockseek.Core": "[4.0.0-alpha.1, )"
+          "Sockseek.Core": "[4.0.0-beta.1, )"
         }
       },
       "sockseek.server": {
         "type": "Project",
         "dependencies": {
           "Microsoft.AspNetCore.OpenApi": "[11.0.0, )",
-          "Microsoft.OpenApi": "[3.11.0, )",
-          "Sockseek.Api": "[4.0.0-alpha.1, )",
-          "Sockseek.Core": "[4.0.0-alpha.1, )",
-          "Sockseek.Persistence": "[4.0.0-alpha.1, )"
+          "Microsoft.OpenApi": "[3.11.1, )",
+          "Sockseek.Api": "[4.0.0-beta.1, )",
+          "Sockseek.Core": "[4.0.0-beta.1, )",
+          "Sockseek.Persistence": "[4.0.0-beta.1, )"
         }
       }
     }

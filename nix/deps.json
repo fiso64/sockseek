@@ -1,8 +1,8 @@
 [
   {
     "pname": "AngleSharp",
-    "version": "1.10.3",
-    "hash": "sha256-dTXNMLqLA5K6q5BTFWl3h+Y4Im3ZM0KEci9L+s8SZB0="
+    "version": "1.11.0",
+    "hash": "sha256-SOFaHl4oxbP3AHE1xH4hgXvmHGbGoMKs7W8HRaFTMC0="
   },
   {
     "pname": "EmbedIO",
@@ -325,6 +325,11 @@
     "hash": "sha256-lbn3Vk2/hYpo70I3ygNO3NCdhlHeqJuU//h6dPaRxBk="
   },
   {
+    "pname": "Microsoft.OpenApi",
+    "version": "3.11.1",
+    "hash": "sha256-i6FjZszBqkzsKmOLO0KzIlMC8UXN4T/57S8zLKiw5b0="
+  },
+  {
     "pname": "Microsoft.VisualStudio.SolutionPersistence",
     "version": "1.0.52",
     "hash": "sha256-KZGPtOXe6Hv8RrkcsgoLKTRyaCScIpQEa2NhNB3iOXw="
@@ -346,23 +351,23 @@
   },
   {
     "pname": "SkiaSharp",
-    "version": "4.156.0",
-    "hash": "sha256-nk7cGLAdxYuKpkhPyAb/DGfWcGSLpf40poGR+1i7lrM="
+    "version": "4.158.0",
+    "hash": "sha256-7WJLCQ/AcuAZshq5a4Fg8g+Hv5xMDIc/8kp6H+7HsrQ="
   },
   {
     "pname": "SkiaSharp.NativeAssets.Linux.NoDependencies",
-    "version": "4.156.0",
-    "hash": "sha256-RXgLSuIAeXu6bOR58QVUcRkC7qtWdr04VIlN+J0O3BA="
+    "version": "4.158.0",
+    "hash": "sha256-8qd3omCwqXBE8YAOhe8DXM/Zqc0+hmnkFDNEIs3h1TI="
   },
   {
     "pname": "SkiaSharp.NativeAssets.macOS",
-    "version": "4.156.0",
-    "hash": "sha256-UBTyyyVgzcmbL9fQuISXvCdC52bSHyp5/H28u3ETf50="
+    "version": "4.158.0",
+    "hash": "sha256-gsXWJgOqsqubk2RTvBOFAip4VHGR7i9s/2PSZd7piVw="
   },
   {
     "pname": "SkiaSharp.NativeAssets.Win32",
-    "version": "4.156.0",
-    "hash": "sha256-DnmceQi1WsHHKBMjgme0wYabHNtw6yE+aWyPHLqzK9Y="
+    "version": "4.158.0",
+    "hash": "sha256-sBtc29xYEMLpjQBB921j8sBWyr9ydmG45lfypiCQi5M="
   },
   {
     "pname": "SmallestCSVParser",

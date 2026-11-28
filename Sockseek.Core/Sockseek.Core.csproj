@@ -22,9 +22,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="SkiaSharp" Version="4.156.0" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.156.0" />
-    <PackageReference Include="AngleSharp" Version="1.10.3" />
+    <PackageReference Include="SkiaSharp" Version="4.158.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.158.0" />
+    <PackageReference Include="AngleSharp" Version="1.11.0" />
     <PackageReference Include="Google.Apis.YouTube.v3" Version="1.78.0.4325" />
     <PackageReference Include="HtmlAgilityPack" Version="1.13.1" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="11.0.0" />
