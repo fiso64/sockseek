@@ -161,7 +161,7 @@ test('applies configured search defaults and theme before JavaScript, including 
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(14, 15, 16)');
   await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Album Search/);
 
-  await daemon.command('webui-settings:flat:light:track');
+  await daemon.command('webui-settings:flat:light:track:upload-speed');
   // Even the unauthenticated shell renders the configured theme without JS.
   const context = await browser.newContext({ javaScriptEnabled: false, colorScheme: 'dark' });
   let lightBackground: string;
@@ -170,12 +170,13 @@ test('applies configured search defaults and theme before JavaScript, including 
     await shell.goto(new URL('/index.html', page.url()).href);
     lightBackground = await shell.locator('body').evaluate(element => getComputedStyle(element).backgroundColor);
     expect(lightBackground).not.toBe(darkBackground);
+    await expect(shell.locator('html')).toHaveAttribute('data-search-sort', 'upload-speed');
   } finally { await context.close(); }
   await page.reload();
   await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Track Search/);
   await expect(page.locator('body')).toHaveCSS('background-color', lightBackground);
 
-  await daemon.command('webui-settings:flat:auto:album-groups');
+  await daemon.command('webui-settings:flat:auto:album-groups:relevance');
   await page.goto('/system');
   await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Album Groups/);
   await expect(page.locator('body')).toHaveCSS('background-color', lightBackground);
@@ -187,7 +188,7 @@ test('applies configured search defaults and theme before JavaScript, including 
   const geometry = await page.locator('.search-controls-row').boundingBox();
   for (const [theme, scheme] of [['2009', 'light'], ['soft', 'dark'], ['flat', 'light'], ['flat', 'dark']] as const) {
     const physical = theme !== 'flat';
-    await daemon.command(`webui-settings:${theme}:${scheme}:album`);
+    await daemon.command(`webui-settings:${theme}:${scheme}:album:relevance`);
     const shellContext = await browser.newContext({ javaScriptEnabled: false, colorScheme: scheme === 'dark' ? 'light' : 'dark' });
     let background: string;
     try {

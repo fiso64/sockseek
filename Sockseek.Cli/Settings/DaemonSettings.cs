@@ -26,6 +26,10 @@ public class DaemonSettings
     [Required, RegularExpression("^(generic|track|album|song-groups|album-groups)$")]
     public string WebDefaultSearchMode { get; set; } = Defaults.WebUi.DefaultSearchMode;
 
+    [SettingOption("--web-default-sort", DefaultProfileOnly = true), SettingReloadable]
+    [Required, RegularExpression("^(relevance|upload-speed|queue-depth)$")]
+    public string WebDefaultSort { get; set; } = Defaults.WebUi.DefaultSort;
+
     [SettingOption("--no-docs", Negate = true, DefaultProfileOnly = true), SettingReloadable]
     public bool ServeDocumentation { get; set; } = Defaults.ServeDocumentation;
 
@@ -132,7 +136,7 @@ public class DaemonSettings
     /// </summary>
     public void ApplyReloadable(ServerOptions options)
     {
-        options.WebUi = new(WebTheme, WebColorScheme, WebDefaultSearchMode);
+        options.WebUi = new(WebTheme, WebColorScheme, WebDefaultSearchMode, WebDefaultSort);
         options.ServeDocumentation = ServeDocumentation;
         options.CheckForUpdates = CheckForUpdates;
         options.Authentication.SessionLifetime = WebSessionLifetime;

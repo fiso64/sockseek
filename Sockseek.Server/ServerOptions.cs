@@ -34,7 +34,8 @@ public sealed class ServerOptions
     public ServerPersistenceOptions Persistence { get; set; } = new();
 }
 
-public sealed record WebUiOptions(string Theme = "flat", string ColorScheme = "dark", string DefaultSearchMode = "album");
+public sealed record WebUiOptions(string Theme = "flat", string ColorScheme = "dark", string DefaultSearchMode = "album",
+    string DefaultSort = "relevance");
 
 public sealed class ServerPersistenceOptions
 {

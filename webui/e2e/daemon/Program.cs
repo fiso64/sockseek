@@ -777,6 +777,7 @@ static async Task RunScenarioAsync(string distribution, ScenarioOptions scenario
                     app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<ServerOptions>>().Value.WebUi = new()
                     {
                         Theme = parts[1], ColorScheme = parts[2], DefaultSearchMode = parts[3],
+                        DefaultSort = parts[4],
                     };
                     break;
                 }

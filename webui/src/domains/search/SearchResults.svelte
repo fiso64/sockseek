@@ -1073,7 +1073,8 @@
       <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="popover-panel form search-config-popover results-config-popover" aria-label="This search's settings" use:anchoredPopover={{ anchor: conditionsAnchor, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
         <SearchConfigPanel mode={viewState.draft.resultMode} bind:conditions title="This search"
           profiles={{ value: viewProfileNames, onchange: names => viewProfileNames = names }}
-          loadDefaults={() => inheritedConditions!} initialTab={conditionsInitialTab} highlight={conditionsHighlight} onclose={() => (conditionsOpen = false)} />
+          loadDefaults={() => inheritedConditions!} initialTab={conditionsInitialTab} highlight={conditionsHighlight}
+          rankingAvailable={viewState.sortOrder === 'Relevance'} onclose={() => (conditionsOpen = false)} />
       </section>
     {/if}
   </div>

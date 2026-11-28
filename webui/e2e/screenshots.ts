@@ -21,7 +21,7 @@ async function selectFolder(page: Page, peer: string): Promise<void> {
 test('documentation screenshots', async ({ page, daemon }) => {
   test.setTimeout(120_000);
   await daemon.command('showcase');
-  await daemon.command('webui-settings:flat:dark:album');
+  await daemon.command('webui-settings:flat:dark:album:relevance');
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/dashboard');
   await page.locator('#global-search-simple').fill('Lake Vesper Static Bloom');

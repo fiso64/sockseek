@@ -135,6 +135,17 @@ export function searchViewKind(mode: SearchResultMode): Schema<'SearchViewProjec
   return searchModes[mode].kind;
 }
 
+/** The daemon's `web-default-sort` setting, as served in the page. */
+export const configuredDefaultSort = (): string | undefined => globalThis.document?.documentElement.dataset.searchSort;
+
+/** The daemon's `web-default-sort` for a new view, unless the view's mode lacks that sort. */
+export function defaultSortOrder(kind: Schema<'SearchViewProjectionKind'> | null | undefined,
+  configured = configuredDefaultSort()): Schema<'SearchViewSortOrder'> | undefined {
+  if (configured === 'upload-speed' && (kind === 'Files' || kind === 'GenericDirectories' || kind === 'AlbumDirectories')) return 'UploadSpeed';
+  if (configured === 'queue-depth' && (kind === 'Files' || kind === 'AlbumDirectories')) return 'QueueDepth';
+  return undefined;
+}
+
 export function searchDelimiter(input: string): { index: number; length: number } | null {
   return [' — ', ' – ', ' - '].map(value => ({ index: input.indexOf(value), length: value.length }))
     .filter(item => item.index >= 0).sort((a, b) => a.index - b.index)[0] ?? null;

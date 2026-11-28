@@ -3,6 +3,7 @@
   import { daemonApi } from '../../api/client';
   import SearchConfigPanel from '../../components/SearchConfigPanel.svelte';
   import { searchPanels } from '../../lib/search-panels.svelte';
+  import { configuredDefaultSort } from './model';
   import ProfilePicker from '../../components/ProfilePicker.svelte';
   import LoadingIndicator from '../../components/LoadingIndicator.svelte';
   import type { Schema } from '../../api/types';
@@ -118,6 +119,9 @@
       }
     });
   });
+  const defaultSort = configuredDefaultSort();
+  const rankingNotice = defaultSort && defaultSort !== 'relevance'
+    ? `Ranking only applies if you set the search results to be sorted by Relevance.` : undefined;
 </script>
 
 {#if error}
@@ -134,7 +138,7 @@
     {#if displayedMode}
       <div class:waiting={loading} inert={loading}>
         <SearchConfigPanel mode={displayedMode} bind:conditions {onclose}
-          title="New search" notice={searchPanels.resultsShown > 0 ? scopeNotice : undefined}
+          title="New search" notice={searchPanels.resultsShown > 0 ? scopeNotice : undefined} {rankingNotice}
           {profiles}
           loadDefaults={async signal => {
             const response = await daemonApi.resolveEffectiveSettings({ job: searchJobDraft(draft), options: { profileNames: draft.profileNames } }, signal);

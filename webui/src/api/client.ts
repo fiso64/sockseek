@@ -28,6 +28,7 @@ import {
   searchSubmissionOptions,
   isGroupSearchMode,
   searchViewKind,
+  defaultSortOrder,
   modeForProjection,
   songQuery,
   type SearchDraft,
@@ -184,7 +185,7 @@ export class DaemonApiClient {
   createSearchView(jobId: string, request: SearchViewRequest = {}, signal?: AbortSignal): Promise<SearchViewSummaryDto> {
     return this.http.post(
       `/jobs/${encodeURIComponent(jobId)}/search-views`,
-      request,
+      { ...request, sortOrder: request.sortOrder ?? defaultSortOrder(request.kind) },
       signal,
     );
   }

@@ -57,7 +57,8 @@ internal static class WebUiHosting
             // or wrong-theme flash, and no credentials in the public shell.
             string attributes = $"{(ServeDocs() ? "data-docs " : "")}style=\"color-scheme:{HtmlEncoder.Default.Encode(scheme)}\" "
                 + $"data-theme=\"{HtmlEncoder.Default.Encode(settings.Theme)}\" "
-                + $"data-search-mode=\"{HtmlEncoder.Default.Encode(settings.DefaultSearchMode)}\" ";
+                + $"data-search-mode=\"{HtmlEncoder.Default.Encode(settings.DefaultSearchMode)}\" "
+                + $"data-search-sort=\"{HtmlEncoder.Default.Encode(settings.DefaultSort)}\" ";
             context.Response.Headers.CacheControl = "no-cache";
             // A stripping reverse proxy can serve the same shell at any prefix.
             // Resolve relative assets from the app root, including on deep bookmarks.

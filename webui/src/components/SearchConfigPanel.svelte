@@ -42,6 +42,10 @@
     notice?: Snippet;
     /** Shows these fields once: switches to their tab, scrolls to them and highlights them. A new object repeats it. */
     highlight?: { tab: PanelTab; fields: readonly string[] };
+    /** A line below the notice on the Ranking tab. */
+    rankingNotice?: string;
+    /** False hides the Ranking tab, for a search whose sort ignores ranking. */
+    rankingAvailable?: boolean;
   }
 
   let {
@@ -60,6 +64,8 @@
     loadDefaults,
     notice,
     highlight,
+    rankingNotice,
+    rankingAvailable = true,
   }: Props = $props();
 
   const panelId = $props.id();
@@ -68,11 +74,12 @@
   let groupMode = $derived(isGroupSearchMode(mode));
   let activeTab = $state<PanelTab>('conditions');
   $effect(() => { activeTab = section ?? initialTab; });
+  $effect(() => { if (!rankingAvailable && activeTab === 'ranking') activeTab = 'conditions'; });
   let flow = $state<HTMLElement>();
   let highlighted: Props['highlight'];
   $effect(() => {
     const request = highlight;
-    if (!request || request === highlighted) return;
+    if (!request || request === highlighted || (request.tab === 'ranking' && !rankingAvailable)) return;
     if (activeTab !== request.tab) { activeTab = request.tab; return; }
     if (!flow) return;
     highlighted = request;
@@ -200,11 +207,11 @@
     <strong>{title}</strong>
     <nav class="segmented-control search-config-tabs" aria-label="Search configuration sections">
       <button type="button" class:active={activeTab === 'conditions'} aria-current={activeTab === 'conditions' ? 'page' : undefined} onclick={() => (activeTab = 'conditions')}>Filtering</button>
-      <button type="button" class:active={activeTab === 'ranking'} aria-current={activeTab === 'ranking' ? 'page' : undefined} onclick={() => (activeTab = 'ranking')}>Ranking</button>
+      {#if rankingAvailable}<button type="button" class:active={activeTab === 'ranking'} aria-current={activeTab === 'ranking' ? 'page' : undefined} onclick={() => (activeTab = 'ranking')}>Ranking</button>{/if}
     </nav>
     <HelpPopover title="Filtering and ranking" testId="search-config-tabs-help">
       {#snippet children()}
-        <span>Filtering hides results that don't meet a condition. Ranking keeps every result and orders them by your preferences.</span>
+        <span>Filtering hides results that don't meet a condition. Ranking keeps every result and orders them by your preferences. Ranking is only available when using "Relevance" sorting.</span>
         <span><ManualLink topic="rankingAndFiltering">Ranking and filtering</ManualLink></span>
       {/snippet}
     </HelpPopover>
@@ -225,6 +232,7 @@
   </header>
 {/if}
 {#if notice}<p class="search-config-notice">{@render notice()}</p>{/if}
+{#if rankingNotice && activeTab === 'ranking'}<p class="search-config-notice" data-testid="ranking-sort-notice">{rankingNotice}</p>{/if}
 {#if resetError}<Notice variant="unavailable">{resetError}</Notice>{/if}
 
 {#if activeTab === 'conditions'}

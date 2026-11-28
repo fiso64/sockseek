@@ -63,6 +63,8 @@ sockseek daemon                 Start the HTTP/SignalR daemon
 --web-color-scheme <scheme>     WebUI color scheme: dark (default), light, auto (follow the browser)
 --web-default-search-mode <mode>
                                 generic, track, album (default), song-groups, album-groups
+--web-default-sort <sort>       Default sort for search results: relevance (default), upload-speed,
+                                queue-depth. Modes without that sort use relevance.
 ```
 
 ### Sharing, Uploads and Chat

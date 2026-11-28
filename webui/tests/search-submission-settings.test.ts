@@ -2,7 +2,7 @@ import { jobSummary } from './job-fixture';
 import { expect, it, vi } from 'vitest';
 import { DaemonApiClient } from '../src/api/client';
 import { DaemonHttpClient } from '../src/api/http';
-import { albumQuery, editableSearchDraft, emptySearchDraft, parseSearchResultMode, searchJobDraft, searchJobPath, songQuery, type SearchResultMode } from '../src/domains/search/model';
+import { albumQuery, defaultSortOrder, editableSearchDraft, emptySearchDraft, parseSearchResultMode, searchJobDraft, searchJobPath, songQuery, type SearchResultMode } from '../src/domains/search/model';
 import { showsSearchResults } from '../src/domains/jobs/presentation';
 
 it.each([
@@ -133,6 +133,15 @@ it('reopens a retained search in the requested result mode, else its own', async
   await client.openSearchJob(jobSummary({ jobId: 'job' }), undefined, undefined, null);
   expect(post.mock.calls[0]?.[1]).toEqual({ kind: 'AlbumGroups' });
   expect(post.mock.calls[1]?.[1]).toEqual({ kind: 'Files' });
+});
+
+it('sorts new views by the configured default only where their mode offers that sort', () => {
+  expect(defaultSortOrder('AlbumDirectories', 'upload-speed')).toBe('UploadSpeed');
+  expect(defaultSortOrder('GenericDirectories', 'upload-speed')).toBe('UploadSpeed');
+  expect(defaultSortOrder('Files', 'queue-depth')).toBe('QueueDepth');
+  expect(defaultSortOrder('GenericDirectories', 'queue-depth')).toBeUndefined();
+  expect(defaultSortOrder('AlbumGroups', 'upload-speed')).toBeUndefined();
+  expect(defaultSortOrder('Files', 'relevance')).toBeUndefined();
 });
 
 it('retains the submitted settings when the caller edits its draft during submission', async () => {
