@@ -104,7 +104,7 @@ function rankingPreference(condition: RankingSlot, conditions: SearchConditions)
       remove: () => { common.minBitDepth = null; common.maxBitDepth = null; } };
     case 'Length': return { fields: ['lengthTolerance'], pill: `prefer length ±${track.lengthTolerance ?? 0}s`, missed: 'other length', remove: () => { track.lengthTolerance = null; } };
     case 'ExcludeLocked': return { fields: ['excludeLocked'], pill: 'prefer unlocked', missed: 'locked', remove: () => { common.excludeLocked = false; } };
-    case 'Username': return { fields: ['bannedUsers'], pill: `avoid: ${common.bannedUsers.trim()}`, missed: 'other users', remove: () => { common.bannedUsers = ''; } };
+    case 'Username': return { fields: ['bannedUsers', 'allowedUsers'], pill: `avoid: ${common.bannedUsers.trim()}`, missed: 'other users', remove: () => { common.bannedUsers = ''; } };
     case 'PreferredUsers': return { fields: ['allowedUsers'], pill: `prefer: ${common.allowedUsers.trim()}`, missed: 'other users', remove: () => { common.allowedUsers = ''; } };
   }
 }
@@ -127,8 +127,10 @@ export function missCounts(misses: Schema<'SearchPreferenceMissesDto'>): { condi
     .filter(miss => miss.count > 0);
 }
 
-/** Why results aren't Preferred: how many miss each preference, most common first. */
-export function missedPreferences(misses: readonly { condition: PreferenceCondition; count: number | string }[], conditions: SearchConditions): string[] {
-  return [...misses].sort((a, b) => Number(b.count) - Number(a.count))
-    .map(miss => `${Number(miss.count).toLocaleString()} ${rankingPreference(miss.condition, conditions).missed}`);
+/** Why results aren't Preferred: how many miss each preference, most common first, and where to edit it. */
+export function missedPreferences(misses: readonly { condition: PreferenceCondition; count: number | string }[], conditions: SearchConditions): { text: string; fields: string[] }[] {
+  return [...misses].sort((a, b) => Number(b.count) - Number(a.count)).map(miss => {
+    const { missed, fields } = rankingPreference(miss.condition, conditions);
+    return { text: `${Number(miss.count).toLocaleString()} ${missed}`, fields };
+  });
 }

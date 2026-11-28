@@ -146,6 +146,8 @@
   {:else if name === 'copy'}
     <rect x="8.5" y="8.5" width="11" height="11" rx="2" />
     <path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2" />
+  {:else if name === 'pencil'}
+    <path d="M14.5 5.5l4 4M4.5 19.5l1-4.5L16 4.5a1.4 1.4 0 0 1 2 0l1.5 1.5a1.4 1.4 0 0 1 0 2L9 18.5z" />
   {:else if name === 'upload-file'}
     <path d="M7 3.5h6l4 4V20H7z" />
     <path d="M13 3.5V8h4M12 17v-6M9.5 13.5 12 11l2.5 2.5" />

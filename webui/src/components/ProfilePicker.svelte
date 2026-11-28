@@ -61,14 +61,17 @@
         </label>
       {/each}
       {#if error}<p role="alert">{error} <button class="button" type="button" disabled={loading} onclick={() => void load()}>Retry</button></p>{/if}
-      <p class="profile-help"><ManualLink topic="profiles">About profiles</ManualLink></p>
+      <div class="profile-help"><ManualLink topic="profiles" class="menu-item profile-help-link"><Icon name="book" />About profiles</ManualLink></div>
     </div>
   </div>
 {/if}
 
 <style>
   .profile-picker { flex-shrink: 0; }
-  .profile-help { margin: 4px 0 0; padding: 6px 8px 3px; border-top: 1px solid var(--line); font-size: .72rem; }
+  .profile-help { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--border); }
+  .profile-help :global(.profile-help-link) { display: flex; align-items: center; gap: 8px; padding: 8px; color: var(--muted); font-size: .76rem; text-decoration: none; }
+  .profile-help :global(.profile-help-link:hover) { color: var(--text); }
+  .profile-help :global(svg) { width: 15px; height: 15px; flex-shrink: 0; }
   .profile-trigger { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 5px 8px; border-radius: 7px; font-size: .72rem; }
   .profile-trigger :global(svg) { width: 14px; height: 14px; }
   .profile-popout { position: fixed; inset: auto; width: min(250px, calc(100vw - 24px)); box-sizing: border-box; margin: 0; padding: 5px; overflow-y: auto; border-radius: 9px; color: var(--text); }

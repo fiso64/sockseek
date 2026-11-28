@@ -157,6 +157,14 @@
   let configurationError = $state<Error | null>(null);
   let conditionsOpen = $state(false);
   let conditionsHighlight = $state<{ tab: 'conditions' | 'ranking'; fields: readonly string[] }>();
+  /** Opens this search's settings at the given fields, highlighting them. */
+  function editSettings(tab: 'conditions' | 'ranking', fields: readonly string[]): void {
+    if (!conditionsButton || conditionsButton.disabled) return;
+    conditionsAnchor = conditionsButton;
+    conditionsInitialTab = tab;
+    conditionsHighlight = { tab, fields };
+    conditionsOpen = true;
+  }
   let conditionsButton = $state<HTMLButtonElement>();
   // The search bar's settings can hand off to this search's own.
   onMount(() => {
@@ -1061,13 +1069,7 @@
     </div>
     {#if viewState.draft}
       <SearchConditionPills mode={viewState.draft.resultMode} bind:conditions ranking={rankingConditions}
-        onedit={pill => {
-          if (!conditionsButton || conditionsButton.disabled) return;
-          conditionsAnchor = conditionsButton;
-          conditionsInitialTab = pill.tab;
-          conditionsHighlight = { tab: pill.tab, fields: pill.fields };
-          conditionsOpen = true;
-        }} />
+        onedit={pill => editSettings(pill.tab, pill.fields)} />
     {/if}
     {#if conditionsOpen && viewState.draft}
       <section data-shortcuts-blocked="true" bind:this={conditionsPopover} class="popover-panel form search-config-popover results-config-popover" aria-label="This search's settings" use:anchoredPopover={{ anchor: conditionsAnchor, align: 'start', gap: 8, viewportMargin: 16, minHeight: 240 }}>
@@ -1156,9 +1158,15 @@
             <span>{tier === 'Preferred' ? 'Preferred matches' : 'Other matches'}</span>
             {#if tier === 'Other' && otherMisses.length}
               <HelpPopover title="Other matches" icon="info" testId="other-matches-misses">
-                {#snippet children()}
+                {#snippet children(close)}
                   <span>These results miss at least one ranking preference:</span>
-                  <ul class="result-tier-misses">{#each otherMisses as line}<li>{line}</li>{/each}</ul>
+                  <ul class="result-tier-misses">
+                    {#each otherMisses as line}
+                      <li><span>{line.text}</span><button type="button" class="button quiet" data-action="edit-ranking-preference"
+                        aria-label={`Edit ranking: ${line.text}`} title="Edit ranking preference"
+                        onclick={() => { close(); editSettings('ranking', line.fields); }}><Icon name="pencil" /></button></li>
+                    {/each}
+                  </ul>
                 {/snippet}
               </HelpPopover>
             {/if}

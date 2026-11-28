@@ -28,6 +28,7 @@
   }
 
   let { liveStatus, terminalTransferCommitRevision, soulseek = null, activity, userActions }: Props = $props();
+  const chartId = $props.id();
   let range = $state<RangeId>('30d');
   let rankingTab = $state<'transfers' | 'content' | 'errors'>('transfers');
   let data = $state<DashboardAnalyticsDto | null>(null);
@@ -234,10 +235,16 @@
             <line x1="506" y1="0" x2="506" y2="150"/>
             <line x1="633" y1="0" x2="633" y2="150"/>
           </g>
+          <defs>
+            <!-- Themes set how strongly each area fades from its line down. -->
+            {#each ['download', 'upload'] as series}
+              <linearGradient id={`${chartId}-${series}`} class={`chart-gradient ${series}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" /><stop offset="1" /></linearGradient>
+            {/each}
+          </defs>
           {#if hasHistory}
-            <path class="chart-area download" d={`${downloadPath} L 760 150 L 0 150 Z`}/>
+            <path class="chart-area download" fill={`url(#${chartId}-download)`} d={`${downloadPath} L 760 150 L 0 150 Z`}/>
             <path class="chart-line download" d={downloadPath}/>
-            <path class="chart-area upload" d={`${uploadPath} L 760 150 L 0 150 Z`}/>
+            <path class="chart-area upload" fill={`url(#${chartId}-upload)`} d={`${uploadPath} L 760 150 L 0 150 Z`}/>
             <path class="chart-line upload" d={uploadPath}/>
           {/if}
           {#if hoveredBucket}<line class="chart-hover-line" x1={hoveredX * 760} x2={hoveredX * 760} y1="0" y2="150" />{/if}

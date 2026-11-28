@@ -131,7 +131,8 @@ it('shows the ranking preferences the daemon applies, and removing one turns tha
   expect(conditions.ranking.album.strictAlbum).toBe(false);
   expect(conditions.ranking.common.excludeLocked).toBe(true);
   const summary = missedPreferences([{ condition: 'Album', count: 12 }, { condition: 'Format', count: '31' }], conditions);
-  expect(summary.map(line => line.match(/\d+/)?.[0])).toEqual(['31', '12']);
+  expect(summary.map(line => line.text.match(/\d+/)?.[0])).toEqual(['31', '12']);
+  expect(summary.map(line => line.fields)).toEqual([['formats'], ['strictAlbum']]);
 });
 
 it('keeps required, preferred and separate draft values independent', () => {

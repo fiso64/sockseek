@@ -77,8 +77,22 @@ export interface AnchoredPopoverOptions extends AnchoredMenuOptions {
   minHeight?: number;
 }
 
+/** The visible rectangle of the nearest ancestor that scrolls vertically. */
+function scrollport(element: Element): DOMRect | null {
+  for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY;
+    if (overflow === 'auto' || overflow === 'scroll') return node.getBoundingClientRect();
+  }
+  return null;
+}
+
 function placePopover(node: HTMLElement, options: AnchoredPopoverOptions): void {
   if (typeof window === 'undefined' || !options.anchor) return;
+  // Phones show these surfaces as full-screen sheets, positioned by CSS.
+  if (window.matchMedia('(max-width: 640px)').matches) {
+    for (const property of ['left', 'top', 'max-height']) node.style.removeProperty(property);
+    return;
+  }
   const gap = options.gap ?? 8;
   const margin = options.viewportMargin ?? 16;
   const minHeight = options.minHeight ?? 220;
@@ -95,18 +109,24 @@ function placePopover(node: HTMLElement, options: AnchoredPopoverOptions): void 
     Math.max(margin, viewportWidth - naturalRect.width - margin),
   );
 
-  const belowTop = anchorRect.bottom + gap;
-  const belowAvailable = Math.max(0, viewportHeight - margin - belowTop);
-  const aboveBottom = anchorRect.top - gap;
-  const aboveAvailable = Math.max(0, aboveBottom - margin);
+  // An anchor scrolled out of view pins the surface at the viewport edge;
+  // measure the room from there so the surface never outgrows the viewport.
+  // Stay inside the area the anchor scrolls in, below a fixed app header.
+  const port = scrollport(options.anchor);
+  const topLimit = Math.max(0, port?.top ?? 0) + margin;
+  const bottomLimit = Math.min(viewportHeight, port?.bottom ?? viewportHeight) - margin;
+  const belowTop = Math.max(topLimit, anchorRect.bottom + gap);
+  const belowAvailable = Math.max(0, bottomLimit - belowTop);
+  const aboveBottom = Math.min(bottomLimit, anchorRect.top - gap);
+  const aboveAvailable = Math.max(0, aboveBottom - topLimit);
   const placeAbove = belowAvailable < minHeight && aboveAvailable > belowAvailable;
   const availableHeight = Math.max(0, placeAbove ? aboveAvailable : belowAvailable);
 
   node.style.maxHeight = `${Math.floor(availableHeight)}px`;
   const constrainedRect = node.getBoundingClientRect();
   const top = placeAbove
-    ? Math.max(margin, anchorRect.top - gap - constrainedRect.height)
-    : Math.max(margin, belowTop);
+    ? Math.max(topLimit, aboveBottom - constrainedRect.height)
+    : belowTop;
 
   node.style.left = `${Math.round(left)}px`;
   node.style.top = `${Math.round(top)}px`;

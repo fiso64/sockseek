@@ -692,6 +692,13 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   padding-bottom: 8px;
 }
 .search-config-header strong { display: block; font-size: 0.95rem; font-weight: 650; }
+/* The header, with its close button, stays in reach while the settings scroll. */
+.search-config-popover .search-config-header {
+  position: sticky; top: -18px; z-index: 2;
+  margin: -18px -18px 10px; padding: 18px 18px 10px;
+  border-radius: 14px 14px 0 0;
+  background: var(--panel-background);
+}
 .search-config-close {
   margin-left: auto;
   padding: 0 3px;
@@ -849,10 +856,12 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   .search-settings-button { width: 42px; flex-basis: 42px; }
   /* A full-screen sheet above the tab bar, with its header kept in reach. */
   .search-config-popover { position: fixed; inset: 0; z-index: 90; width: auto; max-height: none; padding: 0 12px 24px; border: 0; border-radius: 0; }
+  /* The results sheet lives in the page; lift its layer above the top bar while open. */
+  .result-refine-wrap:has(> .results-config-popover) { z-index: 25; }
   .search-config-popover .search-config-header {
     position: sticky; top: 0; z-index: 2; gap: 10px;
     margin: 0 -12px 12px; padding: 12px 12px 10px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border); border-radius: 0;
     background: var(--surface);
   }
   .search-config-popover .search-config-header > strong { flex: 1 0 100%; padding: 6px 40px 6px 0; }
@@ -897,13 +906,14 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
 .activity-chart { container-type: inline-size; position: relative; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px; margin-top: 15px; padding: 14px 14px 8px; border-radius: 7px; }
 .chart-y-labels { min-width: 55px; height: 150px; display: flex; flex-direction: column; justify-content: space-between; padding: 0 0 1px; color: var(--faint); font-size: .68rem; text-align: right; white-space: nowrap; }
 .chart-canvas { min-width: 0; position: relative; }
-.chart-canvas svg { width: 100%; height: 150px; display: block; overflow: visible; }
-.chart-grid line { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 5; }
-.chart-line { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
-.chart-line.download { stroke: var(--accent); }
-.chart-line.upload { stroke: var(--success); }
-.chart-area.download { fill: color-mix(in srgb, var(--accent) 12%, transparent); }
-.chart-area.upload { fill: color-mix(in srgb, var(--success) 9%, transparent); }
+.chart-canvas svg { width: 100%; height: 150px; display: block; overflow: visible; border-radius: 4px; background: var(--chart-background); box-shadow: var(--chart-shadow); }
+.chart-grid line { stroke: var(--border); stroke-width: 1; stroke-dasharray: var(--chart-grid-dash); }
+.chart-line { fill: none; stroke: currentColor; stroke-width: var(--chart-line-width); vector-effect: non-scaling-stroke; filter: var(--chart-line-filter); }
+.chart-line.download, .chart-gradient.download stop { color: var(--accent); stop-color: var(--accent); }
+.chart-line.upload, .chart-gradient.upload stop { color: var(--success); stop-color: var(--success); }
+.chart-gradient stop:first-child { stop-opacity: var(--chart-fill-top); }
+.chart-gradient stop:last-child { stop-opacity: var(--chart-fill-bottom); }
+.chart-area.upload { fill-opacity: 0.75; }
 .chart-hover-line { stroke: var(--muted); stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 .chart-tooltip { position: absolute; bottom: calc(100% + 10px); z-index: 1; width: min(20rem, 100cqw); display: grid; gap: 7px; padding: 12px; pointer-events: none; border-radius: 8px; font-size: 0.75rem; }
 .chart-tooltip strong { color: var(--text); font-weight: 600; white-space: nowrap; }
@@ -1294,7 +1304,10 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   font-weight: 600;
 }
 .result-tier-heading.preferred { color: var(--accent); }
-.result-tier-misses { margin: 0; padding-left: 18px; color: var(--text); }
+.result-tier-misses { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; color: var(--text); }
+.result-tier-misses li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.result-tier-misses button { flex: none; padding: 3px; color: var(--faint); --app-icon-size: 15px; }
+.result-tier-misses button:hover { color: var(--text); }
 
 
 .result-tier { display: grid; gap: 10px; }

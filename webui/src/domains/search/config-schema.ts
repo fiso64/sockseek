@@ -18,7 +18,7 @@ export interface SearchConfigFieldDefinition {
 }
 
 const artistMatchHelp = [
-  'The artist’s name must appear in the path with a boundary on each side, like a space or punctuation such as - . , ( ) [ ].',
+  'The artist’s name must appear in the path with a boundary character on each side, like a space or punctuation such as - . , ( ) [ ].',
   '“Joe Yamanaka” matches “Joe Yamanaka - Best” but not “Joe Yamanakas”. Casing and accents are ignored.',
 ] as const;
 
@@ -27,7 +27,7 @@ const titleMatchHelp = [
 ] as const;
 
 const albumMatchHelp = [
-  'The album name must appear in the folder path with a boundary on each side, like - . , ( ) [ ]. Unlike the artist match, a space alone is not a boundary, except after a number such as a year.',
+  'The album name must appear in the folder path with a boundary character on each side, like - . , ( ) [ ]. Unlike the artist match, a space alone is not a boundary, except after a number such as a year.',
   'For “Ashita no Joe”, “Artist - Ashita no Joe [FLAC]” and “1980 Ashita no Joe” match, but “Ashita no Joe 2 Soundtrack” does not. Casing and accents are ignored.',
 ] as const;
 

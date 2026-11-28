@@ -29,8 +29,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
-  /** A link to one topic in the manual. */
-  let { topic, children }: { topic: keyof typeof manualPages; children: Snippet } = $props();
+  /** A link to one topic in the manual. A class replaces the inline-link look, e.g. for a menu row. */
+  let { topic, class: className = 'text-link', children }: { topic: keyof typeof manualPages; class?: string; children: Snippet } = $props();
 </script>
 
-<a class="text-link" href={manualUrl(manualPages[topic])} target="_blank" rel="noopener" data-testid={`manual-${topic}`}>{@render children()}</a>
+<a class={className} href={manualUrl(manualPages[topic])} target="_blank" rel="noopener" data-testid={`manual-${topic}`}>{@render children()}</a>

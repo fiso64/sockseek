@@ -66,6 +66,13 @@
   --divider-shadow: none;
   --indicator-shadow: none;
   --stripe: transparent;
+  --chart-fill-top: 0.12;
+  --chart-fill-bottom: 0.12;
+  --chart-line-width: 2px;
+  --chart-line-filter: none;
+  --chart-grid-dash: 3 5;
+  --chart-background: transparent;
+  --chart-shadow: none;
 
   --header-background: var(--surface);
   --header-shadow: none;
@@ -130,6 +137,10 @@
   --divider-shadow: inset -1px 0 var(--edge-light);
   --indicator-shadow: 0 0 4px color-mix(in srgb, currentColor 40%, transparent);
   --stripe: transparent;
+  --chart-fill-top: 0.34;
+  --chart-fill-bottom: 0;
+  --chart-line-width: 2.5px;
+  --chart-line-filter: drop-shadow(0 2px 4px color-mix(in srgb, currentColor 45%, transparent));
 
   --header-background: linear-gradient(180deg, light-dark(#f8f6f2, #15181c), light-dark(#e8e4de, #15181c));
   --header-shadow: inset 0 -1px var(--edge-light), 0 4px 14px light-dark(#0003, transparent);
@@ -161,6 +172,11 @@
   --badge-image: linear-gradient(180deg, light-dark(#ffffff99, #ffffff18), light-dark(#ffffff26, #ffffff08) 49%, transparent 51%);
   --progress-image: linear-gradient(180deg, #ffffff55, transparent 65%);
   --stripe: light-dark(#0000000a, #ffffff06);
+  --chart-fill-top: 0.55;
+  --chart-fill-bottom: 0.14;
+  --chart-line-filter: drop-shadow(0 1px 1px light-dark(#0006, #000c));
+  --chart-background: var(--well);
+  --chart-shadow: var(--field-shadow);
   --header-background: linear-gradient(180deg, light-dark(#fbfaf8, #30353d), light-dark(#e6e3de, #282c33) 49%, light-dark(#dbd7d0, #262a30) 51%, light-dark(#cfcac3, #20242a));
   --header-shadow: inset 0 1px light-dark(#ffffff, transparent), inset 0 -1px light-dark(#0000002e, #ffffff24), 0 3px 10px light-dark(#00000024, #0003);
   --sidebar-background: linear-gradient(180deg, light-dark(#eeece8, #282d35), light-dark(#dcd8d2, #191d23));
