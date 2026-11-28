@@ -185,14 +185,13 @@ internal sealed class DownloadFileOperations : IDisposable
 
     private DownloadOutput Open(Cache state, string path, FileMode mode = FileMode.OpenOrCreate)
     {
-        CreateOutputDirectory(path);
         try
         {
             // FileMode.Create unconditionally ftruncates even a new file on Unix.
             // On ext4 that can force buffered downloads through the journal at close,
             // stalling unrelated FULL-WAL commits. Only truncate an actual old payload.
-            var output = new FileStream(path, mode, FileAccess.ReadWrite, FileShare.Read,
-                bufferSize: 1, FileOptions.SequentialScan);
+            var output = Utils.InCreatedDirectory(() => CreateOutputDirectory(path), () => new FileStream(path, mode,
+                FileAccess.ReadWrite, FileShare.Read, bufferSize: 1, FileOptions.SequentialScan));
             try
             {
                 state.InvalidatePath(path);
@@ -203,7 +202,7 @@ internal sealed class DownloadFileOperations : IDisposable
             // pass through WorkerStream onto these same owned I/O workers.
             return new DownloadOutput(output.Name, new BufferedStream(new WorkerStream(output, this), 4096), this);
         }
-        catch (Exception ex) when (DownloadDestinationException.IsFileError(ex))
+        catch (Exception ex) when (DownloadDestinationException.IsFileError(ex) && ex is not DownloadPreparationException)
         {
             throw new DownloadPreparationException($"Sockseek could not open '{path}' for writing.", ex, path);
         }

@@ -562,8 +562,10 @@ Ranking and filtering
     # Prefer songs whose duration differs from the supplied one
     # by at most 3 seconds.
     pref-length-tol = 3
-    # Prefer files whose paths contain the exact title and album name.
-    # Changing these is not recommended.
+
+    # Prefer files whose paths contain the exact title and album name,
+    # surrounded by boundary characters like punctuation.
+    # Disabling these is usually not recommended.
     pref-strict-title = true
     pref-strict-album = true
 
@@ -579,7 +581,8 @@ Ranking and filtering
     4. From a preferred user (pref-allowed-users)
     5. Format, then bitrate, sample rate and bit depth
     6. Not locked
-    For example, an MP3 in a folder named after the album ranks above a FLAC in a folder that isn't.
+    For example, with pref-strict-title enabled and pref-format=flac, an MP3 file that contains the
+    song name still ranks above a FLAC file that doesn't.
     WARNING
     The order of formats in a list has no effect. Both --pref-format mp3,flac and --pref-format
     flac,mp3 give MP3 and FLAC equal preference.

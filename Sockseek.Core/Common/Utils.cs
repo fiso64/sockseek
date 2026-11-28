@@ -308,6 +308,20 @@ public static partial class Utils
     private static string TemporarySibling(string destination) =>
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(destination))!, $".{Guid.NewGuid():N}.incomplete");
 
+    /// <summary>
+    /// Creates a directory and then uses it. Another transfer's cleanup can
+    /// remove the still-empty directory in between; create it again and retry.
+    /// </summary>
+    public static T InCreatedDirectory<T>(Action createDirectory, Func<T> use)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            createDirectory();
+            try { return use(); }
+            catch (DirectoryNotFoundException) when (attempt < 5) { }
+        }
+    }
+
     public static void DeleteAncestorsIfEmpty(string startDir, string root)
     {
         if (string.IsNullOrWhiteSpace(root)) return;
@@ -329,9 +343,8 @@ public static partial class Utils
         if (Path.GetFullPath(oldPath) != Path.GetFullPath(newPath))
         {
             var newParent = Path.GetDirectoryName(newPath);
-            if (!string.IsNullOrEmpty(newParent))
-                Directory.CreateDirectory(newParent);
-            Move(oldPath, newPath, overwrite);
+            InCreatedDirectory(() => { if (!string.IsNullOrEmpty(newParent)) Directory.CreateDirectory(newParent); },
+                () => { Move(oldPath, newPath, overwrite); return true; });
             var oldParent = Path.GetDirectoryName(oldPath);
             if (!string.IsNullOrEmpty(oldParent))
                 DeleteAncestorsIfEmpty(oldParent, recurseUntil);

@@ -309,6 +309,25 @@ namespace Tests.FileManagerTests
         }
 
         [TestMethod]
+        public void CreatedDirectoryRemovedByAnotherTransfersCleanupIsCreatedAgain()
+        {
+            string directory = Path.Combine(testRoot, "Album", "Disc 2");
+            int attempts = 0;
+
+            string written = Utils.InCreatedDirectory(() => Directory.CreateDirectory(directory), () =>
+            {
+                // A sibling's failed download removes the folder while it is still empty.
+                if (attempts++ == 0) Directory.Delete(directory);
+                string path = Path.Combine(directory, "two.txt.incomplete");
+                File.WriteAllText(path, "kept");
+                return path;
+            });
+
+            Assert.AreEqual(2, attempts);
+            Assert.AreEqual("kept", File.ReadAllText(written));
+        }
+
+        [TestMethod]
         public void SingleInputSong_DefaultOrganization_PlacesSongDirectlyInOutputDir()
         {
             var job = new SongJob(new SongQuery { Artist = "Artist1", Title = "Track1" });
