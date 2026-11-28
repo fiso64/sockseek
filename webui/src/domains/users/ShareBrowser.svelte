@@ -110,9 +110,14 @@
   }
   async function copyRowLink(): Promise<void> {
     if (!rowMenu) return;
-    const link = formatSoulseekLink(browse.username, rowMenu.path, rowMenu.folder);
+    const { path, folder } = rowMenu;
     rowMenu = undefined;
-    await copySoulseekLink(link);
+    const username = source.linkUsername ? source.linkUsername() : browse.username;
+    if (!username) {
+      notify({ key: 'soulseek-link', tone: 'error', title: 'Could not copy the link', details: ['A random login has no name until it connects.'] });
+      return;
+    }
+    await copySoulseekLink(formatSoulseekLink(username, path, folder));
   }
   $effect(() => {
     if (!rowMenu) return;

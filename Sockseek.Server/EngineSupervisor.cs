@@ -403,7 +403,7 @@ public sealed class EngineSupervisor : IDisposable
         var persistenceStatus = GetPersistenceStatus();
         var profile = Runtime.SoulseekRuntime?.LocalProfile;
         return new ServerStatusDto(
-            DaemonRuntime.ToSoulseekClientStatusDto(clientState),
+            DaemonRuntime.ToSoulseekClientStatusDto(clientState, Runtime.AccountName),
             stats.TotalJobCount,
             stats.ActiveJobCount,
             stats.TotalWorkflowCount,
@@ -411,7 +411,7 @@ public sealed class EngineSupervisor : IDisposable
             restartCount,
             persistenceStatus,
             stats.Configuration,
-            new SoulseekConnectionDto(Runtime.SoulseekSession?.LoggedInUsername, client?.Address, client?.Port,
+            new SoulseekConnectionDto(client?.Address, client?.Port,
                 client?.IPEndPoint?.ToString(), client?.Options.EnableListener == true ? client.Options.ListenPort : null),
             profile is null ? null : new LocalUserProfileDto(profile.Description, profile.Picture is { } picture
                 ? $"/api/server/profile/picture?v={Uri.EscapeDataString(picture.ETag.Trim('"'))}" : null),
@@ -794,7 +794,7 @@ public sealed class EngineSupervisor : IDisposable
             acceptedRootsAwaitingRegistration.TryRemove(change.Job.Id, out _);
         lock (engineGate)
             currentEngine = engine;
-        StateStore.UpdateDaemonRuntime(DaemonRuntime.ToSoulseekClientStatusDto(clientManager.State), restartCount);
+        StateStore.UpdateDaemonRuntime(DaemonRuntime.ToSoulseekClientStatusDto(clientManager.State, Runtime.AccountName), restartCount);
         EngineCreated?.Invoke(engine);
         return engine;
     }

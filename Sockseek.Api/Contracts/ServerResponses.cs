@@ -104,10 +104,12 @@ public sealed record PersistenceStatusDto(
 /// <param name="State">Combined Soulseek.NET client state string.</param>
 /// <param name="Flags">Individual Soulseek.NET state flag names.</param>
 /// <param name="IsReady">True when the client is both connected and logged in.</param>
+/// <param name="Username">The account others find this daemon under: the configured name, logged in or not, or the current random login. Null for a random login that hasn't connected.</param>
 public sealed record SoulseekClientStatusDto(
     string State,
     IReadOnlyList<string> Flags,
-    bool IsReady);
+    bool IsReady,
+    string? Username = null);
 
 /// <summary>
 /// User-visible summary of a configured profile.
@@ -224,7 +226,7 @@ public sealed record JobQuery(
 public sealed record JobLookupRequestDto(IReadOnlyList<Guid> JobIds);
 
 /// <summary>Current network session; contains no credentials.</summary>
-public sealed record SoulseekConnectionDto(string? Username, string? ServerAddress, int? ServerPort, string? ServerEndpoint, int? ListenPort);
+public sealed record SoulseekConnectionDto(string? ServerAddress, int? ServerPort, string? ServerEndpoint, int? ListenPort);
 
 /// <param name="CanRunAgain">The job can be run again from its saved command.</param>
 /// <param name="CanExtractAgain">

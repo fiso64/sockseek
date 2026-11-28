@@ -12037,6 +12037,7 @@ export interface components {
                         state: string;
                         flags: string[];
                         isReady: boolean;
+                        username?: null | string;
                     };
                     /** Format: int32 */
                     restartCount: number | string;
@@ -13992,9 +13993,9 @@ export interface components {
             state: string;
             flags: string[];
             isReady: boolean;
+            username?: null | string;
         };
         SoulseekConnectionDto: {
-            username?: null | string;
             serverAddress?: null | string;
             /** Format: int32 */
             serverPort?: null | number | string;
@@ -14074,6 +14075,7 @@ export interface components {
                     state: string;
                     flags: string[];
                     isReady: boolean;
+                    username?: null | string;
                 };
                 /** Format: int32 */
                 restartCount: number | string;
@@ -14848,6 +14850,7 @@ export interface components {
                         state: string;
                         flags: string[];
                         isReady: boolean;
+                        username?: null | string;
                     };
                     /** Format: int32 */
                     restartCount: number | string;

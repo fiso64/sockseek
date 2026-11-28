@@ -5,7 +5,10 @@ import type { Schema, UserBrowseDto } from '../../api/types';
 /** Both browsers use the same pages and filtering; only peer shares are selectable. */
 export interface ShareBrowserSource {
   browseId: string;
+  /** The owner as shown: a peer's name, or a label for the daemon's own shares. */
   username: string;
+  /** The Soulseek name links point to, when it isn't `username`; read when a link is copied. */
+  linkUsername?: () => string | null;
   totalFileBytes: number | string;
   directories: (parentId: number | string | null, cursor: string | null, limit: number, signal: AbortSignal) => Promise<Schema<'PageDtoOfBrowseDirectoryEntryDto'>>;
   files: (directoryId: number | string, cursor: string | null, limit: number, signal: AbortSignal) => Promise<Schema<'PageDtoOfBrowseFileEntryDto'>>;
@@ -28,7 +31,8 @@ export function peerShareSource(browse: UserBrowseDto): ShareBrowserSource {
   };
 }
 
-export function localShareSource(generationId: string, totalBytes: number | string): ShareBrowserSource {
+/** `account` reads the live login, which can change while the catalog stays. */
+export function localShareSource(generationId: string, totalBytes: number | string, account: () => string | null): ShareBrowserSource {
   const http = new DaemonHttpClient();
   const base = `/sharing/catalogs/${encodeURIComponent(generationId)}`;
   const query = (values: Record<string, string | number | null>) => {
@@ -38,6 +42,8 @@ export function localShareSource(generationId: string, totalBytes: number | stri
   };
   return {
     browseId: generationId, username: 'Your shares', totalFileBytes: totalBytes,
+    // Others browse these shares under the account the daemon is logged in as.
+    linkUsername: account,
     directories: (parentId, cursor, limit, signal) => http.get(`${base}/directories${query({ parentId, cursor, limit })}`, signal),
     files: (directoryId, cursor, limit, signal) => http.get(`${base}/directories/${directoryId}/files${query({ cursor, limit })}`, signal),
     search: (text, cursor, limit, signal) => http.get(`${base}/search${query({ query: text, cursor, limit })}`, signal),

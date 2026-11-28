@@ -114,7 +114,7 @@
     <StatusTab {daemon} {liveStatus} {liveClient} onloadingchange={(loading) => statusLoading = loading} />
   {:else if tab === 'shares'}
     {#if sharing?.catalog.generationId}
-      <ShareBrowser source={localShareSource(sharing.catalog.generationId, sharing.catalog.totalBytes)} session={sharesSession} />
+      <ShareBrowser source={localShareSource(sharing.catalog.generationId, sharing.catalog.totalBytes, () => daemon?.soulseekClient.username ?? null)} session={sharesSession} />
     {:else if !sharing}
       <LoadingIndicator />
     {:else}

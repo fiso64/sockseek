@@ -34,6 +34,13 @@ public sealed class DaemonRuntime
     public UserPresenceService? UserPresence { get; private set; }
     public UserProfileService? UserProfiles { get; private set; }
 
+    /// <summary>
+    /// The account others find this daemon under: the configured name, logged in
+    /// or not, or the current random login. A random login has none before it connects.
+    /// </summary>
+    public string? AccountName => SoulseekSession?.LoggedInUsername
+        ?? (engineSettings.UseRandomLogin || string.IsNullOrWhiteSpace(engineSettings.Username) ? null : engineSettings.Username);
+
     internal DaemonRuntime(ServerOptions options, EngineSettings engineSettings,
         EngineStateStore stateStore, PersistenceCoordinator? persistence,
         ILoggerFactory loggerFactory, Func<int> restartCount)
@@ -91,7 +98,7 @@ public sealed class DaemonRuntime
         void OnClientStateChanged(SoulseekClientStates state)
         {
             StateStore.UpdateDaemonRuntime(
-                ToSoulseekClientStatusDto(state),
+                ToSoulseekClientStatusDto(state, AccountName),
                 restartCount());
             userProfiles?.OnSoulseekStateChanged(state);
             userPresence?.OnSoulseekStateChanged(state);
@@ -304,7 +311,7 @@ public sealed class DaemonRuntime
     /// <summary>Raised after a config reload has written the reloadable host options.</summary>
     public event Action? HostOptionsReloaded;
 
-    internal static SoulseekClientStatusDto ToSoulseekClientStatusDto(SoulseekClientStates state)
+    internal static SoulseekClientStatusDto ToSoulseekClientStatusDto(SoulseekClientStates state, string? username)
     {
         var flags = Enum.GetValues<SoulseekClientStates>()
             .Where(flag => flag != SoulseekClientStates.None && state.HasFlag(flag))
@@ -317,7 +324,8 @@ public sealed class DaemonRuntime
         return new SoulseekClientStatusDto(
             state.ToString(),
             flags,
-            isConnected && isLoggedIn);
+            isConnected && isLoggedIn,
+            username);
     }
 
 }

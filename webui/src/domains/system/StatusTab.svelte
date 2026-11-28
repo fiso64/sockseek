@@ -88,10 +88,10 @@
     <section class="panel status-card profile-card" aria-labelledby="profile-heading">
       <h2 id="profile-heading">Your profile</h2>
       <div class="profile-body">
-        <ProfilePicture src={profile?.pictureUrl ? appPath(profile.pictureUrl) : null} username={connection?.username}
+        <ProfilePicture src={profile?.pictureUrl ? appPath(profile.pictureUrl) : null} username={client?.username}
           emptyLabel={profile ? 'No picture' : ''} emptyTitle={profile ? 'Set user-picture to show a picture to peers' : undefined} />
         <div class="profile-copy">
-          <strong>{connection?.username ?? '—'}</strong>
+          <strong>{client?.username ?? '—'}</strong>
           {#if profile?.description}
             <p class="user-profile-description" class:clamped={!descriptionExpanded} bind:this={descriptionElement}><LinkifiedText text={profile.description} /></p>
             {#if descriptionClamped}

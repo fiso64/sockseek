@@ -17469,6 +17469,12 @@
                       },
                       "isReady": {
                         "type": "boolean"
+                      },
+                      "username": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
                       }
                     }
                   },
@@ -25746,18 +25752,18 @@
           },
           "isReady": {
             "type": "boolean"
+          },
+          "username": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
       "SoulseekConnectionDto": {
         "type": "object",
         "properties": {
-          "username": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
           "serverAddress": {
             "type": [
               "null",
@@ -26126,6 +26132,12 @@
                   },
                   "isReady": {
                     "type": "boolean"
+                  },
+                  "username": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
                   }
                 }
               },
@@ -29347,6 +29359,12 @@
                       },
                       "isReady": {
                         "type": "boolean"
+                      },
+                      "username": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
                       }
                     }
                   },
