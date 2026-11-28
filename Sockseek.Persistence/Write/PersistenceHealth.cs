@@ -97,26 +97,23 @@ public sealed class PersistenceHealth
         => RecordFailure(now, exception, transient: false);
 
     internal void RecordBusyRetry() => Interlocked.Increment(ref busyRetryCount);
-    internal void RecordDroppedProgress()
-    {
-        Interlocked.Increment(ref droppedProgressCount);
-        MarkDegraded();
-    }
+    internal void RecordDroppedProgress() => MarkDegraded(ref droppedProgressCount, 1);
 
     internal void RecordPermanentlyFailedMutations(int count)
     {
-        Interlocked.Add(ref permanentlyFailedMutationCount, count);
-        MarkDegraded();
+        MarkDegraded(ref permanentlyFailedMutationCount, count);
         // Final loss is known after valid siblings commit. Coverage observers
         // must see that outcome even when no further commit follows the earlier
         // transaction failure. Operator failure logging is already rate-limited.
         InvokeObservers(FailureRecorded);
     }
 
-    private void MarkDegraded()
+    // Count the loss and degrade together: a snapshot never shows one without the other.
+    private void MarkDegraded(ref long counter, long count)
     {
         lock (gate)
         {
+            Interlocked.Add(ref counter, count);
             if (state == PersistenceHealthState.Healthy)
                 state = PersistenceHealthState.Degraded;
         }
