@@ -1,12 +1,12 @@
 <!-- sockseek-help:start(notes-and-tips) -->
 
-# Tips
+# Troubleshooting and tips
 
 ## Rate limits
 
 The Soulseek server bans users for 30 minutes if too many searches are performed within a short timespan. Sockseek has a search limiter which can be adjusted with `--searches-per-time` and `--searches-renew-time` (when the limit is reached, the status of the downloads will be 'Waiting'). By default it is configured to allow up to 34 searches every 220 seconds.
 
-## Why are some of my downloads wrong or missing?
+## Why are some of my automated downloads wrong or missing?
 
 ### **It downloaded a wrong song or album!**
 
@@ -39,7 +39,15 @@ Sockseek passes your input (i.e. artist + song name in case of songs, and artist
 
 Use `--print results-full` to inspect what Soulseek returned without downloading anything.
 
-## Searching
+## Why does it rank MP3 above FLAC when I prefer FLAC?
+
+Preferences have an [order](./ranking-and-filtering.md#ranking): matching what you searched for comes before audio quality. With the default `pref-strict-album`, an MP3 album folder named after the album ranks above a FLAC folder that isn't. The same applies to song titles with `pref-strict-title`. See [strict matching](./ranking-and-filtering.md#strict-artist-strict-album-strict-title) for what counts as a match.
+
+In the GUI, the info icon next to **Other matches** shows which preferences the other results miss. The ranking pills above the results show the preferences in their order.
+
+To get only FLAC, filter instead of ranking: use `format = flac` (`--format flac`), or select FLAC under **Filtering** in the GUI.
+
+## CLI Searching
 
 - It's always best to provide the least input necessary to uniquely identify an album or song.
   - Sometimes including the artist can be undesirable (e.g. "Various Artists"). For spotify or bandcamp inputs, you can remove the artist name with `--regex A:.*`.

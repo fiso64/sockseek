@@ -2,7 +2,11 @@
 
 # Ranking and filtering
 
-Preferred (`pref-*`) options change how results are **ranked**; they never filter anything out. `--pref-format flac` means Sockseek will prefer flac when available, but will still download mp3 if no flac is found. By contrast, conditions without the `pref` prefix are mandatory. For example, `--format flac` will reject non-flac files entirely.
+Sockseek supports filter as well as ranking configuration. 
+
+A required condition filters files from search results. For example, `--format flac` will reject non-flac files entirely.
+
+Ranking (or "preferred") conditions start with the `pref-` prefix and change how results are **ranked**; they never filter anything out. Ranking affects how results are sorted when using "Relevance" sorting in the GUI, and how results are chosen in [automated downloads](./auto-downloads.md). For example, in an automated download,`--pref-format flac` means Sockseek will prefer flac when available, but will still download mp3 if no flacs are found.
 
 ## Filtering
 
@@ -12,7 +16,7 @@ The only default required conditions are for the files to be audio:
 format = mp3,flac,ogg,m4a,opus,wav,aac,alac
 ```
 
-This only applies for music-oriented search modes (track mode, album mode, etc); generic file searches in the webui start with no filters at all.
+This only applies for music-oriented search modes (song mode, album mode, etc); generic file searches in the GUI start with no filters at all.
 
 ## Ranking
 
@@ -24,7 +28,7 @@ The preferred conditions determine ranking. The defaults are:
 pref-length-tol = 3
 
 # Prefer files whose paths contain the exact title and album name,
-# surrounded by boundary characters like punctuation. 
+# surrounded by boundary characters like punctuation (see below). 
 # Disabling these is usually not recommended.
 pref-strict-title = true
 pref-strict-album = true
@@ -38,8 +42,8 @@ pref-exclude-locked = true
 When results differ in several preferences, they're ranked in this order:
 
 1. Not from a downranked user (`pref-banned-users`)
-2. Exact title, then exact album name, then exact artist name
-3. Length within tolerance (for songs)
+2. Strict title, then strict album name, then strict artist name
+3. For songs, Length within tolerance
 4. From a preferred user (`pref-allowed-users`)
 5. Format, then bitrate, sample rate and bit depth
 6. Not locked
@@ -54,6 +58,28 @@ For debugging, you can run a song search with `--print results-full` to reveal t
 ## Albums
 
 For album downloads, conditions like format, bitrate and sample rate operate based on coverage: A folder with 9 FLAC files and 1 MP3 is preferred over a mostly-MP3 folder, and the selected folder is still downloaded as a whole. Use `--strict-album-quality` to require every audio file in the folder to satisfy the conditions.
+
+## Strict-artist, strict-album, strict-title
+
+These check that the result filepaths contain what you searched for, as a whole name rather than part of a longer one:
+
+- **Artist** must appear anywhere in the file's path.
+- **Album** must appear in the path. The file name doesn't count.
+- For songs, **Title** must appear in the file name (without its extension).
+
+Each comes as a requirement (`strict-title`, `strict-artist`, `strict-album`) and as a preference (`pref-strict-title`, `pref-strict-artist`, `pref-strict-album`). Casing and accents are ignored, and `_` counts as a space, as do characters that can't appear in file names on some systems, like `:` and `?`.
+
+**Artist** must be whole words, with a space or punctuation on each side (or the start/end of the text). `Joe Yamanaka` matches `Joe Yamanaka - Best`, but not `Joe Yamanakas`.
+
+**Title and album** are stricter: only punctuation (such as `-`, `(`, `)`, `[`, `]`, `.`, `,`), a folder separator, or the start or end of the text may surround them. A space alone is not enough (except after a number such as a track number or year). For `Song name` and `Ashita no Joe`:
+
+- `01 Song name.flac`, `Artist - Song name (Live).flac`, `Artist - Ashita no Joe [FLAC]` and `1980 Ashita no Joe` match.
+- `Song name II.flac` and `Ashita no Joe 2 Soundtrack` do not, because `II` and `2 Soundtrack` continue the name.
+
+Some cases are handled specially:
+
+- **Several artists** separated by `;` match if any one of them appears. Featured artists (`feat.`) are optional.
+- **Self-titled songs and albums**, where the album has the artist's name, would match every folder of that artist. For these, the album folder must contain nothing but the name, apart from bracketed text, years and punctuation. `Led Zeppelin (Remaster)` matches, but `Led Zeppelin II` doesn't. Note that for Sockseek to be able to recognize that your input is self-titled in the first place, you must fill in both the artist and album/song inputs when searching.
 
 ## Setting conditions
 
@@ -74,7 +100,7 @@ Some info may be unavailable depending on the client used by the peer (like the 
 To reject all files where one or more of the checked properties is null (unknown), use `--strict-conditions`.
 
 This flag should be used with care: It's easy to accidentally exclude all files from users with
-certain clients. For example, because the standard Soulseek client does not broadcast the bitrate,
-enabling `--strict-conditions` and setting a `--min-bitrate` will effectively exclude all files shared by users with the standard client(!).
+certain clients. For example, because the SoulseekQt client does not broadcast the bitrate,
+enabling `--strict-conditions` and setting a `--min-bitrate` will effectively exclude all files shared by users with the standard client(!). 
 
 <!-- sockseek-help:end -->

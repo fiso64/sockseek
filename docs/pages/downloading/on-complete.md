@@ -4,9 +4,9 @@
 
 The `--on-complete` option allows executing commands when a file or folder download finishes. Multiple actions can be chained using the `+ ` prefix (note the space after +).
 
-**Syntax:** `--on-complete [options] -- command`
+**Syntax:** `--on-complete "[options] -- command"`
 
-Hint: You can use `--mock-files-dir` to test your commands (see [Testing Options](./tips.md#testing-options)).
+Hint: You can use `--mock-files-dir` to test your commands (see [Testing Options](./troubleshoot.md#testing-options)).
 
 Every on-complete command must include the `--` delimiter. Sockseek options go before it; everything after it is the command passed to the OS.
 
@@ -77,7 +77,7 @@ profile-cond = album
 on-complete = when=success scope=folder -- notify-send "Downloaded: {album}" "{path}"
 ```
 
-Search album art with [Cover Fetcher](https://github.com/fiso64/cover-fetcher):
+The following examples are for Windows. Search album art with [Cover Fetcher](https://github.com/fiso64/cover-fetcher):
 
 ```ini
 on-complete = when=success scope=folder hidden -- cmd /c start "" "path\to\CoverFetcher.exe" --from-dir "{path}"

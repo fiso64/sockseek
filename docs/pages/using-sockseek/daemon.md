@@ -1,7 +1,7 @@
 <!-- sockseek-help:start(daemon) -->
 # Daemon and remote access
 
-The daemon serves the WebUI, HTTP API, and bundled manual on the same port. It listens on `127.0.0.1:5030` by default. To listen on another interface, set `server-ip` to its address. The Soulseek peer listener uses a separate `listen-port`.
+The daemon serves the WebUI and the HTTP API. It listens on `127.0.0.1:5030` by default. To listen on another interface, set `server-ip` to its address. The Soulseek peer listener uses a separate `listen-port`.
 
 ## Start the daemon
 
@@ -21,9 +21,9 @@ Open [http://127.0.0.1:5030](http://127.0.0.1:5030) and sign in as `admin` with 
 
 ## Your first WebUI search or download
 
-Use the main search bar to inspect results and choose the files or folder you want. For an album, try `Artist - Album Title`. Group modes collect related songs or albums so you can compare the versions offered by different peers. Filtering a results page works on the responses already received. You can change the filter after the search finishes.
+Use the main search bar to inspect results and choose the files or folder you want. The search bar has several modes, which can be chosen with the button on the left. For an album, try `Artist - Album Title`. Group modes combine same songs or albums into groups so you can view an artist's discography in the search results.  See more info about [download modes](../downloading/download-modes.md). 
 
-For an automatic download, create a download job. Sockseek can take a search string, a playlist, a CSV, or a list and pick matches using your [file conditions](../downloading/ranking-and-filtering.md). Required conditions decide which results qualify. Preferred conditions help choose among the qualifying results. For CSV and list inputs, upload the file from your browser or enter a path on the daemon machine. Downloads are saved on that machine in either case. See [download modes](../downloading/download-modes.md) and [supported inputs](../downloading/inputs.md) for examples.
+For an automatic download, create a download job in **Searches → New Job**. Sockseek can take a search string, a playlist, a CSV, or a list and pick matches using your [file conditions](../downloading/ranking-and-filtering.md). Filter conditions decide which results qualify. Ranking conditions help choose among the qualifying results. See [download modes](../downloading/download-modes.md) and [supported inputs](../downloading/auto-downloads.md) for examples.
 
 ![Downloads in progress](../screenshots/downloads.png)
 

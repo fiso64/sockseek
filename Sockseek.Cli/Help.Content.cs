@@ -337,16 +337,19 @@ Daemon and remote CLI
 CLI Notes
   - Flags can be explicitly disabled by setting them to false, e.g. --interactive false.
   - Single-character flags can be combined, e.g. -at for -a -t.
-  - Acronyms of two- and --three-word-flags like --twf are also accepted. E.g. --Mbr for
-    --max-bitrate.
-  - In comma-separated username and room lists, write ,, for a literal comma (e.g. Lee,,Jr). To
-    append that same name, write + Lee,Jr.";
+  - Some acronyms of two- and --three-word-flags like --twf are also accepted. E.g. --Mbr for
+    --max-bitrate.";
 
     const string inputHelp = @"
-Input types
-  The input type is usually determined automatically. You can also manually set it with
-  --input-type.
-  The following input types are supported:
+Automatic downloads and inputs
+  Sockseek can download automatically and in bulk. You give it an input, such as a search string, a
+  playlist link or a CSV file, and for each item it searches, picks the best match using your
+  ranking and filtering conditions, and downloads it.
+  - In the WebUI, open Searches → New Job.
+  - In the CLI, every download works this way, unless you add -t/--interactive to pick album folders
+    yourself.
+  The rest of this page lists the input types. The CLI usually detects the type of an input; to set
+  it, use --input-type.
 
   CSV file
     A path to a local CSV file listing songs or albums.
@@ -494,21 +497,26 @@ Input types
 
     const string downloadModesHelp = @"
 Download modes
-  Sources usually decide for themselves whether they contain songs or albums. String inputs are
-  treated as albums by default. There are four main download modes:
+  There are five download modes: Song, Album, Song Groups, Album Groups, and Generic. In the GUI,
+  you can select which mode to use for the next search using the button in the search bar, and set
+  the default using the web-default-search-mode option in the config. For automated downloads,
+  sources usually decide for themselves whether they contain songs or albums. In the CLI, string
+  inputs are treated as albums by default.
 
   Song
     Song mode is the default for playlists from streaming platforms and CSV song lists, and
-    downloads one file per item. Use -s/--song for string/list input that should be treated as a
-    song search.
-    Example:
+    downloads one file per item. In the CLI, use -s/--song for string/list input that should be
+    treated as a song search. A list of songs can be upgraded to album downloads using
+    --upgrade-to-album (albums will be deduplicated).
+    CLI Example (string input):
 
     sockseek ""Artist - Song Name"" -s
 
   Album
-    In Album mode, Sockseek downloads whole folders. It is the default for string inputs and album
-    sources such as Spotify/Bandcamp album links and CSV album rows. Use -t to pick interactively.
-    Example:
+    In Album mode, Sockseek downloads whole folders. It is the default for CLI string inputs and
+    album sources such as Spotify/Bandcamp album links and CSV album rows. In the CLI, -t to pick
+    interactively.
+    CLI Example (string input):
 
     sockseek ""Artist - Album Name"" -t
 
@@ -521,8 +529,9 @@ Download modes
     Note that --min-group-shares is set to 2 by default, meaning that albums shared by only one user
     will be ignored. Album Groups mode can be used to determine the most common version of a
     particular album, or download the most popular (or all) albums by an artist. It's recommended to
-    pair it with -t/--interactive.
-    Example:
+    pair it with -t/--interactive in the CLI, which allows you to pick the particular version of the
+    album in each group and skip groups you don't want.
+    CLI Example:
 
     sockseek ""artist=Artist Name"" -gt
 
@@ -535,26 +544,37 @@ Download modes
     As in Album Groups mode, --min-group-shares is set to 2 by default, meaning that songs shared by
     only one user will be ignored. This mode is useful for downloading all songs by an artist
     available on Soulseek.
-    Example:
+    CLI Example:
 
     sockseek ""artist=Artist Name"" -gs
 
-    See Grouping options for group options.";
+    See Grouping options for group options.
+
+  Generic Files
+    This mode is only available in the GUI and behaves much like the usual search in clients like
+    SoulseekQt and Nicotine+. Unlike album and song modes, it does not set any default filters for
+    music, and does no special ranking of search results beyond the usual sorting mode (like by
+    speed or by file size) that you chose. This mode is useful when you're looking for non-music
+    downloads, like PDFs or videos.";
 
     const string rankingAndFilteringHelp = @"
 Ranking and filtering
-  Preferred (pref-*) options change how results are ranked; they never filter anything out.
-  --pref-format flac means Sockseek will prefer flac when available, but will still download mp3 if
-  no flac is found. By contrast, conditions without the pref prefix are mandatory. For example,
-  --format flac will reject non-flac files entirely.
+  Sockseek supports filter as well as ranking configuration.
+  A required condition filters files from search results. For example, --format flac will reject
+  non-flac files entirely.
+  Ranking (or ""preferred"") conditions start with the pref- prefix and change how results are
+  ranked; they never filter anything out. Ranking affects how results are sorted when using
+  ""Relevance"" sorting in the GUI, and how results are chosen in automated downloads. For example,
+  in an automated download,--pref-format flac means Sockseek will prefer flac when available, but
+  will still download mp3 if no flacs are found.
 
   Filtering
     The only default required conditions are for the files to be audio:
 
     format = mp3,flac,ogg,m4a,opus,wav,aac,alac
 
-    This only applies for music-oriented search modes (track mode, album mode, etc); generic file
-    searches in the webui start with no filters at all.
+    This only applies for music-oriented search modes (song mode, album mode, etc); generic file
+    searches in the GUI start with no filters at all.
 
   Ranking
     The preferred conditions determine ranking. The defaults are:
@@ -564,7 +584,7 @@ Ranking and filtering
     pref-length-tol = 3
 
     # Prefer files whose paths contain the exact title and album name,
-    # surrounded by boundary characters like punctuation.
+    # surrounded by boundary characters like punctuation (see below).
     # Disabling these is usually not recommended.
     pref-strict-title = true
     pref-strict-album = true
@@ -576,8 +596,8 @@ Ranking and filtering
 
     When results differ in several preferences, they're ranked in this order:
     1. Not from a downranked user (pref-banned-users)
-    2. Exact title, then exact album name, then exact artist name
-    3. Length within tolerance (for songs)
+    2. Strict title, then strict album name, then strict artist name
+    3. For songs, Length within tolerance
     4. From a preferred user (pref-allowed-users)
     5. Format, then bitrate, sample rate and bit depth
     6. Not locked
@@ -593,6 +613,34 @@ Ranking and filtering
     A folder with 9 FLAC files and 1 MP3 is preferred over a mostly-MP3 folder, and the selected
     folder is still downloaded as a whole. Use --strict-album-quality to require every audio file in
     the folder to satisfy the conditions.
+
+  Strict-artist, strict-album, strict-title
+    These check that the result filepaths contain what you searched for, as a whole name rather than
+    part of a longer one:
+    - Artist must appear anywhere in the file's path.
+    - Album must appear in the path. The file name doesn't count.
+    - For songs, Title must appear in the file name (without its extension).
+    Each comes as a requirement (strict-title, strict-artist, strict-album) and as a preference
+    (pref-strict-title, pref-strict-artist, pref-strict-album). Casing and accents are ignored, and
+    _ counts as a space, as do characters that can't appear in file names on some systems, like :
+    and ?.
+    Artist must be whole words, with a space or punctuation on each side (or the start/end of the
+    text). Joe Yamanaka matches Joe Yamanaka - Best, but not Joe Yamanakas.
+    Title and album are stricter: only punctuation (such as -, (, ), [, ], ., ,), a folder
+    separator, or the start or end of the text may surround them. A space alone is not enough
+    (except after a number such as a track number or year). For Song name and Ashita no Joe:
+    - 01 Song name.flac, Artist - Song name (Live).flac, Artist - Ashita no Joe [FLAC] and 1980
+      Ashita no Joe match.
+    - Song name II.flac and Ashita no Joe 2 Soundtrack do not, because II and 2 Soundtrack continue
+      the name.
+    Some cases are handled specially:
+    - Several artists separated by ; match if any one of them appears. Featured artists (feat.) are
+      optional.
+    - Self-titled songs and albums, where the album has the artist's name, would match every folder
+      of that artist. For these, the album folder must contain nothing but the name, apart from
+      bracketed text, years and punctuation. Led Zeppelin (Remaster) matches, but Led Zeppelin II
+      doesn't. Note that for Sockseek to be able to recognize that your input is self-titled in the
+      first place, you must fill in both the artist and album/song inputs when searching.
 
   Setting conditions
     See the options reference for all filtering and ranking options.
@@ -610,9 +658,9 @@ Ranking and filtering
     To reject all files where one or more of the checked properties is null (unknown), use
     --strict-conditions.
     This flag should be used with care: It's easy to accidentally exclude all files from users with
-    certain clients. For example, because the standard Soulseek client does not broadcast the
-    bitrate, enabling --strict-conditions and setting a --min-bitrate will effectively exclude all
-    files shared by users with the standard client(!).";
+    certain clients. For example, because the SoulseekQt client does not broadcast the bitrate,
+    enabling --strict-conditions and setting a --min-bitrate will effectively exclude all files
+    shared by users with the standard client(!).";
 
     const string nameFormatHelp = @"
 Name format
@@ -768,6 +816,19 @@ Configuration
     progress-json     bool
     no-progress       bool
 
+    WebUI search defaults
+      Use input-type == ""manual-search"" in an auto-profile to set defaults for the WebUI search
+      bar. Add a download-mode condition to tailor the defaults for one search mode.
+
+      [webui-search]
+      profile-cond = input-type == ""manual-search""
+      search-timeout = 20000
+      pref-format = flac
+
+      [webui-album-search]
+      profile-cond = input-type == ""manual-search"" && download-mode == ""album""
+      name-format = {albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename}
+
   Lists
     Lists can be written on a single line, separated by commas:
 
@@ -795,26 +856,13 @@ Configuration
       Blah
       Blah blah blah
 
-      music!
-
-  WebUI search defaults
-    Use input-type == ""manual-search"" in an auto-profile to set defaults for the WebUI search bar.
-    Add a download-mode condition to tailor the defaults for one search mode.
-
-    [webui-search]
-    profile-cond = input-type == ""manual-search""
-    search-timeout = 20000
-    pref-format = flac
-
-    [webui-album-search]
-    profile-cond = input-type == ""manual-search"" && download-mode == ""album""
-    name-format = {albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename}";
+      music!";
 
     const string onCompleteHelp = @"
 On-Complete Actions
   The --on-complete option allows executing commands when a file or folder download finishes.
   Multiple actions can be chained using the + prefix (note the space after +).
-  Syntax: --on-complete [options] -- command
+  Syntax: --on-complete ""[options] -- command""
   Hint: You can use --mock-files-dir to test your commands (see Testing Options).
   Every on-complete command must include the -- delimiter. Sockseek options go before it; everything
   after it is the command passed to the OS.
@@ -883,7 +931,7 @@ On-Complete Actions
     profile-cond = album
     on-complete = when=success scope=folder -- notify-send ""Downloaded: {album}"" ""{path}""
 
-    Search album art with Cover Fetcher:
+    The following examples are for Windows. Search album art with Cover Fetcher:
 
     on-complete = when=success scope=folder hidden -- cmd /c start """" ""path\to\CoverFetcher.exe"" --from-dir ""{path}""
 
@@ -903,7 +951,7 @@ On-Complete Actions
     on-complete = + when=success hidden update-index -- cmd /c if /i ""{stdout}""==""success"" (del ""{path}"" & echo ""ignored;{path-noext}.mp3"")";
 
     const string shortcutsHelp = @"
-Shortcuts & interactive mode
+CLI Shortcuts & interactive mode
 
   CLI Shortcuts
     You can use these at any time while things are searching or downloading:
@@ -934,7 +982,7 @@ Shortcuts & interactive mode
     cd subdir       go to subfolder";
 
     const string notesAndTipsHelp = @"
-Tips
+Troubleshooting and tips
 
   Rate limits
     The Soulseek server bans users for 30 minutes if too many searches are performed within a short
@@ -983,6 +1031,17 @@ Tips
         sometimes results in more incorrect files getting downloaded.
       Use --print results-full to inspect what Soulseek returned without downloading anything.
 
+  Why does it rank MP3 above FLAC when I prefer FLAC?
+    Preferences have an order: matching what you searched for comes before audio quality. With the
+    default pref-strict-album, an MP3 album in a folder named after the album ranks above a FLAC in
+    a folder that isn't, such as Album 2 Soundtrack or Best of Artist. The same applies to song
+    titles with pref-strict-title. See strict matching for what counts as a match.
+    In the WebUI, the info icon next to Other matches shows which preferences the other results
+    miss. The ranking pills above the results show the preferences in their order; select one to
+    change it for this search.
+    To get only FLAC, filter instead of ranking: use format = flac (--format flac), or select FLAC
+    under Filtering in the WebUI.
+
   Searching
     - It's always best to provide the least input necessary to uniquely identify an album or song.
       - Sometimes including the artist can be undesirable (e.g. ""Various Artists""). For spotify or
@@ -1010,9 +1069,9 @@ Tips
 
     const string daemonHelp = @"
 Daemon and remote access
-  The daemon serves the WebUI, HTTP API, and bundled manual on the same port. It listens on
-  127.0.0.1:5030 by default. To listen on another interface, set server-ip to its address. The
-  Soulseek peer listener uses a separate listen-port.
+  The daemon serves the WebUI and the HTTP API. It listens on 127.0.0.1:5030 by default. To listen
+  on another interface, set server-ip to its address. The Soulseek peer listener uses a separate
+  listen-port.
 
   Start the daemon
     If you installed the release archive, run sockseek auth hash-password and enter the password you
@@ -1027,15 +1086,14 @@ Daemon and remote access
     Open http://127.0.0.1:5030 and sign in as admin with your WebUI password.
 
   Your first WebUI search or download
-    Use the main search bar to inspect results and choose the files or folder you want. For an
-    album, try Artist - Album Title. Group modes collect related songs or albums so you can compare
-    the versions offered by different peers. Filtering a results page works on the responses already
-    received. You can change the filter after the search finishes.
-    For an automatic download, create a download job. Sockseek can take a search string, a playlist,
-    a CSV, or a list and pick matches using your file conditions. Required conditions decide which
-    results qualify. Preferred conditions help choose among the qualifying results. For CSV and list
-    inputs, upload the file from your browser or enter a path on the daemon machine. Downloads are
-    saved on that machine in either case. See download modes and supported inputs for examples.
+    Use the main search bar to inspect results and choose the files or folder you want. The search
+    bar has several modes, which can be chosen with the button on the left. For an album, try Artist
+    - Album Title. Group modes combine same songs or albums into groups so you can view an artist's
+    discography in the search results. See more info about download modes.
+    For an automatic download, create a download job in Searches → New Job. Sockseek can take a
+    search string, a playlist, a CSV, or a list and pick matches using your file conditions. Filter
+    conditions decide which results qualify. Ranking conditions help choose among the qualifying
+    results. See download modes and supported inputs for examples.
 
   Share a folder
     Add a directory on the daemon machine to your config, for example share = /path/to/Music. Use
@@ -1168,6 +1226,13 @@ Authentication
   sockseek auth keys create <name>  Create a named key and print its secret once
   sockseek auth keys revoke <id>    Revoke an API key
     --data-dir <path>               Key database directory for offline use (stop the daemon first)",
+        ["user"] = @"
+User Profiles
+
+  sockseek user profile <username>  Show a peer's profile and sharing statistics
+    --refresh                       Fetch new profile data
+    --picture <mode>                Picture mode: auto|sixel|pixels|none; auto probes
+                                    terminal support (default: auto)",
         ["chat"] = @"
 Private messages
 

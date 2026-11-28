@@ -13,7 +13,7 @@ sockseek "Song Title" -s
 sockseek "Artist - Song Title" -s
 ```
 
-The hyphen ` - ` determines what part of the input is the artist and title, which can be important for [ranking and filtering](../downloading/ranking-and-filtering.md) (see also [search string syntax](../downloading/inputs.md#search-string)).
+The hyphen ` - ` determines what part of the input is the artist and title, which can be important for [ranking and filtering](../downloading/ranking-and-filtering.md) (see also [search string syntax](../downloading/auto-downloads.md#search-string)).
 
 ### Download an album
 
@@ -44,7 +44,7 @@ sockseek "https://open.spotify.com/playlist/id"
 sockseek "/path/to/tracks.csv"
 ```
 
-See [input types](../downloading/inputs.md) for all supported sources. It's a good idea to check the metadata of the first few tracks before downloading your 10'000 song megalist:
+See [input types](../downloading/auto-downloads.md) for all supported sources. It's a good idea to check the metadata of the first few tracks before downloading your 10'000 song megalist:
 
 ```bash
 sockseek "your-input" -n 20 --print jobs-full
@@ -122,7 +122,7 @@ Remove the `--print results` part to download those songs.
 
 ### Create an automatic wishlist downloader
 
-You can easily build a wishlist downloader. Create a file named `wishlist.txt`, and add some items with [list file](../downloading/inputs.md#list-file) syntax:
+You can easily build a wishlist downloader. Create a file named `wishlist.txt`, and add some items with [list file](../downloading/auto-downloads.md#list-file) syntax:
 
 ```
 "Artist - Some Album"
@@ -176,4 +176,4 @@ You can also just manually run it, for example in interactive mode (`-t`).
 
 ## About failed or incorrect downloads
 
-Sockseek searches the Soulseek P2P network. Sources like Spotify and YouTube are only used as metadata sources; no audio is downloaded from them. It usually does a good job downloading items, provided they actually exist on the network. The results returned by Soulseek of course depend on spelling, peers, etc. If downloads are missing or wrong, read [why some downloads are wrong or missing](../downloading/tips.md#why-are-some-of-my-downloads-wrong-or-missing).
+Sockseek searches the Soulseek P2P network. Sources like Spotify and YouTube are only used as metadata sources; no audio is downloaded from them. It usually does a good job downloading items, provided they actually exist on the network. The results returned by Soulseek of course depend on spelling, peers, etc. If downloads are missing or wrong, read [why some downloads are wrong or missing](../downloading/troubleshoot.md#why-are-some-of-my-downloads-wrong-or-missing).

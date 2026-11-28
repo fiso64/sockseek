@@ -1,23 +1,6 @@
 # Options
 
-These options work for one-shot downloads, in the configuration file and in profiles. Daemon, WebUI and remote CLI settings are in [Daemon and remote CLI](daemon-options.md).
-
-Most common flags:
-
-```text
--s, --song                      Treat string input as song search
--t, --interactive               Pick from album results before downloading
--g, --group                     Download distinct songs/albums from grouped results
--o, --output-dir <path>         Download directory
---pref-format <formats>         Preferred formats for ranking, e.g. flac,wav. Unordered.
---format <formats>              Required accepted formats. Unordered.
---album-track-count <count>     Required number of audio files when downloading albums
---skip-music-dir <path>         Skip tracks already in a music library
---profile <names>               Apply configuration profile(s)
---name-format <format>          Organize files using a path template
---strict-title/artist/album     Require title in filename, artist in path, album in folder path
---upgrade-to-album              Upgrade song-shaped source results to album jobs
-```
+These are general options and options for one-shot downloads. Daemon, WebUI and remote CLI settings are in [Daemon and remote CLI](daemon-options.md).
 
 <!-- sockseek-help:start(main) -->
 
@@ -342,7 +325,6 @@ Most common flags:
 
 - Flags can be explicitly disabled by setting them to false, e.g. `--interactive false`.
 - Single-character flags can be combined, e.g. `-at` for `-a -t`.
-- Acronyms of two- and `--three-word-flags` like `--twf` are also accepted. E.g. `--Mbr` for `--max-bitrate`.
-- In comma-separated username and room lists, write `,,` for a literal comma (e.g. `Lee,,Jr`). To append that same name, write `+ Lee,Jr`.
+- Some acronyms of two- and `--three-word-flags` like `--twf` are also accepted. E.g. `--Mbr` for `--max-bitrate`.
 
 <!-- sockseek-help:end -->

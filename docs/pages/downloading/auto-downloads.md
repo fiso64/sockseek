@@ -1,10 +1,13 @@
 <!-- sockseek-help:start(input) -->
 
-# Input types
+# Automatic downloads and inputs
 
-The input type is usually determined automatically. You can also manually set it with `--input-type`.
+Sockseek can download automatically and in bulk. You give it an input, such as a search string, a playlist link or a CSV file, and for each item it searches, picks the best match using your [ranking and filtering](./ranking-and-filtering.md) conditions, and downloads it.
 
-The following input types are supported:
+- In the WebUI, open **Searches → New Job**.
+- In the CLI, every download works this way, unless you add `-t`/`--interactive` to pick album folders yourself.
+
+The rest of this page lists the input types. The CLI usually detects the type of an input; to set it, use `--input-type`.
 
 ## CSV file
 

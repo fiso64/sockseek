@@ -4,7 +4,7 @@ Sockseek can run for a single download on your computer or stay connected as a d
 
 ## Soulseek Client
 
-The background daemon is a full Soulseek client and includes a WebUI. You can search in the browser, queue downloads, share a library, and receive messages. You can also submit jobs from the [remote CLI](./using-sockseek/daemon.md#remote-cli).
+The daemon is a full Soulseek client and includes a WebUI. You can search in the browser, queue downloads, share a library, and receive messages.
 
 ![The WebUI dashboard](./screenshots/dashboard.png)
 
@@ -15,11 +15,13 @@ Choose your install option:
 - [NixOS](./installation/nixos.md)
 - [Docker Compose](./installation/docker.md)
 
-Once signed in, try [your first WebUI search or download](./using-sockseek/daemon.md#your-first-webui-search-or-download).
+Once signed in, try [your first WebUI search or download](./using-sockseek/daemon.md#your-first-webui-search-or-download). 
+
+You can also submit jobs from the [remote CLI](./using-sockseek/daemon.md#remote-cli).
 
 ## Desktop UI
 
-If you want a desktop Soulseek client, or a graphical interface for the Sockseek download tool, you can have one today. Run the daemon on your own computer and use the WebUI in your browser:
+If you want a desktop Soulseek client, or a graphical interface for bulk downloading, you can have one today. Run the daemon on your own computer and use the WebUI in your browser:
 
 1. [Install the release archive](./installation/release-archive.md).
 2. Run `sockseek daemon --no-auth` in a terminal and leave it open.

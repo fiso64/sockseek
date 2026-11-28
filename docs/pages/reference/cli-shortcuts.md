@@ -1,6 +1,6 @@
 <!-- sockseek-help:start(shortcuts) -->
 
-# Shortcuts & interactive mode
+# CLI Shortcuts & interactive mode
 
 ## CLI Shortcuts
 

@@ -140,15 +140,16 @@ sockseek auth keys revoke <id>    Revoke an API key
 ```
 <!-- sockseek-help-topic:end -->
 
-<!-- sockseek-help-topic:start(user) disabled -->
-<!-- These commands exist but should be tested and maybe simplified. Deliberately undocumented; do not restore help yet. -->
-<!-- #### Remote User Browsing CLI
+<!-- sockseek-help-topic:start(user) -->
+#### User Profiles
 ```text
 sockseek user profile <username>  Show a peer's profile and sharing statistics
   --refresh                       Fetch new profile data
   --picture <mode>                Picture mode: auto|sixel|pixels|none; auto probes
                                   terminal support (default: auto)
-
+```
+<!-- These commands exist but should be tested and maybe simplified. Deliberately undocumented; do not restore help yet. -->
+<!-- ```
 sockseek user shares <username>   Browse/select files; remote transfer/output/profile options apply
   --refresh                       Fetch new shares instead of using a recent browse
 

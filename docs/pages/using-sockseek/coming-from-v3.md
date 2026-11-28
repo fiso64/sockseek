@@ -10,7 +10,7 @@ Your config file is read from the same place, and inputs, file conditions, name 
 
 ## Update your config and scripts
 
-"Aggregate" mode is now called "Groups". The short flag `-g` is unchanged.
+"Aggregate" mode is now called "Groups". The short flag `-g` is unchanged. The following options have been renamed:
 
 | 3.x | 4.0 |
 |---|---|

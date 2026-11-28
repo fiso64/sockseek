@@ -23,7 +23,8 @@ const artistMatchHelp = [
 ] as const;
 
 const titleMatchHelp = [
-  'Like the artist match above, but for the track title, and only in the filename.',
+  'The track title must appear in the file name with a boundary on each side: punctuation such as - . , ( ) [ ], or the start or end of the name. A space alone is not a boundary, except after a number such as a track number.',
+  'For “Song name”, “01 Song name” and “Artist - Song name (Live)” match, but “Song name II” does not. Casing and accents are ignored.',
 ] as const;
 
 const albumMatchHelp = [

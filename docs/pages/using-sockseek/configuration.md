@@ -83,6 +83,21 @@ progress-json     bool
 no-progress       bool
 ```
 
+### WebUI search defaults
+
+Use `input-type == "manual-search"` in an auto-profile to set defaults for the WebUI search bar. Add a `download-mode` condition to tailor the defaults for one search mode.
+
+```ini
+[webui-search]
+profile-cond = input-type == "manual-search"
+search-timeout = 20000
+pref-format = flac
+
+[webui-album-search]
+profile-cond = input-type == "manual-search" && download-mode == "album"
+name-format = {albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename}
+```
+
 ## Lists
 
 Lists can be written on a single line, separated by commas:
@@ -117,21 +132,6 @@ user-description = |
   Blah blah blah
 
   music!
-```
-
-## WebUI search defaults
-
-Use `input-type == "manual-search"` in an auto-profile to set defaults for the WebUI search bar. Add a `download-mode` condition to tailor the defaults for one search mode.
-
-```ini
-[webui-search]
-profile-cond = input-type == "manual-search"
-search-timeout = 20000
-pref-format = flac
-
-[webui-album-search]
-profile-cond = input-type == "manual-search" && download-mode == "album"
-name-format = {albumartist(/)album(/)track(. )title|(missing-tags/)slsk-foldername(/)slsk-filename}
 ```
 
 <!-- sockseek-help:end -->
