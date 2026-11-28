@@ -1,41 +1,17 @@
-FROM ghcr.io/linuxserver/baseimage-alpine:3.24 as base
-
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-alpine as build
-
-ARG TARGETPLATFORM
-ARG DOCKER_ARCH
-
-WORKDIR /app
-
-COPY --chown=root:root . /app
-
-RUN if [ "$DOCKER_ARCH" = "amd64" ] || [ "$TARGETPLATFORM" = "linux/amd64" ]; then export DN_RUNTIME=linux-musl-x64; echo 'Building x64'; fi \
-    && if [ "$DOCKER_ARCH" = "arm64" ] || [ "$TARGETPLATFORM" = "linux/arm64" ]; then export DN_RUNTIME=linux-musl-arm64; echo 'Build ARM'; fi \
-    && dotnet restore /app/Sockseek.HelpGenerator/Sockseek.HelpGenerator.csproj \
-    && dotnet publish /app/Sockseek.Cli/Sockseek.Cli.csproj -c Release -r "$DN_RUNTIME" -p:PublishSingleFile=true -p:PublishTrimmed=false -p:OpenApiGenerateDocuments=false --self-contained=true -o build \
-    && rm -f build/*.pdb
-
-FROM base as app
-
-ENV TZ=Etc/GMT
-
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-
-RUN \
-  echo "**** install runtime packages ****" && \
-  apk --no-cache add \
-    icu-libs \
-    libgcc \
-    libssl3 \
-    libstdc++ \
-    zlib && \
-  echo "**** cleanup ****" && \
-  rm -rf \
-    /root/.cache \
-    /tmp/*
-
-ENV DOCKER_MODS=linuxserver/mods:universal-cron
-
-COPY docker/root/ /
-
-COPY --from=build /app/build/* /usr/bin/
+# Packages the self-contained Linux release archive, so the image ships the same
+# bits as the downloadable release. release.yml unpacks the linux-x64 and
+# linux-arm64 archives into dist/amd64 and dist/arm64 before building; to build
+# an unreleased version, do the same with archives from build/PublishZip.targets.
+FROM mcr.microsoft.com/dotnet/runtime-deps:11.0
+ARG TARGETARCH
+ENV XDG_CONFIG_HOME=/etc \
+    XDG_DATA_HOME=/var/lib \
+    PATH="/app:${PATH}"
+RUN mkdir -p /etc/sockseek /var/lib/sockseek /downloads \
+    && chown app:app /etc/sockseek /var/lib/sockseek /downloads
+COPY dist/${TARGETARCH}/ /app/
+USER $APP_UID
+WORKDIR /downloads
+EXPOSE 5030/tcp 49998/tcp
+ENTRYPOINT ["/app/sockseek"]
+CMD ["daemon", "--server-ip", "0.0.0.0"]

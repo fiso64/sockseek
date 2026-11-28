@@ -1,16 +1,24 @@
-using Sockseek.Core.Models;
-using Sockseek.Core.Jobs;
 using Sockseek.Core.Services;
 using Sockseek.Core;
 using Soulseek;
 using File = Soulseek.File;
-using Sockseek.Core.Settings;
 using System.Collections.Concurrent;
 
 namespace Tests
 {
     public static class TestHelpers
     {
+        public static IEnumerable<SearchProjectionInput> ProjectionInputs(IEnumerable<(SearchResponse Response, File File)> results)
+            => results.Select((pair, index) => SearchProjectionInput.FromLive(index + 1L, 1, pair.Response, pair.File, DateTimeOffset.UnixEpoch));
+
+        public static List<SearchProjectionInput> OrderResults(IEnumerable<(SearchResponse, File)> results,
+            SongQuery query, SearchSettings settings, ConcurrentDictionary<string, int> failures, bool albumMode = false)
+        {
+            var sorter = new IncrementalResultSorter(query, settings, failures, albumMode);
+            sorter.AddRange(ProjectionInputs(results));
+            return sorter.SnapshotInputs();
+        }
+
         public sealed class DownloadGate
         {
             private readonly ConcurrentQueue<TaskCompletionSource> releases = new();
@@ -59,12 +67,6 @@ namespace Tests
                 }
 
                 return tcs.Task.WaitAsync(TimeSpan.FromMilliseconds(timeoutMs));
-            }
-
-            public void ReleaseOne()
-            {
-                if (releases.TryDequeue(out var release))
-                    release.TrySetResult();
             }
 
             public void ReleaseAll()
@@ -173,15 +175,6 @@ namespace Tests
             return new SongQuery { Artist = artist, Title = title, Album = album, Length = length };
         }
 
-        public static SongJob CreateSongJob(
-            string artist = "",
-            string title = "",
-            string album = "",
-            int length = -1)
-        {
-            return new SongJob(new SongQuery { Artist = artist, Title = title, Album = album, Length = length });
-        }
-
         public static AlbumFile CreateAlbumFile(
             string username,
             string filename,
@@ -195,11 +188,11 @@ namespace Tests
         {
             var response = new SearchResponse(username, 1, true, 100, 0, []);
             var file = CreateSlFile(filename, size, extension, bitrate, length, sampleRate, bitDepth);
-            return new AlbumFile(query ?? Searcher.InferSongQuery(filename, new SongQuery()), new FileCandidate(response, file));
+            return new AlbumFile(query ?? Searcher.InferSongQuery(filename, new SongQuery()), SoulseekSearchAdapter.ToFileCandidate(response, file));
         }
 
         public static AlbumFile CreateAlbumFile(SearchResponse response, File file, SongQuery? query = null)
-            => new(query ?? Searcher.InferSongQuery(file.Filename, new SongQuery()), new FileCandidate(response, file));
+            => new(query ?? Searcher.InferSongQuery(file.Filename, new SongQuery()), SoulseekSearchAdapter.ToFileCandidate(response, file));
 
         public static (EngineSettings Engine, DownloadSettings Download) CreateDefaultSettings()
         {
@@ -255,9 +248,9 @@ namespace Tests
             return new SoulseekClientManager(engineSettings, client);
         }
 
-        public static UserSuccessTracker CreateUserSuccessTracker()
+        public static PeerFailureTracker CreatePeerFailureTracker()
         {
-            return new UserSuccessTracker();
+            return new PeerFailureTracker();
         }
     }
 }

@@ -1,4 +1,4 @@
-using Sockseek.Core.Models;
+using Sockseek.Api;
 using Sockseek.Core.Services;
 
 namespace Sockseek.Core.Settings;
@@ -8,7 +8,7 @@ public class OutputSettings
 {
     /// null resolves to Directory.GetCurrentDirectory() at bind time.
     [SettingOption("-o", Parser = nameof(ParseLegacyOutputDirectory))]
-    [SettingOption("--output-dir", "-p", "--path", "--parent")]
+    [SettingOption("-p", "--path", "--parent", "--output-dir")]
     public string? ParentDir { get; set; }
 
     private static string ParseLegacyOutputDirectory(string value, string flag)
@@ -21,6 +21,7 @@ public class OutputSettings
         return value;
     }
 
+    /// Empty selects the built-in layout for every download mode.
     [SettingOption("--nf", "--name-format")]
     public string NameFormat { get; set; } = "";
 
@@ -71,20 +72,9 @@ public class OutputSettings
         return action;
     }
 
-    /// --on-complete replaces the commands, or appends with the "+ " prefix.
+    [SettingOption("--oc", "--on-complete", ListSyntax = OptionListSyntax.SingleItem)]
     [SettingValidation(typeof(OnCompleteExecutor), nameof(OnCompleteExecutor.ValidateCommands))]
     public List<string>? OnComplete { get; set; }
-
-    [SettingOption("--oc", "--on-complete")]
-    private static void ConfigureOnComplete(SettingWriter changes, string value)
-    {
-        var trimmed = value.TrimStart();
-        bool append = trimmed.StartsWith("+ ", StringComparison.Ordinal);
-        var command = append ? trimmed[2..] : value.Trim();
-        OnCompleteExecutor.ValidateCommand(command);
-        if (append) changes.Append(nameof(OnComplete), new List<string> { command });
-        else changes.Set(nameof(OnComplete), new List<string> { command });
-    }
 
     [SettingOption("--aa", "--album-art", Parser = nameof(ParseAlbumArt))]
     public AlbumArtOption AlbumArtOption { get; set; } = AlbumArtOption.Default;

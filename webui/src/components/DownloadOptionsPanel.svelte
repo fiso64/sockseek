@@ -1,0 +1,50 @@
+<script lang="ts">
+  import ManualLink from './ManualLink.svelte';
+  import HelpPopover from './HelpPopover.svelte';
+  import type { DownloadOptionCapabilities, DownloadOptions } from '../domains/jobs/download-options';
+
+  interface Props {
+    value: DownloadOptions;
+    capabilities: DownloadOptionCapabilities;
+    compact?: boolean;
+    separators?: boolean;
+    mixedFields?: ReadonlySet<keyof DownloadOptions>;
+    onfieldchange?: (field: keyof DownloadOptions) => void;
+  }
+
+  let { value = $bindable(), capabilities, compact = false, separators = true, mixedFields = new Set(), onfieldchange }: Props = $props();
+  const nameFormatId = $props.id();
+</script>
+
+<div class:compact class:seamless={!separators} class="download-options-panel">
+  <section class="download-options-section">
+    <h3>Output</h3>
+    <div class="download-options-fields">
+      <label>
+        <span>Output directory</span>
+        <input class="field" type="text" bind:value={value.outputParentDir} placeholder={mixedFields.has('outputParentDir') ? 'Mixed defaults' : 'Default'} oninput={() => onfieldchange?.('outputParentDir')} />
+      </label>
+      {#if capabilities.nameFormat ?? true}
+        <!-- The help button sits beside the label, not inside it, so the field keeps its plain name. -->
+        <div>
+          <span><label for={nameFormatId}>Name format</label> <HelpPopover title="Name format" testId="name-format-help">A template for file names and folders, for example <code>{'{artist}/{album}/{title}'}</code>Leave it empty to keep the names peers use. <ManualLink topic="nameFormat">Name format in the manual</ManualLink></HelpPopover></span>
+          <input id={nameFormatId} class="field" type="text" bind:value={value.nameFormat} placeholder={mixedFields.has('nameFormat') ? 'Mixed defaults' : 'Default'} oninput={() => onfieldchange?.('nameFormat')} />
+        </div>
+      {/if}
+    </div>
+  </section>
+
+  <section class="download-options-section">
+    <h3>Behavior</h3>
+    <label class="config-check"><input type="checkbox" bind:checked={value.skipExisting} indeterminate={mixedFields.has('skipExisting')} onchange={() => onfieldchange?.('skipExisting')} /> Skip existing downloads{#if mixedFields.has('skipExisting')} <small>(mixed defaults)</small>{/if}</label>
+    {#if capabilities.albumFolderEnrichment}
+      <div class="config-check-with-help">
+        <label class="config-check"><input type="checkbox" bind:checked={value.loadFullAlbumFolder} indeterminate={mixedFields.has('loadFullAlbumFolder')} onchange={() => onfieldchange?.('loadFullAlbumFolder')} /> Load full album folder before downloading{#if mixedFields.has('loadFullAlbumFolder')} <small>(mixed defaults)</small>{/if}</label>
+        <HelpPopover title="Load full album folder" testId="album-folder-help">For album folder downloads, loads files the search result may have omitted by browsing the user's shares. This guarantees that the downloaded folders are complete, but might result in undesired extra junk in rare cases.</HelpPopover>
+      </div>
+    {/if}
+    {#if capabilities.playlistOutput}
+      <label class="config-check"><input type="checkbox" bind:checked={value.writePlaylist} indeterminate={mixedFields.has('writePlaylist')} onchange={() => onfieldchange?.('writePlaylist')} /> Create .m3u playlist{#if mixedFields.has('writePlaylist')} <small>(mixed defaults)</small>{/if}</label>
+    {/if}
+  </section>
+</div>

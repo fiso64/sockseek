@@ -12,34 +12,21 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
 
   <PropertyGroup>
     <RepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</RepoRoot>
-    <Framework Condition="'$(Framework)' == ''">net10.0</Framework>
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+    <Framework Condition="'$(Framework)' == ''">$(TargetFramework)</Framework>
 
     <ArtifactsDir Condition="'$(ArtifactsDir)' == ''">$(RepoRoot)/artifacts</ArtifactsDir>
 
     <CliProject>$(RepoRoot)/Sockseek.Cli/Sockseek.Cli.csproj</CliProject>
     <PackagerProject>$(RepoRoot)/Sockseek.Packager/Sockseek.Packager.csproj</PackagerProject>
-    <PackagerTargetFramework>net10.0</PackagerTargetFramework>
+    <PackagerTargetFramework>$(TargetFramework)</PackagerTargetFramework>
     <PackagerDll>$(RepoRoot)/Sockseek.Packager/bin/$(Configuration)/$(PackagerTargetFramework)/Sockseek.Packager.dll</PackagerDll>
   </PropertyGroup>
 
-  <Target Name="SetSnapshotVersionSuffix"
-          Condition="'$(SnapshotBuild)' == 'true' and '$(VersionSuffix)' == ''">
-    <Exec Command="git -C &quot;$(RepoRoot)&quot; rev-parse --short HEAD"
-          ConsoleToMSBuild="true"
-          StandardOutputImportance="Low">
-      <Output TaskParameter="ConsoleOutput" ItemName="_GitShortShaOutput" />
-    </Exec>
-
-    <PropertyGroup>
-      <GitShortSha>@(_GitShortShaOutput->'%(Identity)')</GitShortSha>
-      <SnapshotLabel Condition="'$(SnapshotLabel)' == ''">preview</SnapshotLabel>
-      <VersionSuffix>$(SnapshotLabel).g$(GitShortSha)</VersionSuffix>
+  <Target Name="SetPackageVersion">
+    <PropertyGroup Condition="'$(SnapshotBuild)' == 'true' and '$(SnapshotLabel)' != ''">
+      <VersionSuffix>$(SnapshotLabel)</VersionSuffix>
     </PropertyGroup>
-
-    <Message Importance="High" Text="Using snapshot version suffix '$(VersionSuffix)'." />
-  </Target>
-
-  <Target Name="SetPackageVersion" DependsOnTargets="SetSnapshotVersionSuffix">
     <Error Condition="'$(VersionPrefix)' == ''"
            Text="VersionPrefix is empty. Set -p:VersionPrefix=... or define it in Directory.Build.props." />
 
@@ -57,12 +44,12 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
           Inputs="$(RepoRoot)/Sockseek.Packager/Program.cs;$(PackagerProject)"
           Outputs="$(PackagerDll)">
     <MSBuild Projects="$(PackagerProject)"
-             Targets="Build"
+             Targets="Restore;Build"
              Properties="Configuration=$(Configuration);TargetFramework=$(PackagerTargetFramework)"
              RemoveProperties="RuntimeIdentifier;SelfContained;PublishSelfContained;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishAot" />
   </Target>
 
-  <Target Name="PublishPackage" DependsOnTargets="SetPackageVersion;BuildPackager">
+  <Target Name="PublishBinary" DependsOnTargets="SetPackageVersion">
     <Error Condition="'$(RID)' == ''" Text="Set RID, e.g. -p:RID=linux-x64" />
 
     <PropertyGroup>
@@ -74,13 +61,13 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
       <PackageName Condition="'$(PackageName)' == '' and '$(IsWindowsRid)' != 'True'">sockseek_$(PackageVersion)_$(PublishLabel).tar.gz</PackageName>
       <PackagePath>$(PackageDir)/$(PackageName)</PackagePath>
       <VersionProperties Condition="'$(VersionPrefix)' != ''">-p:VersionPrefix=&quot;$(VersionPrefix)&quot;</VersionProperties>
-      <VersionProperties Condition="'$(VersionSuffix)' != ''">$(VersionProperties) -p:VersionSuffix=&quot;$(VersionSuffix)&quot;</VersionProperties>
+      <VersionProperties>$(VersionProperties) -p:VersionSuffix=&quot;$(VersionSuffix)&quot;</VersionProperties>
     </PropertyGroup>
 
     <RemoveDir Directories="$(PublishDir)" Condition="Exists('$(PublishDir)')" />
     <MakeDir Directories="$(PublishDir);$(PackageDir)" />
 
-    <Exec Command="dotnet publish &quot;$(CliProject)&quot; -c Release -f $(Framework) -r $(RID) -o &quot;$(PublishDir)&quot; $(VersionProperties) -p:PublishSingleFile=true -p:PublishTrimmed=false -p:DebugType=embedded -p:DebugSymbols=true -p:IncludeSymbolsInSingleFile=false -p:OpenApiGenerateDocuments=false -p:PathMap=&quot;$(RepoRoot)=/_/&quot; --self-contained=$(SelfContained)" />
+    <Exec Command="dotnet publish &quot;$(CliProject)&quot; -c Release -f $(Framework) -r $(RID) -o &quot;$(PublishDir)&quot; $(VersionProperties) -p:PublishSingleFile=true -p:PublishTrimmed=false -p:DebugType=embedded -p:DebugSymbols=true -p:IncludeSymbolsInSingleFile=false -p:OpenApiGenerateDocuments=false -p:SkipNixSettingsGeneration=true -p:PathMap=&quot;$(RepoRoot)=/_/&quot; --self-contained=$(SelfContained)" />
 
     <Copy SourceFiles="$(RepoRoot)/LICENSE"
           DestinationFolder="$(PublishDir)"
@@ -93,6 +80,9 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
     </ItemGroup>
 
     <Delete Files="@(PublishSidecarsToDelete)" />
+  </Target>
+
+  <Target Name="PublishPackage" DependsOnTargets="PublishBinary;BuildPackager">
     <Delete Files="$(PackagePath)" Condition="Exists('$(PackagePath)')" />
 
     <ZipDirectory Condition="'$(IsWindowsRid)' == 'True'"
@@ -104,6 +94,17 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
           Command="dotnet &quot;$(PackagerDll)&quot; tar-gz &quot;$(PublishDir)&quot; &quot;$(PackagePath)&quot; sockseek" />
   </Target>
 
+  <!-- Run on a Debian-family build host with debhelper installed. -->
+  <Target Name="PublishDeb" DependsOnTargets="PublishBinary">
+    <PropertyGroup>
+      <DebArchitecture Condition="'$(RID)' == 'linux-x64'">amd64</DebArchitecture>
+      <DebArchitecture Condition="'$(RID)' == 'linux-arm64'">arm64</DebArchitecture>
+    </PropertyGroup>
+    <Error Condition="'$(DebArchitecture)' == '' or '$(SelfContained)' != 'true'" Text="Debian packages require a self-contained linux-x64 or linux-arm64 publish." />
+    <!-- dpkg reports failures via its exit status and also emits nonfatal linker warnings. -->
+    <Exec IgnoreStandardErrorWarningFormat="true" Command="&quot;$(RepoRoot)/build/build-deb.sh&quot; &quot;$(PublishDir)&quot; &quot;$(PackageVersion)&quot; &quot;$(DebArchitecture)&quot; &quot;$(PackageDir)&quot;" />
+  </Target>
+
   <Target Name="PublishZip" DependsOnTargets="PublishPackage" />
 
   <Target Name="PublishAll" DependsOnTargets="SetPackageVersion">
@@ -111,6 +112,8 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
              Properties="RID=win-x64;PublishLabel=win-x64;VersionPrefix=$(VersionPrefix);VersionSuffix=$(VersionSuffix)" />
     <MSBuild Projects="$(MSBuildThisFileFullPath)" Targets="PublishPackage"
              Properties="RID=linux-x64;PublishLabel=linux-x64;VersionPrefix=$(VersionPrefix);VersionSuffix=$(VersionSuffix)" />
+    <MSBuild Projects="$(MSBuildThisFileFullPath)" Targets="PublishPackage"
+             Properties="RID=linux-arm64;PublishLabel=linux-arm64;VersionPrefix=$(VersionPrefix);VersionSuffix=$(VersionSuffix)" />
     <MSBuild Projects="$(MSBuildThisFileFullPath)" Targets="PublishPackage"
              Properties="RID=linux-arm;PublishLabel=linux-arm;VersionPrefix=$(VersionPrefix);VersionSuffix=$(VersionSuffix)" />
     <MSBuild Projects="$(MSBuildThisFileFullPath)" Targets="PublishPackage"
@@ -122,6 +125,7 @@ dotnet msbuild build/PublishZip.targets -t:PublishZip -p:RID=win-x64
       <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_win-x64.zip" />
       <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_linux-x64.tar.gz" />
       <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_linux-arm.tar.gz" />
+      <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_linux-arm64.tar.gz" />
       <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_osx-x64.tar.gz" />
       <PackagesForUnifiedZip Include="$(PackageDir)/sockseek_$(PackageVersion)_osx-arm64.tar.gz" />
     </ItemGroup>

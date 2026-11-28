@@ -1,0 +1,38 @@
+{
+  "name": "sockseek-webui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "pretest:e2e": "npm run build && dotnet build e2e/daemon/Sockseek.WebUi.TestHost.csproj --configuration Release -p:OpenApiGenerateDocuments=false --nologo",
+    "test:e2e:ui": "playwright test --ui",
+    "pretest:e2e:ui": "npm run pretest:e2e",
+    "api:generate": "openapi-typescript ../docs/openapi.json -o src/api/generated.ts",
+    "api:check": "openapi-typescript ../docs/openapi.json -o src/api/generated.ts --check",
+    "docs:screenshots": "playwright test -c playwright.screenshots.config.ts",
+    "predocs:screenshots": "npm run pretest:e2e"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "5.3.0",
+    "@microsoft/signalr": "11.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@sveltejs/vite-plugin-svelte": "7.3.2",
+    "@types/node": "24.19.2",
+    "openapi-typescript": "7.13.0",
+    "svelte": "5.59.2",
+    "svelte-check": "4.7.8",
+    "typescript": "5.9.3",
+    "vite": "8.4.0",
+    "vitest": "5.1.2"
+  }
+}

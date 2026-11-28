@@ -7,7 +7,7 @@
             "type": "process",
             "args": [
                 "build",
-                "${workspaceFolder}/Sockseek/Sockseek.csproj",
+                "${workspaceFolder}/Sockseek.Cli/Sockseek.Cli.csproj",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary;ForceNoAlign"
             ],
@@ -19,7 +19,7 @@
             "type": "process",
             "args": [
                 "publish",
-                "${workspaceFolder}/Sockseek/Sockseek.csproj",
+                "${workspaceFolder}/Sockseek.Cli/Sockseek.Cli.csproj",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary;ForceNoAlign"
             ],
@@ -33,7 +33,7 @@
                 "watch",
                 "run",
                 "--project",
-                "${workspaceFolder}/Sockseek/Sockseek.csproj"
+                "${workspaceFolder}/Sockseek.Cli/Sockseek.Cli.csproj"
             ],
             "problemMatcher": "$msCompile"
         }

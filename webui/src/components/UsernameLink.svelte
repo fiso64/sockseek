@@ -1,0 +1,69 @@
+<script lang="ts">
+  import { matchedText } from './MatchedText.svelte';
+  import Icon from './Icon.svelte';
+  import type { UserLinkActions } from '../app/navigation';
+  import { anchoredMenu } from '../lib/anchored-menu';
+  import { copyText } from '../lib/clipboard';
+
+  interface Props {
+    highlight?: RegExp;
+    username: string;
+    actions: UserLinkActions;
+    title?: string;
+  }
+
+  let { highlight, username, actions, title }: Props = $props();
+  let root = $state<HTMLSpanElement | null>(null);
+  let open = $state(false);
+  let copied = $state(false);
+
+  function toggle(event: MouseEvent): void {
+    event.stopPropagation();
+    open = !open;
+  }
+
+  function choose(action: keyof UserLinkActions, event: MouseEvent): void {
+    event.stopPropagation();
+    open = false;
+    actions[action](username);
+  }
+
+  async function copy(event: MouseEvent): Promise<void> {
+    event.stopPropagation();
+    // Leave the confirmation visible for a moment, then close like any choice.
+    copied = await copyText(username);
+    if (!copied) { open = false; return; }
+    setTimeout(() => { open = false; copied = false; }, 900);
+  }
+
+  function handleWindowPointerDown(event: PointerEvent): void {
+    if (!open || root?.contains(event.target as Node)) return;
+    open = false;
+  }
+
+  $effect(() => {
+    if (!open) return;
+    const keydown = (event: KeyboardEvent) => { if (event.key === 'Escape') open = false; };
+    const resize = () => { open = false; };
+    window.addEventListener('pointerdown', handleWindowPointerDown);
+    window.addEventListener('keydown', keydown);
+    window.addEventListener('resize', resize);
+    return () => {
+      window.removeEventListener('pointerdown', handleWindowPointerDown);
+      window.removeEventListener('keydown', keydown);
+      window.removeEventListener('resize', resize);
+    };
+  });
+</script>
+
+<span class="username-link-control" bind:this={root}>
+  <button type="button" class="username-link" title={title ?? `Actions for ${username}`} aria-label={`Actions for ${username}`} aria-haspopup="menu" aria-expanded={open} onclick={toggle}>{@render matchedText(username, highlight)}</button>
+  {#if open}
+    <div class="popover-panel username-action-menu" role="menu" use:anchoredMenu={{ anchor: root, align: 'start', gap: 5 }}>
+      <button class="menu-item" type="button" role="menuitem" onclick={(event) => choose('profile', event)}><Icon name="user" /><span>Profile</span></button>
+      <button class="menu-item" type="button" role="menuitem" onclick={(event) => choose('shares', event)}><Icon name="folder" /><span>Shares</span></button>
+      <button class="menu-item" type="button" role="menuitem" onclick={(event) => choose('message', event)}><Icon name="chat" /><span>Message</span></button>
+      <button class="menu-item" type="button" role="menuitem" data-testid="copy-username" onclick={(event) => void copy(event)}><Icon name={copied ? 'check' : 'copy'} /><span>{copied ? 'Copied' : 'Copy'}</span></button>
+    </div>
+  {/if}
+</span>

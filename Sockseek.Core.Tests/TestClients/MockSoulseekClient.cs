@@ -1,29 +1,41 @@
-using System.Collections.Concurrent;
 using Sockseek.Core;
+using System.Collections.Concurrent;
 using Sockseek.Core.Services;
+using Sockseek.Core.Models;
+using Sockseek.Core.PeerBrowsing;
+using Sockseek.Core.Sharing;
 using Soulseek;
+using Soulseek.Diagnostics;
 
 namespace Tests.ClientTests
 {
-    public partial class MockSoulseekClient : ISoulseekClient
+    public class MockSoulseekClient : UnsupportedSoulseekClient, IPeerDirectorySource
     {
-        public IReadOnlyCollection<Transfer> Downloads => throw new NotImplementedException();
+        public override IReadOnlyCollection<Transfer> Downloads => throw new NotImplementedException();
 
         // Soulseek.NET hard-codes the real client's major version; this test fake
         // mirrors v10's value only to satisfy ISoulseekClient.
-        public int MajorVersion => 170;
+        public override int MajorVersion => 170;
 
-        public int MinorVersion => SockseekSoulseekClientIdentity.MinorVersion;
+        public override int MinorVersion => SockseekSoulseekClientIdentity.MinorVersion;
 
-        public SoulseekClientStates State { get; private set; } = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
+        private SoulseekClientStates state = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
+        public override SoulseekClientStates State => state;
 
-        public SoulseekClientOptions Options => throw new NotImplementedException();
+        public override SoulseekClientOptions Options { get; } = new(enableListener: false);
+        public override string Address => "server.test";
+        public override System.Net.IPAddress IPAddress => System.Net.IPAddress.Loopback;
+        public override System.Net.IPEndPoint IPEndPoint => new(IPAddress, 2271);
+        public override int? Port => 2271;
 
         private List<Soulseek.SearchResponse> index;
         private readonly HashSet<string> failingUsers;
-        private readonly HashSet<string> disconnectingUsers = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> failingFiles;
+        private readonly HashSet<string> disconnectingUsers = new(StringComparer.Ordinal);
         private int disconnectingSearches;
         private int failingSearches;
+
+        public void RaiseDiagnostic(DiagnosticEventArgs args) => DiagnosticGenerated?.Invoke(this, args);
 
         public int ConnectCallCount;
         public int SearchCallCount;
@@ -34,9 +46,18 @@ namespace Tests.ClientTests
         public Func<string, string, CancellationToken, Task>? BeforeDownloadStartsAsync;
         public Func<string, string, CancellationToken, Task>? BeforeDownloadCompletesAsync;
         public Func<string, string, TransferStates, CancellationToken, Task>? AfterDownloadStateChangedAsync;
+        public Func<string, string, int>? QueuePosition;
+        public override Task<int> GetDownloadPlaceInQueueAsync(string username, string filename, CancellationToken? cancellationToken = null)
+            => Task.FromResult(QueuePosition?.Invoke(username, filename) ?? -1);
+
+        public Action<long, long>? AfterDownloadProgress;
+        public Action<Stream>? DownloadStreamOpened;
         public bool BrowseReturnsBasenames { get; set; }
+        public BrowseResponse? BrowseResponseOverride { get; set; }
+        public long? BrowseProgressSize { get; set; }
         public bool IsDisposed { get; private set; }
         public Exception? ConnectException { get; set; }
+        public Action? Connecting { get; set; }
         public Func<SearchQuery, Action<SearchResponse>, SearchOptions, CancellationToken, Task<Search>>? SearchHandler { get; set; }
         public Func<SearchQuery, CancellationToken, Task>? BeforeSearchAsync { get; set; }
 
@@ -52,25 +73,36 @@ namespace Tests.ClientTests
         public void RaiseKickedFromServer(bool disconnect = true)
         {
             if (disconnect)
-                State = SoulseekClientStates.None;
+                state = SoulseekClientStates.None;
             KickedFromServer?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void RaiseExcludedSearchPhrases(params string[] phrases)
+            => ExcludedSearchPhrasesReceived?.Invoke(this, phrases);
+
+        public void RaiseStateChanged(SoulseekClientStates state, Exception? exception = null)
+        {
+            SoulseekClientStates previous = State;
+            this.state = state;
+            StateChanged?.Invoke(
+                this,
+                new SoulseekClientStateChangedEventArgs(previous, state, exception?.Message ?? "test", exception));
         }
 
         public MockSoulseekClient(
             List<Soulseek.SearchResponse> index,
             IEnumerable<string>? failingUsers = null,
-            SoulseekClientStates initialState = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn)
+            SoulseekClientStates initialState = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn,
+            IEnumerable<string>? failingFiles = null)
         {
+            this.failingFiles  = new HashSet<string>(failingFiles ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
             this.index         = index;
-            this.failingUsers  = new HashSet<string>(failingUsers ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-            State = initialState;
+            this.failingUsers  = new HashSet<string>(failingUsers ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+            state = initialState;
         }
 
         public static MockSoulseekClient FromLocalPaths(bool useTags, params string[] localPaths)
         {
-            if (useTags)
-                SockseekLog.Info($"Reading tags from mock files dir, this may take a while. Use --mock-files-no-read-tags if tags are not needed.");
-
             var files = localPaths.SelectMany(path =>
                 System.IO.Directory.Exists(path)
                     ? System.IO.Directory.GetFiles(path, "*.*", SearchOption.AllDirectories)
@@ -88,21 +120,11 @@ namespace Tests.ClientTests
                         {
                             try
                             {
-                                using var file = TagLib.File.Create(path);
-                                if (file.Properties != null)
-                                {
-                                    attributes.Add(new Soulseek.FileAttribute(FileAttributeType.BitRate, file.Properties.AudioBitrate));
-                                    attributes.Add(new Soulseek.FileAttribute(FileAttributeType.Length, (int)file.Properties.Duration.TotalSeconds));
-                                    attributes.Add(new Soulseek.FileAttribute(FileAttributeType.VariableBitRate, file.Properties.BitsPerSample > 0 ? 1 : 0));
-
-                                    if (file.Properties.AudioSampleRate > 0)
-                                        attributes.Add(new Soulseek.FileAttribute(FileAttributeType.SampleRate, file.Properties.AudioSampleRate));
-
-                                    if (file.Properties.BitsPerSample > 0)
-                                        attributes.Add(new Soulseek.FileAttribute(FileAttributeType.BitDepth, file.Properties.BitsPerSample));
-                                }
+                                using var stream = System.IO.File.OpenRead(path);
+                                attributes.AddRange(ShareAudioMetadata.Read(path, stream)
+                                    .Select(attribute => new Soulseek.FileAttribute((FileAttributeType)attribute.Type, attribute.Value)));
                             }
-                            catch (Exception ex) { SockseekLog.Warn($"Failed to read tags for '{path}': {ex.Message}"); }
+                            catch (Exception) { }
                         }
                         else
                         {
@@ -140,31 +162,33 @@ namespace Tests.ClientTests
         }
 
 
-        public Task ConnectAsync(string username, string password, CancellationToken? cancellationToken = null)
+        public override Task ConnectAsync(string username, string password, CancellationToken? cancellationToken = null)
         {
             return ConnectAsync("", 0, username, password, cancellationToken);
         }
 
-        public Task ConnectAsync(string address, int port, string username, string password, CancellationToken? cancellationToken = null)
+        public override Task ConnectAsync(string address, int port, string username, string password, CancellationToken? cancellationToken = null)
         {
             Interlocked.Increment(ref ConnectCallCount);
+            Connecting?.Invoke();
+            cancellationToken?.ThrowIfCancellationRequested();
 
             if (ConnectException != null)
             {
-                State = SoulseekClientStates.None;
+                RaiseStateChanged(SoulseekClientStates.None);
                 return Task.FromException(ConnectException);
             }
 
-            State = SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn;
+            RaiseStateChanged(SoulseekClientStates.Connected | SoulseekClientStates.LoggedIn);
             return Task.CompletedTask;
         }
 
-        public Task SetSharedCountsAsync(int directories, int files, CancellationToken? cancellationToken = null)
+        public override Task SetSharedCountsAsync(int directories, int files, CancellationToken? cancellationToken = null)
         {
             return Task.CompletedTask;
         }
 
-        public async Task<BrowseResponse> BrowseAsync(string username, BrowseOptions? options = null, CancellationToken? cancellationToken = null)
+        public override async Task<BrowseResponse> BrowseAsync(string username, BrowseOptions? options = null, CancellationToken? cancellationToken = null)
         {
             if (Interlocked.Increment(ref BrowseCallCount) == 1)
                 DownloadCallCountAtFirstBrowse = Volatile.Read(ref DownloadCallCount);
@@ -173,6 +197,18 @@ namespace Tests.ClientTests
             var ct = cancellationToken.GetValueOrDefault(CancellationToken.None);
             await Task.Yield();
             ct.ThrowIfCancellationRequested();
+
+            if (BrowseProgressSize is long browseSize)
+            {
+                options?.ProgressUpdated?.Invoke((
+                    username,
+                    browseSize,
+                    0,
+                    100,
+                    browseSize));
+            }
+            if (BrowseResponseOverride is { } responseOverride)
+                return responseOverride;
 
             var user = index.FirstOrDefault(x => x.Username == username);
 
@@ -197,12 +233,22 @@ namespace Tests.ClientTests
             return new BrowseResponse(directories);
         }
 
-        public Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsync(SearchQuery query, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
+        public async Task<PeerDirectorySnapshot> RetrieveDirectoryAsync(
+            PeerDirectoryIdentity directory,
+            CancellationToken cancellationToken = default)
+        {
+            var response = await BrowseAsync(
+                directory.Username,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            return PeerDirectorySnapshotFactory.FromBrowseResponse(directory, response);
+        }
+
+        public override Task<(Search Search, IReadOnlyCollection<SearchResponse> Responses)> SearchAsync(SearchQuery query, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
             return SearchAsyncInternal(query, null, scope, token, options, cancellationToken);
         }
 
-        public async Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
+        public override async Task<Search> SearchAsync(SearchQuery query, Action<SearchResponse> responseHandler, SearchScope? scope = null, int? token = null, SearchOptions? options = null, CancellationToken? cancellationToken = null)
         {
             if (SearchHandler != null)
                 return await SearchHandler(query, responseHandler, options ?? new SearchOptions(), cancellationToken ?? CancellationToken.None);
@@ -224,7 +270,7 @@ namespace Tests.ClientTests
 
                 if (Interlocked.CompareExchange(ref disconnectingSearches, current - 1, current) == current)
                 {
-                    State = SoulseekClientStates.None;
+                    RaiseStateChanged(SoulseekClientStates.None);
                     throw new SoulseekClientException("Simulated disconnect during search");
                 }
             }
@@ -246,6 +292,13 @@ namespace Tests.ClientTests
             var totalLockedFileCount = 0;
             var ct = cancellationToken ?? CancellationToken.None;
 
+            bool Matches(Soulseek.File file)
+            {
+                var path = file.Filename.ToLowerInvariant();
+                return query.Terms.All(term => path.Contains(term.ToLowerInvariant()))
+                    && (options.FileFilter?.Invoke(file) ?? true);
+            }
+
             foreach (var user in index)
             {
                 ct.ThrowIfCancellationRequested();
@@ -254,16 +307,14 @@ namespace Tests.ClientTests
 
                 foreach (var file in user.Files)
                 {
-                    var path = file.Filename.ToLower();
-                    bool matches = query.Terms.All(term => path.Contains(term.ToLower()));
-
-                    if (matches && (options.FileFilter?.Invoke(file) ?? true))
+                    if (Matches(file))
                     {
                         matchingFiles.Add(file);
                     }
                 }
+                var matchingLockedFiles = user.LockedFiles.Where(Matches).ToArray();
 
-                if (matchingFiles.Count > 0)
+                if (matchingFiles.Count > 0 || matchingLockedFiles.Length > 0)
                 {
                     var response = new SearchResponse(
                         username: user.Username,
@@ -271,7 +322,8 @@ namespace Tests.ClientTests
                         hasFreeUploadSlot: user.HasFreeUploadSlot,
                         uploadSpeed: user.UploadSpeed,
                         queueLength: user.QueueLength,
-                        fileList: matchingFiles
+                        fileList: matchingFiles,
+                        lockedFileList: matchingLockedFiles
                     );
 
                     if (!options.FilterResponses ||
@@ -312,7 +364,7 @@ namespace Tests.ClientTests
         SemaphoreSlim GetUserSemaphore(string username) =>
             _userSemaphores.GetOrAdd(username, _ => new SemaphoreSlim(1, 1));
 
-        public async Task<Transfer> DownloadAsync(string username, string remoteFilename, string localFilename, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
+        public override async Task<Transfer> DownloadAsync(string username, string remoteFilename, string localFilename, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
             async Task<Stream> StreamFactory()
             {
@@ -322,15 +374,17 @@ namespace Tests.ClientTests
                 return System.IO.File.Create(localFilename);
             }
 
-            return await DownloadAsyncInternal(username, remoteFilename, StreamFactory, size, startOffset, token, options, cancellationToken);
+            return await DownloadAsyncInternal(username, remoteFilename, StreamFactory, size, startOffset, token, options, cancellationToken,
+                ownsOutputStream: true);
         }
 
-        public Task<Transfer> DownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
+        public override Task<Transfer> DownloadAsync(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
         {
-            return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken);
+            return DownloadAsyncInternal(username, remoteFilename, outputStreamFactory, size, startOffset, token, options, cancellationToken,
+                ownsOutputStream: options?.DisposeOutputStreamOnCompletion ?? false);
         }
 
-        private async Task<Transfer> DownloadAsyncInternal(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null)
+        private async Task<Transfer> DownloadAsyncInternal(string username, string remoteFilename, Func<Task<Stream>> outputStreamFactory, long? size = null, long startOffset = 0, int? token = null, TransferOptions? options = null, CancellationToken? cancellationToken = null, bool ownsOutputStream = false)
         {
             Interlocked.Increment(ref DownloadCallCount);
             var ct = cancellationToken.GetValueOrDefault(CancellationToken.None);
@@ -338,12 +392,12 @@ namespace Tests.ClientTests
             if (!State.HasFlag(SoulseekClientStates.Connected) || !State.HasFlag(SoulseekClientStates.LoggedIn))
                 throw new SoulseekClientException($"Mock client is disconnected while downloading from user {username}");
 
-            if (failingUsers.Contains(username))
+            if (failingUsers.Contains(username) || failingFiles.Contains(remoteFilename))
                 throw new SoulseekClientException($"Simulated download failure for user {username}");
 
             if (disconnectingUsers.Remove(username))
             {
-                State = SoulseekClientStates.None;
+                RaiseStateChanged(SoulseekClientStates.None);
                 throw new SoulseekClientException($"Simulated disconnect during download for user {username}");
             }
 
@@ -373,7 +427,7 @@ namespace Tests.ClientTests
                 }
 
                 // Find the file in the directories
-                Soulseek.File? foundFile = user.Files.FirstOrDefault(x => x.Filename.Equals(remoteFilename, StringComparison.OrdinalIgnoreCase));
+                Soulseek.File? foundFile = user.Files.FirstOrDefault(x => x.Filename.Equals(remoteFilename, StringComparison.Ordinal));
                 if (foundFile == null)
                 {
                     throw new FileNotFoundException($"File {remoteFilename} not found for user {username}");
@@ -412,6 +466,7 @@ namespace Tests.ClientTests
                     {
                         transfer = MakeTransfer(TransferStates.InProgress, bytes, speed, t0);
                         options?.ProgressUpdated?.Invoke((prev, transfer));
+                        AfterDownloadProgress?.Invoke(bytes, prev);
                     }
 
                     // Always fire Queued (R) before acquiring the per-user slot —
@@ -427,7 +482,9 @@ namespace Tests.ClientTests
                     // Initialising — peer has accepted the transfer
                     await FireStateAsync(TransferStates.Initializing);
 
-                    using var outputStream = await outputStreamFactory();
+                    var outputStream = await outputStreamFactory();
+                    await using var ownedOutputStream = ownsOutputStream ? outputStream : null;
+                    DownloadStreamOpened?.Invoke(outputStream);
                     var startTime = DateTime.UtcNow;
                     var bytesTransferred = startOffset;
                     const int chunkSize = 16384;
@@ -502,5 +559,29 @@ namespace Tests.ClientTests
             return transfer;
         }
 
+
+        // Events this mock raises itself.
+        public override event EventHandler<DiagnosticEventArgs>? DiagnosticGenerated;
+        public override event EventHandler? KickedFromServer;
+        public override event EventHandler<IReadOnlyCollection<string>>? ExcludedSearchPhrasesReceived;
+        public override event EventHandler<SoulseekClientStateChangedEventArgs>? StateChanged;
+
+        public Func<string, UserPresence>? Presence;
+
+        public override Task<UserStatus> GetUserStatusAsync(string username, CancellationToken? cancellationToken = null)
+            => Task.FromResult(new UserStatus(username, (Presence ?? throw new NotImplementedException())(username), isPrivileged: false));
+
+        public SoulseekClientOptionsPatch? LastOptionsPatch { get; private set; }
+
+        public override Task<bool> ReconfigureOptionsAsync(SoulseekClientOptionsPatch patch, CancellationToken? cancellationToken = null)
+        {
+            LastOptionsPatch = patch;
+            return Task.FromResult(false);
+        }
+
+        public override void Dispose()
+        {
+            IsDisposed = true;
+        }
     }
 }

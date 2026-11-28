@@ -1,22 +1,29 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Markdig;
+using Markdig.Extensions.Alerts;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
 var rootDir = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Parent?.Parent?.Parent?.FullName ?? ".";
-var readmePath = Path.Combine(rootDir, "README.md");
+var docsPath = Path.Combine(rootDir, "docs", "pages");
 var helpCsPath = Path.Combine(rootDir, "Sockseek.Cli", "Help.Content.cs");
 
-if (!File.Exists(readmePath))
+if (!Directory.Exists(docsPath))
 {
-    Console.WriteLine($"Error: README.md not found at {readmePath}");
+    Console.WriteLine($"Error: Manual not found at {docsPath}");
     return 1;
 }
 
-var markdown = File.ReadAllText(readmePath);
-var topics = ExtractHelpTopics(markdown);
-var generatedContent = NormalizeNewlines(GenerateHelpCs(topics));
+var markdown = string.Join("\n", Directory.EnumerateFiles(docsPath, "*.md", SearchOption.AllDirectories)
+    .Order(StringComparer.Ordinal).Select(File.ReadAllText));
+// Disabled command references are omitted from both the main help and the topic index.
+markdown = Regex.Replace(markdown,
+    @"<!-- sockseek-help-topic:start\([\w-]+\) disabled -->.*?<!-- sockseek-help-topic:end -->",
+    "", RegexOptions.Singleline);
+var topics = ExtractHelpTopics(markdown, "sockseek-help");
+var commands = ExtractHelpTopics(markdown, "sockseek-help-topic");
+var generatedContent = NormalizeNewlines(GenerateHelpCs(topics, commands));
 
 if (args.Contains("--check", StringComparer.Ordinal))
 {
@@ -29,8 +36,8 @@ if (args.Contains("--check", StringComparer.Ordinal))
     var existingContent = File.ReadAllText(helpCsPath);
     if (!string.Equals(NormalizeNewlines(existingContent), generatedContent, StringComparison.Ordinal))
     {
-        Console.WriteLine("Error: Sockseek.Cli/Help.Content.cs is generated and does not match README.md.");
-        Console.WriteLine("Update README.md instead of editing Help.Content.cs directly, then rebuild or run:");
+        Console.WriteLine("Error: Sockseek.Cli/Help.Content.cs is generated and does not match the Markdown manual.");
+        Console.WriteLine("Update the Markdown in docs/pages/ instead of editing Help.Content.cs directly, then rebuild or run:");
         Console.WriteLine("  dotnet run --project Sockseek.HelpGenerator");
         return 1;
     }
@@ -39,31 +46,27 @@ if (args.Contains("--check", StringComparer.Ordinal))
     return 0;
 }
 
-WriteHelpCs(helpCsPath, generatedContent);
+if (!File.Exists(helpCsPath) || NormalizeNewlines(File.ReadAllText(helpCsPath)) != generatedContent)
+    File.WriteAllText(helpCsPath, generatedContent);
 
 Console.WriteLine("Help.cs generated successfully.");
 return 0;
 
-static Dictionary<string, string> ExtractHelpTopics(string markdown)
+static Dictionary<string, string> ExtractHelpTopics(string markdown, string marker)
 {
     var topics = new Dictionary<string, string>();
-    var matches = Regex.Matches(markdown, @"<!-- sockseek-help:start\((.*?)\) -->(.*?)<!-- sockseek-help:end -->", RegexOptions.Singleline);
-
+    var matches = Regex.Matches(markdown,
+        $@"<!-- {marker}:start\(([\w-]+)\) -->(.*?)<!-- {marker}:end -->", RegexOptions.Singleline);
     foreach (Match match in matches)
-    {
-        var topicName = match.Groups[1].Value.Trim();
-        var content = match.Groups[2].Value;
-        topics[topicName] = ToPlainText(content);
-    }
+        topics.Add(match.Groups[1].Value, ToPlainText(match.Groups[2].Value));
     return topics;
 }
 
 static string ToPlainText(string markdown)
 {
-    var pipeline = new MarkdownPipelineBuilder().Build();
+    var pipeline = new MarkdownPipelineBuilder().UseAlertBlocks().Build();
     var document = Markdown.Parse(markdown, pipeline);
     var sb = new StringBuilder();
-    var currentIndent = 0;
 
     var headings = document.Descendants<HeadingBlock>();
     var minLevel = headings.Any() ? headings.Min(h => h.Level) : 1;
@@ -85,6 +88,8 @@ static string ToPlainText(string markdown)
             case LineBreakInline:
                 inlineSb.Append(' '); // Treat hard breaks as spaces
                 break;
+            case LinkInline { IsImage: true }:
+                break; // Screenshots have nothing to show in a terminal.
             case ContainerInline container:
                 foreach (var child in container)
                 {
@@ -138,27 +143,26 @@ static string ToPlainText(string markdown)
     }
 
     // Local function to process each block
-    void ProcessBlock(MarkdownObject block)
+    void ProcessBlock(MarkdownObject block, int indent)
     {
         switch (block)
         {
             case HeadingBlock heading:
-                currentIndent = (heading.Level - minLevel) * 2;
                 sb.AppendLine();
-                sb.AppendLine(WrapAndIndent(GetInlineText(heading.Inline), currentIndent));
+                sb.AppendLine(WrapAndIndent(GetInlineText(heading.Inline), indent - 2));
                 break;
 
             case ParagraphBlock para:
                 var paraText = GetInlineText(para.Inline);
                 if (!string.IsNullOrWhiteSpace(paraText))
                 {
-                    sb.AppendLine(WrapAndIndent(paraText, currentIndent + 2));
+                    sb.AppendLine(WrapAndIndent(paraText, indent));
                 }
                 break;
 
             case FencedCodeBlock codeBlock:
                 sb.AppendLine();
-                var codeIndent = new string(' ', currentIndent + 2);
+                var codeIndent = new string(' ', indent);
                 foreach (var line in codeBlock.Lines.Lines)
                 {
                     var escapedLine = line.ToString().TrimEnd().Replace("\"", "\"\"");
@@ -168,25 +172,24 @@ static string ToPlainText(string markdown)
                 break;
 
             case ListBlock list:
-                var listCounter = 0;
-                foreach (var item in list)
+                var listCounter = list.IsOrdered && int.TryParse(list.OrderedStart, out int start) ? start - 1 : 0;
+                foreach (var item in list.OfType<ListItemBlock>())
                 {
                     listCounter++;
-                    if (item is ListItemBlock listItem)
-                    {
-                        var bullet = list.IsOrdered ? $"{listCounter}." : "-";
-                        var itemText = new StringBuilder();
-                        foreach (var subBlock in listItem)
-                        {
-                            if (subBlock is ParagraphBlock p)
-                            {
-                                itemText.Append(GetInlineText(p.Inline).Trim() + " ");
-                            }
-                        }
-                        var fullText = bullet + " " + itemText.ToString().Trim();
-                        sb.AppendLine(WrapAndIndent(fullText, currentIndent + 2, currentIndent + 4));
-                    }
+                    var bullet = list.IsOrdered ? $"{listCounter}." : "-";
+                    var contentIndent = indent + bullet.Length + 1;
+                    var firstParagraph = item.FirstOrDefault() as ParagraphBlock;
+                    var firstLine = firstParagraph is null ? bullet : $"{bullet} {GetInlineText(firstParagraph.Inline).Trim()}";
+                    sb.AppendLine(WrapAndIndent(firstLine, indent, contentIndent));
+                    foreach (var child in item.Skip(firstParagraph is null ? 0 : 1))
+                        ProcessBlock(child, contentIndent);
                 }
+                break;
+
+            case AlertBlock alert:
+                sb.AppendLine(WrapAndIndent(alert.Kind.ToString().ToUpperInvariant(), indent));
+                foreach (var child in alert)
+                    ProcessBlock(child, indent);
                 break;
 
             case HtmlBlock:
@@ -195,9 +198,12 @@ static string ToPlainText(string markdown)
         }
     }
 
-    foreach (var b in document)
+    var bodyIndent = 2;
+    foreach (var block in document)
     {
-        ProcessBlock(b);
+        if (block is HeadingBlock heading)
+            bodyIndent = (heading.Level - minLevel) * 2 + 2;
+        ProcessBlock(block, bodyIndent);
     }
 
     // Final cleanup of extra newlines
@@ -205,7 +211,7 @@ static string ToPlainText(string markdown)
     return finalString.TrimEnd();
 }
 
-static string GenerateHelpCs(Dictionary<string, string> topics)
+static string GenerateHelpCs(Dictionary<string, string> topics, Dictionary<string, string> commands)
 {
     var template = @"// ------------------------------------------------------------------------------
 // <auto-generated>
@@ -216,14 +222,15 @@ static string GenerateHelpCs(Dictionary<string, string> topics)
 // </auto-generated>
 // ------------------------------------------------------------------------------
 
-// This file is generated from README.md. To update, run your build, or:
+// This file is generated from the Markdown manual in docs/pages/. To update, run your build, or:
 // dotnet run --project Sockseek.HelpGenerator
 
 namespace Sockseek.Cli;
 
 public static partial class Help
 {
-    const string usageText = @""Usage: Sockseek <input> [OPTIONS]"";
+    const string usageText = @""Usage: sockseek <input> [OPTIONS]
+       sockseek <command> [OPTIONS]"";
 
     const string helpText = usageText + @""
 __HELP_TEXT_MAIN__"";
@@ -232,9 +239,11 @@ __HELP_TEXT_MAIN__"";
 
     const string downloadModesHelp = @""__HELP_TEXT_DOWNLOAD_MODES__"";
 
-    const string fileConditionsHelp = @""__HELP_TEXT_FILE_CONDITIONS__"";
+    const string rankingAndFilteringHelp = @""__HELP_TEXT_RANKING_AND_FILTERING__"";
 
     const string nameFormatHelp = @""__HELP_TEXT_NAME_FORMAT__"";
+
+    const string variablesHelp = @""__HELP_TEXT_VARIABLES__"";
     
     const string configHelp = @""__HELP_TEXT_CONFIG__"";
 
@@ -243,29 +252,33 @@ __HELP_TEXT_MAIN__"";
     const string shortcutsHelp = @""__HELP_TEXT_SHORTCUTS__"";
 
     const string notesAndTipsHelp = @""__HELP_TEXT_NOTES_AND_TIPS__"";
+
+    const string daemonHelp = @""__HELP_TEXT_DAEMON__"";
+
+    private static Dictionary<string, string> CommandTopics() => new(StringComparer.OrdinalIgnoreCase)
+    {
+__COMMAND_TOPICS__
+    };
 }
 ";
 
     var content = template
-        .Replace("__HELP_TEXT_MAIN__", topics["main"])
+        .Replace("__HELP_TEXT_MAIN__", string.Join("\n", topics["main"], topics["daemon-cli"], topics["cli-notes"]))
         .Replace("__HELP_TEXT_INPUT__", topics["input"])
         .Replace("__HELP_TEXT_DOWNLOAD_MODES__", topics["download-modes"])
-        .Replace("__HELP_TEXT_FILE_CONDITIONS__", topics["file-conditions"])
+        .Replace("__HELP_TEXT_RANKING_AND_FILTERING__", topics["ranking-and-filtering"])
         .Replace("__HELP_TEXT_NAME_FORMAT__", topics["name-format"])
+        .Replace("__HELP_TEXT_VARIABLES__", topics["variables"])
         .Replace("__HELP_TEXT_CONFIG__", topics["config"])
         .Replace("__HELP_TEXT_ON_COMPLETE__", topics["on-complete"])
         .Replace("__HELP_TEXT_SHORTCUTS__", topics["shortcuts"])
-        .Replace("__HELP_TEXT_NOTES_AND_TIPS__", topics["notes-and-tips"]);
+        .Replace("__HELP_TEXT_NOTES_AND_TIPS__", topics["notes-and-tips"])
+        .Replace("__HELP_TEXT_DAEMON__", topics["daemon"])
+        .Replace("__COMMAND_TOPICS__", string.Join("\n", commands.Select(command =>
+            command.Key == "daemon-options"
+                ? $"        [\"daemon\"] = daemonHelp + \"\\n\" + @\"{command.Value}\","
+                : $"        [\"{command.Key}\"] = @\"{command.Value}\",")));
     return content;
-}
-
-static void WriteHelpCs(string filePath, string content)
-{
-    var directory = Path.GetDirectoryName(filePath);
-    if (!string.IsNullOrEmpty(directory))
-        Directory.CreateDirectory(directory);
-
-    File.WriteAllText(filePath, content);
 }
 
 static string NormalizeNewlines(string text)

@@ -26,27 +26,12 @@ namespace Sockseek.Core.Models;
             return result;
         }
 
-        public FolderConditionPatch AddConditions(FolderConditionPatch mod)
+        public void AddConditions(FolderConditionPatch mod)
         {
-            var undo = new FolderConditionPatch();
-
-            if (mod.MinTrackCount != null)
-            {
-                undo.MinTrackCount = MinTrackCount;
-                MinTrackCount      = mod.MinTrackCount;
-            }
-            if (mod.MaxTrackCount != null)
-            {
-                undo.MaxTrackCount = MaxTrackCount;
-                MaxTrackCount      = mod.MaxTrackCount;
-            }
-            if (mod.RequiredTrackTitles?.Count > 0)
-            {
-                undo.RequiredTrackTitles = [.. RequiredTrackTitles];
+            MinTrackCount = mod.MinTrackCount ?? MinTrackCount;
+            MaxTrackCount = mod.MaxTrackCount ?? MaxTrackCount;
+            if (mod.RequiredTrackTitles != null)
                 AddRequiredTrackTitles(mod.RequiredTrackTitles);
-            }
-
-            return undo;
         }
 
         public void AddRequiredTrackTitle(string title)
@@ -64,6 +49,13 @@ namespace Sockseek.Core.Models;
 
     public class FolderConditionPatch
     {
+        public FolderConditionPatch Clone()
+        {
+            var copy = (FolderConditionPatch)MemberwiseClone();
+            copy.RequiredTrackTitles = RequiredTrackTitles?.ToList();
+            return copy;
+        }
+
         public int? MinTrackCount;
         public int? MaxTrackCount;
         public List<string>? RequiredTrackTitles;

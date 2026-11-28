@@ -1,178 +1,85 @@
 {
   "version": 1,
   "dependencies": {
-    "net10.0": {
-      "AngleSharp": {
-        "type": "Transitive",
-        "resolved": "1.8.5",
-        "contentHash": "BUgFIpmkjwMPi6QneHUHaprjUOGSXoWEF/xi/2seHCpnI8XMHACNiC09rn9qL8jbxrP8jWyJ3DnOjsGvXWNGmw=="
-      },
-      "EmbedIO": {
-        "type": "Transitive",
-        "resolved": "3.5.2",
-        "contentHash": "YU4j+3XvuO8/VPkNf7KWOF1TpMhnyVhXnPsG1mvnDhTJ9D5BZOFXVDvCpE/SkQ1AJ0Aa+dXOVSW3ntgmLL7aJg==",
+    "net11.0": {
+      "Microsoft.AspNetCore.SignalR.Client": {
+        "type": "Direct",
+        "requested": "[11.0.0, )",
+        "resolved": "11.0.0",
+        "contentHash": "YF2uLucbvnv6dsshXLMak1QrFu1D6d//LjH5NvgRdjQnCB5bnRrUqYZifpl5CKxLz+GWTIujOwEW0HDH240O3Q==",
         "dependencies": {
-          "Unosquare.Swan.Lite": "3.1.0"
+          "Microsoft.AspNetCore.Http.Connections.Client": "11.0.0",
+          "Microsoft.AspNetCore.SignalR.Client.Core": "11.0.0"
         }
       },
-      "Google.Apis": {
-        "type": "Transitive",
-        "resolved": "1.77.0",
-        "contentHash": "zj7MKdZz7lWRM7z2meqh5S9KSf83c1xY8Fa+b1KzYxw9xMugUxcQtwPoxJgFzxKJgLE64dAra0ze++P/Up4k6Q==",
+      "Microsoft.AspNetCore.SignalR.Protocols.Json": {
+        "type": "Direct",
+        "requested": "[11.0.0, )",
+        "resolved": "11.0.0",
+        "contentHash": "jymsVhNVQp0U6XlggRQQFhczHkviu/vNmt0gtJjJGEImKWDHzZgJgdPAtrWzDy/7/RAimVn650+mcH+VKYSsCA==",
         "dependencies": {
-          "Google.Apis.Core": "1.77.0"
+          "Microsoft.AspNetCore.SignalR.Common": "11.0.0"
         }
       },
-      "Google.Apis.Auth": {
+      "Microsoft.AspNetCore.Connections.Abstractions": {
         "type": "Transitive",
-        "resolved": "1.77.0",
-        "contentHash": "lcgXlzM+JkX0nKKc7KBwTdiei2IbV20PuTe3cVQ2zOhq0j4IiS9I4xlRQY4igdCMLlmobthz5xtHiPr/wxl0Ew==",
+        "resolved": "11.0.0",
+        "contentHash": "kMSI9ZOX9ad2t6r//h/mpnwC6oFNtOMCaIaccgWVfQnn+Z/PtzouQgc61JpevVauHqFr+mFNugV+Hm7gp8sHSA==",
         "dependencies": {
-          "Google.Apis": "1.77.0",
-          "Google.Apis.Core": "1.77.0",
-          "System.Management": "7.0.2"
+          "Microsoft.Extensions.Features": "11.0.0"
         }
       },
-      "Google.Apis.Core": {
+      "Microsoft.AspNetCore.Http.Connections.Client": {
         "type": "Transitive",
-        "resolved": "1.77.0",
-        "contentHash": "7Yj4dpbOLFbxct6x5AFHQEZ25E8/f+5zqW39Q8f/GZknLyuS+uhnt2DIcKQplBNJTK9WNXompbYLWsPRhO6Nmg==",
+        "resolved": "11.0.0",
+        "contentHash": "jgyXvTg7h+5a3XEfYfoOpO+E18uDvPiv/cEvsXwNGy43QK/WpkMjKCP5trsStmZw2R+y0qb6FirX1CeDI8UpIw==",
         "dependencies": {
-          "Newtonsoft.Json": "13.0.4"
+          "Microsoft.AspNetCore.Http.Connections.Common": "11.0.0"
         }
       },
-      "Google.Apis.YouTube.v3": {
+      "Microsoft.AspNetCore.Http.Connections.Common": {
         "type": "Transitive",
-        "resolved": "1.77.0.4302",
-        "contentHash": "kgiYwbSD4aCByY6Im6GVXd5fi+bYoLVw4sh/AnbH0fvYgecui1WB2+R+JevDdW8Q5IBKV3wZvrZ7AzE/JDP/0g==",
+        "resolved": "11.0.0",
+        "contentHash": "jjyZ5p6edFXXm365fc2KGeo9Spm1mByli9t30zdZM5AxIq6GGM4+2/1bCJPOr6y2BQqc/UY0Zdmwlo7taFJokA==",
         "dependencies": {
-          "Google.Apis": "1.77.0",
-          "Google.Apis.Auth": "1.77.0"
+          "Microsoft.AspNetCore.Connections.Abstractions": "11.0.0"
         }
       },
-      "HtmlAgilityPack": {
+      "Microsoft.AspNetCore.SignalR.Client.Core": {
         "type": "Transitive",
-        "resolved": "1.13.1",
-        "contentHash": "wkKKu0oltLJQRBf862+O0yqBAvo+RVisLXFFTlThWCuw1gjATkna1ZKQBcwHUyJUUZhkPUvyxFJcyqXSAvNkag=="
+        "resolved": "11.0.0",
+        "contentHash": "FbiklgvZrsBO9upxdPxx0Q+YOijpUszhzPu0LjDLITE9Tha+gEsFq69jyV97t8eUdb/5S35Jv0WNOXeGTz1Trw==",
+        "dependencies": {
+          "Microsoft.AspNetCore.SignalR.Common": "11.0.0",
+          "Microsoft.AspNetCore.SignalR.Protocols.Json": "11.0.0",
+          "Microsoft.Extensions.DependencyInjection": "11.0.0",
+          "Microsoft.Extensions.Logging": "11.0.0"
+        }
+      },
+      "Microsoft.AspNetCore.SignalR.Common": {
+        "type": "Transitive",
+        "resolved": "11.0.0",
+        "contentHash": "SFKCqHrAbQlcyjEAW0ELAoMlnqSnkEu0QZHBhObv8hxJvZO+5PtVTQdJLfDLoiViGxLIM7zOd02GCvCvpXf4GA==",
+        "dependencies": {
+          "Microsoft.AspNetCore.Connections.Abstractions": "11.0.0"
+        }
       },
       "Microsoft.Extensions.DependencyInjection": {
         "type": "Transitive",
-        "resolved": "10.0.13",
-        "contentHash": "4tnWU9vrU/A8NwYe9Z6wvieZ0EBb/uM82LAT+edNhdepOBWREZ7M7mzb941EIDPJaeOFdbVrDd5+7s9e89U6bQ==",
-        "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.13"
-        }
+        "resolved": "11.0.0",
+        "contentHash": "KygQMITBDDPXw7+AAgdwQvVAaTXuDsc1iCAuvhO73ERxKX+d92cdbgZmpoYF7DIUq2hfs/yO2KD87uIreRy3MA=="
       },
-      "Microsoft.Extensions.DependencyInjection.Abstractions": {
+      "Microsoft.Extensions.Features": {
         "type": "Transitive",
-        "resolved": "10.0.13",
-        "contentHash": "G2GrGWNAPZBsii2F6AU8n+JT2tC1/I0Ml/e9ZyNCgPjf3hZqronP7o0X91aAynCmVeae8KkSIUNXXeXCNRmdVQ=="
+        "resolved": "11.0.0",
+        "contentHash": "gODUqX2PfYnTqu7uJW7/uuInBzrh+hewBkHO4aifVxiNmnvg/4bLPTYEz1FYvAJJr3UJFz6Kyyo3Nk7SEYfNZA=="
       },
       "Microsoft.Extensions.Logging": {
         "type": "Transitive",
-        "resolved": "10.0.13",
-        "contentHash": "fqbiPy4nUp4H2XHKAVQXKN2y3T2h4cFIx1DAAgE6iY9OHkN/OA1cKFi+geJKRWGuX6pS5SFbsjIPWHJqrxE0eg==",
+        "resolved": "11.0.0",
+        "contentHash": "zsse8MOgo0bj2KAEsSkg9WtNAfZbHbTlGeqfhy5PGozomM3zQM0XzumSQzQ0451IWNSJWLqYaSIQEpCi2j1sCA==",
         "dependencies": {
-          "Microsoft.Extensions.DependencyInjection": "10.0.13",
-          "Microsoft.Extensions.Logging.Abstractions": "10.0.13",
-          "Microsoft.Extensions.Options": "10.0.13"
-        }
-      },
-      "Microsoft.Extensions.Logging.Abstractions": {
-        "type": "Transitive",
-        "resolved": "10.0.13",
-        "contentHash": "aSZEhEig4fvNiw2zs8Z6NyDlniKtq6YjcF3DyHuqTEHcZ2VKA/6itMPZ+dW+yWABWExlDcQwwdbqX1Rcb7W8WQ==",
-        "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.13"
-        }
-      },
-      "Microsoft.Extensions.Options": {
-        "type": "Transitive",
-        "resolved": "10.0.13",
-        "contentHash": "tmMJgdrE4uhf1JcNs9CV9moAHW+hmDuvgMiPpnQxarKaUxqI2eN33sYK5S4l9Uw+rG9PJvlm4qPxMhvolTDTaQ==",
-        "dependencies": {
-          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.13",
-          "Microsoft.Extensions.Primitives": "10.0.13"
-        }
-      },
-      "Microsoft.Extensions.Primitives": {
-        "type": "Transitive",
-        "resolved": "10.0.13",
-        "contentHash": "ZjTwxzhiw2TMEzIbUDkMF0dfDB2I4NQgIfKD0ELu9/5Mk+SRGdKZcD0/lvBrRCAPo6KN2r0BW86MRancoyJkoA=="
-      },
-      "Newtonsoft.Json": {
-        "type": "Transitive",
-        "resolved": "13.0.4",
-        "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
-      },
-      "SmallestCSVParser": {
-        "type": "Transitive",
-        "resolved": "1.2.0",
-        "contentHash": "yCc84rzTlnXPEJnrMo7QQUXcnG0em1NAN7BQZxhksvxUo7SGnTW+ya86R34q3EwoUV+hZ4ZoRiLAyEmY7254hA=="
-      },
-      "Soulseek": {
-        "type": "Transitive",
-        "resolved": "10.0.2",
-        "contentHash": "A28TCGK2PDUXohKXCRTjU+hECLrF1IM9fkHcbF4WgP++OTPlngHDlDSp243LZ2x2O7l7RDypYtUYrsRgre5xoA=="
-      },
-      "SpotifyAPI.Web": {
-        "type": "Transitive",
-        "resolved": "7.4.2",
-        "contentHash": "DxyIO+oxI7gyqyGJ5QzVWf31JInRDRhqGtTXIKX6HUJBie+aR+OuB4bFSYWNVO6GL4V+Tm3PQBKNBa+UJzchOA==",
-        "dependencies": {
-          "Newtonsoft.Json": "13.0.3"
-        }
-      },
-      "SpotifyAPI.Web.Auth": {
-        "type": "Transitive",
-        "resolved": "7.4.2",
-        "contentHash": "+Og2S4d8Q/lrZsBXlgPt0FieigtzVHj1Lg6+eDF+5RwVpKsfwQjW7aVfaDyktVCo56T2qOBjbqC/XluIxXGJgQ==",
-        "dependencies": {
-          "EmbedIO": "3.5.2",
-          "SpotifyAPI.Web": "7.4.2"
-        }
-      },
-      "System.CodeDom": {
-        "type": "Transitive",
-        "resolved": "7.0.0",
-        "contentHash": "GLltyqEsE5/3IE+zYRP5sNa1l44qKl9v+bfdMcwg+M9qnQf47wK3H0SUR/T+3N4JEQXF3vV4CSuuo0rsg+nq2A=="
-      },
-      "System.Management": {
-        "type": "Transitive",
-        "resolved": "7.0.2",
-        "contentHash": "/qEUN91mP/MUQmJnM5y5BdT7ZoPuVrtxnFlbJ8a3kBJGhe2wCzBfnPFtK2wTtEEcf3DMGR9J00GZZfg6HRI6yA==",
-        "dependencies": {
-          "System.CodeDom": "7.0.0"
-        }
-      },
-      "TagLibSharp": {
-        "type": "Transitive",
-        "resolved": "2.3.0",
-        "contentHash": "Qo4z6ZjnIfbR3Us1Za5M2vQ97OWZPmODvVmepxZ8XW0UIVLGdO2T63/N3b23kCcyiwuIe0TQvMEQG8wUCCD1mA=="
-      },
-      "Unosquare.Swan.Lite": {
-        "type": "Transitive",
-        "resolved": "3.1.0",
-        "contentHash": "X3s5QE/KMj3WAPFqFve7St+Ds10BB50u8kW8PmKIn7FVkn7yEXe9Yxr2htt1WV85DRqfFR0MN/BUNHkGHtL4OQ=="
-      },
-      "YoutubeExplode": {
-        "type": "Transitive",
-        "resolved": "6.6.2",
-        "contentHash": "BN12ipOeTX1157Jx2uvFZGhR6dyHnji+8oM37NqXyu7nCL0rrSrxruea8lTSlUGewoxyvdC1owzRLThBI5Wj9Q=="
-      },
-      "sockseek.core": {
-        "type": "Project",
-        "dependencies": {
-          "AngleSharp": "[1.8.5, )",
-          "Google.Apis.YouTube.v3": "[1.77.0.4302, )",
-          "HtmlAgilityPack": "[1.13.1, )",
-          "Microsoft.Extensions.Logging": "[10.0.13, )",
-          "SmallestCSVParser": "[1.2.0, )",
-          "Soulseek": "[10.0.2, )",
-          "SpotifyAPI.Web": "[7.4.2, )",
-          "SpotifyAPI.Web.Auth": "[7.4.2, )",
-          "TagLibSharp": "[2.3.0, )",
-          "YoutubeExplode": "[6.6.2, )"
+          "Microsoft.Extensions.DependencyInjection": "11.0.0"
         }
       }
     }

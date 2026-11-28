@@ -5,7 +5,10 @@ namespace Sockseek.Core.Settings;
 [JsonConverter(typeof(JsonStringEnumConverter<SettingOperation>))]
 public enum SettingOperation { Set, Append, AppendDistinct }
 
-public sealed record SettingChange(string Path, object? Value, SettingOperation Operation = SettingOperation.Set);
+public sealed record SettingChange(string Path, object? Value, SettingOperation Operation = SettingOperation.Set)
+{
+    public object? Value { get => field is Lazy<string> credential ? credential.Value : field; init; } = Value;
+}
 
 /// A sparse, ordered description of supplied settings. An explicit Set with null clears a value.
 public sealed class SettingsPatch
@@ -23,6 +26,9 @@ public sealed class SettingsPatch
     }
 
     public IReadOnlyList<SettingChange> Operations { get; }
+
+    [JsonIgnore]
+    public IReadOnlySet<string> ExplicitFields => Operations.Select(change => change.Path).ToHashSet(StringComparer.Ordinal);
 
     [JsonIgnore]
     public bool HasOperations => Operations.Count != 0;
@@ -52,7 +58,7 @@ public sealed class SettingsPatch
     public static SettingsPatch? Difference<T>(T before, T after) where T : class
     {
         var changes = new List<SettingChange>();
-        foreach (var member in SettingsSchema.For(typeof(T)).Leaves)
+        foreach (var member in SettingsSchema.For(typeof(T)).Leaves.Values)
         {
             var oldValue = member.Get(before);
             var newValue = member.Get(after);

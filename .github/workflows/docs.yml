@@ -1,0 +1,99 @@
+name: Docs
+
+# Publishes GitHub Pages: the manual, and the apt repository under /apt. Pages
+# is one site replaced on every deploy, so both are built here together. Doc
+# fixes go live from the branch without a release; a published release
+# refreshes the apt repository. Point `branches` at master once 4.0 is merged.
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+  push:
+    branches: [v4]
+    paths:
+      - 'docs/**'
+      # Regenerated on every API change; the manual does not include it.
+      - '!docs/openapi.json'
+      - 'webui/public/**'
+      - '.github/workflows/docs.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Page "last updated" times come from history.
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - id: pages
+        uses: actions/configure-pages@v5
+      - run: npm ci
+        working-directory: docs
+      - run: npm run build
+        working-directory: docs
+        env:
+          SOCKSEEK_DOCS_SITE_URL: ${{ steps.pages.outputs.base_url }}/
+      # Rebuilt from the latest published releases each time: no state to keep,
+      # and old versions drop out, which keeps the site under the Pages limit.
+      - name: Build the apt repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          if [[ -z $SIGNING_KEY ]]; then echo "APT_SIGNING_KEY is not set; publishing the manual only."; exit 0; fi
+          repo=docs/.vitepress/dist/apt
+          mkdir -p "$repo/pool/main"
+          # The latest three published releases that have Debian packages.
+          found=0
+          while read -r tag && (( found < 3 )); do
+            debs=$(gh release view "$tag" --json assets --jq '[.assets[].name | select(endswith(".deb"))] | length')
+            (( debs > 0 )) || continue
+            gh release download "$tag" --pattern '*.deb' --dir "$repo/pool/main"
+            found=$((found + 1))
+          done < <(gh release list --exclude-drafts --limit 50 --json tagName --jq '.[].tagName')
+          if (( found == 0 )); then echo "No published release has Debian packages yet; publishing the manual only."; rm -rf "$repo"; exit 0; fi
+          cd "$repo"
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends apt-utils > /dev/null
+          for arch in amd64 arm64; do
+            mkdir -p "dists/stable/main/binary-$arch"
+            apt-ftparchive --arch "$arch" packages pool > "dists/stable/main/binary-$arch/Packages"
+            gzip -k9 "dists/stable/main/binary-$arch/Packages"
+          done
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin=Sockseek -o APT::FTPArchive::Release::Label=Sockseek \
+            -o APT::FTPArchive::Release::Suite=stable -o APT::FTPArchive::Release::Codename=stable \
+            -o APT::FTPArchive::Release::Architectures="amd64 arm64" -o APT::FTPArchive::Release::Components=main \
+            release dists/stable > dists/stable/Release
+          GNUPGHOME=$(mktemp -d)
+          export GNUPGHOME
+          gpg --batch --import <<< "$SIGNING_KEY"
+          gpg --batch --yes --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes -abs -o dists/stable/Release.gpg dists/stable/Release
+          gpg --armor --export > sockseek.asc
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

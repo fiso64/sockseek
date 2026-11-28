@@ -1,4 +1,5 @@
 using Sockseek.Core.Models;
+using Sockseek.Core.Settings;
 using System.Globalization;
 
 namespace Sockseek.Core.Services;
@@ -67,11 +68,14 @@ public static class ConditionParser
                     break;
                 case "banned":
                 case "bannedusers":
-                    cond.BannedUsers = value.Split(',', tr);
+                    cond.BannedUsers = [.. SettingParser.CommaSeparatedItems(value)];
                     break;
                 case "allowed":
                 case "allowedusers":
-                    cond.AllowedUsers = value.Split(',', tr);
+                    cond.AllowedUsers = [.. SettingParser.CommaSeparatedItems(value)];
+                    break;
+                case "excludelocked":
+                    cond.ExcludeLocked = bool.Parse(value);
                     break;
                 case "stricttitle":
                     cond.StrictTitle = bool.Parse(value);
@@ -125,12 +129,4 @@ public static class ConditionParser
         return cond;
     }
 
-    /// Convenience: parse only folder-level conditions from a condition string.
-    /// File-level conditions in the string are parsed and discarded.
-    public static FolderConditionPatch ParseFolderConditions(string input)
-    {
-        var folderOut = new FolderConditionPatch();
-        ParseFileConditions(input, folderOut);
-        return folderOut;
-    }
 }

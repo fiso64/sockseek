@@ -78,7 +78,7 @@ public class InteractiveModeManager
         }
     }
 
-    public async Task<RunResult> Run()
+    public async Task<RunResult> Run(CancellationToken ct = default)
     {
         ConsoleInputManager.GlobalCancelEnabled = false;
         try
@@ -120,7 +120,7 @@ public class InteractiveModeManager
             }
 
         Loop:
-            string userInputStr = (await InteractiveModeInput()).Trim();
+            string userInputStr = (await InteractiveModeInput(ct) ?? "q").Trim();
             string commandInput = userInputStr;
             string command      = commandInput.ToLowerInvariant();
             string options      = "";
@@ -280,7 +280,8 @@ public class InteractiveModeManager
                 case "f":
                     if (string.IsNullOrWhiteSpace(options))
                     {
-                        var prompted = ReadFilterPrompt();
+                        Console.Write("Filter: ");
+                        var prompted = await InteractiveModeInput(ct, editingFilter: true);
                         if (prompted == null)
                         {
                             ClearOutput(savedPos);
@@ -385,8 +386,8 @@ public class InteractiveModeManager
     {
         filename = NormalizeRemoteFolderPath(filename);
         folderPath = NormalizeRemoteFolderPath(folderPath).TrimEnd('\\');
-        return filename.StartsWith(folderPath + "\\", StringComparison.OrdinalIgnoreCase)
-            || filename.Equals(folderPath, StringComparison.OrdinalIgnoreCase);
+        return filename.StartsWith(folderPath + "\\", StringComparison.Ordinal)
+            || filename.Equals(folderPath, StringComparison.Ordinal);
     }
 
     private static string CombineRemoteFolderPath(string parent, string child)
@@ -415,7 +416,7 @@ public class InteractiveModeManager
         };
     }
 
-    private async Task<string> InteractiveModeInput()
+    private static async Task<string?> InteractiveModeInput(CancellationToken ct, bool editingFilter = false)
     {
         var buffer    = new StringBuilder();
         var firstKey  = true;
@@ -423,9 +424,10 @@ public class InteractiveModeManager
 
         while (true)
         {
-            var key = await ConsoleInputManager.ReadKeyAsync();
+            var key = await ConsoleInputManager.ReadKeyAsync(ct);
 
-            if (key.Key == ConsoleKey.DownArrow || key.Key == ConsoleKey.UpArrow || key.Key == ConsoleKey.Escape)
+            if (editingFilter && key.Key == ConsoleKey.Escape) return null;
+            if (!editingFilter && (key.Key == ConsoleKey.DownArrow || key.Key == ConsoleKey.UpArrow || key.Key == ConsoleKey.Escape))
             {
                 if (buffer.Length > 0)
                 {
@@ -438,13 +440,8 @@ public class InteractiveModeManager
                 else return "q";
             }
 
-            if (firstKey && "fpnyqrsh".Contains(char.ToLowerInvariant(key.KeyChar)))
-            {
-                if (char.ToLowerInvariant(key.KeyChar) == 'f')
-                    ConsoleInputManager.PrepareDirectPromptInput();
-
+            if (!editingFilter && firstKey && "fpnyqrsh".Contains(char.ToLowerInvariant(key.KeyChar)))
                 return key.KeyChar.ToString();
-            }
 
             if (key.Key == ConsoleKey.Enter)
             {
@@ -500,9 +497,6 @@ public class InteractiveModeManager
         try { Console.SetCursorPosition(Math.Max(0, left), Math.Max(0, top)); }
         catch { }
     }
-
-    private static string? ReadFilterPrompt()
-        => ConsoleInputManager.ReadPromptInput("Filter: ");
 
     internal static bool TryBuildSelectedFolder(
         AlbumFolder folder,

@@ -6,8 +6,10 @@ namespace Sockseek.Core;
 
 public static partial class TrackTemplateParser
 {
+    private const int CacheCapacity = 128;
     private static readonly Lock cacheLock = new();
-    private static Dictionary<string, Tuple<Regex, List<string>>>? regexCache = null;
+    private static readonly Dictionary<string, CachedTemplate> regexCache = [];
+    private static readonly Queue<string> cacheOrder = [];
 
     /// <summary>
     /// Creates a SongQuery by parsing an input string based on a template.
@@ -44,7 +46,10 @@ public static partial class TrackTemplateParser
     }
 
     // Builds a new SongQuery from baseQuery with the matched fields overwritten.
-    private static SongQuery ApplyFields(SongQuery baseQuery, List<string> fieldNames, Match match)
+    private static SongQuery ApplyFields(
+        SongQuery baseQuery,
+        IReadOnlyList<string> fieldNames,
+        Match match)
     {
         string? artist = null, title = null, album = null;
 
@@ -67,25 +72,27 @@ public static partial class TrackTemplateParser
         };
     }
 
-    private static (Regex, List<string>) GetOrCreateRegexAndFields(string template)
+    private static CachedTemplate GetOrCreateRegexAndFields(string template)
     {
         lock (cacheLock)
         {
-            regexCache ??= new Dictionary<string, Tuple<Regex, List<string>>>();
             if (!regexCache.TryGetValue(template, out var cachedData))
             {
-                (Regex patternRegex, List<string> fieldNames) = BuildRegexFromTemplate(template);
-                regexCache[template] = Tuple.Create(patternRegex, fieldNames);
-                return (patternRegex, fieldNames);
+                while (regexCache.Count >= CacheCapacity)
+                    regexCache.Remove(cacheOrder.Dequeue());
+
+                cachedData = BuildRegexFromTemplate(template);
+                regexCache[template] = cachedData;
+                cacheOrder.Enqueue(template);
             }
-            return (cachedData.Item1, cachedData.Item2);
+            return cachedData;
         }
     }
 
     [GeneratedRegex(@"\{([^{}]+)\}")]
     private static partial Regex PlaceholderRegex();
 
-    private static (Regex, List<string>) BuildRegexFromTemplate(string template)
+    private static CachedTemplate BuildRegexFromTemplate(string template)
     {
         var fieldNames = new List<string>();
         var patternBuilder = new StringBuilder("^\\s*");
@@ -111,6 +118,12 @@ public static partial class TrackTemplateParser
         patternBuilder.Append("\\s*$");
 
         RegexOptions options = RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase;
-        return (new Regex(patternBuilder.ToString(), options), fieldNames);
+        return new CachedTemplate(
+            new Regex(patternBuilder.ToString(), options),
+            fieldNames);
     }
+
+    private sealed record CachedTemplate(
+        Regex Pattern,
+        IReadOnlyList<string> FieldNames);
 }

@@ -1,24 +1,34 @@
-using Microsoft.Extensions.Logging;
 using Sockseek.Core.Jobs;
 
 namespace Sockseek.Core.Extractors;
 
 public sealed class ExtractorContext
 {
-    public static ExtractorContext None { get; } = new(new FallbackExtractorJobLog());
+    public static ExtractorContext None { get; } = new(
+        NullJobLog.Instance,
+        NullSensitiveOutput.Instance);
 
     public IJobLog Log { get; }
+    public ISensitiveOutput SensitiveOutput { get; }
 
-    private ExtractorContext(IJobLog log)
+    private ExtractorContext(IJobLog log, ISensitiveOutput sensitiveOutput)
     {
         Log = log;
+        SensitiveOutput = sensitiveOutput;
     }
 
-    public static ExtractorContext ForExtractJob(ExtractJob job, DownloadEvents events, string source)
-        => ForJob(job, events, source);
+    /// <summary>Collects what the extractor reports, for a job that has no activity stream yet.</summary>
+    public static ExtractorContext Recording(ICollection<ExtractionNote> notes)
+        => new(new RecordingJobLog(notes), NullSensitiveOutput.Instance);
 
-    public static ExtractorContext ForJob(Job job, DownloadEvents events, string? source = null)
-        => new(new EventExtractorJobLog(job, events, source));
+    public static ExtractorContext ForJob(
+        Job job,
+        DownloadEvents events,
+        string? source = null,
+        ISensitiveOutput? sensitiveOutput = null)
+        => new(
+            new EventExtractorJobLog(job, events, source),
+            sensitiveOutput ?? NullSensitiveOutput.Instance);
 }
 
 public interface IJobLog
@@ -28,6 +38,18 @@ public interface IJobLog
     void Info(string message);
     void Warn(string message);
     void Error(string message);
+}
+
+/// <summary>One thing an extractor said about its input.</summary>
+public sealed record ExtractionNote(LogLevel Level, string Message);
+
+internal sealed class RecordingJobLog(ICollection<ExtractionNote> notes) : IJobLog
+{
+    public void Trace(string message) => notes.Add(new(LogLevel.Trace, message));
+    public void Debug(string message) => notes.Add(new(LogLevel.Debug, message));
+    public void Info(string message) => notes.Add(new(LogLevel.Information, message));
+    public void Warn(string message) => notes.Add(new(LogLevel.Warning, message));
+    public void Error(string message) => notes.Add(new(LogLevel.Error, message));
 }
 
 internal sealed class EventExtractorJobLog(Job job, DownloadEvents events, string? source) : IJobLog
@@ -42,11 +64,25 @@ internal sealed class EventExtractorJobLog(Job job, DownloadEvents events, strin
         => events.RaiseJobMessage(job, level, source, message);
 }
 
-internal sealed class FallbackExtractorJobLog : IJobLog
+public interface ISensitiveOutput
 {
-    public void Trace(string message) => SockseekLog.Jobs.Trace(message);
-    public void Debug(string message) => SockseekLog.Jobs.Debug(message);
-    public void Info(string message) => SockseekLog.Jobs.Info(message);
-    public void Warn(string message) => SockseekLog.Jobs.Warn(message);
-    public void Error(string message) => SockseekLog.Jobs.Error(message);
+    void WriteLine(string value);
+}
+
+public sealed class NullSensitiveOutput : ISensitiveOutput
+{
+    public static NullSensitiveOutput Instance { get; } = new();
+    private NullSensitiveOutput() { }
+    public void WriteLine(string value) { }
+}
+
+internal sealed class NullJobLog : IJobLog
+{
+    public static NullJobLog Instance { get; } = new();
+    private NullJobLog() { }
+    public void Trace(string message) { }
+    public void Debug(string message) { }
+    public void Info(string message) { }
+    public void Warn(string message) { }
+    public void Error(string message) { }
 }

@@ -34,6 +34,12 @@ internal static class SearchAttemptPlanner
                 if (!normalSearch && remaining == 0)
                     break;
 
+                // TODO: Decide how Song and Album Search treat Soulseek's -term exclusion
+                // and *suffix wildcard syntax. Cleaning strips '-' and '*' by default, so a
+                // user cannot use either. With --no-remove-special-chars they reach
+                // SearchQuery.FromText unescaped, so an imported artist or title such as
+                // "Song -Live" silently excludes "live". Syntax the user typed and
+                // punctuation in imported text need to be told apart before this point.
                 string text = Searcher.CleanSearchString(variant.Text, !search.NoRemoveSpecialChars);
                 if (string.IsNullOrWhiteSpace(text))
                     continue;

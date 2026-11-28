@@ -1,4 +1,3 @@
-using Sockseek.Core.Jobs;
 using Sockseek.Core.Models;
 
 namespace Sockseek.Core.Services;
@@ -14,15 +13,6 @@ internal static class AlbumQualityPolicy
             conditions.MinBitrate != null || conditions.MaxBitrate != null,
             conditions.MinSampleRate != null || conditions.MaxSampleRate != null,
             conditions.MinBitDepth != null || conditions.MaxBitDepth != null);
-
-    public static AlbumAudioQualityCoverage Evaluate(
-        IEnumerable<Soulseek.File> audioFiles,
-        FileConditions conditions,
-        ActiveAlbumTrackConditions activeQuality)
-        => Evaluate(
-            audioFiles.Select(ConditionFile.From),
-            conditions,
-            activeQuality);
 
     public static AlbumAudioQualityCoverage Evaluate(
         IEnumerable<ConditionFile> audioFiles,
@@ -66,7 +56,7 @@ internal static class AlbumQualityPolicy
         => Evaluate(
             folder.Files
                 .Where(file => !file.IsNotAudio)
-                .Select(file => file.Candidate.File),
+                .Select(file => ConditionFile.From(file.Candidate)),
             conditions,
             activeQuality);
 

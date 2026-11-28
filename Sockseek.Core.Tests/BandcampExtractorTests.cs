@@ -1,5 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Extractors;
 using Sockseek.Core.Jobs;
 using Sockseek.Core.Settings;
 
@@ -70,7 +68,7 @@ public class BandcampExtractorTests
         {
             await File.WriteAllTextAsync(path, html);
             var extractor = new BandcampExtractor(new BandcampSettings { HtmlFromFile = path });
-            return await extractor.GetTracks("https://artist.bandcamp.com/" + (album ? "album/test" : "track/test"),
+            return await extractor.ExtractAsync("https://artist.bandcamp.com/" + (album ? "album/test" : "track/test"),
                 new ExtractionSettings { SetAlbumMinTrackCount = countTracks, SetAlbumMaxTrackCount = countTracks });
         }
         finally

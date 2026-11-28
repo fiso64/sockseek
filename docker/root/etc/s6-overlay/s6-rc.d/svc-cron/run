@@ -1,4 +1,0 @@
-#!/usr/bin/with-contenv bash
-
-echo -e "\nStarting cron"
-/usr/sbin/crond -b -S -l 0 -L /config/cron.log

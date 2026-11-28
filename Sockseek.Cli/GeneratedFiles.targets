@@ -1,0 +1,65 @@
+<Project>
+  <PropertyGroup>
+    <_GeneratorBuildInputs>GeneratedFiles.targets;../Directory.Build.props;../global.json</_GeneratorBuildInputs>
+    <_GeneratorState>$(BaseIntermediateOutputPath)generators/</_GeneratorState>
+    <_HelpProject>../Sockseek.HelpGenerator/Sockseek.HelpGenerator.csproj</_HelpProject>
+    <_NixProject>../nix/SettingsGenerator.csproj</_NixProject>
+    <_HelpDll>../Sockseek.HelpGenerator/bin/$(Configuration)/$(TargetFramework)/Sockseek.HelpGenerator.dll</_HelpDll>
+    <_GenerateRepositoryFiles Condition="'$(DesignTimeBuild)' != 'true' and '$(SkipCompilerExecution)' != 'true'">true</_GenerateRepositoryFiles>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Include the generated source even when it is missing at project evaluation. -->
+    <Compile Remove="Help.Content.cs" />
+    <Compile Include="Help.Content.cs" />
+
+    <GeneratorInput Include="$(_GeneratorBuildInputs);../docs/pages/**/*.md;../Sockseek.HelpGenerator/*.cs;$(_HelpProject);../Sockseek.HelpGenerator/packages.lock.json" Generator="Help" />
+    <!-- Release package sources can omit the repository's Nix tooling. -->
+    <GeneratorInput Condition="Exists('$(_NixProject)')"
+                    Include="$(_GeneratorBuildInputs);$(_NixProject);../nix/generate-settings.cs;../docs/pages/reference/options.md;../docs/pages/reference/daemon-options.md;Settings/*.cs;Services/ConfigManager.cs;../Sockseek.Core/Settings/**/*.cs;../Sockseek.Core/Matching/Conditions/*.cs"
+                    Generator="Nix" />
+    <UpToDateCheckInput Include="@(GeneratorInput)" />
+    <UpToDateCheckBuilt Include="Help.Content.cs" />
+    <UpToDateCheckBuilt Condition="Exists('$(_NixProject)')" Include="../nix/settings.json" />
+  </ItemGroup>
+
+  <!-- Fingerprint the list as well as the contents so deletions and branch switches count. -->
+  <Target Name="TrackGeneratorInputs">
+    <MakeDir Directories="$(_GeneratorState)" />
+    <GetFileHash Files="@(GeneratorInput)">
+      <Output TaskParameter="Items" ItemName="_HashedGeneratorInput" />
+    </GetFileHash>
+    <WriteLinesToFile File="$(_GeneratorState)%(_HashedGeneratorInput.Generator).inputs"
+                      Lines="@(_HashedGeneratorInput->'%(Identity) %(FileHash)')"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <Target Name="GenerateCliHelp" BeforeTargets="CoreCompile"
+          Condition="'$(_GenerateRepositoryFiles)' == 'true'"
+          DependsOnTargets="TrackGeneratorInputs"
+          Inputs="$(_GeneratorState)Help.inputs;Help.Content.cs" Outputs="$(_GeneratorState)Help.stamp">
+    <MSBuild Projects="$(_HelpProject)" Targets="Restore;Build"
+             Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)"
+             RemoveProperties="RuntimeIdentifier;UseCurrentRuntimeIdentifier;SelfContained;PublishSelfContained;PublishSingleFile;PublishTrimmed;PublishReadyToRun;PublishAot;ArtifactsPath;BaseOutputPath;OutputPath;OutDir" />
+    <Message Importance="high" Text="Generating CLI help" />
+    <Exec Command="dotnet &quot;$(_HelpDll)&quot;" />
+    <Touch Files="$(_GeneratorState)Help.stamp" AlwaysCreate="true" />
+  </Target>
+
+  <Target Name="GenerateNixSettings" AfterTargets="Build"
+          Condition="'$(_GenerateRepositoryFiles)' == 'true' and '$(SkipNixSettingsGeneration)' != 'true' and Exists('$(_NixProject)')"
+          DependsOnTargets="TrackGeneratorInputs"
+          Inputs="$(_GeneratorState)Nix.inputs;../nix/settings.json" Outputs="$(_GeneratorState)Nix.stamp">
+    <!-- Reuse the CLI just built. For platform-specific or redirected output, let
+         the tool build host assemblies in its own directory, outside the outer restore. -->
+    <PropertyGroup>
+      <_PortableCliDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', 'bin', '$(Configuration)', '$(TargetFramework)'))</_PortableCliDir>
+      <_UseBuiltCli Condition="'$(RuntimeIdentifier)' == '' and ('$(PlatformTarget)' == '' or '$(PlatformTarget)' == 'AnyCPU') and '$(TargetDir)' == '$(_PortableCliDir)'">true</_UseBuiltCli>
+      <_NixToolBuild Condition="'$(_UseBuiltCli)' == 'true'">-p:BuildProjectReferences=false</_NixToolBuild>
+      <_NixToolBuild Condition="'$(_UseBuiltCli)' != 'true'">--artifacts-path &quot;$(MSBuildProjectDirectory)/obj/generators/host&quot;</_NixToolBuild>
+    </PropertyGroup>
+    <Message Importance="high" Text="Generating Nix settings" />
+    <Exec WorkingDirectory=".." Command="dotnet run --project nix/SettingsGenerator.csproj -c &quot;$(Configuration)&quot; -p:OpenApiGenerateDocuments=false $(_NixToolBuild)" />
+    <Touch Files="$(_GeneratorState)Nix.stamp" AlwaysCreate="true" />
+  </Target>
+</Project>

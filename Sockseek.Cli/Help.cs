@@ -1,43 +1,54 @@
+using Sockseek.Core;
+
 namespace Sockseek.Cli;
 
 public static partial class Help
 {
+    private static readonly Dictionary<string, string> Guides = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["input"] = inputHelp,
+        ["download-modes"] = downloadModesHelp,
+        ["ranking-and-filtering"] = rankingAndFilteringHelp,
+        ["name-format"] = nameFormatHelp,
+        ["variables"] = variablesHelp,
+        ["on-complete"] = onCompleteHelp,
+        ["config"] = configHelp,
+        ["shortcuts"] = shortcutsHelp,
+        ["notes"] = notesAndTipsHelp,
+    };
+
+    private static readonly Dictionary<string, string> Topics = CommandTopics();
+
     public static void PrintHelp(string? option = null)
     {
+        if (option == "user" && !Topics.ContainsKey("user"))
+            option = "remote";
+
         string text = helpText;
-
-        var dict = new Dictionary<string, string>()
+        if (option == "all")
         {
-            { "input", inputHelp },
-            { "download-modes", downloadModesHelp },
-            { "file-conditions", fileConditionsHelp },
-            { "name-format", nameFormatHelp },
-            { "on-complete", onCompleteHelp },
-            { "config", configHelp },
-            { "shortcuts", shortcutsHelp },
-            { "notes", notesAndTipsHelp },
-        };
-
-        if (option != null && dict.TryGetValue(option, out string? value))
-            text = value;
-        else if (option == "all")
-            text = $"{helpText}\n{string.Join('\n', dict.Values)}";
-        else if (option == "help")
-            text = $"Choose from:\n\n  {string.Join("\n  ", dict.Keys)}";
+            // Remote connection flags are already in the main options.
+            var references = Topics.Where(topic => topic.Key != "remote").Select(topic => topic.Value);
+            text = string.Join("\n", Guides.Values.Prepend(helpText).Concat(references));
+        }
         else if (option != null)
-            text = $"Unrecognized help option '{option}'. Choose from:\n\n  {string.Join("\n  ", dict.Keys)}";
+        {
+            if (Topics.TryGetValue(option, out var reference) || Guides.TryGetValue(option, out reference))
+                text = reference;
+            else
+            {
+                string prompt = option == "help" ? "Choose from:" : $"Unrecognized help option '{option}'. Choose from:";
+                text = $"{prompt}\n\n  {string.Join("\n  ", Guides.Keys.Concat(Topics.Keys))}";
+            }
+        }
 
         Console.WriteLine(text.TrimStart('\r', '\n'));
+        if (option?.ToLowerInvariant() is "auth" or "chat" or "room" or "notifications" or "notification"
+            or "share" or "transfers" or "transfer")
+            Console.WriteLine("\nSee sockseek --help remote for shared remote CLI options.");
     }
 
-    public static void PrintVersion()
-    {
-        var asm = System.Reflection.Assembly.GetExecutingAssembly();
-        var attr = (System.Reflection.AssemblyInformationalVersionAttribute?)
-            System.Attribute.GetCustomAttribute(asm, typeof(System.Reflection.AssemblyInformationalVersionAttribute));
-        var v = attr?.InformationalVersion ?? "";
-        Console.WriteLine(v.Split('+')[0]);
-    }
+    public static void PrintVersion() => Console.WriteLine(ProductVersion.Display);
 
     public static bool PrintAndExitIfNeeded(string[] args)
     {
@@ -45,22 +56,19 @@ public static partial class Help
         {
             Console.WriteLine(usageText.Trim());
             Console.WriteLine();
-            Console.WriteLine("Type sockseek --help to see a list of all options.");
+            Console.WriteLine("Type sockseek --help to see commands and options.");
             return true;
         }
 
         int helpIdx = Array.FindLastIndex(args, x => x == "--help" || x == "-h");
-        if (helpIdx >= 0)
-        {
-            PrintHelp(helpIdx + 1 < args.Length ? args[helpIdx + 1] : null);
-            return true;
-        }
-        else if (args.Contains("--version"))
-        {
-            PrintVersion();
-            return true;
-        }
+        if (helpIdx < 0)
+            return false;
 
-        return false;
+        string command = args[0].ToLowerInvariant();
+        string? topic = helpIdx > 0 && (command == "user" || command != "remote" && Topics.ContainsKey(command))
+            ? command
+            : args.ElementAtOrDefault(helpIdx + 1);
+        PrintHelp(topic);
+        return true;
     }
 }

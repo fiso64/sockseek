@@ -11,8 +11,10 @@ namespace Sockseek.Core.Services;
         /// Sets song.Query = new SongQuery(song.Query) { ... } (copy-and-replace — no mutation of original).
         /// </summary>
         public static void PreprocessSong(SongJob song, PreprocessSettings preprocess)
+            => song.Query = Apply(song.Query, preprocess);
+
+        internal static SongQuery Apply(SongQuery q, PreprocessSettings preprocess)
         {
-            var q = song.Query;
             string artist = q.Artist;
             string title  = q.Title;
             string album  = q.Album;
@@ -57,12 +59,11 @@ namespace Sockseek.Core.Services;
                 }
             }
 
-            song.Query = new SongQuery(q)
-            {
-                Artist          = artist.Trim(),
-                Title           = title.Trim(),
-                Album           = album.Trim(),
-            };
+            artist = artist.Trim();
+            title = title.Trim();
+            album = album.Trim();
+            return q.Artist == artist && q.Title == title && q.Album == album
+                ? q : new SongQuery(q) { Artist = artist, Title = title, Album = album };
         }
 
         /// <summary>
@@ -70,8 +71,10 @@ namespace Sockseek.Core.Services;
         /// Sets job.Query = new AlbumQuery(job.Query) { ... }.
         /// </summary>
         public static void PreprocessAlbum(AlbumJob job, PreprocessSettings preprocess)
+            => job.Query = Apply(job.Query, preprocess);
+
+        internal static AlbumQuery Apply(AlbumQuery q, PreprocessSettings preprocess)
         {
-            var q = job.Query;
             string artist = q.Artist;
             string album  = q.Album;
 
@@ -87,11 +90,10 @@ namespace Sockseek.Core.Services;
                 }
             }
 
-            job.Query = new AlbumQuery(q)
-            {
-                Artist = artist.Trim(),
-                Album  = album.Trim(),
-            };
+            artist = artist.Trim();
+            album = album.Trim();
+            return q.Artist == artist && q.Album == album
+                ? q : new AlbumQuery(q) { Artist = artist, Album = album };
         }
 
         /// <summary>
@@ -117,17 +119,13 @@ namespace Sockseek.Core.Services;
                     PreprocessAlbum(aj, preprocess);
                     break;
 
-                case AggregateJob ag:
+                case SongGroupsJob ag:
                     foreach (var song in ag.Songs)
                         PreprocessSong(song, preprocess);
                     break;
 
-                case AlbumAggregateJob aaj:
-                    // AlbumAggregateJob only has an AlbumQuery, preprocess artist/album.
-                    // Synthesise a temporary AlbumJob to reuse PreprocessAlbum.
-                    var tempAlbum = new AlbumJob(aaj.Query);
-                    PreprocessAlbum(tempAlbum, preprocess);
-                    aaj.Query = tempAlbum.Query;
+                case AlbumGroupsJob aaj:
+                    aaj.Query = Apply(aaj.Query, preprocess);
                     break;
             }
         }

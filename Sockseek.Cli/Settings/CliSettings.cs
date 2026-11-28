@@ -22,4 +22,7 @@ public class CliSettings
     /// When true, the CLI uses JsonStreamProgressReporter instead of the default CLI reporter.
     [SettingOption("--progress-json")]
     public bool ProgressJson { get; set; }
+    [SettingOption("--monitor")]
+    public bool Monitor { get; set; }
+
 }

@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	install -d debian/sockseek/usr/lib/sockseek
+	install -m755 upstream/sockseek debian/sockseek/usr/lib/sockseek/
+	install -m644 upstream/*.so debian/sockseek/usr/lib/sockseek/
+	dh_link usr/lib/sockseek/sockseek usr/bin/sockseek
+	install -Dm644 upstream/LICENSE debian/sockseek/usr/share/doc/sockseek/copyright
+	install -Dm640 debian/sockseek.conf debian/sockseek/etc/sockseek/sockseek.conf
+
+override_dh_fixperms:
+	dh_fixperms -Xetc/sockseek/sockseek.conf
+
+# Stripping the apphost would discard the .NET bundle appended to the ELF.
+override_dh_strip override_dh_dwz:
+
+# The native libraries are private to /usr/lib/sockseek.
+override_dh_makeshlibs:
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start --restart-after-upgrade

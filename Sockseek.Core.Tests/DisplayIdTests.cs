@@ -1,12 +1,10 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Soulseek;
-using Sockseek.Core.Jobs;
-using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 
 namespace Tests.Core;
 
 [TestClass]
+[DoNotParallelize]
 public class DisplayIdTests
 {
     [TestMethod]

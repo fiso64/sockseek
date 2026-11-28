@@ -1,0 +1,134 @@
+<script lang="ts">
+  import { matchedPath } from '../MatchedText.svelte';
+  import type { Snippet } from 'svelte';
+  import TransferStateLabel from './TransferStateLabel.svelte';
+  import TransferRate from './TransferRate.svelte';
+  import RelativeTime from '../RelativeTime.svelte';
+  import Icon from '../Icon.svelte';
+  import LockedIndicator from '../LockedIndicator.svelte';
+  import type { AudioAttributes, TransferPresentation } from '../../domains/presentation/items';
+  import { audioSummary, basename, formatBytes, formatLength, isTerminalTransfer, parentPath } from '../../domains/presentation/items';
+
+  interface Props {
+    highlight?: RegExp;
+    path: string;
+    sizeBytes: number | null;
+    audio?: AudioAttributes;
+    locked?: boolean;
+    selected?: boolean;
+    preferred?: boolean;
+    selectable?: boolean;
+    keyboardKey?: string;
+    transfer?: TransferPresentation;
+    /** Shown left of the transfer state label. */
+    retry?: Snippet;
+    actions?: Snippet;
+    onselect?: (selected: boolean) => void;
+  }
+
+  let {
+    highlight,
+    path,
+    sizeBytes,
+    audio,
+    locked = false,
+    selected = false,
+    preferred = false,
+    selectable = false,
+    keyboardKey,
+    transfer,
+    retry,
+    actions,
+    onselect,
+  }: Props = $props();
+
+  let parentLength = $derived(parentPath(path).length);
+  let transferDirectionClass = $derived(transfer?.direction ? `transfer-${transfer.direction}` : '');
+
+</script>
+
+<article
+  class="surface-card item-card result-card file-item-card"
+  class:locked
+  class:selected={selected && !locked}
+  class:preferred
+  data-keyboard-item={keyboardKey}
+  data-range-disabled={locked || undefined}
+  tabindex="-1"
+  class:selectable={selectable && !locked}
+  class:transfer-card={Boolean(transfer)}
+  class:has-audio={Boolean(audio)}
+>
+  {#if transfer}
+    <div class="file-item-main folder-result-summary file-transfer-summary">
+      <div class="folder-heading-primary">
+        <div class="folder-summary-select-target nonselectable">
+          <div class="folder-heading-copy">
+            <div class="folder-heading-identity">
+              {#if locked}<span class="locked-icon" role="img" aria-label="Locked" title="Locked"><Icon name="lock" /></span>{/if}
+              <strong class="folder-heading-path file-transfer-path" title={path}><bdi dir="ltr"><span class="folder-path-ancestors"><bdi dir="ltr">{parentPath(path)}</bdi></span><b class="file-transfer-name">{basename(path)}</b></bdi></strong>
+            </div>
+            <div class="folder-heading-meta file-transfer-meta">
+              {#if audio}
+                <span class="file-transfer-audio">{audioSummary(audio)}</span>
+                <span class="file-transfer-length">{formatLength(audio.lengthSeconds)}</span>
+              {/if}
+              <span class="file-transfer-size">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</span>
+              {#if transfer.createdAt}<span class="file-transfer-age"><RelativeTime timestamp={transfer.createdAt} lowercase /></span>{/if}
+            </div>
+          </div>
+        </div>
+        <div class="folder-heading-actions">
+          {#if retry}<span class="item-card-action">{@render retry()}</span>{/if}
+          <TransferStateLabel {transfer} {path} {sizeBytes} circular={transfer.tone === 'complete'}>
+            {#if transfer.tone === 'complete'}<Icon name="check" />{:else}{transfer.state}{/if}
+          </TransferStateLabel>
+          {#if actions}<span class="item-card-action">{@render actions()}</span>{/if}
+        </div>
+      </div>
+    </div>
+  {:else}
+    <svelte:element this={selectable && !locked ? 'label' : 'div'} class:clickable={selectable && !locked} class:nonselectable={!selectable && !locked} class="file-item-main file-result-row">
+      {#if locked}
+        <LockedIndicator />
+      {:else if selectable}
+        <input
+          type="checkbox"
+          checked={selected}
+          aria-label={`Select ${basename(path)}`}
+          onchange={(event) => onselect?.((event.currentTarget as HTMLInputElement).checked)}
+        />
+      {/if}
+
+      <div class="item-path-block result-path-block item-name-line result-name-line">
+        <strong class="folder-heading-path" title={path}><bdi dir="ltr">{@render matchedPath(path, highlight, parentLength)}</bdi></strong>
+      </div>
+
+      <strong class="item-detail result-detail item-size-detail">{sizeBytes == null ? '—' : formatBytes(sizeBytes)}</strong>
+      {#if audio}
+        <strong class="item-detail result-detail audio-detail">{audioSummary(audio)}</strong>
+        <strong class="item-detail result-detail item-length-detail">{formatLength(audio.lengthSeconds)}</strong>
+      {/if}
+      {#if actions}
+        <div class="item-card-action">{@render actions()}</div>
+      {/if}
+    </svelte:element>
+  {/if}
+
+  {#if transfer && !isTerminalTransfer(transfer)}
+    <div class={`transfer-card-footer file-transfer-footer ${transfer.tone ?? ''} ${transferDirectionClass}`}>
+      {#if transfer.progressPercent !== undefined}
+        <div class="progress-track transfer-progress-track" aria-label={`${transfer.progressPercent.toFixed(0)}% complete`}>
+          <span style={`width:${transfer.progressPercent}%`}></span>
+        </div>
+      {/if}
+      <!-- Explanations belong to the state label's details dialog, not beside it. -->
+      {#if transfer.progressText || transfer.speed || transfer.eta || transfer.completedAt}
+        <div class="transfer-progress-meta">
+          <span>{transfer.progressText ?? ''}</span>
+          <span>{#if transfer.completedAt}<RelativeTime timestamp={transfer.completedAt} lowercase />{#if transfer.speed || transfer.eta} · {/if}{/if}<TransferRate speed={transfer.speed} eta={transfer.eta} /></span>
+        </div>
+      {/if}
+    </div>
+  {/if}
+</article>

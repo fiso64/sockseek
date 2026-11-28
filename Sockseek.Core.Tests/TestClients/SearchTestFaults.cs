@@ -1,5 +1,4 @@
 using System.Reflection;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Soulseek;
 
 namespace Tests.ClientTests;

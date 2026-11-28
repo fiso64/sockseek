@@ -1,0 +1,295 @@
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.loading-indicator.compact .resource-state-dot { border-color: var(--muted); border-right-color: transparent; }
+
+/* Shared visual primitives. Feature styles supply placement and dimensions;
+   these rules own paint and interaction states for every theme. */
+.button {
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background-color: var(--surface);
+  background-image: var(--control-image);
+  box-shadow: var(--control-shadow);
+  color: var(--text);
+  cursor: pointer;
+}
+.button.secondary { border-color: var(--border); background-color: var(--secondary-control-background); color: var(--muted); }
+.button.option { border-color: var(--border); background-color: var(--option-control-background); color: var(--muted); }
+.button:hover:not(:disabled) { background-color: var(--surface-raised); border-color: var(--border-strong); }
+.button:is(.active, [aria-pressed="true"]) {
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  background-image: var(--selected-image);
+  color: var(--accent-text);
+  box-shadow: var(--selected-shadow);
+}
+.button:is(.active, [aria-pressed="true"]):hover:not(:disabled) { border-color: var(--accent); background-color: color-mix(in srgb, var(--accent-soft) 85%, var(--surface-raised)); }
+.button.primary { background-color: var(--accent-fill); border-color: transparent; color: white; }
+.button.primary:hover:not(:disabled) { background-color: color-mix(in srgb, var(--accent-fill) 85%, #000); }
+.button.danger { color: var(--danger); }
+.button.quiet { border-color: transparent; background-color: transparent; background-image: none; box-shadow: none; color: var(--muted); }
+.button.quiet:hover:not(:disabled, .active, [aria-expanded="true"], [aria-pressed="true"]) { background-color: var(--surface-subtle); color: var(--text); }
+.button.quiet:is(.active, [aria-pressed="true"]) { background-color: var(--accent-soft); color: var(--accent-text); }
+/* Open controls stay neutral; hovering alone keeps the raised face. */
+.button[aria-expanded="true"], .button[aria-expanded="true"]:hover:not(:disabled) {
+  background-color: var(--surface-subtle);
+  background-image: none;
+  color: var(--text);
+}
+.button.danger:hover:not(:disabled) { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); background-color: color-mix(in srgb, var(--danger) 8%, var(--surface)); color: var(--danger); }
+.button.primary.danger { background-color: var(--danger-fill); border-color: transparent; color: white; }
+.button.primary.danger:hover:not(:disabled) { background-color: color-mix(in srgb, var(--danger-fill) 85%, #000); border-color: transparent; color: white; }
+/* Menu triggers stay down until dismissed; panel toggles spring back on release. */
+.button:is(:active, [aria-haspopup="menu"][aria-expanded="true"]):not(:disabled, .quiet) {
+  transform: translateY(var(--control-press-offset));
+  box-shadow: var(--control-pressed-shadow);
+}
+.button:disabled { opacity: .45; cursor: default; }
+
+.field, .field-group, .well {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--well);
+  box-shadow: var(--field-shadow);
+  color: var(--text);
+}
+.field:focus, .field-group:focus-within {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+.field::placeholder { color: var(--faint); }
+/* One chevron for every select, drawn in the text color of the current theme. */
+select.field {
+  appearance: none;
+  padding-right: 30px;
+  --chevron-stroke: transparent calc(50% - .8px), var(--muted) calc(50% - .8px), var(--muted) calc(50% + .8px), transparent calc(50% + .8px);
+  background-image: linear-gradient(45deg, var(--chevron-stroke)), linear-gradient(-45deg, var(--chevron-stroke));
+  background-position: calc(100% - 17px) 50%, calc(100% - 11px) 50%;
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+}
+select.field:hover:not(:disabled) { border-color: var(--border-strong); }
+.field:disabled { opacity: .52; cursor: default; }
+
+.panel {
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: var(--panel-background);
+  box-shadow: var(--panel-shadow);
+}
+.panel.inset { background: color-mix(in srgb, var(--surface) 68%, var(--well)); }
+.panel.subtle { border-color: var(--border); background: var(--panel-subtle-background); box-shadow: var(--surface-shadow); }
+.popover-panel {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--popover-background);
+  color: var(--text);
+  box-shadow: var(--popover-shadow);
+}
+.popover-panel.form { border-color: var(--form-popover-border); background: var(--panel-background); box-shadow: var(--form-popover-shadow); }
+.popover-panel.modal { background: var(--panel-background); box-shadow: var(--modal-shadow); }
+.panel-header { border-bottom: 1px solid var(--panel-border); background: var(--header-background); box-shadow: var(--control-shadow); }
+.surface-card {
+  border: 1px solid var(--border);
+  background-color: var(--surface);
+  background-image: var(--surface-image);
+  box-shadow: var(--surface-shadow);
+  color: var(--text);
+}
+.surface-card:hover { border-color: var(--border-strong); background-color: color-mix(in srgb, var(--surface-subtle) 45%, var(--surface)); }
+.surface-card[aria-pressed="true"] { border-color: var(--accent); }
+
+.resource-state-notice {
+  border: 1px solid var(--border);
+  background-color: var(--surface-subtle);
+  background-image: var(--surface-image);
+  box-shadow: var(--surface-shadow);
+  color: var(--muted);
+}
+
+.menu-item {
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+}
+.menu-item:is(:hover, :focus-visible, :focus-within) {
+  background-color: var(--surface-subtle);
+  background-image: var(--surface-image);
+}
+.menu-item:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.menu-item.danger { color: var(--danger); }
+.menu-item:disabled { opacity: .45; cursor: default; }
+
+.choice { border: 0; background-color: transparent; color: var(--muted); }
+.choice:hover { background-color: var(--surface-subtle); color: var(--text); }
+.choice.active,
+.menu-item:is(.active, [aria-checked="true"], :has(input:checked)),
+.surface-card[aria-pressed="true"] {
+  position: relative;
+  z-index: 1;
+  background-color: var(--accent-soft);
+  background-image: var(--selected-image);
+  color: var(--text);
+  box-shadow: var(--selected-shadow);
+}
+.surface-card.selectable { background-color: var(--selectable-card-background); }
+.surface-card.selectable:is(:hover, :focus-visible) { background-color: var(--surface-raised); }
+.surface-card.selectable:focus-visible { border-color: var(--accent); }
+.surface-card.selectable[aria-pressed="true"] { background-color: var(--selectable-card-selected-background); }
+.segmented-control { border: 1px solid var(--border); background: var(--well); box-shadow: var(--field-shadow); }
+.segmented-control > button { border: 0; background: transparent; color: var(--muted); }
+.segmented-control > button:hover { background-color: var(--surface-subtle); color: var(--text); }
+.segmented-control > button.active {
+  background-color: var(--accent-soft);
+  background-image: var(--selected-image);
+  color: var(--accent-text);
+  box-shadow: var(--selected-shadow);
+}
+
+.badge, .status-label { border: 1px solid color-mix(in srgb, currentColor 25%, var(--border)); background-image: var(--badge-image); box-shadow: var(--badge-shadow); }
+.progress-track {
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  box-shadow: var(--progress-track-shadow);
+}
+.progress-track > :is(span, i) {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background-color: var(--accent);
+  background-image: var(--progress-image);
+  box-shadow: var(--progress-shadow);
+  transition: width 180ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress-track > :is(span, i) { transition: none; }
+}
+
+input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  flex: 0 0 auto;
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--checkbox-background);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 11px 11px;
+  box-shadow: var(--checkbox-shadow);
+}
+input[type="checkbox"]:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong)); }
+input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background-color: var(--accent-fill);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.2 6.2 4.7 8.5 9.8 3.3' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  box-shadow: var(--checkbox-checked-shadow);
+}
+input[type="checkbox"]:indeterminate {
+  border-color: color-mix(in srgb, var(--muted) 70%, var(--border-strong));
+  background-color: color-mix(in srgb, var(--muted) 45%, var(--surface));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6h7' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+
+.status-label {
+  --status-color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 5px;
+  min-height: 22px;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--status-color) 32%, var(--border));
+  border-radius: 999px;
+  background-color: light-dark(color-mix(in srgb, var(--status-color) 10%, var(--surface)), color-mix(in srgb, var(--status-color) 18%, var(--surface)));
+  color: var(--status-color);
+  font-size: .68rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.status-label:is(.active, .searching, .receiving) { --status-color: var(--status-active); }
+.status-label.complete { --status-color: var(--status-complete); }
+.status-label.failed { --status-color: var(--status-failed); }
+.status-label:is(.partial, .interrupted) { --status-color: var(--status-partial); }
+/* An icon label spins only while its transfer works without moving bytes. */
+.status-label:is(.active, .searching, .receiving):not(.status-label-icon)::before,
+.status-label-icon.busy::before {
+  content: "";
+  flex: 0 0 auto;
+  border-radius: 50%;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  background: transparent;
+}
+.status-label-icon { width: 18px; height: 18px; min-height: 18px; padding: 0; }
+.status-label-icon .app-icon { --app-icon-size: 11px; }
+/* An icon badge that also carries a number grows into a pill. */
+.status-label-icon.with-count { width: auto; min-width: 18px; padding: 0 6px 0 4px; gap: 3px; }
+.status-label-count { font-variant-numeric: tabular-nums; }
+.status-details-icon { --app-icon-size: 14px; }
+button.status-label { cursor: pointer; }
+button.status-label:hover { background-color: light-dark(color-mix(in srgb, currentColor 14%, var(--surface)), color-mix(in srgb, currentColor 25%, var(--surface))); box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent); }
+button.status-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) {
+  .status-label:is(.active, .searching, .receiving):not(.status-label-icon)::before,
+  .status-label-icon.busy::before { animation: search-job-spin 700ms linear infinite; }
+}
+@keyframes search-job-spin { to { transform: rotate(360deg); } }
+
+mark.filter-match {
+  color: var(--match-text);
+  background: var(--match-background);
+  border-radius: 2px;
+  box-shadow: inset 0 -1px color-mix(in srgb, currentColor 25%, transparent);
+}
+
+/* A default action joined to an arrow that opens its alternatives. */
+.split-button { position: relative; display: inline-flex; }
+/* Only the joined corners are squared, and with enough weight to win over
+   the button classes the main part also carries. */
+.split-button .split-button-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-button-toggle {
+  width: 31px;
+  display: grid;
+  place-items: center;
+  height: 36px;
+  margin-left: -1px;
+  padding: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.split-button-toggle svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.split-button-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 150px;
+  width: max-content;
+  padding: 5px;
+  border-radius: 9px;
+}
+.split-button-menu button {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 0.74rem;
+}
+.split-button-menu .split-button-check { flex: 0 0 16px; color: var(--accent); }
+
+/* An inline link inside running text, whether it navigates or acts. */
+.text-link { padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; letter-spacing: normal; text-transform: none; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.text-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.text-link:disabled { opacity: .5; cursor: default; }

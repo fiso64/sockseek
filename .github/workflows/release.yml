@@ -1,0 +1,169 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v[0-9]*.[0-9]*.[0-9]*', '[0-9]*.[0-9]*.[0-9]*']
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: github.event_name != 'release' && !github.event.deleted
+    strategy:
+      matrix:
+        rid: [win-x64, linux-x64, linux-arm, linux-arm64, osx-x64, osx-arm64]
+        include:
+          - rid: linux-x64
+            deb: true
+          - rid: linux-arm64
+            deb: true
+    runs-on: ${{ matrix.rid == 'linux-arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - if: matrix.deb
+        run: sudo apt-get update && sudo apt-get install -y build-essential debhelper
+      - name: Build release files
+        env:
+          RID: ${{ matrix.rid }}
+          TARGETS: ${{ matrix.deb && 'PublishPackage;PublishDeb' || 'PublishPackage' }}
+        run: |
+          version=(-p:VersionSuffix="alpha.${GITHUB_RUN_NUMBER}")
+          if [[ $GITHUB_EVENT_NAME == push ]]; then
+            [[ $GITHUB_REF_NAME =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)(-([0-9A-Za-z.-]+))?$ ]] || { echo "Invalid release tag: $GITHUB_REF_NAME"; exit 1; }
+            version=(-p:VersionPrefix="${BASH_REMATCH[1]}" -p:VersionSuffix="${BASH_REMATCH[3]}")
+          fi
+          dotnet msbuild build/PublishZip.targets -t:"$TARGETS" -p:RID="$RID" -p:PackageDir="$RUNNER_TEMP/packages" "${version[@]}"
+      - name: Check Debian installation and upgrade
+        if: matrix.deb
+        run: sudo tests/debian-install.sh "$RUNNER_TEMP"/packages/*.deb
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ matrix.rid }}
+          path: ${{ runner.temp }}/packages/*
+          if-no-files-found: error
+          compression-level: 0
+
+  # The package's version embeds the commit, so a cache hit needs the tagged
+  # commit itself built: once per architecture, on native runners.
+  nix-cache:
+    if: github.event_name == 'push' && vars.CACHIX_CACHE != ''
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v32
+      - uses: cachix/cachix-action@v17
+        with:
+          name: ${{ vars.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - run: nix build -L .#sockseek
+
+  draft:
+    needs: package
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: packages-*
+          merge-multiple: true
+          path: packages
+      # A release's notes are its CHANGELOG.md section. A prerelease has none of
+      # its own: it points to Unreleased and lists the commits since the last tag.
+      - name: Attach packages to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if draft=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft); then
+            [[ $draft == true ]] || { echo "Release $GITHUB_REF_NAME has already been published."; exit 1; }
+          else
+            flags=(--draft --verify-tag)
+            if [[ $GITHUB_REF_NAME == *-* ]]; then
+              changelog="https://github.com/$GH_REPO/blob/$GITHUB_REF_NAME/CHANGELOG.md#unreleased"
+              flags+=(--prerelease --generate-notes --notes "Prerelease. See the [changelog]($changelog) for everything new since the last release.")
+            else
+              version=${GITHUB_REF_NAME#v}
+              awk -v heading="## [$version]" 'index($0, heading) == 1 { found = 1; next } found && /^## \[/ { exit } found && !/^\[[^]]*\]: /' CHANGELOG.md > notes.md
+              grep -q '[^[:space:]]' notes.md || { echo "CHANGELOG.md has no section for $version."; exit 1; }
+              flags+=(--notes-file notes.md)
+            fi
+            gh release create "$GITHUB_REF_NAME" "${flags[@]}"
+          fi
+          gh release upload "$GITHUB_REF_NAME" packages/* --clobber
+
+  # Flakes follow the `latest` branch: it is moved to every published release,
+  # betas included, so `nix flake update` gets the newest release from the cache.
+  latest-branch:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - run: git push --force origin HEAD:refs/heads/latest
+
+  image:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      # The image packages this release's own Linux archives; it is not built again.
+      - name: Unpack the release's Linux archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release download "$TAG" --pattern '*_linux-x64.tar.gz' --pattern '*_linux-arm64.tar.gz' --dir archives
+          mkdir -p dist/amd64 dist/arm64
+          tar -xzf archives/*_linux-x64.tar.gz -C dist/amd64
+          tar -xzf archives/*_linux-arm64.tar.gz -C dist/arm64
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # The exact version, plus moving major and latest tags that follow every
+      # published release (betas included, like the apt repository).
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ vars.GHCR_IMAGE_NAME || format('ghcr.io/{0}', github.repository) }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.event.release.tag_name }}
+            type=match,pattern=v?(\d+)\.,group=1,value=${{ github.event.release.tag_name }}
+            type=raw,value=latest
+          flavor: latest=false
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

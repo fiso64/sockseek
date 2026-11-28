@@ -1,459 +1,222 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Extensions.Logging;
 using Sockseek.Api;
-using Sockseek.Server;
 
-namespace Tests.Server;
+namespace Tests;
 
 [TestClass]
 public class JobActivityLogFormatterTests
 {
     [TestMethod]
-    public void Format_AlbumFileTerminalState_UsesAlbumFileLogIdentity()
+    public void TerminalState_IsFormattedWithoutActivity_AndDeduplicated()
     {
         var formatter = new JobActivityLogFormatter();
-        var workflowId = Guid.NewGuid();
-        var albumId = Guid.NewGuid();
-        var songId = Guid.NewGuid();
-        var album = Summary(albumId, 6, workflowId, ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
-        var song = Summary(songId, 7, workflowId, ServerJobKind.Song, ExpectedJobStatus.Searching, "Artist - Track") with
-        {
-            ParentJobId = albumId,
-        };
-        var candidate = new FileCandidateDto(
-            new FileCandidateRefDto("local", @"Artist\Album\01. Artist - Track.flac"),
-            "local",
-            @"Artist\Album\01. Artist - Track.flac",
-            new PeerInfoDto("local"),
-            Size: 123,
-            BitRate: null,
-            SampleRate: null,
-            Length: null,
-            Extension: ".flac",
-            Attributes: null);
+        var summary = Summary(
+            JobLifecycleState.Terminal,
+            JobTerminalOutcome.Succeeded);
 
-        formatter.Format(Envelope("job.upserted", album));
-        formatter.Format(Envelope("job.upserted", song));
-        formatter.Format(Envelope("album.track-download-started", new AlbumTrackDownloadStartedEventDto(
-            album,
-            new AlbumFolderDto(
-                new AlbumFolderRefDto("local", @"Artist\Album"),
-                "local",
-                @"Artist\Album",
-                new PeerInfoDto("local"),
-                FileCount: 1,
-                AudioFileCount: 1,
-                Files: [candidate]),
-            [new SongJobPayloadDto(
-                new SongQueryDto("Artist", "Track", null, null, null, false),
-                CandidateCount: 1,
-                DownloadPath: null,
-                ResolvedUsername: "local",
-                ResolvedFilename: @"Artist\Album\01. Artist - Track.flac",
-                ResolvedHasFreeUploadSlot: true,
-                ResolvedUploadSpeed: null,
-                ResolvedSize: null,
-                ResolvedSampleRate: null,
-                ResolvedExtension: ".flac",
-                ResolvedAttributes: null,
-                JobId: songId,
-                DisplayId: 7,
-                Candidates: null,
-                LifecycleState: ServerJobLifecycleState.Pending,
-                ActivityPhase: ServerJobActivityPhase.None,
-                ActivityUntilUtc: null,
-                TerminalOutcome: ServerJobTerminalOutcome.None,
-                SkipReason: ServerJobSkipReason.None,
-                FailureReason: null,
-                FailureMessage: null)])));
-
-        var entry = formatter.Format(Envelope("song.state-changed", new SongStateChangedEventDto(
-            songId,
-            7,
-            workflowId,
-            new SongQueryDto("Artist", "Track", null, null, null, false),
-            ServerJobLifecycleState.Terminal,
-            ServerJobActivityPhase.None,
-            ActivityUntilUtc: null,
-            ServerJobTerminalOutcome.Succeeded,
-            FailureReason: null,
-            DownloadPath: @"out\Track.flac",
-            ChosenCandidate: candidate)));
-
-        Assert.IsNotNull(entry);
-        Assert.AreEqual(@"[6] Album File: succeeded: Artist Album: 01. Artist - Track.flac", entry.Message);
-    }
-
-    [TestMethod]
-    public void Format_AllDownloadsFailedAlbumFileTerminalState_IsDebugContext()
-    {
-        var formatter = new JobActivityLogFormatter();
-        var workflowId = Guid.NewGuid();
-        var albumId = Guid.NewGuid();
-        var songId = Guid.NewGuid();
-        var album = Summary(albumId, 6, workflowId, ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
-        var song = Summary(songId, 7, workflowId, ServerJobKind.Song, ExpectedJobStatus.Searching, "Artist - Track") with
-        {
-            ParentJobId = albumId,
-        };
-        var candidate = new FileCandidateDto(
-            new FileCandidateRefDto("local", @"Artist\Album\01. Artist - Track.flac"),
-            "local",
-            @"Artist\Album\01. Artist - Track.flac",
-            new PeerInfoDto("local"),
-            Size: 123,
-            BitRate: null,
-            SampleRate: null,
-            Length: null,
-            Extension: ".flac",
-            Attributes: null);
-
-        formatter.Format(Envelope("job.upserted", album));
-        formatter.Format(Envelope("job.upserted", song));
-
-        var entry = formatter.Format(Envelope("song.state-changed", new SongStateChangedEventDto(
-            songId,
-            7,
-            workflowId,
-            new SongQueryDto("Artist", "Track", null, null, null, false),
-            ServerJobLifecycleState.Terminal,
-            ServerJobActivityPhase.None,
-            ActivityUntilUtc: null,
-            ServerJobTerminalOutcome.Failed,
-            ServerProtocol.FailureReasons.AllDownloadsFailed,
-            DownloadPath: null,
-            ChosenCandidate: candidate)));
-
-        Assert.IsNotNull(entry);
-        Assert.AreEqual(LogLevel.Debug, entry.Level);
-        Assert.AreEqual(ActivityLogDisplayKind.Status, entry.Display?.Kind);
-        Assert.AreEqual(@"[6] Album File: failed [All downloads failed]: Artist Album: 01. Artist - Track.flac", entry.Message);
-    }
-
-    [TestMethod]
-    public void Format_StaleFailedAlbumFileTerminalState_IsSuppressed()
-    {
-        var formatter = new JobActivityLogFormatter();
-        var workflowId = Guid.NewGuid();
-        var albumId = Guid.NewGuid();
-        var songId = Guid.NewGuid();
-        var album = Summary(albumId, 6, workflowId, ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
-        var song = Summary(songId, 7, workflowId, ServerJobKind.Song, ExpectedJobStatus.Searching, "Artist - Track") with
-        {
-            ParentJobId = albumId,
-        };
-        var candidate = new FileCandidateDto(
-            new FileCandidateRefDto("local", @"Artist\Album\01. Artist - Track.flac"),
-            "local",
-            @"Artist\Album\01. Artist - Track.flac",
-            new PeerInfoDto("local"),
-            Size: 123,
-            BitRate: null,
-            SampleRate: null,
-            Length: null,
-            Extension: ".flac",
-            Attributes: null);
-
-        formatter.Format(Envelope("job.upserted", album));
-        formatter.Format(Envelope("job.upserted", song));
-
-        var entry = formatter.Format(Envelope("song.state-changed", new SongStateChangedEventDto(
-            songId,
-            7,
-            workflowId,
-            new SongQueryDto("Artist", "Track", null, null, null, false),
-            ServerJobLifecycleState.Terminal,
-            ServerJobActivityPhase.None,
-            ActivityUntilUtc: null,
-            ServerJobTerminalOutcome.Failed,
-            ServerProtocol.FailureReasons.AllDownloadsFailed,
-            DownloadPath: null,
-            ChosenCandidate: candidate,
-            FailureMessage: @"Download attempt became stale after 5000ms without peer transfer activity: local\Artist\Album\01. Artist - Track.flac")));
-
-        Assert.IsNull(entry);
-    }
-
-    [TestMethod]
-    public void Format_CancelAllAlbumFileTerminalState_IsDebug()
-    {
-        var formatter = new JobActivityLogFormatter();
-        var workflowId = Guid.NewGuid();
-        var albumId = Guid.NewGuid();
-        var songId = Guid.NewGuid();
-        var album = Summary(albumId, 6, workflowId, ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
-        var song = Summary(songId, 7, workflowId, ServerJobKind.Song, ExpectedJobStatus.Downloading, "Artist - Track") with
-        {
-            ParentJobId = albumId,
-        };
-        var candidate = new FileCandidateDto(
-            new FileCandidateRefDto("local", @"Artist\Album\01. Artist - Track.flac"),
-            "local",
-            @"Artist\Album\01. Artist - Track.flac",
-            new PeerInfoDto("local"),
-            Size: 123,
-            BitRate: null,
-            SampleRate: null,
-            Length: null,
-            Extension: ".flac",
-            Attributes: null);
-
-        formatter.Format(Envelope("job.upserted", album));
-        formatter.Format(Envelope("job.upserted", song));
-
-        var entry = formatter.Format(Envelope("song.state-changed", new SongStateChangedEventDto(
-            songId,
-            7,
-            workflowId,
-            new SongQueryDto("Artist", "Track", null, null, null, false),
-            ServerJobLifecycleState.Terminal,
-            ServerJobActivityPhase.None,
-            ActivityUntilUtc: null,
-            ServerJobTerminalOutcome.Cancelled,
-            ServerProtocol.FailureReasons.Cancelled,
-            DownloadPath: null,
-            ChosenCandidate: candidate,
-            FailureMessage: null,
-            CancellationSource: ServerJobCancellationSource.UserRequestedAllJobs)));
-
-        Assert.IsNotNull(entry);
-        Assert.AreEqual(LogLevel.Debug, entry.Level);
-        Assert.AreEqual(@"[6] Album File: cancelled: Artist Album: 01. Artist - Track.flac", entry.Message);
-    }
-
-    [TestMethod]
-    public void Format_PendingJobUpsert_IsDebug()
-    {
-        var formatter = new JobActivityLogFormatter();
-        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Song, ExpectedJobStatus.Pending, "Artist - Track");
-
-        var entry = formatter.Format(Envelope("job.upserted", summary));
-
-        Assert.IsNotNull(entry);
-        Assert.AreEqual(LogLevel.Debug, entry.Level);
-        StringAssert.Contains(entry.Message, "pending");
-    }
-
-    [TestMethod]
-    public void Format_RunningJobUpsert_DoesNotLogActivityDuplicate()
-    {
-        var formatter = new JobActivityLogFormatter();
-        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
-
-        var entry = formatter.Format(Envelope("job.upserted", summary));
-
-        Assert.IsNull(entry);
-    }
-
-    [TestMethod]
-    public void Format_AlbumDownloadStarted_DoesNotLogDuplicateActivityLine()
-    {
-        var formatter = new JobActivityLogFormatter();
-        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
-        var folder = new AlbumFolderDto(
-            new AlbumFolderRefDto("local", @"Artist\Album"),
-            "local",
-            @"Artist\Album",
-            new PeerInfoDto("local"),
-            FileCount: 0,
-            AudioFileCount: 0,
-            Files: []);
-
-        var entry = formatter.Format(Envelope("album.download-started", new AlbumDownloadStartedEventDto(summary, folder, [])));
-
-        Assert.IsNull(entry);
-    }
-
-    [TestMethod]
-    public void Format_AlbumDownloadingActivityChanged_DoesNotLogDuplicateTrackLine()
-    {
-        var formatter = new JobActivityLogFormatter();
-        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
-
-        var entry = formatter.Format(Envelope("job.activity-changed", new JobActivityChangedEventDto(summary)));
-
-        Assert.IsNull(entry);
-    }
-
-    [TestMethod]
-    public void Format_RepeatedAlbumTrackDownloadStartedForSameFolder_LogsOnce()
-    {
-        var formatter = new JobActivityLogFormatter();
-        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Album, ExpectedJobStatus.Downloading, "Artist Album");
-        var retrieving = summary with { ActivityPhase = ServerJobActivityPhase.RetrievingFolder };
-        var folder = new AlbumFolderDto(
-            new AlbumFolderRefDto("local", @"Artist\Album"),
-            "local",
-            @"Artist\Album",
-            new PeerInfoDto("local"),
-            FileCount: 0,
-            AudioFileCount: 0,
-            Files: []);
-        var albumStarted = new AlbumTrackDownloadStartedEventDto(summary, folder, []);
-
-        var first = formatter.Format(Envelope("album.track-download-started", albumStarted));
-        formatter.Format(Envelope("job.activity-changed", new JobActivityChangedEventDto(retrieving)));
-        var second = formatter.Format(Envelope("album.track-download-started", albumStarted));
+        var first = formatter.Format(summary);
+        var duplicate = formatter.Format(summary);
 
         Assert.IsNotNull(first);
-        Assert.IsNull(second);
+        StringAssert.Contains(first.Message, "succeeded");
+        Assert.AreEqual(ActivityLogDisplayKind.Succeeded, first.Display?.Kind);
+        Assert.AreEqual("succeeded", first.Display?.Highlight);
+        Assert.IsNull(duplicate);
     }
 
     [TestMethod]
-    public void Format_SearchWaitActivityChanged_IsDebug()
+    [DataRow(JobTerminalOutcome.Succeeded, JobSkipReason.None)]
+    [DataRow(JobTerminalOutcome.Skipped, JobSkipReason.None)]
+    [DataRow(JobTerminalOutcome.Skipped, JobSkipReason.AlreadyExists)]
+    [DataRow(JobTerminalOutcome.Skipped, JobSkipReason.NotFoundLastTime)]
+    [DataRow(JobTerminalOutcome.Cancelled, JobSkipReason.None)]
+    [DataRow(JobTerminalOutcome.PartialSuccess, JobSkipReason.None)]
+    [DataRow(JobTerminalOutcome.Failed, JobSkipReason.None)]
+    public void TerminalState_HighlightsOnlyStatusPrefix(
+        JobTerminalOutcome outcome,
+        JobSkipReason skipReason)
     {
-        var formatter = new JobActivityLogFormatter();
-        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Song, ExpectedJobStatus.Searching, "Artist - Track") with
-        {
-            ActivityPhase = ServerJobActivityPhase.WaitingForSearchConcurrency,
-        };
+        var entry = new JobActivityLogFormatter().Format(Summary(
+            JobLifecycleState.Terminal,
+            outcome,
+            skipReason: skipReason));
 
-        var entry = formatter.Format(Envelope("job.activity-changed", new JobActivityChangedEventDto(summary)));
+        Assert.IsNotNull(entry?.Display);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(entry.Display.Highlight));
+        StringAssert.StartsWith(
+            entry.Display.Message,
+            $"{entry.Display.Highlight}: ");
+        Assert.IsTrue(entry.Display.Message.Length > entry.Display.Highlight.Length + 2);
+    }
+
+    [TestMethod]
+    public void CompactJobMessage_UsesCurrentStoreRow()
+    {
+        var summary = Summary();
+        var store = StoreWith(summary);
+        var formatter = new JobActivityLogFormatter();
+        var activity = Activity(
+            summary,
+            "job.message",
+            new JobMessageActivityDto(summary.Display.DisplayId, "Warning", "resolver", "candidate rejected"));
+
+        var entry = formatter.Format(activity, store);
 
         Assert.IsNotNull(entry);
-        Assert.AreEqual(LogLevel.Debug, entry.Level);
-        StringAssert.Contains(entry.Message, "waiting search");
+        Assert.AreEqual(LogLevel.Warning, entry.Level);
+        StringAssert.Contains(entry.Message, "resolver: candidate rejected");
+        Assert.AreEqual(summary.Display.DisplayId, entry.Display?.DisplayId);
     }
 
     [TestMethod]
-    public void Format_SearchRateLimitedActivityChanged_IsDebug()
+    public void CompactWorkflowMessage_DoesNotRequireJobState()
     {
-        var formatter = new JobActivityLogFormatter();
-        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Song, ExpectedJobStatus.Searching, "Artist - Track") with
-        {
-            ActivityPhase = ServerJobActivityPhase.SearchRateLimited,
-        };
-
-        var entry = formatter.Format(Envelope("job.activity-changed", new JobActivityChangedEventDto(summary)));
-
-        Assert.IsNotNull(entry);
-        Assert.AreEqual(LogLevel.Debug, entry.Level);
-        StringAssert.Contains(entry.Message, "rate limited");
-    }
-
-    [TestMethod]
-    public void Format_RunningOnCompleteActivityChanged_IsInformation()
-    {
-        var formatter = new JobActivityLogFormatter();
-        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.Song, ExpectedJobStatus.RunningOnComplete, "Artist - Track");
-
-        var entry = formatter.Format(Envelope("job.activity-changed", new JobActivityChangedEventDto(summary)));
-
-        Assert.IsNotNull(entry);
-        Assert.AreEqual(LogLevel.Information, entry.Level);
-        Assert.AreEqual("[8] SongJob: on-complete: Artist - Track", entry.Message);
-    }
-
-    [TestMethod]
-    public void Format_UserRequestedJobCancelledSummary_IsInformation()
-    {
-        var formatter = new JobActivityLogFormatter();
-        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.JobList, ExpectedJobStatus.Failed, "wishlist") with
-        {
-            TerminalOutcome = ServerJobTerminalOutcome.Cancelled,
-            FailureReason = ServerProtocol.FailureReasons.Cancelled,
-            CancellationSource = ServerJobCancellationSource.UserRequestedJob,
-        };
-
-        var entry = formatter.Format(Envelope("job.upserted", summary));
-
-        Assert.IsNotNull(entry);
-        Assert.AreEqual(LogLevel.Information, entry.Level);
-        StringAssert.Contains(entry.Message, "cancelled");
-    }
-
-    [TestMethod]
-    public void Format_InternalEngineCancelledSummary_IsDebug()
-    {
-        var formatter = new JobActivityLogFormatter();
-        var summary = Summary(Guid.NewGuid(), 8, Guid.NewGuid(), ServerJobKind.JobList, ExpectedJobStatus.Failed, "wishlist") with
-        {
-            TerminalOutcome = ServerJobTerminalOutcome.Cancelled,
-            FailureReason = ServerProtocol.FailureReasons.Cancelled,
-            CancellationSource = ServerJobCancellationSource.InternalEngine,
-        };
-
-        var entry = formatter.Format(Envelope("job.upserted", summary));
-
-        Assert.IsNotNull(entry);
-        Assert.AreEqual(LogLevel.Debug, entry.Level);
-        StringAssert.Contains(entry.Message, "cancelled");
-    }
-
-    [TestMethod]
-    public void Format_ParentCancelledSongStateChanged_IsDebug()
-    {
-        var formatter = new JobActivityLogFormatter();
         var workflowId = Guid.NewGuid();
-        var songId = Guid.NewGuid();
-        var entry = formatter.Format(Envelope("song.state-changed", new SongStateChangedEventDto(
-            songId,
-            8,
+        var formatter = new JobActivityLogFormatter();
+        var activity = new ActivityEventDto(
+            1,
+            DateTimeOffset.UtcNow,
+            "workflow.message",
             workflowId,
-            new SongQueryDto("Artist", "Track", null, null, null, false),
-            ServerJobLifecycleState.Terminal,
-            ServerJobActivityPhase.None,
-            ActivityUntilUtc: null,
-            ServerJobTerminalOutcome.Cancelled,
-            ServerProtocol.FailureReasons.Cancelled,
-            DownloadPath: null,
-            ChosenCandidate: null,
-            FailureMessage: null,
-            CancellationSource: ServerJobCancellationSource.ParentJob)));
+            null,
+            null,
+            new WorkflowMessageActivityDto("Information", null, "profiles active"));
+
+        var entry = formatter.Format(activity, new DaemonClientStore());
 
         Assert.IsNotNull(entry);
-        Assert.AreEqual(LogLevel.Debug, entry.Level);
-        StringAssert.Contains(entry.Message, "cancelled");
+        StringAssert.Contains(entry.Message, "profiles active");
     }
 
-    private static ServerEventEnvelopeDto Envelope(string type, object payload)
-        => new(
-            Sequence: 1,
-            Type: type,
-            OccurredAtUtc: DateTimeOffset.UtcNow,
-            Category: ServerEventCatalog.ActivityCategory,
-            SnapshotInvalidation: false,
-            WorkflowId: null,
-            Payload: payload);
-
-    private static JobSummaryDto Summary(Guid id, int displayId, Guid workflowId, ServerJobKind kind, ExpectedJobStatus state, string text)
+    [TestMethod]
+    public void CompactDiagnostic_PreservesExceptionDetail()
     {
-        var split = Split(state);
-        return new(
-            id,
-            displayId,
-            workflowId,
-            kind,
-            split.LifecycleState,
-            split.ActivityPhase,
-            ActivityUntilUtc: null,
-            split.TerminalOutcome,
-            split.SkipReason,
-            ItemName: text,
-            QueryText: text,
-            FailureReason: null,
-            FailureMessage: null,
-            ParentJobId: null,
-            ResultJobId: null,
-            SourceJobId: null,
-            DiscoveryRawResultCount: null,
-            DiscoveryLockedFileCount: null,
-            AppliedAutoProfiles: [],
-            AvailableActions: []);
+        var summary = Summary();
+        var formatter = new JobActivityLogFormatter();
+        var activity = Activity(
+            summary,
+            "diagnostic.error",
+            new DiagnosticActivityDto(
+                summary.Display.DisplayId,
+                "job",
+                "failed",
+                "System.InvalidOperationException",
+                "System.InvalidOperationException: boom\nat Test()",
+                "engine"));
+
+        var entry = formatter.Format(activity, StoreWith(summary));
+
+        Assert.IsNotNull(entry);
+        Assert.AreEqual(LogLevel.Error, entry.Level);
+        StringAssert.Contains(entry.Message, "InvalidOperationException");
+        StringAssert.Contains(entry.Message, "at Test()");
     }
 
-    private static (ServerJobLifecycleState LifecycleState, ServerJobActivityPhase ActivityPhase, ServerJobTerminalOutcome TerminalOutcome, ServerJobSkipReason SkipReason) Split(ExpectedJobStatus state)
-        => state switch
-        {
-            ExpectedJobStatus.Pending => (ServerJobLifecycleState.Pending, ServerJobActivityPhase.None, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
-            ExpectedJobStatus.Searching => (ServerJobLifecycleState.Running, ServerJobActivityPhase.Searching, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
-            ExpectedJobStatus.Downloading => (ServerJobLifecycleState.Running, ServerJobActivityPhase.Downloading, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
-            ExpectedJobStatus.RunningOnComplete => (ServerJobLifecycleState.Running, ServerJobActivityPhase.RunningOnComplete, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
-            ExpectedJobStatus.Succeeded => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Succeeded, ServerJobSkipReason.None),
-            ExpectedJobStatus.AlreadyExists => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.AlreadyExists),
-            ExpectedJobStatus.Skipped => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.Manual),
-            ExpectedJobStatus.NotFoundLastTime => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Skipped, ServerJobSkipReason.NotFoundLastTime),
-            ExpectedJobStatus.Failed => (ServerJobLifecycleState.Terminal, ServerJobActivityPhase.None, ServerJobTerminalOutcome.Failed, ServerJobSkipReason.None),
-            _ => (ServerJobLifecycleState.Running, ServerJobActivityPhase.None, ServerJobTerminalOutcome.None, ServerJobSkipReason.None),
-        };
+    [TestMethod]
+    public void AlbumChildTerminalState_UsesAlbumFileDisplay()
+    {
+        var workflowId = Guid.NewGuid();
+        var album = Summary(
+            jobId: Guid.NewGuid(),
+            workflowId: workflowId,
+            kind: ServerJobKind.Album);
+        var child = Summary(
+            jobId: Guid.NewGuid(),
+            workflowId: workflowId,
+            kind: ServerJobKind.Song,
+            parentJobId: album.JobId,
+            lifecycle: JobLifecycleState.Terminal,
+            outcome: JobTerminalOutcome.Failed);
+        var formatter = new JobActivityLogFormatter();
+
+        formatter.Format(album);
+        var entry = formatter.Format(child);
+
+        Assert.IsNotNull(entry);
+        Assert.AreEqual(JobActivityLogFormatter.AlbumFileJobType, entry.Display?.JobType);
+        Assert.AreEqual(ActivityLogDisplayKind.AlbumTrackFailed, entry.Display?.Kind);
+    }
+
+    [TestMethod]
+    public void FinishedLines_SayWhichFileASongCameFromAndWhereAnAlbumWent()
+    {
+        var workflowId = Guid.NewGuid();
+        var formatter = new JobActivityLogFormatter();
+        string folder = Path.Combine(Path.GetTempPath(), "out", "Album");
+
+        // A song names the peer file it was downloaded from.
+        var song = Summary(JobLifecycleState.Terminal, JobTerminalOutcome.Succeeded, workflowId: workflowId, kind: ServerJobKind.Song);
+        formatter.Remember(Transfer(song.JobId, workflowId, "peer", @"Music\Artist\Album\01 Title.flac", Path.Combine(folder, "01 Title.flac")));
+        var songEntry = formatter.Format(song);
+        StringAssert.Contains(songEntry!.Display!.Message, "peer");
+        StringAssert.Contains(songEntry.Display.Message, "01 Title.flac");
+
+        // An album track names its file; the album says where it was saved.
+        var album = Summary(jobId: Guid.NewGuid(), workflowId: workflowId, kind: ServerJobKind.Album);
+        formatter.Format(album);
+        var track = Summary(JobLifecycleState.Terminal, JobTerminalOutcome.Succeeded, workflowId: workflowId,
+            kind: ServerJobKind.Song, parentJobId: album.JobId);
+        formatter.Remember(Transfer(track.JobId, workflowId, "peer", @"Music\Artist\Album\02 Other.flac", Path.Combine(folder, "02 Other.flac")));
+        StringAssert.Contains(formatter.Format(track)!.Display!.Message, "02 Other.flac");
+        var albumEntry = formatter.Format(album with { Lifecycle = song.Lifecycle });
+        StringAssert.Contains(albumEntry!.Display!.Message, folder);
+
+        // A successful extraction needs no finished line; its input line said it.
+        Assert.IsNull(formatter.Format(Summary(JobLifecycleState.Terminal, JobTerminalOutcome.Succeeded, kind: ServerJobKind.Extract)));
+    }
+
+    private static TransferStateDto Transfer(Guid jobId, Guid workflowId, string username, string remotePath, string localPath)
+        => new(
+            Guid.NewGuid(),
+            1,
+            new TransferIdentityFieldsDto(jobId, workflowId, "Download", "SoulseekPeer", username, remotePath, "candidate"),
+            new TransferStatusFieldsDto(TransferPhase.Ended, localPath, 1, true, TransferTerminalOutcome.Succeeded),
+            new TransferProgressFieldsDto(1, 1));
+
+    private static DaemonClientStore StoreWith(JobSummaryDto summary)
+    {
+        var store = new DaemonClientStore();
+        store.ApplySnapshot(new StateSnapshotDto(
+            StateStreamScopeDto.Workflow(summary.Display.WorkflowId),
+            new StateStreamPositionDto(Guid.NewGuid(), 0),
+            DateTimeOffset.UtcNow,
+            null,
+            [],
+            [summary with { Revision = 1 }],
+            [],
+            []));
+        return store;
+    }
+
+    private static ActivityEventDto Activity(
+        JobSummaryDto summary,
+        string type,
+        ActivityPayloadDto payload)
+        => new(
+            1,
+            DateTimeOffset.UtcNow,
+            type,
+            summary.Display.WorkflowId,
+            summary.JobId,
+            null,
+            payload);
+
+    private static JobSummaryDto Summary(
+        JobLifecycleState lifecycle = JobLifecycleState.Running,
+        JobTerminalOutcome outcome = JobTerminalOutcome.None,
+        Guid? jobId = null,
+        Guid? workflowId = null,
+        ServerJobKind kind = ServerJobKind.Search,
+        Guid? parentJobId = null,
+        JobSkipReason skipReason = JobSkipReason.None)
+        => new(jobId ?? Guid.NewGuid(),
+            0,
+            new(7, workflowId ?? Guid.NewGuid(), kind, "item", "Artist - Title", [], ServerPrintOption.None, null, ServerJobRole.UserRoot, null),
+            new(lifecycle, lifecycle == JobLifecycleState.Running
+                ? JobActivityPhase.Searching
+                : JobActivityPhase.None, null, outcome, skipReason, outcome == JobTerminalOutcome.Failed
+                ? JobFailureReason.AllDownloadsFailed
+                : null, outcome == JobTerminalOutcome.Failed ? "boom" : null, false, JobCancellationSource.None, []),
+            new(null, null),
+            new(parentJobId, null, null));
 }

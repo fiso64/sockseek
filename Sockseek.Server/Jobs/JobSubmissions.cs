@@ -1,0 +1,904 @@
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using Sockseek.Api;
+using Sockseek.Core;
+using Sockseek.Core.Extractors;
+using Sockseek.Core.Jobs;
+using Sockseek.Core.Models;
+using Sockseek.Core.Planning;
+using Sockseek.Core.Settings;
+using Sockseek.Core.Sharing;
+using Sockseek.Core.Snapshots;
+using Sockseek.Core.PeerBrowsing;
+using Sockseek.Persistence.Planning;
+using Sockseek.Persistence.Read;
+using Sockseek.Persistence.Write;
+using Sockseek.Server.Persistence;
+using Sockseek.Server.Planning;
+
+namespace Sockseek.Server;
+
+/// <summary>
+/// Composes submission settings, invokes the shared Core planner, and accepts
+/// exact work with its retention policy before handing it to execution. Review supplies its captured
+/// plan; accepting it never runs extraction again. Runtime queue ownership stays
+/// with EngineSupervisor, including the handoff across engine restarts.
+/// </summary>
+public sealed partial class JobSubmissions
+{
+    private static readonly ActivitySource SubmissionActivities = new("Sockseek.Server.Submissions");
+    private readonly ServerOptions options;
+    private readonly EngineSettings engineSettings;
+    private readonly DownloadSettings defaultDownloadSettings;
+    private sealed record Configuration(ProfileCatalog Profiles, SubmissionOptionsJobSettingsResolver Resolver);
+    private Configuration configuration;
+    private readonly PersistenceCoordinator? persistence;
+    private readonly EngineStateStore StateStore;
+    private readonly DaemonRuntime runtime;
+    private readonly Action<Job, JobSnapshot, DownloadSettings, Guid?, bool> enqueue;
+    private readonly InputArtifactCoordinator? inputArtifacts;
+    private readonly ILogger<JobSubmissions> logger;
+
+    internal DownloadSettings DefaultDownloadSettings => defaultDownloadSettings;
+    internal SubmissionOptionsJobSettingsResolver SettingsResolver => Volatile.Read(ref configuration).Resolver;
+
+    internal JobSubmissions(ServerOptions options, EngineSettings engineSettings,
+        PersistenceCoordinator? persistence, EngineStateStore stateStore, DaemonRuntime runtime,
+        Action<Job, JobSnapshot, DownloadSettings, Guid?, bool> enqueue, InputArtifactCoordinator? inputArtifacts,
+        ILoggerFactory loggerFactory)
+    {
+        this.options = options;
+        this.engineSettings = engineSettings;
+        this.persistence = persistence;
+        StateStore = stateStore;
+        this.runtime = runtime;
+        this.enqueue = enqueue;
+        this.inputArtifacts = inputArtifacts;
+        logger = loggerFactory.CreateLogger<JobSubmissions>();
+        defaultDownloadSettings = options.DefaultDownload == null
+            ? SearchSettingsBaselines.Create(SearchSettingsBaselineKind.Generic)
+            : SettingsCloner.Clone(options.DefaultDownload);
+        DownloadSettingsPatchDtoMapper.ApplyTo(defaultDownloadSettings, options.OperatorDownloadSettings);
+        defaultDownloadSettings.DefaultMinGroupShares = engineSettings.DefaultMinGroupShares;
+        var pathContext = new PathVariableContext(ConfigDir: options.ConfigDir);
+        SettingsNormalizer.NormalizeDownloadPaths(defaultDownloadSettings, pathContext);
+        var profiles = options.Profiles ?? ProfileCatalog.Empty;
+        configuration = new(profiles, CreateJobSettingsResolver(options, profiles, pathContext));
+    }
+
+    public void ReloadProfiles(ProfileCatalog profiles)
+    {
+        var resolver = CreateJobSettingsResolver(options, profiles,
+            new PathVariableContext(ConfigDir: options.ConfigDir), SettingsResolver.Options);
+        Volatile.Write(ref configuration, new(profiles, resolver));
+    }
+
+    private static SubmissionOptionsJobSettingsResolver CreateJobSettingsResolver(
+        ServerOptions options,
+        ProfileCatalog profiles,
+        PathVariableContext pathContext,
+        SubmissionOptionsStore? optionsStore = null)
+    {
+        SettingsPatch launchPatch = DownloadSettingsPatchDtoMapper.ToCore(options.LaunchDownloadSettings);
+        SettingsPatch operatorPatch = DownloadSettingsPatchDtoMapper.ToCore(options.OperatorDownloadSettings);
+        var profilesResolver = new ProfileJobSettingsResolver(
+            options.DefaultDownload,
+            profiles,
+            profiles.ResolveNamedProfiles(options.LaunchProfileNames),
+            new SettingsProfile { Name = "<daemon-launch>", Download = launchPatch },
+            normalize: settings =>
+            {
+                settings.DefaultMinGroupShares = options.Engine.DefaultMinGroupShares;
+                SettingsNormalizer.NormalizeDownloadPaths(settings, pathContext);
+            },
+            operatorDefault: operatorPatch);
+        return new SubmissionOptionsJobSettingsResolver(profilesResolver, optionsStore);
+    }
+
+    internal SearchSettingsPatchDto? ResolveSearchViewProfiles(IReadOnlyList<string> names)
+    {
+        var profiles = Volatile.Read(ref configuration).Profiles.ResolveRequestProfiles(names);
+        var operations = profiles.SelectMany(profile => profile.Download.Operations)
+            .Where(change => change.Path == "Search" || change.Path.StartsWith("Search.", StringComparison.Ordinal));
+        var search = DownloadSettingsPatchDtoMapper.FromCore(new SettingsPatch(operations.ToArray()))?.Search;
+        return search?.ForResultRefinement();
+    }
+
+    public IReadOnlyList<ProfileSummaryDto> GetProfiles()
+        => Volatile.Read(ref configuration).Profiles.NamedProfiles
+            .Select(profile =>
+            {
+                var inputSettings = DownloadSettingsPatchDtoMapper.FromCore(new SettingsPatch(profile.Download.Operations
+                    .Where(change => change.Path is "Extraction.Input" or "Extraction.InputType" or "Extraction").ToArray()))?.Extraction;
+                var detectedType = ExtractorRegistry.TryResolveInputType(inputSettings?.Input, InputType.None, out var detected)
+                    ? detected.ToInputName() : null;
+                return new ProfileSummaryDto(profile.Name, profile.Condition, profile.Condition != null,
+                    profile.HasEngineSettings, profile.HasDownloadSettings, inputSettings != null,
+                    inputSettings?.Input, inputSettings?.InputType?.ToCore().ToInputName(), detectedType);
+            })
+            .OrderBy(profile => profile.Name)
+            .ToList();
+
+    public async Task<JobSummaryDto> SubmitExtractJobAsync(
+        SubmitExtractJobRequestDto request,
+        CancellationToken ct)
+    {
+        var resolver = SettingsResolver;
+        if (request.InputText is not null)
+        {
+            if (request.ArtifactId is not null)
+                throw new ArgumentException("Supply either input text or an artifact, not both.");
+            if (!string.Equals(request.InputType, "CSV", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(request.InputType, "List", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("Input text requires CSV or List input type.");
+            // The shared file extractors consume this transport spool during planning.
+            // Accepted plans own the extracted entries; execution never needs the spool.
+            string path = Path.Combine(Path.GetTempPath(), "sockseek-input-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                await File.WriteAllTextAsync(path, request.InputText, ct).ConfigureAwait(false);
+                var immutable = new DownloadSettingsPatchDto(Extraction: new ExtractionSettingsPatchDto(RemoveTracksFromSource: false));
+                var inputOptions = (request.Options ?? new SubmissionOptionsDto()) with
+                {
+                    DownloadSettings = DownloadSettingsPatchDtoMapper.Combine(request.Options?.DownloadSettings, immutable),
+                };
+                string? name = Path.GetFileName(request.Input?.Replace('\\', '/'));
+                var job = JobRequestMapper.CreateExtractJob(request with
+                    { Input = string.IsNullOrWhiteSpace(name) ? Path.GetFileName(path) : name });
+                job.ReadFromUpload(path);
+                return await SubmitJobAsync(job, inputOptions, ct, resolver: resolver).ConfigureAwait(false);
+            }
+            finally { File.Delete(path); }
+        }
+        if (request.ArtifactId == null)
+        {
+            var resolved = ResolveExtractInput(new ExtractJobDraftDto(request.Input, request.InputType), request.Options, resolver);
+            request = request with { Input = resolved.Input, InputType = resolved.InputType };
+            return await SubmitJobAsync(
+                JobRequestMapper.CreateExtractJob(request),
+                request.Options,
+                ct, resolver: resolver).ConfigureAwait(false);
+        }
+        if (inputArtifacts == null)
+            throw new InputArtifactUnavailableException(
+                "Input artifacts are unavailable; ordinary inputs remain available.");
+
+        Guid submissionId = Guid.NewGuid();
+        IReadOnlyDictionary<string, ResolvedInputArtifact> inputs =
+            await inputArtifacts.RetainAsync([request.ArtifactId], submissionId, ct)
+                .ConfigureAwait(false);
+        try
+        {
+            var lease = inputs[request.ArtifactId];
+            string inputType = request.InputType
+                ?? (string.Equals(
+                        Path.GetExtension(lease.Artifact.OriginalName),
+                        ".csv",
+                        StringComparison.OrdinalIgnoreCase)
+                    ? InputType.CSV.ToString()
+                    : InputType.List.ToString());
+            var job = JobRequestMapper.CreateExtractJob(request with
+            {
+                Input = lease.InputName,
+                InputType = inputType,
+            });
+            job.ReadFromUpload(lease.Path);
+            job.PlannedSourceRevision = InputArtifactCoordinator.Revision(lease);
+            var immutablePatch = new DownloadSettingsPatchDto(
+                Extraction: new ExtractionSettingsPatchDto(RemoveTracksFromSource: false));
+            SubmissionOptionsDto options = (request.Options ?? new SubmissionOptionsDto()) with
+            {
+                DownloadSettings = DownloadSettingsPatchDtoMapper.Combine(
+                    request.Options?.DownloadSettings,
+                    immutablePatch),
+            };
+            return await SubmitJobAsync(
+                job,
+                options,
+                ct,
+                submissionId: submissionId,
+                sourceRevision: job.PlannedSourceRevision,
+                artifactId: request.ArtifactId, resolver: resolver).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Acceptance stores the extracted input and source revision. Execution
+            // and rerun no longer need the upload; failed admission releases it too.
+            try
+            {
+                await inputArtifacts.ReleaseAsync(submissionId, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                ServerLogMessages.SubmissionArtifactReleaseFailed(logger, exception, submissionId);
+            }
+        }
+    }
+
+    public Task<JobSummaryDto> SubmitSearchJobAsync(SubmitSearchJobRequestDto request, CancellationToken ct)
+        => SubmitJobAsync(JobRequestMapper.CreateSearchJob(request), request.Options, ct);
+
+    public Task<JobSummaryDto> SubmitTrackSearchJobAsync(SubmitTrackSearchJobRequestDto request, CancellationToken ct)
+        => SubmitJobAsync(JobRequestMapper.CreateTrackSearchJob(request), request.Options, ct);
+
+    public Task<JobSummaryDto> SubmitAlbumSearchJobAsync(SubmitAlbumSearchJobRequestDto request, CancellationToken ct)
+        => SubmitJobAsync(JobRequestMapper.CreateAlbumSearchJob(request), request.Options, ct);
+
+    public Task<JobSummaryDto> SubmitSongJobAsync(SubmitSongJobRequestDto request, CancellationToken ct)
+        => SubmitJobAsync(JobRequestMapper.CreateSongJob(request), request.Options, ct);
+
+    public Task<JobSummaryDto> SubmitAlbumJobAsync(SubmitAlbumJobRequestDto request, CancellationToken ct)
+        => SubmitJobAsync(JobRequestMapper.CreateAlbumJob(request), request.Options, ct);
+
+    public Task<JobSummaryDto> SubmitSongGroupsJobAsync(SubmitSongGroupsJobRequestDto request, CancellationToken ct)
+        => SubmitJobAsync(JobRequestMapper.CreateSongGroupsJob(request), request.Options, ct);
+
+    public Task<JobSummaryDto> SubmitAlbumGroupsJobAsync(SubmitAlbumGroupsJobRequestDto request, CancellationToken ct)
+        => SubmitJobAsync(JobRequestMapper.CreateAlbumGroupsJob(request), request.Options, ct);
+
+    public Task<JobSummaryDto> SubmitJobListAsync(SubmitJobListRequestDto request, CancellationToken ct)
+    {
+        var resolver = SettingsResolver;
+        var job = JobRequestMapper.CreateJobList(request);
+        JobRequestMapper.ApplyDraftDownloadSettings(
+            job,
+            request.Jobs,
+            (item, patch) => resolver.SetJobOptions(
+                item.Id,
+                new SubmissionOptionsDto(DownloadSettings: patch)));
+        return SubmitJobAsync(job, request.Options, ct, request.Jobs, resolver: resolver);
+    }
+
+    public Task<StartUserShareDownloadsResponseDto> SubmitUserShareDownloadsAsync(
+        string username,
+        PeerBrowseDownloadResolution resolution,
+        SubmissionOptionsDto? options,
+        Guid submissionId,
+        string fingerprint,
+        CancellationToken cancellationToken)
+    {
+        EnsureShareSubmissionConnection();
+        Job workflow = CreateUserShareWorkflow(username, resolution);
+        return SubmitJobAsync(workflow, options, cancellationToken,
+            (summary, settings) => new StartUserShareDownloadsResponseDto(summary, new(
+                resolution.CanonicalDirectoryRoots, resolution.StandaloneFiles,
+                resolution.TotalPublicFiles, resolution.TotalPublicBytes,
+                resolution.RedundantSelectionsRemoved, resolution.LockedBranchesSkipped,
+                settings.Output.ParentDir ?? throw new InvalidOperationException("The output parent was not resolved."))),
+            submissionId: submissionId, commitFingerprint: fingerprint);
+    }
+
+    private static Job CreateUserShareWorkflow(
+        string username,
+        PeerBrowseDownloadResolution resolution)
+    {
+        PeerUsername.Validate(username);
+        ArgumentNullException.ThrowIfNull(resolution);
+        if (resolution.Plans.Count == 0)
+            throw new PeerBrowseSelectionException("The selection contains no downloadable public files.");
+        var jobs = resolution.Plans.Select(plan =>
+            (Job)new RemoteDirectoryJob(new RemoteDirectorySource.Resolved(plan))
+            { SelectionSource = JobSelectionSource.PeerShares }).ToArray();
+        // A selection batch is not a named collection and must not add an output folder.
+        return jobs.Length == 1 ? jobs[0] : new JobList(jobs: jobs)
+        {
+            SelectionSource = JobSelectionSource.PeerShares,
+            SourceInfo = SelectionBatchInfo("Share selection", username, jobs),
+        };
+    }
+
+    // How a batch of hand-picked items presents itself: titled by where it was
+    // picked from, and described by what it holds. Display only; an item name
+    // on the list would become an output folder for its jobs.
+    internal static JobSourceInfo SelectionBatchInfo(string label, string title, IReadOnlyList<Job> jobs)
+    {
+        string item = jobs.All(job => job is AlbumJob) ? "album"
+            : jobs.All(job => job is SongJob) ? "song"
+            : jobs.All(job => job is RemoteFileJob) ? "file"
+            : jobs.All(job => job is RemoteDirectoryJob) ? "folder" : "item";
+        return new JobSourceInfo(
+            Detail: new JobSourceInfo(CollectionLabel: label, CollectionItemName: item).CollectionDescription(jobs.Count),
+            Title: title);
+    }
+
+    private void EnsureShareSubmissionConnection()
+    {
+        if (runtime.SoulseekSession?.IsConnectedAndLoggedIn != true)
+            throw new InvalidOperationException("Soulseek is not connected.");
+    }
+
+    public ResolveEffectiveSettingsResponseDto ResolveUserShareDownloadSettings(SubmissionOptionsDto options)
+    {
+        var job = new JobSettingsContext(Guid.Empty, Guid.Empty, JobSnapshotKind.RemoteDirectory,
+            SelectionSource: JobSelectionSource.PeerShares);
+        var result = SettingsResolver.ResolveDetailed(job, options);
+        if (options.DownloadSettings is { } patch) RemoteTransferSettingsValidator.ValidateExplicitPatch(patch);
+        return EffectiveSettingsMapper.ToDto(result);
+    }
+
+    public ResolveEffectiveSettingsResponseDto ResolveEffectiveSettings(
+        ResolveEffectiveSettingsRequestDto request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Job);
+        var resolver = SettingsResolver;
+        JobSettingsContext job = JobRequestMapper.CreateSettingsContext(request.Job);
+        bool isProvisional = request.Job is ExtractJobDraftDto
+        {
+            Input: var input,
+            ArtifactId: null,
+        } && string.IsNullOrWhiteSpace(input)
+            || job.Kind == JobSnapshotKind.Search && string.IsNullOrWhiteSpace(job.QueryText);
+        DownloadSettingsPatchDto? combinedPatch = DownloadSettingsPatchDtoMapper.Combine(
+            request.Options?.DownloadSettings,
+            request.Job.DownloadSettings);
+        SubmissionOptionsDto requestOptions = (request.Options ?? new SubmissionOptionsDto()) with
+        {
+            DownloadSettings = combinedPatch,
+        };
+        JobSettingsCompositionResult result = resolver.ResolveDetailed(job, requestOptions);
+        bool containsRemoteTransfer = ValidateDraftSubmissionSettings(
+            job,
+            request.Job,
+            result.Settings,
+            requestOptions,
+            combinedPatch, resolver);
+        if (containsRemoteTransfer)
+            RemoteTransferSettingsValidator.ValidateExplicitNameFormat(options.LaunchDownloadSettings);
+        return EffectiveSettingsMapper.ToDto(result) with
+        {
+            IsProvisional = isProvisional,
+        };
+    }
+
+    private bool ValidateDraftSubmissionSettings(
+        JobSettingsContext job,
+        JobDraftDto draft,
+        DownloadSettings effectiveSettings,
+        SubmissionOptionsDto submissionOptions,
+        DownloadSettingsPatchDto? explicitPatch,
+        SubmissionOptionsJobSettingsResolver resolver)
+    {
+        bool containsRemoteTransfer = job.IsOrdinaryRemoteTransfer(effectiveSettings);
+
+        if (draft is JobListJobDraftDto listDraft)
+        {
+            foreach (JobDraftDto childDraft in listDraft.Jobs)
+            {
+                JobSettingsContext child = JobRequestMapper.CreateSettingsContext(childDraft, allowMissingInput: false);
+                DownloadSettingsPatchDto? childPatch = childDraft.DownloadSettings;
+                SubmissionOptionsDto? childOptions = SubmissionOptionsStore.Merge(
+                    submissionOptions,
+                    childPatch == null
+                        ? null
+                        : new SubmissionOptionsDto(DownloadSettings: childPatch));
+                DownloadSettings childSettings = resolver.ResolveWithOptions(
+                    effectiveSettings,
+                    child,
+                    childOptions,
+                    JobSettingsInheritance.SearchConstraints);
+                containsRemoteTransfer |= ValidateDraftSubmissionSettings(
+                    child,
+                    childDraft,
+                    childSettings,
+                    submissionOptions,
+                    childPatch, resolver);
+            }
+        }
+
+        if (containsRemoteTransfer && explicitPatch != null)
+            RemoteTransferSettingsValidator.ValidateExplicitPatch(explicitPatch);
+        return containsRemoteTransfer;
+    }
+
+    private Task<JobSummaryDto> SubmitJobAsync(
+        Job job,
+        SubmissionOptionsDto? options,
+        CancellationToken ct,
+        IReadOnlyList<JobDraftDto>? childDrafts = null,
+        Guid? submissionId = null,
+        SubmissionSourceRevision? sourceRevision = null,
+        string? artifactId = null,
+        SubmissionOptionsJobSettingsResolver? resolver = null)
+        => SubmitJobAsync(job, options, ct, static (summary, _) => summary,
+            childDrafts, submissionId, sourceRevision, artifactId, resolver: resolver);
+
+    private async Task<TReceipt> SubmitJobAsync<TReceipt>(
+        Job job,
+        SubmissionOptionsDto? options,
+        CancellationToken ct,
+        Func<JobSummaryDto, DownloadSettings, TReceipt> createReceipt,
+        IReadOnlyList<JobDraftDto>? childDrafts = null,
+        Guid? submissionId = null,
+        SubmissionSourceRevision? sourceRevision = null,
+        string? artifactId = null,
+        string? commitFingerprint = null,
+        SubmissionOptionsJobSettingsResolver? resolver = null)
+    {
+        resolver ??= SettingsResolver;
+        using var activity = SubmissionActivities.StartActivity("submission.accept");
+        activity?.SetTag("job.id", job.Id);
+        ct.ThrowIfCancellationRequested();
+
+        job.AssignWorkflow(options?.WorkflowId ?? job.WorkflowId);
+        resolver.SetWorkflowOptions(job.WorkflowId, options);
+
+        var settings = ResolveRootSettings(job, resolver, options?.DownloadSettings, childDrafts);
+        activity?.AddEvent(new("prepared"));
+        return await AcceptRootAsync(job, settings, resolver, planned: null, createReceipt, ct, activity,
+            submissionId, sourceRevision, artifactId, commitFingerprint: commitFingerprint).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The one way a root job with final settings is accepted, whether it was
+    /// just submitted or comes from a saved plan.
+    /// </summary>
+    /// <param name="planned">
+    /// The saved plan the job was restored from. Null reads the job's sources
+    /// now and retains what they give, so the accepted job can be run again.
+    /// </param>
+    private async Task<TReceipt> AcceptRootAsync<TReceipt>(
+        Job job,
+        DownloadSettings settings,
+        SubmissionOptionsJobSettingsResolver resolver,
+        SubmissionSpecification? planned,
+        Func<JobSummaryDto, DownloadSettings, TReceipt> createReceipt,
+        CancellationToken ct,
+        Activity? activity = null,
+        Guid? submissionId = null,
+        SubmissionSourceRevision? sourceRevision = null,
+        string? artifactId = null,
+        Guid? rerunOfSubmissionId = null,
+        Guid? previewId = null,
+        string? commitFingerprint = null)
+    {
+        SubmissionSpecification? specification = planned;
+        if (specification is null)
+        {
+            await new JobPlanner(resolver).PrepareResolvedAsync(job, settings, ct).ConfigureAwait(false);
+            activity?.AddEvent(new("planned"));
+            if (job.Retention != JobRetention.Memory) specification = SubmissionSpecification.Create(job);
+        }
+        SubmissionIdentity.AssignAccepted(
+            job,
+            sourceRevision is null || specification is null ? specification : specification with { SourceRevision = sourceRevision },
+            submissionId,
+            rerunOfSubmissionId: rerunOfSubmissionId,
+            previewId: previewId,
+            artifactId: artifactId);
+        activity?.AddEvent(new("captured"));
+        job.EnsureDisplayId();
+        TReceipt receipt = createReceipt(ServerSnapshotMapper.ToSubmittedJobSummary(job), settings);
+        await AcceptAsync(
+            job,
+            settings,
+            sourceJobId: null,
+            ct,
+            settingsAreFinal: true,
+            commitFingerprint: commitFingerprint,
+            commitReceipt: commitFingerprint is null ? null : receipt).ConfigureAwait(false);
+        activity?.AddEvent(new("admitted"));
+        return receipt;
+    }
+
+    private static ExtractJobDraftDto ResolveExtractInput(ExtractJobDraftDto draft, SubmissionOptionsDto? options,
+        SubmissionOptionsJobSettingsResolver resolver)
+    {
+        if (!string.IsNullOrWhiteSpace(draft.Input)) return draft;
+        DownloadSettings settings = resolver.ResolveDetailed(
+            JobRequestMapper.CreateSettingsContext(draft, allowMissingInput: true),
+            SubmissionOptionsStore.Merge(options, new SubmissionOptionsDto(DownloadSettings: draft.DownloadSettings))).Settings;
+        string? input = settings.Extraction.Input;
+        if (string.IsNullOrWhiteSpace(input)) throw new ArgumentException("input is required for extract jobs");
+        return draft with
+        {
+            Input = input,
+            InputType = draft.InputType ?? settings.Extraction.InputType.ToInputName(),
+        };
+    }
+
+    internal async IAsyncEnumerable<PlannedJobNode> PlanDraftAsync(
+        JobDraftDto draft,
+        SubmissionOptionsDto? submissionOptions,
+        IReadOnlyDictionary<string, ResolvedInputArtifact>? artifacts,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var resolver = SettingsResolver;
+        ArgumentNullException.ThrowIfNull(draft);
+        if (draft is ExtractJobDraftDto { ArtifactId: null } extract && string.IsNullOrWhiteSpace(extract.Input))
+            draft = ResolveExtractInput(extract, submissionOptions, resolver);
+        Job root = JobRequestMapper.CreateJob(draft);
+        root.AssignWorkflow(submissionOptions?.WorkflowId ?? root.WorkflowId);
+        AttachArtifacts(root, artifacts);
+        var settingsResolver = resolver.CreateScope(root.WorkflowId);
+        settingsResolver.SetWorkflowOptions(root.WorkflowId, submissionOptions);
+        JobRequestMapper.ApplyDraftDownloadSettings(
+            root,
+            draft,
+            (item, patch) => settingsResolver.SetJobOptions(
+                item.Id, new SubmissionOptionsDto(DownloadSettings: patch)));
+        var rootPatch = DownloadSettingsPatchDtoMapper.Combine(submissionOptions?.DownloadSettings,
+            draft.DownloadSettings);
+        var rootSettings = ResolveRootSettings(root, settingsResolver, rootPatch, (draft as JobListJobDraftDto)?.Jobs);
+
+        var planner = new JobPlanner(settingsResolver);
+        await foreach (PlannedJobNode node in planner.PlanResolvedAsync(
+            root, rootSettings, cancellationToken).ConfigureAwait(false))
+        {
+            yield return node;
+        }
+    }
+
+    private DownloadSettings ResolveRootSettings(Job root, SubmissionOptionsJobSettingsResolver resolver,
+        DownloadSettingsPatchDto? explicitPatch, IReadOnlyList<JobDraftDto>? childDrafts)
+    {
+        var settings = resolver.Resolve(defaultDownloadSettings, root);
+        ValidateExplicitRemoteTransferOverrides(root, explicitPatch, settings, resolver, childDrafts);
+        if (!CanAcceptLoginRequiredJobs() && ContainsLoginRequiredJob(root, settings, resolver))
+            throw new ArgumentException("This server is not configured for Soulseek login. Configure username/password, enable random login, or use a non-login submission.");
+        return settings;
+    }
+
+    private static void AttachArtifacts(Job job, IReadOnlyDictionary<string, ResolvedInputArtifact>? artifacts)
+    {
+        if (job is ExtractJob { ArtifactId: { } id } extract && artifacts?.TryGetValue(id, out var lease) == true)
+        {
+            extract.ReadFromUpload(lease.Path);
+            extract.PlannedSourceRevision = InputArtifactCoordinator.Revision(lease);
+        }
+        if (job is JobList list)
+        {
+            foreach (Job child in list.Jobs)
+                AttachArtifacts(child, artifacts);
+        }
+    }
+
+    internal async Task AcceptPreviewAsync(
+        Job root,
+        DownloadSettings rootSettings,
+        SubmissionSpecification specification,
+        Guid submissionId,
+        Guid previewId,
+        string commitFingerprint,
+        CommitJobPreviewResponseDto receipt,
+        CancellationToken cancellationToken)
+    {
+        await AcceptRootAsync(root, rootSettings, SettingsResolver, specification, (_, _) => receipt,
+            cancellationToken, submissionId: submissionId, previewId: previewId,
+            commitFingerprint: commitFingerprint).ConfigureAwait(false);
+    }
+
+    internal DownloadSettings PrepareSearchViewSelectionJob(
+        Job job,
+        SubmissionOptionsDto? options,
+        SubmissionOptionsJobSettingsResolver resolver)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        job.SelectionSource = JobSelectionSource.ManualSearch;
+        DownloadSettings settings = resolver.ResolveFollowUp(job, options);
+        ValidateExplicitRemoteTransferOverrides(
+            job,
+            options?.DownloadSettings,
+            settings,
+            resolver);
+        job.PlannedSettings = JobSettingsSnapshot.Capture(settings);
+        return settings;
+    }
+
+    internal async Task AcceptSearchSelectionAsync(
+        Job root,
+        Guid sourceJobId,
+        Guid submissionId,
+        string commitFingerprint,
+        CommitSearchViewSelectionResponseDto receipt,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+        if (root is JobList { Count: 0 })
+            throw new ArgumentException("A search-view submission requires at least one resolved job.");
+        // Selected jobs already have their final, independently resolved settings.
+        DownloadSettings rootSettings = root.PlannedSettings?.ReadSettings()
+            ?? DefaultJobSettingsResolver.Instance.Resolve(SearchSettingsBaselines.Create(SearchSettingsBaselineKind.Generic), root);
+        root.PlannedSettings = JobSettingsSnapshot.Capture(rootSettings);
+        SubmissionSpecification specification = SubmissionSpecification.Create(root);
+        SubmissionIdentity.AssignAccepted(
+            root,
+            specification,
+            submissionId: submissionId);
+        await AcceptAsync(
+            root,
+            rootSettings,
+            sourceJobId,
+            cancellationToken,
+            settingsAreFinal: true,
+            commitFingerprint: commitFingerprint,
+            commitReceipt: receipt).ConfigureAwait(false);
+    }
+
+    private void ValidateExplicitRemoteTransferOverrides(
+        Job job,
+        DownloadSettingsPatchDto? patch,
+        DownloadSettings effectiveSettings,
+        SubmissionOptionsJobSettingsResolver resolver,
+        IReadOnlyList<JobDraftDto>? childDrafts = null)
+    {
+        if (!RemoteTransferSubmissionPolicy.ValidateOverrides(
+                job,
+                effectiveSettings,
+                patch,
+                (parent, child, _) => resolver.Resolve(parent, child, JobSettingsInheritance.SearchConstraints),
+                childDrafts))
+            return;
+
+        RemoteTransferSettingsValidator.ValidateExplicitNameFormat(options.LaunchDownloadSettings);
+    }
+
+    private static bool ContainsLoginRequiredJob(
+        Job job, DownloadSettings settings, IJobSettingsResolver resolver)
+    {
+        if (job is not JobList list) return settings.NeedLogin;
+        foreach (Job child in list.Jobs)
+        {
+            if (ContainsLoginRequiredJob(child,
+                resolver.Resolve(settings, child, JobSettingsInheritance.SearchConstraints), resolver)) return true;
+        }
+        return false;
+    }
+
+    public async Task<JobSummaryDto?> RerunSubmissionAsync(
+        Guid submissionId,
+        CancellationToken cancellationToken,
+        bool extractAgain = false)
+    {
+        if (persistence?.Submissions == null)
+            throw new NotSupportedException("Submission rerun is unavailable because persistence is disabled or not started.");
+        return await ReplayAsync(persistence.Submissions, submissionId, null, Stopwatch.StartNew(), cancellationToken, extractAgain)
+            .ConfigureAwait(false);
+    }
+
+    /// <param name="extractAgain">
+    /// Read the job's source as it is now instead of replaying the items
+    /// captured when it was accepted.
+    /// </param>
+    public async Task<JobSummaryDto?> RerunJobAsync(
+        Guid sourceJobId,
+        CancellationToken cancellationToken,
+        bool extractAgain = false)
+    {
+        if (persistence?.Submissions == null || persistence.JobHistory == null)
+            throw new NotSupportedException("Search replay is unavailable because persistence is disabled or not started.");
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        if (await FindSubmissionAsync(sourceJobId, cancellationToken).ConfigureAwait(false) is not Guid submissionId)
+            return null;
+        return await ReplayAsync(persistence.Submissions, submissionId, sourceJobId, started, cancellationToken, extractAgain)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads a job's request back as a draft, so it can be changed and
+    /// submitted as a new job.
+    /// </summary>
+    public async Task<JobRerunDraftDto?> GetRerunDraftAsync(Guid sourceJobId, CancellationToken cancellationToken)
+    {
+        if (persistence?.Submissions == null || persistence.JobHistory == null)
+            throw new NotSupportedException("Job history is unavailable because persistence is disabled or not started.");
+        if (await FindSubmissionAsync(sourceJobId, cancellationToken).ConfigureAwait(false) is not Guid submissionId
+            || await persistence.Submissions.GetSpecificationJsonAsync(submissionId, cancellationToken)
+                .ConfigureAwait(false) is not { } retained)
+            return null;
+        SubmissionSpecification specification = SubmissionSpecificationCodec.Deserialize(retained).ForRequest(sourceJobId)
+            ?? throw new ArgumentException($"Job {sourceJobId} has no matching planned command in its retained submission.");
+        JobDraftDto draft = JobRequestMapper.CreateEditableDraft(specification.Command)
+            ?? throw new ArgumentException("This job was not entered as one source or query, so it cannot be edited.");
+        DownloadSettings settings = specification.MaterializeSettings(defaultDownloadSettings);
+        JobSettingsContext context = JobRequestMapper.CreateSettingsContext(draft);
+        string[] profiles = settings.AppliedProfiles.Where(profile => profile.Source == "selected")
+            .Select(profile => profile.Name).ToArray();
+        DownloadSettings current;
+        try
+        {
+            current = SettingsResolver.ResolveDetailed(context, new SubmissionOptionsDto(ProfileNames: profiles)).Settings;
+        }
+        catch (ArgumentException) when (profiles.Length > 0)
+        {
+            // A profile was removed or changed since. Its settings are then
+            // part of the difference instead.
+            profiles = [];
+            current = SettingsResolver.ResolveDetailed(context, new SubmissionOptionsDto()).Settings;
+        }
+        return new(draft, profiles, DownloadSettingsPatchDtoMapper.FromDifference(current, settings));
+    }
+
+    private async Task<Guid?> FindSubmissionAsync(Guid sourceJobId, CancellationToken cancellationToken)
+    {
+        Guid submissionId;
+        // A live or admitted job may not have reached job history yet. Its
+        // identity is already authoritative; execution settings still come from
+        // the durably accepted command below, never mutable live configuration.
+        if (StateStore.GetJobSummary(sourceJobId) is { } liveSource)
+        {
+            if (liveSource.Display.SubmissionId is not Guid liveSubmissionId)
+                throw new ArgumentException("Only a retained job can run again.");
+            submissionId = liveSubmissionId;
+        }
+        else
+        {
+            await persistence!.WaitForJobHandoffAsync(sourceJobId, cancellationToken, includeSearchResults: false)
+                .ConfigureAwait(false);
+            PersistedJob? source = await persistence.JobHistory!
+                .GetJobAsync(sourceJobId, cancellationToken).ConfigureAwait(false);
+            if (source == null)
+                return null;
+            if (source.SubmissionId is not Guid retainedSubmissionId)
+                throw new ArgumentException("Only a retained job can run again.");
+            submissionId = retainedSubmissionId;
+        }
+        return submissionId;
+    }
+
+    private async Task<JobSummaryDto?> ReplayAsync(
+        ISubmissionStore submissions, Guid submissionId, Guid? selectedJobId, Stopwatch started,
+        CancellationToken cancellationToken, bool extractAgain = false)
+    {
+        // Accepted intent is committed before execution starts. Replaying it
+        // requires neither terminal history handoffs nor mutable job counts.
+        string? retained = await submissions
+            .GetSpecificationJsonAsync(submissionId, cancellationToken)
+            .ConfigureAwait(false);
+        if (retained == null)
+            return null;
+        long readMs = started.ElapsedMilliseconds;
+
+        SubmissionSpecification specification =
+            SubmissionSpecificationCodec.Deserialize(retained);
+        if (selectedJobId is Guid id)
+            specification = (extractAgain ? specification.ForRequest(id) : specification.ForJob(id))
+                ?? throw new ArgumentException($"Job {id} has no matching planned command in its retained submission.");
+        if (selectedJobId.HasValue && !specification.Command.CanRunAgain)
+            throw new ArgumentException("Use the peer selection's retry action for this job.");
+        if (extractAgain)
+        {
+            // Never substitute the saved items: the caller asked for the source.
+            if (!specification.CanExtractAgain())
+                throw new ArgumentException("This job has no source that can be read again.");
+            specification = specification.WithFreshExtraction();
+        }
+        var (job, settings) = specification.Materialize(defaultDownloadSettings);
+        if (settings.NeedLogin && !CanAcceptLoginRequiredJobs())
+            throw new ArgumentException("This retained submission requires Soulseek login, but the server is not configured for it.");
+
+        long materializedMs = started.ElapsedMilliseconds;
+        // An exact replay keeps its saved plan; reading the source again plans anew.
+        await AcceptRootAsync(job, settings, SettingsResolver, planned: extractAgain ? null : specification,
+            static (summary, _) => summary, cancellationToken, rerunOfSubmissionId: submissionId).ConfigureAwait(false);
+        long durationMs = started.ElapsedMilliseconds;
+        ServerLogMessages.SubmissionRerunAccepted(logger, submissionId, job.SubmissionId!.Value, durationMs);
+        ServerLogMessages.SubmissionRerunTiming(logger, submissionId, job.SubmissionId.Value,
+            readMs, materializedMs - readMs, durationMs - materializedMs);
+        return StateStore.GetJobSummary(job.Id) ?? ServerSnapshotMapper.ToSubmittedJobSummary(job);
+    }
+
+    private bool CanAcceptLoginRequiredJobs()
+        => !string.IsNullOrWhiteSpace(engineSettings.MockFilesDir)
+        || engineSettings.UseRandomLogin
+        || (!string.IsNullOrWhiteSpace(engineSettings.Username)
+            && !string.IsNullOrWhiteSpace(engineSettings.Password));
+
+    internal async Task<JobSummaryDto> SubmitFollowUpJobAsync(
+        Guid sourceJobId,
+        Job? sourceJob,
+        Job followUpJob,
+        DownloadSettings settings,
+        SubmissionOptionsDto? options,
+        CancellationToken ct,
+        SubmissionOptionsJobSettingsResolver resolver)
+    {
+        if (sourceJob is not null)
+        {
+            followUpJob.WorkflowId = sourceJob.WorkflowId;
+            JobRequestMapper.PropagateSourceMutationToFollowUp(sourceJob, followUpJob);
+        }
+        resolver.SetIsolatedJobOptions(followUpJob.Id, options);
+        ValidateExplicitRemoteTransferOverrides(
+            followUpJob,
+            options?.DownloadSettings,
+            settings, resolver);
+        await AcceptAsync(followUpJob, settings, sourceJobId, ct).ConfigureAwait(false);
+        return StateStore.GetJobSummary(followUpJob.Id) ?? ServerSnapshotMapper.ToSubmittedJobSummary(followUpJob, sourceJobId);
+    }
+
+    internal async Task<JobSummaryDto?> RetryDownloadAsync(Guid transferId, CancellationToken ct, bool recovering = false)
+    {
+        if (persistence?.TransferHistory is not { } history || persistence.JobHistory == null)
+            throw new InvalidOperationException("Download retry requires retained transfer history.");
+        if (StateStore.GetLiveTransfer(transferId) is { Status.IsTerminal: true } live)
+            await persistence.WaitForTransferHandoffAsync(transferId, live.Revision, ct);
+        var row = (await history.GetTransferAsync(transferId, ct))?.Transfer;
+        if (row == null) return null;
+        if (row.RetryJobId is Guid previous && await persistence.JobHistory.GetJobAsync(previous, ct) is { } existing)
+            return HistoricalJobDtoMapper.ToSummary(existing);
+        if (!row.CanRetry) throw new InvalidOperationException("This download cannot be retried.");
+        var owner = await persistence.JobHistory.GetJobAsync(row.JobId!.Value, ct);
+        if (owner?.ParentJobId is Guid directoryId && Guid.TryParse(row.GroupRef, out var group) && group == directoryId
+            && await persistence.JobHistory.GetDirectoryAttemptForChildAsync(directoryId, owner.Id, ct) != null)
+            return await RetryDirectoryAsync(directoryId, owner.Id, row.RemotePath, transferId, ct, recovering);
+
+        string? specification = owner?.SubmissionId is Guid submission
+            ? await persistence.Submissions!.GetSpecificationJsonAsync(submission, ct) : null;
+        if (owner == null || specification == null)
+            throw new InvalidOperationException("The original job settings are no longer available.");
+        var retained = SubmissionSpecificationCodec.Deserialize(specification);
+        var (settings, command) = retained.MaterializeMemberSettings(owner.Id, owner.ParentJobId, defaultDownloadSettings);
+        if (!CanAcceptLoginRequiredJobs())
+            throw new InvalidOperationException("Configure Soulseek login before retrying this file.");
+
+        var file = row.File;
+        var target = new PeerFileTarget(new(row.Username!, row.RemotePath!), file?.Size ?? row.TotalBytes,
+            file?.Extension, file?.BitRate, file?.BitDepth, file?.SampleRate, file?.Length, file?.Attributes);
+        FileDownloadJob job;
+        if (RetainedJobPayloadCodec.Read(owner) is SongJobSnapshotPayload song)
+        {
+            job = new SongJob(song.Query.ToQuery()) { ExactTarget = target };
+            if (string.IsNullOrWhiteSpace(settings.Output.NameFormat))
+                settings.Output.ParentDir = Path.GetDirectoryName(row.LocalPath);
+            else
+                job.InheritedFolders = command.InheritedFolders;
+        }
+        else
+        {
+            job = new RemoteFileJob(target) { RetainedDestination = row.LocalPath };
+        }
+        job.SelectionSource = command.SelectionSource;
+        job.ItemName = owner.ItemName ?? job.ItemName;
+        job.ItemNumber = command.ItemNumber;
+        job.LineNumber = command.LineNumber;
+        job.SourceInfo = command.SourceInfo;
+        job.WorkflowId = owner.WorkflowId;
+        await AcceptAsync(job, settings, owner.Id, ct, settingsAreFinal: true, retryTransferId: transferId);
+        StateStore.MarkTransferHistoryChanged();
+        return StateStore.GetJobSummary(job.Id) ?? ServerSnapshotMapper.ToSubmittedJobSummary(job, owner.Id);
+    }
+
+    internal async Task AcceptAsync(
+        Job job,
+        DownloadSettings settings,
+        Guid? sourceJobId,
+        CancellationToken cancellationToken,
+        bool settingsAreFinal = false,
+        string? commitFingerprint = null,
+        object? commitReceipt = null, Guid? retryTransferId = null, DirectoryRetryClaim? directoryRetry = null)
+    {
+        using var activity = SubmissionActivities.StartActivity("submission.queue");
+        activity?.SetTag("job.id", job.Id);
+        if (job.SubmissionId == null)
+            SubmissionIdentity.AssignAccepted(job, settings);
+        activity?.AddEvent(new("identity-retained"));
+        if (settingsAreFinal)
+            job.Config ??= settings;
+        job.EnsureDisplayId();
+        var accepted = CoreSnapshotFactory.CreateJob(job, revision: 0) with { CanCancel = !job.IsTerminal };
+        if (job.Retention != JobRetention.Memory && persistence?.Submissions != null)
+        {
+            await persistence.Submissions.CreateAsync(
+                new SubmissionRegistration(
+                    job.SubmissionId!.Value,
+                    job.CreatedAtUtc ?? DateTimeOffset.UtcNow,
+                    SubmissionSpecification.CurrentSchemaVersion,
+                    job.SubmissionSpecificationJson
+                        ?? throw new InvalidOperationException("An accepted submission has no retained specification."),
+                    job.RerunOfSubmissionId,
+                    job.PreviewId,
+                    job.ArtifactId,
+                    commitFingerprint,
+                    commitReceipt == null ? null : SubmissionCommitCoordinator.SerializeReceipt(commitReceipt),
+                    JobPersistence.Capture(persistence.Runtime!.RuntimeId, accepted, 0,
+                        accepted.CreatedAtUtc ?? DateTimeOffset.UtcNow, PersistenceMutationPriority.Structural,
+                        null, sourceJobId, null, null), retryTransferId, directoryRetry),
+                cancellationToken).ConfigureAwait(false);
+        }
+        activity?.AddEvent(new("persisted"));
+        enqueue(job, accepted, settings, sourceJobId, settingsAreFinal);
+    }
+
+}

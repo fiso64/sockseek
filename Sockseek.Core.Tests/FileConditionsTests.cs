@@ -1,5 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Sockseek.Core.Models;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Soulseek;
@@ -394,12 +392,36 @@ namespace Tests.FileConditionsTests
         }
 
         [TestMethod]
+        [DataRow(@"Music\Led Zeppelin\Led Zeppelin (1969)\01 - Good Times Bad Times.flac", true)]
+        [DataRow(@"Music\Led Zeppelin\1969 - Led Zeppelin - Led Zeppelin [FLAC]\CD1\01 - Good Times Bad Times.flac", true)]
+        [DataRow(@"Music\Led Zeppelin\Led Zeppelin II (1969)\01 - Whole Lotta Love.flac", false)]
+        [DataRow(@"Music\Led Zeppelin\Led Zeppelin - 2\01 - Whole Lotta Love.flac", false)]
+        [DataRow(@"Music\Led Zeppelin\Led Zeppelin - Houses of the Holy (1973)\01 - The Song Remains the Same.flac", false)]
+        [DataRow(@"Music\Led Zeppelin\Presence\01 - Achilles Last Stand.flac", false)]
+        public void StrictAlbumTrue_SelfTitled_FolderMustNameNothingElse(string path, bool expected)
+        {
+            var fc = new FileConditions { StrictAlbum = true };
+            Assert.AreEqual(expected, fc.StrictAlbumSatisfies(path, "Led Zeppelin", "Led Zeppelin"));
+            Assert.IsTrue(fc.StrictAlbumSatisfies(path, "Led Zeppelin"), "Without an artist the name is matched anywhere in the path.");
+        }
+
+        [TestMethod]
+        [DataRow("01 - Iron Maiden.flac", true)]
+        [DataRow("Iron Maiden - Iron Maiden - 1-08 - Iron Maiden (1998 Remaster).flac", true)]
+        [DataRow("Iron Maiden - Killers - 11 - Drifter.flac", false)]
+        [DataRow("Iron Maiden - Iron Maiden - 02 - Remember Tomorrow.flac", false)]
+        public void StrictTitleTrue_SelfTitled_FilenameMustNameNothingElse(string filename, bool expected)
+        {
+            var fc = new FileConditions { StrictTitle = true };
+            Assert.AreEqual(expected, fc.StrictTitleSatisfies(@"Music\Iron Maiden\Album\" + filename, "Iron Maiden", artist: "Iron Maiden"));
+        }
+
+        [TestMethod]
         public void StrictAlbumTrue_FuzzyPunctuationOnlyMatch_ReturnsFalse()
         {
             var fc = new FileConditions { StrictAlbum = true };
 
             Assert.IsFalse(fc.StrictAlbumSatisfies(@"Music\Diverse System\AD：PIANO X\01 - Song.flac", "AD:PIANO X"));
-            Assert.IsTrue(FileConditions.FuzzyPhraseString(@"Music\Diverse System\AD：PIANO X", "AD:PIANO X"));
         }
 
         [TestMethod]
@@ -410,6 +432,19 @@ namespace Tests.FileConditionsTests
             string result = FileConditions.StrictStringPreprocess(input);
 
             Assert.AreEqual("A B C D E F G H I/J\\K A", result);
+            Assert.AreEqual("A B C D E F G H I J K A",
+                FileConditions.StrictStringPreprocess(input, removeSlash: true));
+            Assert.AreEqual("Ä", FileConditions.StrictStringPreprocess(" Ä ", diacrRemove: false));
+            Assert.AreEqual("", FileConditions.StrictStringPreprocess("\t  \r\n"));
+            Assert.AreEqual("A\tB", FileConditions.StrictStringPreprocess("  A\tB  "));
+            Assert.AreEqual(@"Music\Artist\Album\01 - Track.flac",
+                FileConditions.StrictStringPreprocess(@"Music\Artist\Album\01 - Track.flac"));
+            foreach (int length in new[] { 512, 513, 2048 })
+            {
+                string longName = new('a', length);
+                Assert.AreEqual(longName, FileConditions.StrictStringPreprocess(longName));
+                Assert.AreEqual(longName, FileConditions.StrictStringPreprocess("_" + longName + "_"));
+            }
         }
     }
 
@@ -480,34 +515,6 @@ namespace Tests.FileConditionsTests
             var fc = new FileConditions { AllowedUsers = new[] { "gooduser" } };
             var response = new SearchResponse("baduser", 1, true, 100, 0, new List<Soulseek.File>());
             Assert.IsFalse(fc.AllowedUsersSatisfies(response));
-        }
-    }
-
-    [TestClass]
-    public class BracketCheckTests
-    {
-        [TestMethod]
-        public void TrackHasBracket_ReturnsTrue()
-        {
-            var track = TestHelpers.CreateQuery(title: "Song (Remix)");
-            var other = TestHelpers.CreateQuery(title: "Song (Remix)");
-            Assert.IsTrue(FileConditions.BracketCheck(track, other));
-        }
-
-        [TestMethod]
-        public void OtherHasNoBracket_ReturnsTrue()
-        {
-            var track = TestHelpers.CreateQuery(title: "Song");
-            var other = TestHelpers.CreateQuery(title: "Song");
-            Assert.IsTrue(FileConditions.BracketCheck(track, other));
-        }
-
-        [TestMethod]
-        public void OtherHasBracket_TrackDoesNot_ReturnsFalse()
-        {
-            var track = TestHelpers.CreateQuery(title: "Song");
-            var other = TestHelpers.CreateQuery(title: "Song (Remix)");
-            Assert.IsFalse(FileConditions.BracketCheck(track, other));
         }
     }
 
@@ -634,24 +641,15 @@ namespace Tests.FileConditionsTests
         }
 
         [TestMethod]
-        public void AddConditions_ReturnsUndoModifier()
+        public void AddConditions_ChangesOnlySuppliedFields()
         {
             var fc = new FileConditions { MinBitrate = 128, MaxBitrate = 320 };
             var mod = new FileConditionPatch { MinBitrate = 256 };
 
-            var undo = fc.AddConditions(mod);
+            fc.AddConditions(mod);
 
-            // fc was modified in place
             Assert.AreEqual(256, fc.MinBitrate);
             Assert.AreEqual(320, fc.MaxBitrate);
-
-            // undo holds the old value
-            Assert.AreEqual(128, undo.MinBitrate);
-            Assert.IsNull(undo.MaxBitrate); // MaxBitrate was not in mod, so not in undo
-
-            // Apply undo to restore
-            fc.AddConditions(undo);
-            Assert.AreEqual(128, fc.MinBitrate);
         }
     }
 }

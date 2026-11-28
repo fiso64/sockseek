@@ -1,0 +1,161 @@
+using Sockseek.Api;
+using Sockseek.Core.UserProfiles;
+
+namespace Sockseek.Server.UserProfiles;
+
+internal static class UserProfileEndpoints
+{
+    public static void Map(WebApplication app)
+    {
+        app.MapGet("/api/users/{username}/profile", GetProfileAsync)
+            .MapErrors(Failure)
+            .WithTags("User Browsing")
+            .WithSummary("Gets a composite remote Soulseek user profile.")
+            .Produces<UserProfileDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+
+        app.MapGet("/api/users/{username}/presence", GetPresenceAsync)
+            .MapErrors(Failure)
+            .WithTags("User Browsing")
+            .WithSummary("Observes a peer's presence without fetching profile details.")
+            .Produces<UserPresenceDto>()
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+
+        app.MapGet("/api/server/profile/picture", GetLocalPicture)
+            .WithTags("User Browsing")
+            .WithSummary("Gets the profile picture this daemon shows to Soulseek peers.")
+            .Produces<byte[]>(
+                StatusCodes.Status200OK,
+                contentType: "image/jpeg",
+                additionalContentTypes: ["image/png", "image/gif", "image/webp"])
+            .Produces(StatusCodes.Status304NotModified)
+            .Produces<ApiErrorDto>(StatusCodes.Status404NotFound);
+
+        app.MapGet("/api/users/{username}/picture", GetPictureAsync)
+            .MapErrors(Failure)
+            .WithTags("User Browsing")
+            .WithSummary("Gets a validated remote Soulseek user profile picture.")
+            .Produces<byte[]>(
+                StatusCodes.Status200OK,
+                contentType: "image/jpeg",
+                additionalContentTypes: ["image/png", "image/gif", "image/webp"])
+            .Produces(StatusCodes.Status304NotModified)
+            .Produces<ApiErrorDto>(StatusCodes.Status400BadRequest)
+            .Produces<ApiErrorDto>(StatusCodes.Status404NotFound)
+            .Produces<ApiErrorDto>(StatusCodes.Status503ServiceUnavailable);
+    }
+
+    private static async Task<IResult> GetProfileAsync(
+        string username,
+        DaemonRuntime runtime,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken,
+        bool refresh = false)
+    {
+        UserProfileService? service = runtime.UserProfiles;
+        if (service is null)
+        {
+            ServerLogMessages.FeatureRequestUnavailable(
+                loggerFactory.CreateLogger("Sockseek.Server.UserProfiles.UserProfileEndpoints"),
+                "user profiles");
+            return Unavailable();
+        }
+        UserProfileDto profile = await service.GetAsync(
+            username,
+            refresh,
+            cancellationToken).ConfigureAwait(false);
+        var restrictions = runtime.SoulseekRuntime!.Restrictions;
+        return Results.Ok(profile with
+        {
+            UploadAccessBlocked = restrictions.IsUploadUsernameBlocked(profile.Username),
+            PrivateMessagesBlocked = restrictions.IsPrivateMessageBlocked(profile.Username),
+        });
+    }
+
+    private static async Task<IResult> GetPictureAsync(
+        string username,
+        HttpRequest request,
+        HttpResponse response,
+        DaemonRuntime runtime,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        UserProfileService? service = runtime.UserProfiles;
+        if (service is null)
+        {
+            ServerLogMessages.FeatureRequestUnavailable(
+                loggerFactory.CreateLogger("Sockseek.Server.UserProfiles.UserProfileEndpoints"),
+                "user profiles");
+            return Unavailable();
+        }
+        UserPicture? picture = await service.GetPictureAsync(
+            username,
+            cancellationToken).ConfigureAwait(false);
+        return PictureResult(picture, request, response);
+    }
+
+    private static async Task<IResult> GetPresenceAsync(
+        string username,
+        DaemonRuntime runtime,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        UserPresenceService? service = runtime.UserPresence;
+        if (service is null)
+        {
+            ServerLogMessages.FeatureRequestUnavailable(
+                loggerFactory.CreateLogger("Sockseek.Server.UserProfiles.UserProfileEndpoints"),
+                "user presence");
+            return Unavailable();
+        }
+        return Results.Ok(await service.GetAsync(
+            username, cancellationToken).ConfigureAwait(false));
+    }
+
+    private static IResult GetLocalPicture(HttpRequest request, HttpResponse response, DaemonRuntime runtime)
+        => PictureResult(runtime.SoulseekRuntime?.LocalProfile.Picture, request, response);
+
+    private static IResult PictureResult(UserPicture? picture, HttpRequest request, HttpResponse response)
+    {
+        if (picture is null)
+        {
+            return Results.NotFound(new ApiErrorDto(
+                "The user has no available profile picture.",
+                "picture-unavailable"));
+        }
+
+        response.Headers.ETag = picture.ETag;
+        response.Headers.CacheControl = "private, max-age=30, must-revalidate";
+        response.Headers.XContentTypeOptions = "nosniff";
+        if (MatchesEtag(request.Headers.IfNoneMatch, picture.ETag))
+            return Results.StatusCode(StatusCodes.Status304NotModified);
+
+        response.ContentLength = picture.Bytes.Length;
+        return Results.Bytes(picture.Bytes, picture.MediaType);
+    }
+
+    private static bool MatchesEtag(
+        Microsoft.Extensions.Primitives.StringValues values,
+        string etag)
+        => values
+            .SelectMany(value => (value ?? "").Split(','))
+            .Select(value => value.Trim())
+            .Any(value => value == "*" || string.Equals(value, etag, StringComparison.Ordinal));
+
+    private static IResult Failure(Exception exception)
+        => exception switch
+        {
+            ArgumentException => Results.BadRequest(
+                new ApiErrorDto(exception.Message, "invalid-username")),
+            UserProfileUnavailableException or InvalidOperationException => Unavailable(),
+            _ => Unavailable(),
+        };
+
+    private static IResult Unavailable()
+        => Results.Json(
+            new ApiErrorDto("Soulseek profiles are unavailable.", "soulseek-unavailable"),
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+
+}

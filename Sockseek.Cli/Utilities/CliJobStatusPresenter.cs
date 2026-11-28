@@ -1,5 +1,4 @@
 using Sockseek.Api;
-using Soulseek;
 
 namespace Sockseek.Cli;
 
@@ -25,96 +24,87 @@ internal sealed record CliJobStatus(
 
 internal static class CliJobStatusPresenter
 {
-    public static CliJobStatus ForSummary(JobSummaryDto summary, string? transferState = null)
-        => ForSplit(summary.LifecycleState, summary.ActivityPhase, summary.TerminalOutcome, summary.SkipReason, summary.FailureReason, transferState);
-
-    public static CliJobStatus ForSongPayload(SongJobPayloadDto song, string? transferStateOverride = null)
-    {
-        var lifecycle = song.LifecycleState ?? ServerJobLifecycleState.Pending;
-        var activity = song.ActivityPhase ?? ServerJobActivityPhase.None;
-        var outcome = song.TerminalOutcome ?? ServerJobTerminalOutcome.None;
-        var skipReason = song.SkipReason ?? ServerJobSkipReason.None;
-        return ForSplit(lifecycle, activity, outcome, skipReason, song.FailureReason, transferStateOverride ?? song.TransferState);
-    }
-
-    public static CliJobStatus ForSongEvent(SongStateChangedEventDto song)
-        => ForSplit(song.LifecycleState, song.ActivityPhase, song.TerminalOutcome, song.SkipReason, song.FailureReason);
+    public static CliJobStatus ForSummary(JobSummaryDto summary, TransferStatusFieldsDto? transfer = null)
+        => ForSplit(summary.Lifecycle.LifecycleState, summary.Lifecycle.ActivityPhase, summary.Lifecycle.TerminalOutcome, summary.Lifecycle.SkipReason, summary.Lifecycle.FailureReason, transfer?.Phase, transfer?.QueuePosition);
 
     public static CliJobStatus ForSplit(
-        ServerJobLifecycleState lifecycle,
-        ServerJobActivityPhase activity,
-        ServerJobTerminalOutcome outcome,
-        ServerJobSkipReason skipReason = ServerJobSkipReason.None,
-        ServerJobFailureReason? failureReason = null,
-        string? transferState = null)
+        JobLifecycleState lifecycle,
+        JobActivityPhase activity,
+        JobTerminalOutcome outcome,
+        JobSkipReason skipReason = JobSkipReason.None,
+        JobFailureReason? failureReason = null,
+        TransferPhase? transferPhase = null,
+        int? queuePosition = null)
     {
-        if (lifecycle == ServerJobLifecycleState.Terminal)
+        if (lifecycle == JobLifecycleState.Terminal)
             return Terminal(outcome, skipReason, failureReason);
 
-        if (TryTransferState(transferState, out var transfer))
+        if (activity == JobActivityPhase.Downloading && TryTransferPhase(transferPhase, queuePosition, out var transfer))
             return transfer;
 
         return activity switch
         {
-            ServerJobActivityPhase.WaitingForSearchConcurrency => Active("waiting search", ConsoleColor.DarkGray),
-            ServerJobActivityPhase.SearchRateLimited => Active("rate limited", ConsoleColor.DarkGray),
-            ServerJobActivityPhase.Searching => Active("searching"),
-            ServerJobActivityPhase.ProcessingSearchResults => Active("processing results"),
-            ServerJobActivityPhase.Extracting => Active("extracting"),
-            ServerJobActivityPhase.Downloading => Active("downloading"),
-            ServerJobActivityPhase.RetrievingFolder => Active("retrieving folder"),
-            ServerJobActivityPhase.RunningChildren => Active("running"),
-            ServerJobActivityPhase.Organizing => Active("organizing"),
-            ServerJobActivityPhase.RunningOnComplete => Active("on-complete"),
-            ServerJobActivityPhase.RunningFallback => Active("fallback"),
+            JobActivityPhase.WaitingForSearchConcurrency => Active("waiting search", ConsoleColor.DarkGray),
+            JobActivityPhase.SearchRateLimited => Active("rate limited", ConsoleColor.DarkGray),
+            JobActivityPhase.Searching => Active("searching"),
+            JobActivityPhase.ProcessingSearchResults => Active("processing results"),
+            JobActivityPhase.Extracting => Active("extracting"),
+            JobActivityPhase.Downloading => Active("downloading"),
+            JobActivityPhase.RetrievingFolder => Active("retrieving folder"),
+            JobActivityPhase.RunningChildren => Active("running"),
+            JobActivityPhase.Organizing => Active("organizing"),
+            JobActivityPhase.RunningOnComplete => Active("on-complete"),
+            JobActivityPhase.RunningFallback => Active("fallback"),
+            JobActivityPhase.SearchingFallback => Active("searching fallback"),
+            JobActivityPhase.DownloadingFallback => Active("downloading fallback"),
+            JobActivityPhase.ProcessingFallback => Active("processing fallback"),
             _ => lifecycle switch
             {
-                ServerJobLifecycleState.Pending => new("queued", ConsoleColor.Gray, CliJobStatusCategory.Queued),
-                ServerJobLifecycleState.AwaitingSelection => Active("awaiting selection"),
+                JobLifecycleState.Pending => new("queued", ConsoleColor.Gray, CliJobStatusCategory.Queued),
+                JobLifecycleState.AwaitingSelection => Active("awaiting selection"),
                 _ => Active("running"),
             },
         };
     }
 
-    public static string FailureReasonLabel(ServerJobFailureReason? reason)
+    public static string FailureReasonLabel(JobFailureReason? reason)
         => ServerFailureReasonDisplay.Label(reason);
 
     private static CliJobStatus Active(string label, ConsoleColor color = ConsoleColor.Cyan)
         => new(label, color, CliJobStatusCategory.Active);
 
-    private static CliJobStatus Terminal(ServerJobTerminalOutcome outcome, ServerJobSkipReason skipReason, ServerJobFailureReason? reason)
+    private static CliJobStatus Terminal(JobTerminalOutcome outcome, JobSkipReason skipReason, JobFailureReason? reason)
         => outcome switch
         {
-            ServerJobTerminalOutcome.Succeeded => new("succeeded", ConsoleColor.Green, CliJobStatusCategory.Succeeded),
-            ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.AlreadyExists => new("already exists", ConsoleColor.Green, CliJobStatusCategory.Succeeded),
-            ServerJobTerminalOutcome.Skipped when skipReason == ServerJobSkipReason.NotFoundLastTime => new("not found", ConsoleColor.DarkGray, CliJobStatusCategory.Succeeded),
-            ServerJobTerminalOutcome.Skipped => new("skipped", ConsoleColor.DarkGray, CliJobStatusCategory.Succeeded),
-            ServerJobTerminalOutcome.Cancelled => new("cancelled", ConsoleColor.DarkGray, CliJobStatusCategory.Failed),
-            ServerJobTerminalOutcome.PartialSuccess => new("partial", ConsoleColor.Yellow, CliJobStatusCategory.Failed),
-            ServerJobTerminalOutcome.Failed => new(FailedLabel(reason), ConsoleColor.Red, CliJobStatusCategory.Failed),
+            JobTerminalOutcome.Succeeded => new("succeeded", ConsoleColor.Green, CliJobStatusCategory.Succeeded),
+            JobTerminalOutcome.Skipped when skipReason == JobSkipReason.AlreadyExists => new("already exists", ConsoleColor.Green, CliJobStatusCategory.Succeeded),
+            JobTerminalOutcome.Skipped when skipReason == JobSkipReason.NotFoundLastTime => new("not found", ConsoleColor.DarkGray, CliJobStatusCategory.Succeeded),
+            JobTerminalOutcome.Skipped => new("skipped", ConsoleColor.DarkGray, CliJobStatusCategory.Succeeded),
+            JobTerminalOutcome.Cancelled => new("cancelled", ConsoleColor.DarkGray, CliJobStatusCategory.Failed),
+            JobTerminalOutcome.PartialSuccess => new("partial", ConsoleColor.Yellow, CliJobStatusCategory.Failed),
+            JobTerminalOutcome.Failed => new(FailedLabel(reason), ConsoleColor.Red, CliJobStatusCategory.Failed),
             _ => new("failed", ConsoleColor.Red, CliJobStatusCategory.Failed),
         };
 
-    private static string FailedLabel(ServerJobFailureReason? reason)
+    private static string FailedLabel(JobFailureReason? reason)
     {
         return ServerFailureReasonDisplay.FailedLabel(reason);
     }
 
-    private static bool TryTransferState(string? raw, out CliJobStatus status)
+    /// <summary>A transfer describes its job only while the job is downloading.</summary>
+    private static bool TryTransferPhase(TransferPhase? phase, int? queuePosition, out CliJobStatus status)
     {
-        status = default!;
-        if (raw == null || !Enum.TryParse<TransferStates>(raw, out var state) || state == TransferStates.None)
-            return false;
-
-        status = state switch
+        status = phase switch
         {
-            var s when s.HasFlag(TransferStates.InProgress) => Active("downloading"),
-            var s when s.HasFlag(TransferStates.Queued) && s.HasFlag(TransferStates.Remotely) => Active("queued (R)"),
-            var s when s.HasFlag(TransferStates.Queued) && s.HasFlag(TransferStates.Locally) => Active("queued (L)"),
-            var s when s.HasFlag(TransferStates.Initializing) => Active("initialising"),
-            var s when s.HasFlag(TransferStates.TimedOut) => new("timed out", ConsoleColor.Red, CliJobStatusCategory.Failed),
-            _ => Active(state.ToString()),
+            TransferPhase.QueuedRemotely => Active(queuePosition > 0 ? $"queued (R) #{queuePosition}" : "queued (R)"),
+            TransferPhase.QueuedLocally => Active("queued (L)"),
+            TransferPhase.QueuedForPeer => Active("waiting for peer"),
+            TransferPhase.Starting or TransferPhase.Requested or TransferPhase.Initializing => Active("connecting"),
+            TransferPhase.InProgress => Active("downloading"),
+            TransferPhase.Finalizing => Active("finalizing"),
+            TransferPhase.Retrying => Active("retrying"),
+            _ => null!,
         };
-        return true;
+        return status is not null;
     }
 }

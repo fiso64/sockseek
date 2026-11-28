@@ -1,4 +1,4 @@
-using Sockseek.Core;
+using Sockseek.Api;
 
 namespace Sockseek.Core.Settings;
 

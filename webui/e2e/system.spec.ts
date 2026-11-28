@@ -1,0 +1,241 @@
+import { test, expect } from './fixtures';
+import type { Schema } from '../src/api/types';
+
+test.use({ uploadShares: true });
+
+test('announces configuration problems once until resolved, using live state', async ({ page, daemon }) => {
+  const statusRequests: string[] = [];
+  page.on('request', request => {
+    if (/\/api\/server\/(status|info)$/.test(new URL(request.url()).pathname)) statusRequests.push(request.url());
+  });
+  await page.goto('/jobs');
+  const dialog = page.getByRole('dialog');
+  await daemon.command('configuration:true:true:false');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'System', exact: true }).click();
+  const notices = page.locator('.system-page > [role=tabpanel] > .resource-state-notice');
+  await expect(notices).toHaveCount(1);
+  await page.reload();
+  await expect(notices).toHaveCount(1);
+  await expect(page.getByRole('region', { name: 'Daemon', exact: true }).locator('dd').first()).not.toHaveText('—');
+  let initialRequests = statusRequests.length;
+  await expect(dialog).toHaveCount(0);
+
+  // An error still interrupts an already-dismissed restart notice. Both pieces
+  // of information share one modal, dismissed together rather than stacked.
+  await daemon.command('configuration:true:true:true');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(notices).toHaveCount(2);
+  // Assert transport/rendering of diagnostic data, not application wording.
+  const status = await (await page.request.get('/api/server/status')).json() as Schema<'ServerStatusDto'>;
+  await expect(dialog.getByRole('alert')).toContainText(status.configuration!.error!);
+  await expect(dialog.getByRole('alert')).toContainText(String(status.configuration!.errorLine));
+  await expect(notices.and(page.getByRole('alert'))).toContainText(status.configuration!.error!);
+  await dialog.getByRole('button').click();
+  await expect(dialog).toHaveCount(0);
+  expect(statusRequests).toHaveLength(initialRequests);
+  // Errors remain prominent on a full reload, unlike the dismissed restart.
+  await page.reload();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(notices).toHaveCount(2);
+  await page.keyboard.press('Escape');
+  initialRequests = statusRequests.length;
+  await daemon.command('terminal-transfer-committed');
+
+  // Recovery clears the failure latch without repeating the pending restart.
+  await daemon.command('configuration:true:true:false');
+  await expect(notices).toHaveCount(1);
+  await expect(dialog).toHaveCount(0);
+  await daemon.command('configuration:true:true:true');
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await daemon.command('configuration:true:false:false');
+  await expect(notices).toHaveCount(0);
+  await daemon.command('configuration:true:true:false');
+  await expect(dialog).toBeVisible();
+  expect(statusRequests).toHaveLength(initialRequests);
+});
+
+test('browses the served catalog and confirms cleanup without deleting active work', async ({ page, daemon }) => {
+  const requests: string[] = [];
+  page.on('request', request => requests.push(`${request.method()} ${new URL(request.url()).pathname}`));
+  const status = page.waitForResponse(response => new URL(response.url()).pathname === '/api/server/status');
+  await page.goto('/system');
+  await expect(page.getByRole('heading', { name: 'System', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Status', exact: true })).toHaveAttribute('aria-selected', 'true');
+  expect((await status).ok()).toBe(true);
+  expect(requests.filter(path => path.includes('/auth/keys'))).toEqual([]);
+  // A scan publishes several unrelated daemon updates. Status must render those
+  // without fetching the same connection/storage details again.
+  await page.getByRole('button', { name: 'Rescan shares', exact: true }).click();
+  await expect(page.locator('.system-page .resource-state-notice[role=status] .notice-dismiss')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Rescan shares', exact: true })).toBeEnabled();
+  expect(requests.filter(path => path === 'GET /api/server/status')).toHaveLength(1);
+  expect(requests.filter(path => path === 'GET /api/server/info')).toHaveLength(1);
+  expect(requests.filter(path => path.includes('/sharing/catalogs/'))).toHaveLength(0);
+
+  await page.getByRole('tablist', { name: 'System sections' }).getByRole('tab', { name: 'Shares', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Expand Album', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Expand Album', exact: true }).click();
+  await expect(page.getByText('Uploaded.txt', { exact: true })).toBeVisible();
+  // Root directories, Public's children, and Album's files: no requests for
+  // Public's known-empty file list or Album's known-empty child directories.
+  expect(requests.filter(path => path.includes('/sharing/catalogs/'))).toHaveLength(3);
+  await expect(page.locator('.share-tree input[type=checkbox]')).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'Filter user shares' }).fill('Uploaded');
+  await expect(page.locator('.share-tree-row.file')).toHaveCount(1);
+  expect(requests.some(path => path.includes('/user-browses'))).toBe(false);
+  const catalog = await (await page.request.get('/api/sharing')).json() as Schema<'SharingStateDto'>;
+  const generation = catalog.catalog.generationId!;
+  const oldPage = await page.request.get(`/api/sharing/catalogs/${generation}/directories?limit=1`);
+  expect(oldPage.ok()).toBe(true);
+
+  await page.getByRole('tab', { name: 'Management', exact: true }).click();
+  expect(requests.filter(path => path.includes('/auth/keys'))).toEqual([]);
+  await page.getByRole('tab', { name: 'Management', exact: true }).focus();
+  await page.keyboard.press('End');
+  await expect(page.getByRole('tab', { name: 'API', exact: true })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Create API key', exact: true })).toBeEnabled();
+  await page.getByRole('tablist', { name: 'System sections' }).getByRole('tab', { name: 'Shares', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Filter user shares' })).toHaveValue('Uploaded');
+  const scanComplete = page.waitForResponse(response => new URL(response.url()).pathname.includes('/sharing/catalogs/')
+    && !new URL(response.url()).pathname.includes(generation) && response.ok());
+  await page.getByRole('button', { name: 'Rescan shares', exact: true }).click();
+  await scanComplete;
+  await expect(page.getByRole('textbox', { name: 'Filter user shares' })).toHaveValue('Uploaded');
+  await expect(page.locator('.share-tree-row.file')).toHaveCount(1);
+  expect((await page.request.get(`/api/sharing/catalogs/${generation}/directories`)).status()).toBe(409);
+
+  expect((await page.request.post('/api/jobs/delete-completed', { data: {} })).status()).toBe(400);
+
+  const completed = await (await page.request.post('/api/jobs/search', { data: { queryText: 'Fixture' } })).json() as Schema<'JobSummaryDto'>;
+  await daemon.command(`wait-job-complete:${completed.jobId}`);
+  await daemon.command('staged-search');
+  const active = await (await page.request.post('/api/jobs/search', { data: { queryText: 'Still searching' } })).json() as Schema<'JobSummaryDto'>;
+  await daemon.command('wait-search-started');
+  await page.getByRole('tab', { name: 'Management', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  for (const id of ['searches', 'jobs', 'downloads', 'uploads']) {
+    await page.getByTestId(`management-${id}`).click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByTestId('management-confirm')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+  expect(requests.filter(path => path === 'POST /api/transfers/remove')).toEqual([]);
+  expect(requests.filter(path => path === 'POST /api/jobs/delete-completed')).toEqual([]);
+  await page.getByTestId('management-searches').click();
+  const deleted = page.waitForResponse(response => new URL(response.url()).pathname === '/api/jobs/delete-completed');
+  await dialog.getByTestId('management-confirm').click();
+  expect(await (await deleted).json()).toMatchObject({ deletedSubmissions: 1, deletedJobs: 1 });
+  expect((await page.request.get(`/api/jobs/${completed.jobId}`)).status()).toBe(404);
+  expect((await page.request.get(`/api/jobs/${active.jobId}`)).status()).toBe(200);
+  await daemon.command('finish-search');
+
+  await page.goto('/uploads');
+  await daemon.command('fail-next-upload');
+  await daemon.command('request-upload');
+  await expect(page.locator('.folder-item-card').filter({ hasText: 'Uploaded.txt' }).getByRole('button', { name: 'Failed', exact: true })).toBeVisible();
+  await page.goto('/system/management');
+  await page.getByTestId('management-uploads').click();
+  const removed = page.waitForResponse(response => new URL(response.url()).pathname === '/api/transfers/remove');
+  await page.getByRole('dialog').getByTestId('management-confirm').click();
+  const receipt = await removed;
+  expect(receipt.request().postDataJSON()).toEqual({ direction: 'upload' });
+  expect(await receipt.json()).toMatchObject({ succeededCount: 1, failedCount: 0 });
+  await page.goto('/uploads');
+  await expect(page.locator('.file-item-card')).toHaveCount(0);
+
+});
+
+
+test('applies configured search defaults and theme before JavaScript, including automatic theme changes', async ({ page, daemon, browser }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/');
+  const darkBackground = await page.locator('body').evaluate(element => getComputedStyle(element).backgroundColor);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'flat');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(14, 15, 16)');
+  await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Album Search/);
+
+  await daemon.command('webui-settings:flat:light:track:upload-speed');
+  // Even the unauthenticated shell renders the configured theme without JS.
+  const context = await browser.newContext({ javaScriptEnabled: false, colorScheme: 'dark' });
+  let lightBackground: string;
+  try {
+    const shell = await context.newPage();
+    await shell.goto(new URL('/index.html', page.url()).href);
+    lightBackground = await shell.locator('body').evaluate(element => getComputedStyle(element).backgroundColor);
+    expect(lightBackground).not.toBe(darkBackground);
+    await expect(shell.locator('html')).toHaveAttribute('data-search-sort', 'upload-speed');
+  } finally { await context.close(); }
+  await page.reload();
+  await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Track Search/);
+  await expect(page.locator('body')).toHaveCSS('background-color', lightBackground);
+
+  await daemon.command('webui-settings:flat:auto:album-groups:relevance');
+  await page.goto('/system');
+  await expect(page.getByRole('button', { name: /^Search result mode:/ })).toHaveAttribute('aria-label', /Album Groups/);
+  await expect(page.locator('body')).toHaveCSS('background-color', lightBackground);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('body')).toHaveCSS('background-color', darkBackground);
+
+  // All appearances use the same controls and geometry, including dialogs and
+  // popovers. Check decoration through real interactions, not just root tokens.
+  const geometry = await page.locator('.search-controls-row').boundingBox();
+  for (const [theme, scheme] of [['2009', 'light'], ['soft', 'dark'], ['flat', 'light'], ['flat', 'dark']] as const) {
+    const physical = theme !== 'flat';
+    await daemon.command(`webui-settings:${theme}:${scheme}:album:relevance`);
+    const shellContext = await browser.newContext({ javaScriptEnabled: false, colorScheme: scheme === 'dark' ? 'light' : 'dark' });
+    let background: string;
+    try {
+      const shell = await shellContext.newPage();
+      await shell.goto(new URL('/index.html', page.url()).href);
+      await expect(shell.locator('html')).toHaveAttribute('data-theme', theme);
+      await expect(shell.locator('html')).toHaveCSS('color-scheme', scheme);
+      background = await shell.locator('body').evaluate(element => getComputedStyle(element).backgroundColor);
+    } finally { await shellContext.close(); }
+    await page.reload();
+    await expect(page.locator('body')).toHaveCSS('background-color', background);
+    await expect(page.locator('.search-controls-row')).toBeVisible();
+    expect(await page.locator('.search-controls-row').boundingBox()).toEqual(geometry);
+    const button = page.getByTestId('search-config-toggle');
+    const image = await button.evaluate(element => getComputedStyle(element).backgroundImage);
+    expect(image === 'none').toBe(!physical);
+    await button.hover();
+    await expect(button).toHaveCSS('background-image', image);
+    const raisedShadow = await button.evaluate(element => getComputedStyle(element).boxShadow);
+    await button.focus();
+    await expect(button).not.toHaveCSS('outline-style', 'none');
+    await button.click();
+    await expect(button).toHaveCSS('box-shadow', raisedShadow);
+    await expect(button).toHaveCSS('transform', 'none');
+    const panel = page.locator('.search-config-popover');
+    await expect(panel).toBeVisible();
+    expect(await panel.evaluate(element => getComputedStyle(element).backgroundImage === 'none')).toBe(!physical);
+    const field = panel.locator('input.field').first();
+    await field.focus();
+    await expect(field).toHaveCSS('outline-style', 'solid');
+    await page.keyboard.press('Escape');
+    const modeButton = page.getByRole('button', { name: /^Search result mode:/ });
+    await modeButton.hover();
+    await expect(modeButton).toHaveCSS('background-image', image);
+    await modeButton.click();
+    await expect(modeButton).toHaveAttribute('aria-expanded', 'true');
+    const menuShadow = await modeButton.evaluate(element => getComputedStyle(element).boxShadow);
+    expect(menuShadow !== raisedShadow).toBe(physical);
+    await page.keyboard.press('Escape');
+    await expect(modeButton).toHaveAttribute('aria-expanded', 'false');
+    await expect(modeButton).toHaveCSS('box-shadow', raisedShadow);
+    await page.goto('/jobs');
+    await page.getByTestId('new-job').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    expect(await dialog.evaluate(element => getComputedStyle(element).backgroundImage === 'none')).toBe(!physical);
+    await page.keyboard.press('Escape');
+    await page.goto('/system');
+  }
+});

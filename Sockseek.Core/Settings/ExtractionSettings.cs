@@ -1,6 +1,8 @@
+using Sockseek.Api;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
-using Sockseek.Core;
+using Sockseek.Core.Extractors;
+using Sockseek.Core.Models;
 
 namespace Sockseek.Core.Settings;
 
@@ -14,7 +16,7 @@ public class ExtractionSettings
     public InputType InputType { get; set; } = InputType.None;
 
     private static InputType ParseInputType(string value, string flag)
-        => Enum.TryParse<InputType>(value.Replace("-", ""), ignoreCase: true, out var parsed)
+        => InputTypes.TryParse(value, out var parsed)
             ? parsed : throw new ArgumentException($"Input error: Invalid input type '{value}'");
 
     [SettingOption("-n", "--number")]
@@ -28,7 +30,7 @@ public class ExtractionSettings
     [SettingOption("-r", "--reverse")]
     public bool Reverse { get; set; }
 
-    [SettingOption("--rfp", "--rfs", "--remove-from-source", "--remove-from-playlist")]
+    [SettingOption("--rfp", "--rfs", "--remove-from-playlist", "--remove-from-source")]
     public bool RemoveTracksFromSource { get; set; }
 
     // Null means the input source decides. Ambiguous string/list inputs default to album mode,
@@ -49,18 +51,101 @@ public class ExtractionSettings
     [SettingOption("--uta", "--upgrade-to-album")]
     public bool UpgradeToAlbum { get; set; }
 
-    // Convenience bridge for older call sites. New mode decisions should use RequestedMode so
-    // the 3.0 default album behavior does not accidentally force concrete sources into albums.
-    [JsonIgnore]
-    public bool IsAlbum
-    {
-        get => RequestedMode == ExtractionMode.Album;
-        set => RequestedMode = value ? ExtractionMode.Album : ExtractionMode.Song;
-    }
-
-    [SettingOption("--emtc", "--extract-min-track-count")]
+    [SettingOption("--no-extract-min-tracks", FixedValue = "false")]
     public bool SetAlbumMinTrackCount { get; set; } = true;
 
-    [SettingOption("--eMtc", "--extract-max-track-count")]
-    public bool SetAlbumMaxTrackCount { get; set; }
+    [SettingOption("--no-extract-max-tracks", FixedValue = "false")]
+    public bool SetAlbumMaxTrackCount { get; set; } = true;
+
+    /// Folder track-count bounds from an album track count reported by the source.
+    public FolderConditionPatch AlbumTrackCountCondition(int? trackCount) => new()
+    {
+        MinTrackCount = SetAlbumMinTrackCount ? trackCount : null,
+        MaxTrackCount = SetAlbumMaxTrackCount ? trackCount : null,
+    };
+}
+
+/// Controls Bandcamp extraction behaviour.
+public class BandcampSettings
+{
+    /// When set, read the page HTML from this local file instead of fetching it from the URL.
+    [SettingOption("--from-html")]
+    public string? HtmlFromFile { get; set; }
+}
+
+public class CsvSettings
+{
+    [SettingOption("--ac", "--artist-col")]
+    public string ArtistCol { get; set; } = "";
+
+    [SettingOption("--alc", "--album-col")]
+    public string AlbumCol { get; set; } = "";
+
+    [SettingOption("--tc", "--track-col", "--title-col")]
+    public string TitleCol { get; set; } = "";
+
+    [SettingOption("--yic", "--yt-id-col")]
+    public string YtIdCol { get; set; } = "";
+
+    [SettingOption("--ydc", "--yt-desc-col")]
+    public string DescCol { get; set; } = "";
+
+    [SettingOption("--atcc", "--album-track-count-col")]
+    public string TrackCountCol { get; set; } = "";
+
+    [SettingOption("--lc", "--length-col")]
+    public string LengthCol { get; set; } = "";
+
+    [SettingOption("--tf", "--time-format")]
+    [SettingValidation(typeof(CsvExtractor), nameof(CsvExtractor.ValidateTimeFormat))]
+    public string TimeUnit { get; set; } = "s";
+
+    [SettingOption("--yp", "--yt-parse")]
+    public bool YtParse { get; set; }
+}
+
+/// Controls SoundCloud extraction behaviour.
+public class SoundCloudSettings
+{
+    /// OAuth token sent to the SoundCloud api-v2 endpoints.
+    [SettingOption("--soundcloud-token")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? AuthToken { get; set; }
+}
+
+public class SpotifySettings
+{
+    [SettingOption("--si", "--spotify-id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? ClientId { get; set; }
+
+    [SettingOption("--ss", "--spotify-secret")]
+    [SettingOption("--spotify-secret-file", CredentialFile = true)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? ClientSecret { get; set; }
+
+    [SettingOption("--stk", "--spotify-token")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? Token { get; set; }
+
+    [SettingOption("--str", "--spotify-refresh")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? Refresh { get; set; }
+}
+
+/// Controls YouTube playlist/video extraction.
+public class YouTubeSettings
+{
+    [SettingOption("--yk", "--youtube-key")]
+    [SettingOption("--youtube-key-file", CredentialFile = true)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWriting)]
+    public string? ApiKey { get; set; }
+
+    /// When true, also fetch deleted tracks from an archive service.
+    [SettingOption("--gd", "--get-deleted")]
+    public bool GetDeleted { get; set; }
+
+    /// When true, only return deleted tracks (skip live ones).
+    [SettingOption("--do", "--deleted-only")]
+    public bool DeletedOnly { get; set; }
 }

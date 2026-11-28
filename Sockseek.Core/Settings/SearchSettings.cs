@@ -11,8 +11,8 @@ public class SearchSettings
 
     // ── Conditions ────────────────────────────────────────────────────────────
 
-    [SettingOption("--af", "--format", Member = "Formats", Parser = nameof(ParseFormats))]
-    [SettingOption("--lt", "--tolerance", "--length-tol", "--length-tolerance", Member = "LengthTolerance")]
+    [SettingOption("--af", "--format", Member = "Formats", ListSyntax = OptionListSyntax.PlainCommaSeparated, Parser = nameof(ParseFormat))]
+    [SettingOption("--lt", "--tolerance", "--length-tolerance", "--length-tol", Member = "LengthTolerance")]
     [SettingOption("--mbr", "--min-bitrate", Member = "MinBitrate")]
     [SettingOption("--Mbr", "--max-bitrate", Member = "MaxBitrate")]
     [SettingOption("--msr", "--min-samplerate", Member = "MinSampleRate")]
@@ -23,15 +23,16 @@ public class SearchSettings
     [SettingOption("--sar", "--strict-artist", Member = "StrictArtist")]
     [SettingOption("--sal", "--strict-album", Member = "StrictAlbum")]
     [SettingOption("--anl", "--accept-no-length", Member = "AcceptNoLength")]
-    [SettingOption("--bu", "--banned-users", Member = "BannedUsers")]
-    [SettingOption("--au", "--allowed-users", Member = "AllowedUsers")]
+    [SettingOption("--bu", "--banned-users", Member = "BannedUsers", ListSyntax = OptionListSyntax.CommaSeparated)]
+    [SettingOption("--au", "--allowed-users", Member = "AllowedUsers", ListSyntax = OptionListSyntax.CommaSeparated)]
+    [SettingOption("--exclude-locked", Member = "ExcludeLocked")]
     public FileConditions NecessaryCond { get; set; } = new()
     {
         Formats = [.. SearchDefaults.Formats],
     };
 
-    [SettingOption("--paf", "--pf", "--pref-format", Member = "Formats", Parser = nameof(ParseFormats))]
-    [SettingOption("--plt", "--pref-tolerance", "--pref-length-tol", "--pref-length-tolerance", Member = "LengthTolerance")]
+    [SettingOption("--paf", "--pf", "--pref-format", Member = "Formats", ListSyntax = OptionListSyntax.PlainCommaSeparated, Parser = nameof(ParseFormat))]
+    [SettingOption("--plt", "--pref-tolerance", "--pref-length-tolerance", "--pref-length-tol", Member = "LengthTolerance")]
     [SettingOption("--pmbr", "--pref-min-bitrate", Member = "MinBitrate")]
     [SettingOption("--pMbr", "--pref-max-bitrate", Member = "MaxBitrate")]
     [SettingOption("--pmsr", "--pref-min-samplerate", Member = "MinSampleRate")]
@@ -39,21 +40,23 @@ public class SearchSettings
     [SettingOption("--pmbd", "--pref-min-bitdepth", Member = "MinBitDepth")]
     [SettingOption("--pMbd", "--pref-max-bitdepth", Member = "MaxBitDepth")]
     [SettingOption("--pst", "--pstt", "--pref-strict-title", Member = "StrictTitle")]
+    // When string ranking is active, artist-in-path matching still acts as a late
+    // tie-breaker with this option off, after quality preferences, free slots and
+    // coarse upload speed. Enabling it promotes artist matching ahead of those
+    // factors and requires it for a result to count as preferred.
     [SettingOption("--psar", "--pref-strict-artist", Member = "StrictArtist")]
     [SettingOption("--psal", "--pref-strict-album", Member = "StrictAlbum")]
     [SettingOption("--panl", "--pref-accept-no-length", Member = "AcceptNoLength")]
-    [SettingOption("--pbu", "--pref-banned-users", Member = "BannedUsers")]
-    [SettingOption("--pau", "--pref-allowed-users", Member = "AllowedUsers")]
+    [SettingOption("--pbu", "--pref-banned-users", Member = "BannedUsers", ListSyntax = OptionListSyntax.CommaSeparated)]
+    [SettingOption("--pau", "--pref-allowed-users", Member = "AllowedUsers", ListSyntax = OptionListSyntax.CommaSeparated)]
+    [SettingOption("--pref-exclude-locked", Member = "ExcludeLocked")]
     public FileConditions PreferredCond { get; set; } = new()
     {
-        Formats          = ["mp3"],
+        ExcludeLocked     = true,
         LengthTolerance  = 3,
-        MinBitrate       = 200,
-        MaxBitrate       = 2500,
-        MaxSampleRate    = 48000,
         StrictTitle      = true,
         StrictAlbum      = true,
-        // TODO [v4]: Revisit pref-strict-artist's default and priority in ResultSorter.
+        // TODO: Revisit pref-strict-artist's default and priority in ResultSorter.
         // Searches send artist + title/album; most peers require all whitespace-separated
         // terms somewhere in the path. Strict artist adds word contiguity/order with
         // space/symbol normalization, not performer detection; any semicolon-delimited artist suffices.
@@ -71,9 +74,8 @@ public class SearchSettings
     public FolderConditions NecessaryFolderCond { get; set; } = new();
     public FolderConditions PreferredFolderCond { get; set; } = new();
 
-    private static string[] ParseFormats(string value, string flag)
-        => value.ToLowerInvariant().Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .Select(format => format.TrimStart('.')).ToArray();
+    private static string ParseFormat(string value, string flag)
+        => value.Trim().TrimStart('.').ToLowerInvariant();
 
     [SettingOption("--atc", "--album-track-count")]
     private static void ConfigureAlbumTrackCount(SettingWriter changes, string value)
@@ -102,13 +104,13 @@ public class SearchSettings
         changes.Set("PreferredCond.AcceptMissingProps", !value);
     }
 
-    [SettingOption("--cond", "--conditions")]
+    [SettingOption("--conditions", "--cond")]
     private static void ConfigureConditions(SettingWriter changes, string value)
     {
         ConfigureConditions(changes, value, preferred: false);
     }
 
-    [SettingOption("--pc", "--pref", "--preferred-conditions")]
+    [SettingOption("--pc", "--preferred-conditions", "--pref")]
     private static void ConfigurePreferredConditions(SettingWriter changes, string value)
     {
         ConfigureConditions(changes, value, preferred: true);
@@ -133,25 +135,36 @@ public class SearchSettings
     [SettingOption("--saq", "--strict-album-quality")]
     public bool StrictAlbumQuality { get; set; }
 
+    /// Rank album folders holding fewer tracks than most matching folders share
+    /// after the others. Manual searches default to off: an underspecified query
+    /// matches several releases, whose track counts say nothing about each other.
+    [SettingOption("--pctc", "--pref-common-track-count")]
+    [SettingOption("--no-pref-common-track-count", FixedValue = "false")]
+    public bool PreferCommonTrackCount { get; set; } = true;
+
     // ── Timing ────────────────────────────────────────────────────────────────
 
     [SettingOption("--st", "--search-time", "--search-timeout")]
     public int SearchTimeout { get; set; } = 5_000;
+
+    [SettingOption("--response-limit")]
+    [Range(1, int.MaxValue)]
+    public int ResponseLimit { get; set; } = 250;
 
     [SettingOption("--Mst", "--stale-time", "--max-stale-time")]
     public int MaxStaleTime { get; set; } = 30_000;
 
     // ── Ranking ───────────────────────────────────────────────────────────────
 
-    /// After this many failures, downrank the candidate. Stored as negative: -N means N failures.
-    [SettingOption("--ftd", "--fails-to-downrank", Negate = true)]
-    public int DownrankOn { get; set; } = -1;
+    /// After this many failures, downrank the candidate.
+    [SettingOption("--ftd", "--fails-to-downrank")]
+    public int DownrankOn { get; set; } = 2;
 
-    /// After this many failures, ignore the candidate entirely. Stored as negative.
-    [SettingOption("--fti", "--fails-to-ignore", Negate = true)]
-    public int IgnoreOn { get; set; } = -2;
+    /// After this many failures, ignore the candidate entirely.
+    [SettingOption("--fti", "--fails-to-ignore")]
+    public int IgnoreOn { get; set; } = 3;
 
-    public int EffectiveIgnoreOn => Math.Min(IgnoreOn, DownrankOn);
+    public int EffectiveIgnoreOn => Math.Max(IgnoreOn, DownrankOn);
 
     // ── Fast search ───────────────────────────────────────────────────────────
 
@@ -209,33 +222,33 @@ public class SearchSettings
     [SettingOption("--amw", "--artist-maybe-wrong")]
     public bool ArtistMaybeWrong { get; set; }
 
-    // ── Aggregate search ──────────────────────────────────────────────────────
+    // ── Grouped search ──────────────────────────────────────────────────────
 
     /// When true, search all matching sources and download from each.
     /// Applies to both songs and albums.
-    [SettingOption("-g", "--aggregate")]
-    public bool IsAggregate { get; set; }
+    [SettingOption("-g", "--aggregate", "--group")]
+    public bool GroupResults { get; set; }
 
-    /// Minimum distinct sharers for aggregate results. Null uses the backend default.
-    [SettingOption("--msa", "--min-shares-aggregate")]
-    public int? MinSharesAggregate { get; set; }
+    /// Minimum distinct sharers for group results. Null uses the backend default.
+    [SettingOption("--msa", "--min-shares-aggregate", "--min-group-shares")]
+    public int? MinGroupShares { get; set; }
 
-    private int defaultMinSharesAggregate = DefaultMinShares;
-    public int EffectiveMinSharesAggregate => MinSharesAggregate ?? defaultMinSharesAggregate;
+    private int defaultMinGroupShares = DefaultMinShares;
+    public int EffectiveMinGroupShares => MinGroupShares ?? defaultMinGroupShares;
 
-    /// Length tolerance (seconds) when grouping candidate songs into aggregate buckets.
-    [SettingOption("--alt", "--aggregate-length-tol")]
-    public int AggregateLengthTol { get; set; } = 3;
+    /// Length tolerance (seconds) when grouping candidate songs into group buckets.
+    [SettingOption("--alt", "--aggregate-length-tol", "--group-length-tol")]
+    public int GroupLengthTol { get; set; } = 3;
 
     internal bool AudioConditionsIgnored { get; private set; }
 
     /// Resolve execution context without rewriting configured conditions or defaults.
     internal SearchSettings Resolve(bool artworkOnly, int defaultMinShares)
     {
-        if (AudioConditionsIgnored == artworkOnly && defaultMinSharesAggregate == defaultMinShares)
+        if (AudioConditionsIgnored == artworkOnly && defaultMinGroupShares == defaultMinShares)
             return this;
         var result = (SearchSettings)MemberwiseClone();
-        result.defaultMinSharesAggregate = defaultMinShares;
+        result.defaultMinGroupShares = defaultMinShares;
         if (artworkOnly)
         {
             result.NecessaryCond = WithoutAudioConditions(NecessaryCond);
@@ -243,6 +256,7 @@ public class SearchSettings
             result.NecessaryFolderCond = new();
             result.PreferredFolderCond = new();
             result.StrictAlbumQuality = false;
+            result.PreferCommonTrackCount = false;
             result.AudioConditionsIgnored = true;
         }
         return result;

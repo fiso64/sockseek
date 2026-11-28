@@ -1,8 +1,6 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Sockseek.Api;
 using Sockseek.Core.Models;
 using Sockseek.Core.Jobs;
-using Sockseek.Core;
 using Sockseek.Core.Services;
 using Sockseek.Core.Settings;
 using Sockseek.Cli;
@@ -20,6 +18,45 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void RetentionDefaultsAndExplicitPoliciesMatchTheDaemon()
+        {
+            var file = new ConfigFile("none", new Dictionary<string, ProfileEntry>());
+            var defaults = ConfigManager.BindAll(file, []).Daemon;
+            var server = new ServerPersistenceOptions();
+            Assert.IsNull(defaults.CompletedJobRetention);
+            Assert.IsNull(defaults.UnsuccessfulJobRetention);
+            Assert.IsNull(defaults.TransferRetention);
+            Assert.IsNull(defaults.PrivateMessageRetention);
+            Assert.AreEqual(defaults.CompletedJobRetention, server.CompletedJobHistoryAge);
+            Assert.AreEqual(defaults.UnsuccessfulJobRetention, server.UnsuccessfulJobHistoryAge);
+            Assert.AreEqual(defaults.TransferRetention, server.TransferHistoryAge);
+            Assert.AreEqual(TimeSpan.FromDays(30), defaults.SearchResultRetention);
+            Assert.AreEqual(defaults.SearchResultRetention, server.SearchResultAge);
+            Assert.AreEqual(defaults.RoomMessageRetention, server.RoomMessageHistoryAge);
+            var configured = ConfigManager.BindAll(file, [
+                "--successful-job-retention-days", "90", "--unsuccessful-job-retention-days", "180",
+                "--transfer-retention-days", "30", "--search-result-retention-days", "forever",
+            ]).Daemon;
+            Assert.AreEqual(TimeSpan.FromDays(90), configured.CompletedJobRetention);
+            Assert.AreEqual(TimeSpan.FromDays(180), configured.UnsuccessfulJobRetention);
+            Assert.AreEqual(TimeSpan.FromDays(30), configured.TransferRetention);
+            Assert.IsNull(configured.SearchResultRetention);
+            var mapped = configured.CreateServerOptions(new EngineSettings(), file, ConfigManager.ParseInvocation([]));
+            Assert.IsTrue(mapped.Persistence.Enabled);
+            Assert.AreEqual(TimeSpan.FromDays(90), mapped.Persistence.CompletedJobHistoryAge);
+            Assert.AreEqual(TimeSpan.FromDays(180), mapped.Persistence.UnsuccessfulJobHistoryAge);
+            Assert.AreEqual(TimeSpan.FromDays(30), mapped.Persistence.TransferHistoryAge);
+            Assert.IsNull(mapped.Persistence.SearchResultAge);
+            var forever = ConfigManager.BindAll(file, [
+                "--successful-job-retention-days", "90", "--successful-job-retention-days", "forever",
+                "--unsuccessful-job-retention-days", "forever", "--transfer-retention-days", "forever",
+            ]).Daemon;
+            Assert.IsNull(forever.CompletedJobRetention);
+            Assert.IsNull(forever.UnsuccessfulJobRetention);
+            Assert.IsNull(forever.TransferRetention);
+        }
+
+        [TestMethod]
         public void Defaults_NecessaryCondFormats_AreSet()
         {
             var config = Cfg();
@@ -29,12 +66,13 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Defaults_PreferredCondBitrate_IsSet()
+        public void Defaults_PreferredConditions_HaveNoEncodingPreference()
         {
             var config = Cfg();
-            Assert.IsNotNull(config.Search.PreferredCond.MinBitrate);
-            Assert.IsNotNull(config.Search.PreferredCond.MaxBitrate);
-            Assert.IsTrue(config.Search.PreferredCond.MinBitrate > 0);
+            Assert.AreEqual(0, config.Search.PreferredCond.Formats.Length);
+            Assert.IsNull(config.Search.PreferredCond.MinBitrate);
+            Assert.IsNull(config.Search.PreferredCond.MaxBitrate);
+            Assert.IsNull(config.Search.PreferredCond.MaxSampleRate);
         }
 
         [TestMethod]
@@ -53,11 +91,11 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Defaults_NoRequestedMode_AggregateFalse()
+        public void Defaults_NoRequestedMode_GroupFalse()
         {
             var config = Cfg();
             Assert.IsNull(config.Extraction.RequestedMode);
-            Assert.IsFalse(config.Search.IsAggregate);
+            Assert.IsFalse(config.Search.GroupResults);
         }
 
         [TestMethod]
@@ -225,6 +263,17 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void PreferCommonTrackCount_NoFlag_IsIncludedInRemoteDownloadSettingsPatch()
+        {
+            var config = new DownloadSettings();
+            Assert.IsTrue(config.Search.PreferCommonTrackCount);
+
+            ConfigManager.CreateCliDownloadSettingsPatch(["--no-pref-common-track-count"])?.ApplyTo(config);
+
+            Assert.IsFalse(config.Search.PreferCommonTrackCount);
+        }
+
+        [TestMethod]
         public void IncompleteAlbumAction_Flag_IsIncludedInRemoteDownloadSettingsPatch()
         {
             var patch = ConfigManager.CreateCliDownloadSettingsPatch(["--incomplete-album-action", "move:failed-target"]);
@@ -259,10 +308,13 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void Aggregate_Flag_SetsAggregateTrue()
+        [DataRow("--group")]
+        [DataRow("-g")]
+        [DataRow("--aggregate")]
+        public void GroupFlagEnablesGrouping(string flag)
         {
-            var config = Cfg("--aggregate", "some input");
-            Assert.IsTrue(config.Search.IsAggregate);
+            var config = Cfg(flag, "some input");
+            Assert.IsTrue(config.Search.GroupResults);
         }
 
         [TestMethod]
@@ -462,10 +514,10 @@ namespace Tests.ConfigParsingTests
         // Simulates: spotify input → SongJob created by extractor → Upgrade(album:true) →
         // PrepareSubtree on upgraded AlbumJob → PreprocessAlbum.
         static AlbumJob UpgradeAndPrepare(DownloadSettings startConfig,
-            SongQuery? query = null, bool aggregate = false)
+            SongQuery? query = null, bool group = false)
         {
             var songJob = new SongJob(query ?? new SongQuery { Title = "Some Song", Artist = "Some Artist" });
-            var albumJob = (AlbumJob)((IUpgradeable)songJob).Upgrade(album: true, aggregate: aggregate).First();
+            var albumJob = (AlbumJob)((IUpgradeable)songJob).Upgrade(album: true, group: group).First();
             JobPreparer.PrepareSubtree(albumJob, startConfig);
             Preprocessor.PreprocessAlbum(albumJob, albumJob.Config.Preprocess);
             JobPreparer.ApplySearchSettings(albumJob, albumJob.Config.Search);
@@ -596,6 +648,81 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
+        public void TextBlockPreservesContentAndEndsAtTheNextSettingOrProfile()
+        {
+            var file = ConfigManager.ParseConfigText("text.conf",
+                "user-description = |\r\n    Hi!\r\n\r\n      # not a comment  \r\n" +
+                "    - [literal] = C:\\music\r\n\r\n# outside the block\r\nusername = first\r\n" +
+                "[other]\r\nuser-description = |-\r\n  Second profile\r\nusername = second");
+            var settings = ConfigManager.Bind(file, []).Engine;
+            Assert.AreEqual("Hi!\n\n  # not a comment  \n- [literal] = C:\\music\n", settings.UserDescription);
+            Assert.AreEqual("first", settings.Username);
+            var other = ConfigManager.Bind(file, [], "other").Engine;
+            Assert.AreEqual("Second profile", other.UserDescription);
+            Assert.AreEqual("second", other.Username);
+        }
+
+        [TestMethod]
+        [DataRow("|2\n    one\n     two\n  \n", "  one\n   two\n\n")]
+        [DataRow("|2-\n  \n   \n  [literal]", "\n \n[literal]")]
+        [DataRow("|\n\tfirst\n\tsecond", "first\nsecond\n")]
+        [DataRow("|", "|")]
+        [DataRow("\"|\"", "|")]
+        public void TextBlockPreservesScalarWhitespace(string source, string expected)
+        {
+            var file = ConfigManager.ParseConfigText("text.conf", "user-description = " + source);
+            Assert.AreEqual(expected, ConfigManager.Bind(file, []).Engine.UserDescription);
+        }
+
+        [TestMethod]
+        public void ConfigListBlocks_ReplaceAndAppendLiteralItemsAcrossProfiles()
+        {
+            var file = ConfigManager.ParseConfigText("lists.conf", """
+                allowed-users = old
+                allowed-users =
+                    - Lee,Jr
+                    # A comment between items
+                    - + Friends
+
+                [weekend]
+                allowed-users = +
+                    - DJ,,Jr
+                    - #guest=1
+                format =
+                    - .FLAC
+                    - MP3
+                on-complete =
+                    - -- echo first,second
+                    - -- echo done
+
+                [all-peers]
+                allowed-users =
+                """);
+
+            var defaults = ConfigManager.Bind(file, []).Download;
+            var weekend = ConfigManager.Bind(file, ["--allowed-users", "+ Last"], "weekend").Download;
+            CollectionAssert.AreEqual(new[] { "Lee,Jr", "+ Friends" }, defaults.Search.NecessaryCond.AllowedUsers);
+            CollectionAssert.AreEqual(new[] { "Lee,Jr", "+ Friends", "DJ,,Jr", "#guest=1", "Last" },
+                weekend.Search.NecessaryCond.AllowedUsers);
+            Assert.IsEmpty(ConfigManager.Bind(file, [], "all-peers").Download.Search.NecessaryCond.AllowedUsers!);
+            CollectionAssert.AreEqual(new[] { "flac", "mp3" }, weekend.Search.NecessaryCond.Formats);
+            CollectionAssert.AreEqual(new[] { "-- echo first,second", "-- echo done" }, weekend.Output.OnComplete);
+        }
+
+        [TestMethod]
+        [DataRow("allowed-users = +", 1)]
+        [DataRow("username =\n  - Alice", 1)]
+        [DataRow("allowed-users =\n  - Alice\n- Bob", 3)]
+        [DataRow("share =\n  - [Music]/music\n  - [open", 3)]
+        [DataRow("chat-room =\n  - Rock\n  -", 3)]
+        [DataRow("[named]\nshare = +\n  - /music", 2)]
+        public void InvalidConfigListBlocks_ReportTheSourceLine(string config, int line)
+        {
+            var error = Assert.Throws<Exception>(() => ConfigManager.ParseConfigText("lists.conf", config));
+            Assert.AreEqual(line, error.Data["ConfigLine"]);
+        }
+
+        [TestMethod]
         public void ConfigDirVariable_ConfigAndEnginePaths_ResolveAgainstConfigFileDirectory()
         {
             string tempDir = Path.Join(Path.GetTempPath(), "sockseek-configdir-" + Guid.NewGuid().ToString("N"));
@@ -649,6 +776,21 @@ namespace Tests.ConfigParsingTests
             var change = patch.Operations.Single(change => change.Path == "Output.OnComplete");
             Assert.AreEqual(SettingOperation.Append, change.Operation);
             CollectionAssert.AreEqual(new[] { "-- second" }, ((List<string>)change.Value!).ToArray());
+        }
+
+        [TestMethod]
+        public void RemoteUserFilters_ReplaceOrAppendExactNamesOverTheDaemonSettings()
+        {
+            var patch = ConfigManager.CreateCliDownloadSettingsPatch([
+                "--allowed-users", "Lee,,Jr, Alice", "--pref-banned-users", "+ Bob,,Jr",
+            ]);
+            var settings = new DownloadSettings();
+            settings.Search.NecessaryCond.AllowedUsers = ["Old"];
+            settings.Search.PreferredCond.BannedUsers = ["Existing"];
+            DownloadSettingsPatchDtoMapper.ApplyTo(settings, DownloadSettingsPatchDtoMapper.FromCore(patch));
+
+            CollectionAssert.AreEqual(new[] { "Lee,Jr", "Alice" }, settings.Search.NecessaryCond.AllowedUsers);
+            CollectionAssert.AreEqual(new[] { "Existing", "Bob,,Jr" }, settings.Search.PreferredCond.BannedUsers);
         }
 
         // ── Inline = form ─────────────────────────────────────────────────────
@@ -727,10 +869,11 @@ namespace Tests.ConfigParsingTests
         }
 
         [TestMethod]
-        public void FailsToDownrank_StoredNegated()
+        public void PeerFailureThresholds_ArePositiveCounts()
         {
-            var (_, dl, _) = Bind("x", "--fails-to-downrank", "3");
-            Assert.AreEqual(-3, dl.Search.DownrankOn);
+            var (_, dl, _) = Bind("x", "--fails-to-downrank", "3", "--fails-to-ignore", "5");
+            Assert.AreEqual(3, dl.Search.DownrankOn);
+            Assert.AreEqual(5, dl.Search.IgnoreOn);
         }
 
         [TestMethod]
@@ -772,9 +915,9 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void AlbumArtOnly_PreservesConditions()
         {
-            var (_, dl, _) = Bind("x", "--album-art-only");
+            var (_, dl, _) = Bind("x", "--album-art-only", "--pref-format", "flac");
             CollectionAssert.AreEqual(SearchDefaults.Formats.ToArray(), dl.Search.NecessaryCond.Formats);
-            CollectionAssert.AreEqual(new[] { "mp3" }, dl.Search.PreferredCond.Formats);
+            CollectionAssert.AreEqual(new[] { "flac" }, dl.Search.PreferredCond.Formats);
         }
 
         [TestMethod]
@@ -863,34 +1006,34 @@ namespace Tests.ConfigParsingTests
         [TestMethod]
         public void RemoteSubmissionOptions_DoNotOverrideServerPathByDefault()
         {
-            var options = Sockseek.Cli.Program.BuildRemoteSubmissionOptions(
-                ["some input", "--remote", "127.0.0.1"],
-                new CliSettings());
+            string[] args = ["some input", "--remote", "127.0.0.1"];
+            var (_, download, cli) = Bind(args);
+            var options = Sockseek.Cli.Program.BuildRemoteExtractRequest(ConfigManager.ParseInvocation(args), download, cli).Options!;
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.IsNull(options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
+            Assert.IsNull(options.DownloadSettings?.Output?.ParentDir);
         }
 
         [TestMethod]
         public void RemoteSubmissionOptions_SendExplicitOutputDirAsDownloadPatch()
         {
-            var options = Sockseek.Cli.Program.BuildRemoteSubmissionOptions(
-                ["some input", "--remote", "127.0.0.1", "-o", "C:\\Downloads"],
-                new CliSettings());
+            string[] args = ["some input", "--remote", "127.0.0.1", "-o", "C:\\Downloads"];
+            var (_, download, cli) = Bind(args);
+            var options = Sockseek.Cli.Program.BuildRemoteExtractRequest(ConfigManager.ParseInvocation(args), download, cli).Options!;
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
+            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Output?.ParentDir);
         }
 
         [TestMethod]
         public void RemoteSubmissionOptions_SendBackcompatPathAsDownloadPatch()
         {
-            var options = Sockseek.Cli.Program.BuildRemoteSubmissionOptions(
-                ["some input", "--remote", "127.0.0.1", "-p", "C:\\Downloads"],
-                new CliSettings());
+            string[] args = ["some input", "--remote", "127.0.0.1", "-p", "C:\\Downloads"];
+            var (_, download, cli) = Bind(args);
+            var options = Sockseek.Cli.Program.BuildRemoteExtractRequest(ConfigManager.ParseInvocation(args), download, cli).Options!;
 
             Assert.IsNull(options.OutputParentDir);
-            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Operations.SingleOrDefault(change => change.Path == "Output.ParentDir")?.Value);
+            Assert.AreEqual("C:\\Downloads", options.DownloadSettings?.Output?.ParentDir);
         }
 
         [TestMethod]

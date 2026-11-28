@@ -1,0 +1,37 @@
+name: NixOS
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: &package_inputs
+      - 'flake.*'
+      - 'nix/**'
+      - 'global.json'
+      - 'Directory.Build.props'
+      - '**.csproj'
+      - '**/packages.lock.json'
+      - '**/package-lock.json'
+      - '.github/workflows/nix.yml'
+  push:
+    branches: [master, v4]
+    paths: *package_inputs
+
+permissions:
+  contents: read
+
+jobs:
+  service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v32
+        with:
+          extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
+      # Reads the binary cache; pushes what it builds when the token is available
+      # (not for pull requests from forks).
+      - if: vars.CACHIX_CACHE != ''
+        uses: cachix/cachix-action@v17
+        with:
+          name: ${{ vars.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - run: nix flake check -L
