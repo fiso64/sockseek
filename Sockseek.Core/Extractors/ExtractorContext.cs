@@ -17,6 +17,10 @@ public sealed class ExtractorContext
         SensitiveOutput = sensitiveOutput;
     }
 
+    /// <summary>Collects what the extractor reports, for a job that has no activity stream yet.</summary>
+    public static ExtractorContext Recording(ICollection<ExtractionNote> notes)
+        => new(new RecordingJobLog(notes), NullSensitiveOutput.Instance);
+
     public static ExtractorContext ForJob(
         Job job,
         DownloadEvents events,
@@ -34,6 +38,18 @@ public interface IJobLog
     void Info(string message);
     void Warn(string message);
     void Error(string message);
+}
+
+/// <summary>One thing an extractor said about its input.</summary>
+public sealed record ExtractionNote(LogLevel Level, string Message);
+
+internal sealed class RecordingJobLog(ICollection<ExtractionNote> notes) : IJobLog
+{
+    public void Trace(string message) => notes.Add(new(LogLevel.Trace, message));
+    public void Debug(string message) => notes.Add(new(LogLevel.Debug, message));
+    public void Info(string message) => notes.Add(new(LogLevel.Information, message));
+    public void Warn(string message) => notes.Add(new(LogLevel.Warning, message));
+    public void Error(string message) => notes.Add(new(LogLevel.Error, message));
 }
 
 internal sealed class EventExtractorJobLog(Job job, DownloadEvents events, string? source) : IJobLog

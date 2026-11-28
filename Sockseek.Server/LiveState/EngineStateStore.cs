@@ -612,7 +612,30 @@ public sealed class EngineStateStore
         => UpdateDaemonState(state => state with { SearchRateLimitResetsAtUtc = resetsAtUtc });
 
     public void UpdateDaemonRuntime(SoulseekClientStatusDto soulseekClient, int restartCount)
-        => UpdateDaemonState(state => state with { SoulseekClient = soulseekClient, RestartCount = restartCount });
+    {
+        lock (gate)
+        {
+            bool sessionChanged = daemonState.SoulseekClient.State != soulseekClient.State
+                || daemonState.SoulseekClient.Username != soulseekClient.Username;
+            SetDaemonStateLocked(daemonState with { SoulseekClient = soulseekClient, RestartCount = restartCount });
+            if (sessionChanged)
+                AppendSessionActivity(soulseekClient, DateTimeOffset.UtcNow);
+        }
+        PublishStateChanges();
+    }
+
+    // Daemon state is not part of a workflow stream. A client following one
+    // job still needs to say that the session connected or was lost, so the
+    // change goes out as activity on every watched workflow stream as well.
+    private void AppendSessionActivity(SoulseekClientStatusDto session, DateTimeOffset occurredAtUtc)
+    {
+        var payload = new SessionChangedActivityDto(session);
+        BeginDaemonChange(occurredAtUtc).AddActivity(
+            new(daemonStreamSequence, occurredAtUtc, "session.changed", null, null, null, payload));
+        foreach (Guid workflowId in workflowStreamReservations.Keys.ToArray())
+            BeginWorkflowChange(workflowId, occurredAtUtc).AddActivity(
+                new(workflowStreamSequences[workflowId], occurredAtUtc, "session.changed", workflowId, null, null, payload));
+    }
 
     public void UpdateConfigurationStatus(ConfigurationStatusDto status)
         => UpdateDaemonState(state => state with { Configuration = status });

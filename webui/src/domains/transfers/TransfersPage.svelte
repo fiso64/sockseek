@@ -85,10 +85,11 @@
     return false;
   });
   let canRemoveCompleted = $derived.by(() => {
-    if (summaries.some(group => Number(group.succeededCount) > 0)) return true;
+    if (summaries.some(group => Number(group.succeededCount) + Number(group.failedCount)
+      + Number(group.cancelledCount) + Number(group.interruptedCount) > 0)) return true;
     for (const group of groups) for (const entry of group.items)
       for (const transfer of transferEntryActions(entry, projection, readTransfer))
-        if (transfer.tone === 'complete') return true;
+        if (isTerminalTransfer(transfer)) return true;
     return false;
   });
 
@@ -151,9 +152,9 @@
 
   async function removeCompleted(): Promise<void> {
     if (mutation.phase === 'pending') return;
-    mutation = { phase: 'pending', label: `Removing successful ${direction}s…` };
+    mutation = { phase: 'pending', label: `Removing completed ${direction}s…` };
     try {
-      const receipt = await daemonApi.removeTransfers(direction, { terminalOutcome: 'Succeeded' });
+      const receipt = await daemonApi.removeTransfers(direction, {});
       mutation = receiptStatus(receipt, 'removed');
       await onchanged();
     } catch (cause) {

@@ -477,6 +477,10 @@ public sealed class TransferHistoryReader(
                 IQueryable<Entities.TransferEntity> matching = ApplyRemovalFilter(
                     context.Transfers,
                     filter);
+                // A bulk filter means "the finished ones"; only a named transfer
+                // that is still active is a rejection.
+                if (!filter.TransferId.HasValue)
+                    matching = matching.Where(transfer => transfer.TerminalOutcome != "None");
                 int resolved = await matching.CountAsync(ct).ConfigureAwait(false);
                 if (resolved == 0)
                 {

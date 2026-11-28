@@ -27,7 +27,7 @@
 </script>
 
 <div class="transfer-bulk-actions">
-  <button type="button" class="button action-button" aria-label="Remove all completed" disabled={!canRemoveCompleted || busy} title="Remove successful transfers from history" onclick={onremovecompleted}>
+  <button type="button" class="button action-button" aria-label="Remove all completed" disabled={!canRemoveCompleted || busy} title="Remove succeeded, failed and cancelled transfers from history" onclick={onremovecompleted}>
     <Icon name="trash" />
     <span>Remove all completed</span>
   </button>

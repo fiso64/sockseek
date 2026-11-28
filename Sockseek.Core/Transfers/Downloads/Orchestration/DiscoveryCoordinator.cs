@@ -28,6 +28,15 @@ internal sealed class DiscoveryCoordinator
     {
         if (job.HasPlannedExtraction)
         {
+            // The extractor already ran while planning. Say what was read (once,
+            // for the input itself, not for each line of a list) and replay what
+            // it reported. These are notes: the job's state does not change, so a
+            // long list adds no state updates or writes per line.
+            string? inputName = (job.InputType ?? InputType.None).ToInputName();
+            if (parentJob == null)
+                context.Events.RaiseJobMessage(job, LogLevel.Information, inputName, $"Input: {job.Input}");
+            foreach (ExtractionNote note in job.PlannedExtractionNotes)
+                context.Events.RaiseJobMessage(job, note.Level, inputName, note.Message);
             if (job.PlannedExtractionFailure is { } failure)
             {
                 return new(

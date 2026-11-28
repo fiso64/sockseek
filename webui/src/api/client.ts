@@ -280,7 +280,7 @@ export class DaemonApiClient {
     return this.http.delete(`/transfers/${encodeURIComponent(transferId)}`, signal);
   }
 
-  removeTransfers(direction: 'download' | 'upload', filter: Pick<Schema<'RemoveTransfersRequestDto'>, 'username' | 'groupRef' | 'terminalOutcome'>, signal?: AbortSignal): Promise<TransferCommandReceiptDto> {
+  removeTransfers(direction: 'download' | 'upload', filter: Pick<Schema<'RemoveTransfersRequestDto'>, 'username' | 'groupRef'>, signal?: AbortSignal): Promise<TransferCommandReceiptDto> {
     const request: Schema<'RemoveTransfersRequestDto'> = { direction, ...filter };
     return this.http.post('/transfers/remove', request, signal);
   }

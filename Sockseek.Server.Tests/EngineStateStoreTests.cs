@@ -456,6 +456,35 @@ public class EngineStateStoreTests
     }
 
     [TestMethod]
+    public void SessionChange_ReachesWatchedWorkflowStreamsAndOnlyWhenItChanges()
+    {
+        var store = new EngineStateStore();
+        var batches = new List<StateUpdateBatchDto>();
+        store.StateBatchPublished += batch => batches.Add(batch.ToDto());
+        Guid watched = Guid.NewGuid();
+        store.ReserveWorkflowStream(watched);
+        var loggedIn = new SoulseekClientStatusDto("Connected, LoggedIn", ["Connected", "LoggedIn"], true, "account");
+
+        store.UpdateDaemonRuntime(loggedIn, 0);
+        store.FlushStateUpdates();
+
+        // A client following one job has no daemon state; the change is activity there too.
+        foreach (StateStreamScopeKind scope in new[] { StateStreamScopeKind.Daemon, StateStreamScopeKind.Workflow })
+        {
+            var session = batches.Where(batch => batch.Scope.Kind == scope)
+                .SelectMany(batch => batch.Activity).Select(activity => activity.Payload)
+                .OfType<SessionChangedActivityDto>().Single();
+            Assert.AreEqual("account", session.Session.Username);
+        }
+
+        batches.Clear();
+        store.UpdateDaemonRuntime(loggedIn, 1);
+        store.FlushStateUpdates();
+        Assert.IsFalse(batches.SelectMany(batch => batch.Activity).Any(activity => activity.Payload is SessionChangedActivityDto),
+            "An unchanged session is not news.");
+    }
+
+    [TestMethod]
     public void LiveJobDisplay_UpdatesSubmissionOwnershipAndPreparedSearchPresentation()
     {
         var store = new EngineStateStore();

@@ -52,6 +52,12 @@ configured storage, and ordinary local administration are trusted.
   shared events, or events consumed by ID. Local and remote clients present job
   activity through the existing activity stream. Process diagnostics belong in
   the process that performs the work.
+* Logs are for a daemon's operator; the one-shot CLI console is a frontend and
+  shows loggers only from `Warning` up. Ask "would a remote CLI user need to see
+  this?" If yes, it is job activity (a job or workflow message), a job's state,
+  or a session change, which local and remote runs receive alike; never an
+  `Information` log. Job notes are visible by default; use `Debug` for the ones
+  only `-v` should show.
 * Tests are a maintenance liability as well as an asset. Do not add tests automatically
   for every change. Prefer extending existing tests over new files. Test observable
   behavior and failure isolation rather than implementation details

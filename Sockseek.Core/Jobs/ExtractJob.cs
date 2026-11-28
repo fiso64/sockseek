@@ -52,6 +52,10 @@ namespace Sockseek.Core.Jobs;
         // must not read the source or invoke the extractor again.
         public bool HasPlannedExtraction { get; set; }
         public string? PlannedExtractionFailure { get; set; }
+        // What the extractor reported while planning (the CSV columns it chose,
+        // say). Planning has no job activity yet; the run replays these as notes.
+        // In memory only: a plan restored from its stored command has none.
+        public IReadOnlyList<Extractors.ExtractionNote> PlannedExtractionNotes { get; set; } = [];
 
         protected override bool DefaultCanBeSkipped => false;
 

@@ -590,6 +590,7 @@ public sealed record ActivityEventDto(
 [JsonDerivedType(typeof(ExtractionStartedActivityDto), "extractionStarted")]
 [JsonDerivedType(typeof(DownloadAttemptFailedActivityDto), "downloadAttemptFailed")]
 [JsonDerivedType(typeof(TrackBatchResolvedActivityDto), "trackBatchResolved")]
+[JsonDerivedType(typeof(SessionChangedActivityDto), "sessionChanged")]
 public abstract record ActivityPayloadDto;
 
 public sealed record JobStatusActivityDto(
@@ -620,6 +621,13 @@ public sealed record ExtractionStartedActivityDto(
     string Input,
     string? InputType,
     string? Source) : ActivityPayloadDto;
+
+/// <summary>
+/// The Soulseek session changed (connecting, logged in, lost). Sent on the daemon
+/// stream and on every watched workflow stream, so a client following one job
+/// can say so. A session that does not change sends nothing.
+/// </summary>
+public sealed record SessionChangedActivityDto(SoulseekClientStatusDto Session) : ActivityPayloadDto;
 
 public sealed record DownloadAttemptFailedActivityDto(
     int DisplayId,

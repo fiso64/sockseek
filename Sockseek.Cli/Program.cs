@@ -156,8 +156,15 @@ internal static partial class Program
         }
 
         output.RouteLogsToError(cliSettings.ProgressJson || remoteSettings.Detach);
+        // The daemon's console is its operator log. A one-shot run's console is a
+        // frontend: job activity and session state reach it through the client
+        // store, the same for local and remote runs, so process diagnostics start
+        // at Warning there. Information events stay in the log file; -v shows all.
+        LogLevel consoleLevel = rootSettings.NonVerbosePrint ? LogLevel.Error
+            : daemonMode || engineSettings.LogLevel < LogLevel.Information ? engineSettings.LogLevel
+            : (LogLevel)Math.Max((int)engineSettings.LogLevel, (int)LogLevel.Warning);
         using ILoggerFactory loggerFactory = output.CreateLoggerFactory(
-            rootSettings.NonVerbosePrint ? LogLevel.Error : engineSettings.LogLevel,
+            consoleLevel,
             engineSettings.LogFilePath,
             LogLevel.Debug);
         ILogger logger = loggerFactory.CreateLogger("Sockseek.Cli.Program");
@@ -314,7 +321,10 @@ internal static partial class Program
             engine,
             rootSettings,
             localSubmissionOptionsResolver,
-            DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings));
+            DownloadSettingsPatchDtoMapper.FromCore(invocation.DownloadSettings),
+            // Local files involve no Soulseek session.
+            string.IsNullOrEmpty(engineSettings.MockFilesDir) ? clientManager : null,
+            engineSettings);
 
         CliProgressReporter? cliReporter = null;
         if (cliSettings.ProgressJson)
@@ -325,6 +335,9 @@ internal static partial class Program
             cliReporter.Attach(backend);
         }
 
+        bool localFiles = !string.IsNullOrEmpty(engineSettings.MockFilesDir);
+        if (localFiles)
+            CliProcessOutput.Write(output, LogLevel.Information, "Using local files instead of the Soulseek network", "soulseek");
         var eventLogger = new EventLogger(backend, output, includeDiagnosticDetails: engineSettings.LogLevel <= LogLevel.Debug);
         eventLogger.Attach();
 

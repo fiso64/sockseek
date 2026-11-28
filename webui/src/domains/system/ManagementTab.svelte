@@ -1,5 +1,6 @@
 <script lang="ts">
   import { DaemonHttpClient } from '../../api/http';
+  import { daemonApi } from '../../api/client';
   import type { Schema } from '../../api/types';
   import { formatCount } from '../../app/format';
   import Modal from '../../components/Modal.svelte';
@@ -34,10 +35,9 @@
         const receipt = await http.post<Schema<'DeleteCompletedJobsResponseDto'>>('/jobs/delete-completed', { category: action.category });
         result = `${formatCount(receipt.deletedJobs)} jobs deleted from ${formatCount(receipt.deletedSubmissions)} submissions.${receipt.skippedSubmissions ? ` ${formatCount(receipt.skippedSubmissions)} submissions kept because they are still active.` : ''}`;
       } else {
-        const receipt = await http.post<Schema<'TransferCommandReceiptDto'>>('/transfers/remove', { direction: action.direction });
-        const active = receipt.reasons.filter(reason => reason.reason === 'nonterminal').reduce((sum, reason) => sum + Number(reason.count), 0);
-        const failed = Number(receipt.failedCount) + Number(receipt.rejectedCount) - active;
-        result = `${formatCount(receipt.succeededCount)} ${action.direction}s removed.${active ? ` ${formatCount(active)} active transfers kept.` : ''}${failed ? ` ${formatCount(failed)} could not be removed.` : ''}`;
+        const receipt = await daemonApi.removeTransfers(action.direction, {});
+        const failed = Number(receipt.failedCount) + Number(receipt.rejectedCount);
+        result = `${formatCount(receipt.succeededCount)} ${action.direction}s removed.${failed ? ` ${formatCount(failed)} could not be removed.` : ''}`;
       }
       confirming = null;
     } catch (cause) { error = cause instanceof Error ? cause.message : 'Cleanup failed.'; }

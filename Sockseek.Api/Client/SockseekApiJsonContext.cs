@@ -195,6 +195,7 @@ namespace Sockseek.Api;
 [JsonSerializable(typeof(WorkflowMessageActivityDto))]
 [JsonSerializable(typeof(DiagnosticActivityDto))]
 [JsonSerializable(typeof(ExtractionStartedActivityDto))]
+[JsonSerializable(typeof(SessionChangedActivityDto))]
 [JsonSerializable(typeof(DownloadAttemptFailedActivityDto))]
 [JsonSerializable(typeof(TrackBatchResolvedActivityDto))]
 [JsonSerializable(typeof(WorkflowJobGroupDto))]

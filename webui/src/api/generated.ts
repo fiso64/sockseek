@@ -10669,6 +10669,15 @@ export interface components {
                 existingCount: number | string;
                 /** Format: int32 */
                 notFoundCount: number | string;
+            } | {
+                /** @enum {string} */
+                kind?: "sessionChanged";
+                session: {
+                    state: string;
+                    flags: string[];
+                    isReady: boolean;
+                    username?: null | string;
+                };
             };
         };
         ActivityPayloadDto: {
@@ -10736,6 +10745,15 @@ export interface components {
             existingCount: number | string;
             /** Format: int32 */
             notFoundCount: number | string;
+        } | {
+            /** @enum {string} */
+            kind?: "sessionChanged";
+            session: {
+                state: string;
+                flags: string[];
+                isReady: boolean;
+                username?: null | string;
+            };
         };
         ActivityPayloadDtoDiagnosticActivityDto: {
             /** Format: int32 */
@@ -10777,6 +10795,14 @@ export interface components {
             /** Format: int32 */
             displayId: number | string;
             status: string;
+        };
+        ActivityPayloadDtoSessionChangedActivityDto: {
+            session: {
+                state: string;
+                flags: string[];
+                isReady: boolean;
+                username?: null | string;
+            };
         };
         ActivityPayloadDtoTrackBatchResolvedActivityDto: {
             /** Format: int32 */
@@ -13899,6 +13925,14 @@ export interface components {
         };
         /** @enum {unknown} */
         ServerWorkflowState: "active" | "failed" | "completed";
+        SessionChangedActivityDto: {
+            session: {
+                state: string;
+                flags: string[];
+                isReady: boolean;
+                username?: null | string;
+            };
+        };
         SessionDto: {
             authenticationEnabled: boolean;
             authenticated: boolean;
@@ -15643,6 +15677,15 @@ export interface components {
                     existingCount: number | string;
                     /** Format: int32 */
                     notFoundCount: number | string;
+                } | {
+                    /** @enum {string} */
+                    kind?: "sessionChanged";
+                    session: {
+                        state: string;
+                        flags: string[];
+                        isReady: boolean;
+                        username?: null | string;
+                    };
                 };
             }[];
         };

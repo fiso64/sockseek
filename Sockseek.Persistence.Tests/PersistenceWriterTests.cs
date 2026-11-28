@@ -2949,10 +2949,9 @@ public sealed class PersistenceWriterTests
 
         TransferRemovalResult removed = await reader.RemoveAsync(
             new TransferRemovalFilter(Direction: "Upload", Username: "peer", GroupRef: "folder"));
-        Assert.AreEqual(2, removed.ResolvedCount);
+        Assert.AreEqual(1, removed.ResolvedCount);
         Assert.AreEqual(1, removed.ChangedCount);
-        Assert.AreEqual(1, removed.RejectedCount);
-        Assert.AreEqual(1, removed.Reasons["nonterminal"]);
+        Assert.AreEqual(0, removed.RejectedCount);
         Assert.AreEqual(1, (await reader.GetGroupProjectionAsync([folderKey], [])).Summaries.Single().FileCount);
         CollectionAssert.AreEquivalent(
             new[] { activeId, otherGroupId, otherPeerId },

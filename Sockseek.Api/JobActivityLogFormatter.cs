@@ -58,7 +58,43 @@ public sealed class JobActivityLogFormatter
     private readonly Dictionary<Guid, ServerJobKind> jobKinds = [];
     private readonly Dictionary<Guid, Guid> parentJobIds = [];
     private readonly HashSet<Guid> loggedTerminalJobs = [];
+    // What each job downloaded, kept until its finished line (or its album's) is written.
+    private readonly Dictionary<Guid, TransferFacts> transfers = [];
+    private readonly Dictionary<Guid, string> albumFolders = [];
     private readonly object sync = new();
+
+    private sealed record TransferFacts(string? Username, string? RemotePath, string? LocalPath);
+
+    /// <summary>
+    /// Records where a job's file came from and went, so its finished line can say
+    /// so. Call before formatting the jobs of the same update.
+    /// </summary>
+    public void Remember(TransferStateDto transfer)
+    {
+        if (transfer.Identity.JobId is not Guid jobId
+            || !string.Equals(transfer.Identity.Direction, "Download", StringComparison.OrdinalIgnoreCase))
+            return;
+        lock (sync)
+        {
+            if (loggedTerminalJobs.Contains(jobId))
+                return;
+            // A job may try several candidates; the one that succeeded is the one to show.
+            if (!transfers.TryGetValue(jobId, out TransferFacts? known)
+                || transfer.Status.TerminalOutcome == TransferTerminalOutcome.Succeeded
+                || known.LocalPath == null)
+                transfers[jobId] = new(transfer.Identity.Username, transfer.Identity.RemotePath, transfer.Status.LocalPath);
+        }
+    }
+
+    /// <summary>
+    /// Records a job's kind and parent. Call for every job of an update before
+    /// formatting any of them: a child formatted first must already know its parent.
+    /// </summary>
+    public void Remember(JobSummaryDto summary)
+    {
+        lock (sync)
+            RememberStructure(summary);
+    }
 
     public ActivityLogEntry? Format(JobSummaryDto summary)
     {
@@ -71,19 +107,22 @@ public sealed class JobActivityLogFormatter
                 return null;
 
             var displayKind = DisplayKind(summary);
+            // The input line already says what was read; only a failed extraction needs another.
+            if (summary.Display.Kind == ServerJobKind.Extract && displayKind == ActivityLogDisplayKind.Succeeded)
+                return null;
             var level = displayKind is ActivityLogDisplayKind.Failed
                 or ActivityLogDisplayKind.Partial
                 ? LogLevel.Error
                 : LogLevel.Information;
             string status = StatusLabel(summary);
-            string detail = summary.Display.QueryText ?? summary.Display.ItemName ?? "";
+            bool albumChild = IsAlbumChild(summary);
+            string detail = TerminalDetail(summary, albumChild);
             string message = string.IsNullOrWhiteSpace(detail)
                 ? status
                 : $"{status}: {detail}";
             if (!string.IsNullOrWhiteSpace(summary.Lifecycle.FailureMessage))
                 message += $"\n    Error: {summary.Lifecycle.FailureMessage}";
 
-            bool albumChild = IsAlbumChild(summary);
             if (albumChild)
                 displayKind = AlbumTrackDisplayKind(displayKind);
 
@@ -114,7 +153,9 @@ public sealed class JobActivityLogFormatter
                     FormatWorkflowMessage(workflowId, message),
                 DiagnosticActivityDto diagnostic =>
                     FormatDiagnostic(activity, summary, diagnostic),
+                // The input itself gets a line; the items of a list do not.
                 ExtractionStartedActivityDto extraction when summary != null
+                    && summary.Relationships.ParentJobId == null
                     && !string.IsNullOrWhiteSpace(extraction.InputType) =>
                     JobEntry(
                         summary.Display.WorkflowId,
@@ -204,14 +245,64 @@ public sealed class JobActivityLogFormatter
             level >= LogLevel.Error ? ActivityLogSeverity.Error : ActivityLogSeverity.Information,
             level,
             formatted,
+            // Notes about a job belong in the scrollback whether or not a live view
+            // runs; the consumer drops Debug ones unless asked for them.
             new ActivityLogDisplay(
                 displayId,
                 jobType,
                 message,
                 kind,
                 source,
-                highlight,
-                ShowInLive: kind != ActivityLogDisplayKind.Status || level >= LogLevel.Error));
+                highlight));
+    }
+
+    // What finished: the query, plus the peer file a song came from, the file an
+    // album track was, or the folder an album was saved to, when a transfer said so.
+    private string TerminalDetail(JobSummaryDto summary, bool albumChild)
+    {
+        string name = summary.Display.QueryText ?? summary.Display.ItemName ?? "";
+        transfers.Remove(summary.JobId, out TransferFacts? facts);
+        if (albumChild)
+        {
+            // Keep the track's folder for its album's own line.
+            if (facts?.LocalPath is { } local && summary.Relationships.ParentJobId is Guid albumId
+                && Path.GetDirectoryName(local) is { Length: > 0 } folder)
+                albumFolders[albumId] = albumFolders.TryGetValue(albumId, out string? known) ? CommonDirectory(known, folder) : folder;
+            return facts?.RemotePath is { } remote ? WithName(name, FileName(remote)) : name;
+        }
+        if (summary.Display.Kind == ServerJobKind.Album)
+            return albumFolders.Remove(summary.JobId, out string? saved) && saved.Length > 0 && IsSuccess(summary)
+                ? WithName(name, $"completed at {saved}") : name;
+        if (summary.Display.Kind == ServerJobKind.Song && IsSuccess(summary)
+            && facts is { Username: { } user, RemotePath: { } path })
+            return WithName(name, ShortPeerPath(user, path));
+        return name;
+    }
+
+    private static bool IsSuccess(JobSummaryDto summary)
+        => summary.Lifecycle.TerminalOutcome == JobTerminalOutcome.Succeeded;
+
+    private static string WithName(string name, string detail)
+        => string.IsNullOrWhiteSpace(name) || name == detail ? detail : $"{name}: {detail}";
+
+    private static string FileName(string remotePath)
+        => remotePath[(remotePath.LastIndexOfAny(['\\', '/']) + 1)..];
+
+    // user\..\last two folders\file: peers' paths are long.
+    private static string ShortPeerPath(string username, string remotePath)
+    {
+        string[] parts = remotePath.Replace('/', '\\').TrimStart('\\').Split('\\');
+        return parts.Length > 3
+            ? $@"{username}\..\{string.Join('\\', parts[^3..])}"
+            : $@"{username}\{string.Join('\\', parts)}";
+    }
+
+    private static string CommonDirectory(string first, string second)
+    {
+        while (first.Length > 0
+            && !(second + Path.DirectorySeparatorChar).StartsWith(first + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            first = Path.GetDirectoryName(first) ?? "";
+        return first;
     }
 
     private void RememberStructure(JobSummaryDto summary)

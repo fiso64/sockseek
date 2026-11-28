@@ -248,6 +248,7 @@ public static class ServerHost
                     typeof(ExtractionStartedActivityDto),
                     typeof(DownloadAttemptFailedActivityDto),
                     typeof(TrackBatchResolvedActivityDto),
+                    typeof(SessionChangedActivityDto),
                 ];
                 foreach (Type contractType in supplementalContractTypes)
                 {

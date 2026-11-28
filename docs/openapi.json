@@ -11209,6 +11209,47 @@
                     "format": "int32"
                   }
                 }
+              },
+              {
+                "required": [
+                  "session"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "sessionChanged"
+                    ],
+                    "type": "string"
+                  },
+                  "session": {
+                    "required": [
+                      "state",
+                      "flags",
+                      "isReady"
+                    ],
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string"
+                      },
+                      "flags": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "isReady": {
+                        "type": "boolean"
+                      },
+                      "username": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      }
+                    }
+                  }
+                }
               }
             ],
             "discriminator": {
@@ -11220,7 +11261,8 @@
                 "diagnostic": "#/components/schemas/ActivityPayloadDtoDiagnosticActivityDto",
                 "extractionStarted": "#/components/schemas/ActivityPayloadDtoExtractionStartedActivityDto",
                 "downloadAttemptFailed": "#/components/schemas/ActivityPayloadDtoDownloadAttemptFailedActivityDto",
-                "trackBatchResolved": "#/components/schemas/ActivityPayloadDtoTrackBatchResolvedActivityDto"
+                "trackBatchResolved": "#/components/schemas/ActivityPayloadDtoTrackBatchResolvedActivityDto",
+                "sessionChanged": "#/components/schemas/ActivityPayloadDtoSessionChangedActivityDto"
               }
             }
           }
@@ -11516,6 +11558,47 @@
                 "format": "int32"
               }
             }
+          },
+          {
+            "required": [
+              "session"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "sessionChanged"
+                ],
+                "type": "string"
+              },
+              "session": {
+                "required": [
+                  "state",
+                  "flags",
+                  "isReady"
+                ],
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string"
+                  },
+                  "flags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "isReady": {
+                    "type": "boolean"
+                  },
+                  "username": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  }
+                }
+              }
+            }
           }
         ],
         "discriminator": {
@@ -11527,7 +11610,8 @@
             "diagnostic": "#/components/schemas/ActivityPayloadDtoDiagnosticActivityDto",
             "extractionStarted": "#/components/schemas/ActivityPayloadDtoExtractionStartedActivityDto",
             "downloadAttemptFailed": "#/components/schemas/ActivityPayloadDtoDownloadAttemptFailedActivityDto",
-            "trackBatchResolved": "#/components/schemas/ActivityPayloadDtoTrackBatchResolvedActivityDto"
+            "trackBatchResolved": "#/components/schemas/ActivityPayloadDtoTrackBatchResolvedActivityDto",
+            "sessionChanged": "#/components/schemas/ActivityPayloadDtoSessionChangedActivityDto"
           }
         }
       },
@@ -11706,6 +11790,42 @@
           },
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "ActivityPayloadDtoSessionChangedActivityDto": {
+        "required": [
+          "session"
+        ],
+        "type": "object",
+        "properties": {
+          "session": {
+            "required": [
+              "state",
+              "flags",
+              "isReady"
+            ],
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string"
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "isReady": {
+                "type": "boolean"
+              },
+              "username": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              }
+            }
           }
         }
       },
@@ -25338,6 +25458,42 @@
           "completed"
         ]
       },
+      "SessionChangedActivityDto": {
+        "required": [
+          "session"
+        ],
+        "type": "object",
+        "properties": {
+          "session": {
+            "required": [
+              "state",
+              "flags",
+              "isReady"
+            ],
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string"
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "isReady": {
+                "type": "boolean"
+              },
+              "username": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              }
+            }
+          }
+        }
+      },
       "SessionDto": {
         "required": [
           "authenticationEnabled",
@@ -32634,6 +32790,47 @@
                           "format": "int32"
                         }
                       }
+                    },
+                    {
+                      "required": [
+                        "session"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "sessionChanged"
+                          ],
+                          "type": "string"
+                        },
+                        "session": {
+                          "required": [
+                            "state",
+                            "flags",
+                            "isReady"
+                          ],
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string"
+                            },
+                            "flags": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "isReady": {
+                              "type": "boolean"
+                            },
+                            "username": {
+                              "type": [
+                                "null",
+                                "string"
+                              ]
+                            }
+                          }
+                        }
+                      }
                     }
                   ],
                   "discriminator": {
@@ -32645,7 +32842,8 @@
                       "diagnostic": "#/components/schemas/ActivityPayloadDtoDiagnosticActivityDto",
                       "extractionStarted": "#/components/schemas/ActivityPayloadDtoExtractionStartedActivityDto",
                       "downloadAttemptFailed": "#/components/schemas/ActivityPayloadDtoDownloadAttemptFailedActivityDto",
-                      "trackBatchResolved": "#/components/schemas/ActivityPayloadDtoTrackBatchResolvedActivityDto"
+                      "trackBatchResolved": "#/components/schemas/ActivityPayloadDtoTrackBatchResolvedActivityDto",
+                      "sessionChanged": "#/components/schemas/ActivityPayloadDtoSessionChangedActivityDto"
                     }
                   }
                 }

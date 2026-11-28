@@ -38,8 +38,11 @@ public sealed class DaemonRuntime
     /// The account others find this daemon under: the configured name, logged in
     /// or not, or the current random login. A random login has none before it connects.
     /// </summary>
-    public string? AccountName => SoulseekSession?.LoggedInUsername
-        ?? (engineSettings.UseRandomLogin || string.IsNullOrWhiteSpace(engineSettings.Username) ? null : engineSettings.Username);
+    public string? AccountName => AccountNameFor(SoulseekSession, engineSettings);
+
+    public static string? AccountNameFor(SoulseekClientManager? session, EngineSettings settings)
+        => session?.LoggedInUsername
+            ?? (settings.UseRandomLogin || string.IsNullOrWhiteSpace(settings.Username) ? null : settings.Username);
 
     internal DaemonRuntime(ServerOptions options, EngineSettings engineSettings,
         EngineStateStore stateStore, PersistenceCoordinator? persistence,
@@ -311,7 +314,7 @@ public sealed class DaemonRuntime
     /// <summary>Raised after a config reload has written the reloadable host options.</summary>
     public event Action? HostOptionsReloaded;
 
-    internal static SoulseekClientStatusDto ToSoulseekClientStatusDto(SoulseekClientStates state, string? username)
+    public static SoulseekClientStatusDto ToSoulseekClientStatusDto(SoulseekClientStates state, string? username)
     {
         var flags = Enum.GetValues<SoulseekClientStates>()
             .Where(flag => flag != SoulseekClientStates.None && state.HasFlag(flag))

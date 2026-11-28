@@ -137,6 +137,42 @@ public class JobActivityLogFormatterTests
         Assert.AreEqual(ActivityLogDisplayKind.AlbumTrackFailed, entry.Display?.Kind);
     }
 
+    [TestMethod]
+    public void FinishedLines_SayWhichFileASongCameFromAndWhereAnAlbumWent()
+    {
+        var workflowId = Guid.NewGuid();
+        var formatter = new JobActivityLogFormatter();
+        string folder = Path.Combine(Path.GetTempPath(), "out", "Album");
+
+        // A song names the peer file it was downloaded from.
+        var song = Summary(JobLifecycleState.Terminal, JobTerminalOutcome.Succeeded, workflowId: workflowId, kind: ServerJobKind.Song);
+        formatter.Remember(Transfer(song.JobId, workflowId, "peer", @"Music\Artist\Album\01 Title.flac", Path.Combine(folder, "01 Title.flac")));
+        var songEntry = formatter.Format(song);
+        StringAssert.Contains(songEntry!.Display!.Message, "peer");
+        StringAssert.Contains(songEntry.Display.Message, "01 Title.flac");
+
+        // An album track names its file; the album says where it was saved.
+        var album = Summary(jobId: Guid.NewGuid(), workflowId: workflowId, kind: ServerJobKind.Album);
+        formatter.Format(album);
+        var track = Summary(JobLifecycleState.Terminal, JobTerminalOutcome.Succeeded, workflowId: workflowId,
+            kind: ServerJobKind.Song, parentJobId: album.JobId);
+        formatter.Remember(Transfer(track.JobId, workflowId, "peer", @"Music\Artist\Album\02 Other.flac", Path.Combine(folder, "02 Other.flac")));
+        StringAssert.Contains(formatter.Format(track)!.Display!.Message, "02 Other.flac");
+        var albumEntry = formatter.Format(album with { Lifecycle = song.Lifecycle });
+        StringAssert.Contains(albumEntry!.Display!.Message, folder);
+
+        // A successful extraction needs no finished line; its input line said it.
+        Assert.IsNull(formatter.Format(Summary(JobLifecycleState.Terminal, JobTerminalOutcome.Succeeded, kind: ServerJobKind.Extract)));
+    }
+
+    private static TransferStateDto Transfer(Guid jobId, Guid workflowId, string username, string remotePath, string localPath)
+        => new(
+            Guid.NewGuid(),
+            1,
+            new TransferIdentityFieldsDto(jobId, workflowId, "Download", "SoulseekPeer", username, remotePath, "candidate"),
+            new TransferStatusFieldsDto(TransferPhase.Ended, localPath, 1, true, TransferTerminalOutcome.Succeeded),
+            new TransferProgressFieldsDto(1, 1));
+
     private static DaemonClientStore StoreWith(JobSummaryDto summary)
     {
         var store = new DaemonClientStore();

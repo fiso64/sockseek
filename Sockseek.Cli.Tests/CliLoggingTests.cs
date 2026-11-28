@@ -151,6 +151,23 @@ public sealed class CliLoggingTests
     }
 
     [TestMethod]
+    public void SessionLines_SayWhenALoginStartsAndCompletesOncePerChange()
+    {
+        static Sockseek.Api.SoulseekClientStatusDto Status(bool ready, string? user, params string[] flags)
+            => new(string.Join(", ", flags), flags, ready, user);
+        var lines = new SoulseekSessionLines();
+
+        StringAssert.Contains(lines.Next(Status(false, "account", "Connecting")), "account");
+        Assert.IsNull(lines.Next(Status(false, "account", "Connected", "LoggingIn")), "Still logging in is not news.");
+        StringAssert.Contains(lines.Next(Status(true, "account", "Connected", "LoggedIn")), "account");
+        Assert.IsNull(lines.Next(Status(false, "account", "Disconnected")), "A lost connection is reported by its warning.");
+        Assert.IsNotNull(lines.Next(Status(true, "account", "Connected", "LoggedIn")), "Coming back is news.");
+
+        // Local files involve no account.
+        Assert.IsNull(new SoulseekSessionLines().Next(Status(true, null, "Connected", "LoggedIn")));
+    }
+
+    [TestMethod]
     public void SensitiveOutput_ReachesOnlyExplicitConsoleBoundary()
     {
         string directory = Path.Combine(Path.GetTempPath(), "sockseek-cli-sensitive-" + Guid.NewGuid());

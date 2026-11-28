@@ -24,6 +24,8 @@ internal sealed class LocalCliBackend
     private readonly ConcurrentDictionary<LocalFileProjectionKey, LocalFileProjectionState>
         fileProjectionStates = [];
     private volatile bool liveDaemonSubscription;
+    private readonly SoulseekClientManager? session;
+    private readonly Action<Soulseek.SoulseekClientStates>? publishSession;
 
     public event Action<DaemonClientUpdate>? StateUpdated;
     public event Action<ActivityEventDto>? ActivityReceived;
@@ -35,9 +37,20 @@ internal sealed class LocalCliBackend
         DownloadEngine engine,
         DownloadSettings? defaultSubmitSettings = null,
         SubmissionOptionsJobSettingsResolver? submissionOptionsResolver = null,
-        DownloadSettingsPatchDto? explicitCliDownloadSettings = null)
+        DownloadSettingsPatchDto? explicitCliDownloadSettings = null,
+        SoulseekClientManager? session = null,
+        EngineSettings? sessionSettings = null)
     {
         this.engine = engine;
+        // A daemon publishes its Soulseek session through its runtime. This run
+        // is its own daemon, so it publishes the session it owns the same way.
+        if (session != null && sessionSettings != null)
+        {
+            this.session = session;
+            publishSession = state => stateStore.UpdateDaemonRuntime(
+                DaemonRuntime.ToSoulseekClientStatusDto(state, DaemonRuntime.AccountNameFor(session, sessionSettings)), 0);
+            session.StateChanged += publishSession;
+        }
         this.submissionOptionsResolver = submissionOptionsResolver;
         this.explicitCliDownloadSettings = explicitCliDownloadSettings;
         this.defaultSubmitSettings = defaultSubmitSettings != null
@@ -51,6 +64,8 @@ internal sealed class LocalCliBackend
 
     public async ValueTask DisposeAsync()
     {
+        if (session != null && publishSession != null)
+            session.StateChanged -= publishSession;
         await publication.DisposeAsync().ConfigureAwait(false);
         stateStore.StateBatchPublished -= HandleStateBatch;
         stateStore.DetachEngine(engine);

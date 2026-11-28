@@ -107,11 +107,13 @@ public sealed class JobPlanner(
             JobExtractionResult? extraction = null;
             SubmissionSourceRevision? extractedSourceRevision = null;
             Exception? extractionFailure = null;
+            var notes = new List<ExtractionNote>();
+            extract.PlannedExtractionNotes = notes;
             try
             {
                 extraction = await JobExtraction.ExtractAsync(
                     extract,
-                    extractorContext,
+                    extractorContext ?? ExtractorContext.Recording(notes),
                     cancellationToken).ConfigureAwait(false);
                 // Source retention is part of this entry's preparation. A
                 // failed revision read must not discard later healthy siblings.

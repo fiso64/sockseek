@@ -82,6 +82,9 @@ public class DownloadModeEndToEndTests
 
         Assert.AreEqual(1, exitCode, stdout + stderr);
         StringAssert.Contains(stdout + stderr, "MissingArtist");
+        // A one-shot console is a frontend: it shows job activity, never the
+        // engine's own lifecycle log.
+        Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(stdout, @"\[(jobs|core|persistence|daemon)\] "), stdout);
         fixture.AssertDownloaded(fixture.Files.Where(path =>
             !path.Contains("Artist2", StringComparison.Ordinal) && (mode switch
             {
