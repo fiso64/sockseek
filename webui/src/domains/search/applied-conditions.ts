@@ -34,7 +34,8 @@ export function conditionPills(mode: SearchResultMode, conditions: SearchConditi
   }
 
   if (isGroupSearchMode(mode)) {
-    if (group.minShares) add(['minShares'], `≥${group.minShares} sharers`, () => { group.minShares = null; }, 'Remove minimum sharers filter');
+    // One sharer is every group; only a higher minimum filters.
+    if ((group.minShares ?? 0) > 1) add(['minShares'], `≥${group.minShares} sharers`, () => { group.minShares = null; }, 'Remove minimum sharers filter');
     if (group.lengthTolerance && group.lengthTolerance !== 3)
       add(['groupLengthTolerance'], `group ±${group.lengthTolerance}s`, () => { group.lengthTolerance = 3; }, 'Reset grouping tolerance');
   }

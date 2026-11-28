@@ -451,6 +451,9 @@ input[type="number"]::-webkit-inner-spin-button { appearance: none; -webkit-appe
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Vertical padding joins a wrapped link's lines, so the pointer never falls
+   between them and toggles the hover. It doesn't change the line layout. */
+a.linkified { padding-block: 2px; }
 .message-body a {
   color: color-mix(in srgb, var(--accent) 88%, var(--text));
   text-decoration: underline;
@@ -2002,9 +2005,14 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .shares-username { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 0.78rem; }
 .shares-title-row strong { font-size: 1rem; font-weight: 620; white-space: nowrap; }
 /* The filter sits beside the totals and drops under them on narrow pages. */
-.shares-filter { flex: 1 1 18rem; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
-.shares-filter .result-filter-control { flex: 0 1 26rem; }
+.shares-filter { flex: 1 1 18rem; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 12px; container: shares-filter / inline-size; }
+.shares-filter .result-filter-control { flex: 0 1 32rem; }
 .shares-filter-count { flex: none; color: var(--faint); font-size: 0.7rem; white-space: nowrap; }
+.shares-filter-count.beside { display: none; }
+@container shares-filter (min-width: 44rem) {
+  .shares-filter-count.beside { display: inline; }
+  .shares-filter-count.inside { display: none; }
+}
 .shares-filter .result-filter-control > button { order: 1; }
 .share-tree.refreshing { opacity: .55; transition: opacity 120ms ease; }
 
@@ -2025,8 +2033,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
 .share-tree-row:last-child { border-bottom: 0; }
 .share-tree-row.folder {
   display: grid;
-  grid-template-columns: 15px minmax(0, 1fr);
-  grid-template-areas: 'check body';
+  grid-template-columns: 15px minmax(0, 1fr) 30px;
+  grid-template-areas: 'check body more';
   gap: 0;
   padding-top: 0;
   padding-bottom: 0;
@@ -2038,8 +2046,9 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   content-visibility: auto;
   contain-intrinsic-block-size: 0px;
   display: grid;
-  grid-template-columns: 15px 24px 20px minmax(120px, 1fr) auto 82px;
-  grid-template-areas: 'check toggle icon name visibility size';
+  grid-template-columns: 15px 24px 20px minmax(120px, 1fr) auto 82px 30px;
+  grid-template-areas: 'check toggle icon name visibility size more';
+  padding-right: 0;
   cursor: pointer;
 }
 .share-tree-row > :is(input, .locked-icon) { grid-area: check; }
@@ -2059,7 +2068,7 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   grid-template-areas: 'toggle icon name visibility meta size';
   align-items: center;
   gap: 7px;
-  padding: 6px 12px 6px 7px;
+  padding: 6px 7px 6px 7px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -2067,6 +2076,32 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   text-align: left;
   cursor: pointer;
 }
+/* A bare button per row: the dots are a mask, not an icon component, so large
+   trees add one element per row. One shared menu serves them all. */
+.share-row-more {
+  grid-area: more;
+  justify-self: start;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+.share-row-more::before {
+  content: '';
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: auto;
+  background-color: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='5' cy='12' r='1.6'/%3E%3Ccircle cx='12' cy='12' r='1.6'/%3E%3Ccircle cx='19' cy='12' r='1.6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.share-row-more:is(:hover, [aria-expanded="true"]) { color: var(--text); background-color: var(--surface-subtle); }
+.share-row-menu { position: fixed; inset: auto; margin: 0; z-index: 60; min-width: 150px; padding: 5px; border-radius: 9px; }
+.share-row-menu .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px; font-size: 0.76rem; --app-icon-size: 15px; }
 .share-tree-folder-button:disabled { opacity: 1; cursor: default; }
 .share-tree-folder-button > .share-tree-toggle { grid-area: toggle; }
 .share-tree-folder-button > .share-tree-icon { grid-area: icon; }
@@ -2107,8 +2142,8 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
   .user-profile-stats > div { border-right: 0; border-bottom: 1px solid var(--border); }
   .user-profile-stats > div:last-child { border-bottom: 0; }
   .share-tree-row.folder {
-    grid-template-columns: 15px minmax(0, 1fr);
-    grid-template-areas: 'check body';
+    grid-template-columns: 15px minmax(0, 1fr) 30px;
+    grid-template-areas: 'check body more';
   }
   /* Like other phone file rows: the whole name, then its size underneath, with a
      shallow indent so deep folders keep most of the width. */
@@ -2119,14 +2154,15 @@ strong.audio-detail { color: var(--muted); font-weight: 500; }
     padding-right: 8px;
   }
   .share-tree-row.file {
-    grid-template-columns: 15px 22px 18px minmax(0, 1fr) auto;
-    grid-template-areas: 'check toggle icon name visibility' '. . . size size';
+    grid-template-columns: 15px 22px 18px minmax(0, 1fr) auto 30px;
+    grid-template-areas: 'check toggle icon name visibility more' '. . . size size .';
     row-gap: 1px;
   }
   .share-tree-name { white-space: normal; overflow-wrap: anywhere; }
   .share-tree-size { justify-self: start; font-size: .7rem; }
   .share-tree-folder-meta { display: none; }
   .share-tree-row { padding-left: calc(8px + min(var(--share-depth, 0) * 10px, 25%)); padding-right: 8px; }
+  .share-tree-row.file { padding-right: 0; }
   .share-tree-row.folder { padding-right: 0; }
   .share-tree-page { padding-left: min(var(--share-depth) * 10px, 25%); }
 }

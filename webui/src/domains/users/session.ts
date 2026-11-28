@@ -32,6 +32,8 @@ export function saveUserBrowserUsername(view: UserBrowseView, username: string):
 }
 
 export interface ShareBrowserSession {
+  /** A Soulseek link's folder or file to show once, by filtering to its path. */
+  focus?: { path: string };
   snapshot?: {
     browseId: string;
     directories: Map<string, BrowseDirectoryEntryDto>;

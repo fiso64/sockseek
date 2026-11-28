@@ -199,7 +199,7 @@ for (const surface of ['File Search', 'peer Shares'] as const) {
       await filter.fill('.txt');
       await filtered;
       if (search) await expect(page.locator('.folder-file-row')).toHaveCount(2);
-      else await expect(page.locator('.shares-filter-count')).toHaveText('5 matching files');
+      else await expect(page.locator('.shares-filter-count:visible')).toHaveText('5 matching files');
       await box.click();
       await expect(box).toHaveJSProperty('indeterminate', false);
       await expect(box).toBeChecked();
@@ -209,7 +209,7 @@ for (const surface of ['File Search', 'peer Shares'] as const) {
 
       await filter.fill(search ? 'Unselected' : 'DeepOne');
       if (search) await expect(page.locator('.folder-file-row')).toHaveCount(1);
-      else await expect(page.locator('.shares-filter-count')).toHaveText('1 matching file');
+      else await expect(page.locator('.shares-filter-count:visible')).toHaveText('1 matching file');
       await box.click();
       await expect(box).toHaveJSProperty('indeterminate', true);
       await expect(box).toHaveJSProperty('checked', false);

@@ -15,7 +15,7 @@ async function observeFilterRender(page: Page, query: string, label: string, fil
       input.addEventListener('input', () => {
         const started = performance.now();
         const check = () => {
-          if (input.value === query && document.querySelector('.shares-filter-count')?.textContent === label
+          if (input.value === query && document.querySelector('.shares-filter-count.inside')?.textContent === label
             && document.querySelectorAll('.share-tree-row.file').length === files)
             resolve(performance.now() - started);
           else requestAnimationFrame(check);
@@ -71,7 +71,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load @Pe
   const selective = await (await selectiveResponse).json() as Schema<'BrowseSearchPageDto'>;
   expect(Number(selective.publicMatchingFileCount)).toBe(1);
   const selectiveResponseMs = Math.round(performance.now() - selectiveStart);
-  await expect(page.locator('.shares-filter-count')).toHaveText('1 matching file');
+  await expect(page.locator('.shares-filter-count.inside')).toHaveText('1 matching file');
   await expect(page.locator('.share-tree-row.file')).toHaveCount(1);
   await expect(page.getByText('Track 099999.flac', { exact: true })).toBeVisible();
   const selectiveMs = Math.round(performance.now() - selectiveStart);
@@ -89,15 +89,17 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load @Pe
   const firstResponse = await broadResponse;
   const first = await firstResponse.json() as Schema<'BrowseSearchPageDto'>;
   const broadResponseMs = Math.round(performance.now() - broadStart);
-  await expect(page.locator('.shares-filter-count')).toHaveText('100,000 matching files');
+  await expect(page.locator('.shares-filter-count.inside')).toHaveText('100,000 matching files');
   await expect(page.locator('.share-tree-row.folder')).toHaveCount(1);
   await expect(page.locator('.share-tree-row.file')).toHaveCount(999);
   await expect(page.getByRole('button', { name: 'Load more', exact: true })).toBeVisible();
   const broadMs = Math.round(performance.now() - broadStart);
   const broadRenderedMs = Math.round(await broadRender.evaluate(observed => observed.ready));
   await broadRender.dispose();
-  expect.soft(selectiveRenderedMs, 'A selective filter must render promptly after its input event.').toBeLessThan(300);
-  expect.soft(broadRenderedMs, 'A 100k-file broad filter must render promptly after its input event.').toBeLessThan(300);
+  // The filter waits 300 ms for typing to pause before it searches; the rest is the render budget.
+  const typingPauseMs = 300;
+  expect.soft(selectiveRenderedMs, 'A selective filter must render promptly after its input event.').toBeLessThan(typingPauseMs + 300);
+  expect.soft(broadRenderedMs, 'A 100k-file broad filter must render promptly after its input event.').toBeLessThan(typingPauseMs + 300);
   expect(requests.filter(item => item.path.includes('/search?'))).toHaveLength(2);
   expect(requests.filter(item => item.path.includes('/directories?'))).toHaveLength(1);
   expect(requests.filter(item => item.path.includes('/files?'))).toHaveLength(1);
@@ -132,7 +134,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load @Pe
   await filter.fill('fl');
   const short = await (await shortResponse).json() as Schema<'BrowseSearchPageDto'>;
   await expect(page.locator('.share-tree-row.file')).toHaveCount(999);
-  await expect(page.locator('.shares-filter-count')).toHaveText('100,000 matching files');
+  await expect(page.locator('.shares-filter-count.inside')).toHaveText('100,000 matching files');
   const shortMs = Math.round(performance.now() - shortStart);
   expect(short.publicMatchingFileCount).toBe(first.publicMatchingFileCount);
   expect(short.publicMatchingBytes).toBe(12_800_000);
@@ -155,7 +157,7 @@ test('pages and filters a 100k-file peer share without browser fan-out @Load @Pe
   expect(Number(warmPage.publicMatchingFileCount)).toBe(1);
   expect(Number(warmPage.publicMatchingBytes)).toBe(128);
   expect(Number(warmPage.items.find(item => item.kind === 'directory')?.publicSubtreeFileCount)).toBe(100_000);
-  await expect(page.locator('.shares-filter-count')).toHaveText('1 matching file');
+  await expect(page.locator('.shares-filter-count.inside')).toHaveText('1 matching file');
   await expect(page.locator('.share-tree-row.file .share-tree-name')).toHaveText(['Track 000001.flac']);
   const warmSelectiveMs = Math.round(performance.now() - warmStart);
   expect(requests.filter(item => item.path.includes('/search?'))).toHaveLength(5);

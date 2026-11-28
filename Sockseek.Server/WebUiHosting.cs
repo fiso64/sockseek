@@ -72,8 +72,13 @@ internal static class WebUiHosting
 
         app.Use(async (context, next) =>
         {
+            // Share addresses end in peer file names such as 01.flac, which the
+            // fallback would take for static files; slsk: addresses are pasted links.
+            PathString path = context.Request.Path;
             if ((HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
-                && context.Request.Path is { Value: "/" or "/index.html" })
+                && (path is { Value: "/" or "/index.html" } || path.StartsWithSegments("/shares")
+                    || path.Value?.StartsWith("/slsk:", StringComparison.OrdinalIgnoreCase) == true
+                    || path.Value?.StartsWith("/users/slsk:", StringComparison.OrdinalIgnoreCase) == true))
                 await Shell(context);
             else await next(context);
         });

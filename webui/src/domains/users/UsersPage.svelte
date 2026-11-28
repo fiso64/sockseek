@@ -12,6 +12,7 @@
   import Icon from '../../components/Icon.svelte';
   import RelativeTime from '../../components/RelativeTime.svelte';
   import LinkifiedText from '../../components/LinkifiedText.svelte';
+  import { copySoulseekLink, formatSoulseekLink } from './soulseek-link';
   import ProfilePicture from '../../components/ProfilePicture.svelte';
 
   import type { UserBrowserSession, UserBrowseView } from './session';
@@ -28,9 +29,11 @@
     onmessageuser: (username: string) => void;
     onopenjob: (jobId: string) => void;
     userActions: UserLinkActions;
+    /** The shares filter left the folder or file its address links to. */
+    onleavelink?: () => void;
   }
 
-  let { session, view, liveStatus, documentVisible, configurationRevision, liveClient, onviewchange, onmessageuser, onopenjob, userActions }: Props = $props();
+  let { session, view, liveStatus, documentVisible, configurationRevision, liveClient, onviewchange, onmessageuser, onopenjob, userActions, onleavelink }: Props = $props();
   // App keys this component by session. A new user starts a fresh lifetime;
   // ordinary navigation restores the saved view without keeping its DOM alive.
   const username = untrack(() => session.username);
@@ -319,6 +322,11 @@
                 <Icon name="chat"/>
                 <span>{profile.privateMessagesBlocked ? 'Messages blocked' : 'Message'}</span>
               </button>
+              <button type="button" class="button user-message-button" data-action="copy-profile-link"
+                onclick={() => void copySoulseekLink(formatSoulseekLink(profile!.username))}>
+                <Icon name="link"/>
+                <span>Copy link</span>
+              </button>
             </div>
           </div>
         </div>
@@ -366,7 +374,7 @@
       {/if}
     {/if}
     {#if displayedBrowse}
-      <ShareBrowser {configurationRevision} source={peerShareSource(displayedBrowse)} session={session.shares} connected={liveStatus === 'connected' && documentVisible} {userActions} {onopenjob} />
+      <ShareBrowser {configurationRevision} source={peerShareSource(displayedBrowse)} session={session.shares} connected={liveStatus === 'connected' && documentVisible} {userActions} {onopenjob} {onleavelink} />
     {/if}
   {/if}
 </section>

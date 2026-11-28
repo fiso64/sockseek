@@ -157,7 +157,7 @@ test('refreshes shares explicitly and preserves the displayed tree and selection
   await file.getByRole('checkbox').check();
   const filter = page.getByRole('textbox', { name: 'Filter user shares' });
   await filter.fill('Selected');
-  await expect(page.locator('.shares-filter-count')).toBeVisible();
+  await expect(page.locator('.shares-filter-count:visible')).toBeVisible();
   const refresh = page.getByTestId('refresh-user-shares');
   await daemon.command('fail-next-peer-browse');
   await daemon.command('hold-directory-browse');
@@ -208,6 +208,29 @@ test('distinguishes offline profiles from failed status lookups and follows live
   await expect(presence).toHaveAttribute('data-presence', 'offline');
   await expect(presence).toHaveText('Offline');
   await expect(card.getByLabel('Profile section availability')).toHaveCount(0);
+});
+
+test('opens a pasted Soulseek link at its folder or file, and leaves the link without adding history', async ({ page }) => {
+  // The link pasted after the app's address becomes the canonical share address.
+  await page.goto('/slsk://fixture-peer/Fixture/Nested/');
+  await expect(page).toHaveURL(/\/shares\/fixture-peer\/Fixture\/Nested\/$/);
+  const filter = page.getByRole('textbox', { name: 'Filter user shares', exact: true });
+  await expect(filter).toHaveValue('Fixture\\Nested');
+  await expect(page.getByText('Nested.txt', { exact: true })).toBeVisible();
+  await expect(page.getByText('Selected.txt', { exact: true })).toHaveCount(0);
+  const entries = await page.evaluate(() => history.length);
+  await filter.fill('Fixture\\Nested\\N');
+  await filter.fill('Fixture');
+  await expect(page).toHaveURL(/\/shares\/fixture-peer$/);
+  expect(await page.evaluate(() => history.length)).toBe(entries);
+  // The link also works pasted after /shares/.
+  await page.goto('/shares/slsk://fixture-peer/Fixture/Nested/');
+  await expect(page).toHaveURL(/\/shares\/fixture-peer\/Fixture\/Nested\/$/);
+  await expect(filter).toHaveValue('Fixture\\Nested');
+  // A file address ends in its name and still loads the app.
+  await page.goto('/shares/fixture-peer/Fixture/Nested/Nested.txt');
+  await expect(filter).toHaveValue('Fixture\\Nested\\Nested.txt');
+  await expect(page.locator('.share-tree-row.file')).toHaveCount(1);
 });
 
 test('filters shared files through the daemon and restores the tree when cleared', async ({ page, daemon }) => {
@@ -280,26 +303,26 @@ test('filters shared files through the daemon and restores the tree when cleared
   await page.clock.runFor(60);
   await filter.fill('Unselected');
   await page.clock.runFor(300);
-  await expect(page.locator('.shares-filter-count')).toHaveText('1 matching file');
+  await expect(page.locator('.shares-filter-count:visible')).toHaveText('1 matching file');
   expect(filterQueries).toEqual(['Unselected']);
   await filter.fill('');
   await page.clock.resume();
   // The cleared query settles before the next one is typed.
-  await expect(page.locator('.shares-filter-count')).toHaveCount(0);
+  await expect(page.locator('.shares-filter-count:visible')).toHaveCount(0);
   const filterRoute = '**/api/user-browses/*/search?**';
   await page.route(filterRoute, (request) => request.abort());
   await filter.fill('Unselected');
   await expect(page.getByRole('alert')).toContainText('Share filter failed');
-  await expect(page.locator('.shares-filter-count')).toHaveCount(0);
+  await expect(page.locator('.shares-filter-count:visible')).toHaveCount(0);
   await expect(page.locator('.share-browser .search-results-empty')).toHaveCount(0);
   await page.unroute(filterRoute);
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(page.locator('.shares-filter-count')).toHaveText('1 matching file');
+  await expect(page.locator('.shares-filter-count:visible')).toHaveText('1 matching file');
   await expect(page.getByText('Unselected.txt', { exact: true })).toBeVisible();
   await expect(page.getByText('Selected.txt', { exact: true })).toHaveCount(0);
   const folderRow = page.locator('.share-tree-row.folder').filter({ has: page.getByText('Fixture', { exact: true }) });
   await expect(folderRow.getByRole('button', { name: 'Collapse Fixture', exact: true })).toBeEnabled();
-  await expect(folderRow.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+  await expect(folderRow.locator('[data-keyboard-disclosure]')).toHaveAttribute('aria-expanded', 'true');
   await expect(folderRow.locator('.share-tree-folder-meta')).toHaveText('5 files');
   await expect(folderRow.locator('.share-tree-size')).toHaveText('640 B');
   const fileRow = page.locator('.share-tree-row.file');
@@ -308,12 +331,12 @@ test('filters shared files through the daemon and restores the tree when cleared
   expect(parseFloat(fileIndent)).toBeGreaterThan(parseFloat(folderIndent));
   await folderRow.getByRole('button', { name: 'Collapse Fixture', exact: true }).click();
   await expect(fileRow).toHaveCount(0);
-  await expect(folderRow.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+  await expect(folderRow.locator('[data-keyboard-disclosure]')).toHaveAttribute('aria-expanded', 'false');
   const previousQueries = [...filterQueries];
   await navigation.getByRole('button', { name: 'Dashboard', exact: true }).click();
   await navigation.getByRole('button', { name: 'Shares', exact: true }).click();
   await expect(filter).toHaveValue('Unselected');
-  await expect(folderRow.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+  await expect(folderRow.locator('[data-keyboard-disclosure]')).toHaveAttribute('aria-expanded', 'false');
   await expect(fileRow).toHaveCount(0);
   await navigation.getByRole('button', { name: 'Users', exact: true }).click();
   await expect(page.getByText('No user to display', { exact: true })).toBeVisible();
@@ -332,14 +355,14 @@ test('filters shared files through the daemon and restores the tree when cleared
   expect(browseSnapshots).toHaveLength(1);
   await page.locator('.share-tree-row.file').getByRole('checkbox').check();
   await filter.fill('NoMatchingFilename');
-  await expect(page.locator('.shares-filter-count')).toHaveText('0 matching files');
+  await expect(page.locator('.shares-filter-count:visible')).toHaveText('0 matching files');
   await expect(page.locator('.share-browser .search-results-empty')).toBeVisible();
   await expect(page.getByText('Unselected.txt', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
   await filter.fill('');
   await expect(page.getByText('Selected.txt', { exact: true })).toBeVisible();
   await expect(page.getByText('Unselected.txt', { exact: true })).toBeVisible();
-  await expect(page.locator('.shares-filter-count')).toHaveCount(0);
+  await expect(page.locator('.shares-filter-count:visible')).toHaveCount(0);
   await expect(page.locator('.share-tree-row.file').filter({ has: page.getByText('Unselected.txt', { exact: true }) }).getByRole('checkbox')).toBeChecked();
   await expect(tree.locator('.share-tree-name')).toHaveText(['Fixture', 'Selected.txt', 'Unselected.txt', 'Nested']);
   await expect(page.getByRole('checkbox', { name: 'Select Fixture', exact: true })).toHaveJSProperty('indeterminate', true);
@@ -370,7 +393,7 @@ test('filters Unicode share names without changing the selected download identit
     await response.finished();
   }
   await applyFilter('აbc');
-  await expect(page.locator('.shares-filter-count')).toHaveText('2 matching files');
+  await expect(page.locator('.shares-filter-count:visible')).toHaveText('2 matching files');
   await expect(page.locator('.share-tree-row.file .share-tree-name')).toHaveText(['აbc.txt', 'Აbc.txt']);
   const matches = page.locator('.share-tree-row.file');
   await matches.first().locator('.share-tree-name').click();
@@ -397,19 +420,19 @@ test('filters Unicode share names without changing the selected download identit
   await expect(matches.first().getByRole('checkbox')).not.toBeChecked();
   await expect(matches.last().getByRole('checkbox')).toBeChecked();
   await applyFilter('Empty');
-  await expect(page.locator('.shares-filter-count')).toHaveText('0 matching files');
+  await expect(page.locator('.shares-filter-count:visible')).toHaveText('0 matching files');
   await expect(page.locator('.share-tree-row.file')).toHaveCount(0);
   const empty = page.locator('.share-tree-row.folder').filter({ has: page.getByText('Empty', { exact: true }) });
   await expect(empty).toContainText('0 files');
   await applyFilter('ſound');
-  await expect(page.locator('.shares-filter-count')).toHaveText('1 matching file');
+  await expect(page.locator('.shares-filter-count:visible')).toHaveText('1 matching file');
   await expect(page.locator('.share-tree-row.file .share-tree-name')).toHaveText(['ſound.txt']);
   const tiedDirectory = page.locator('.share-tree-row.folder')
     .filter({ has: page.getByText('ſound.txt', { exact: true }) });
   await expect(tiedDirectory).toContainText('0 files');
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
   await applyFilter('sound');
-  await expect(page.locator('.shares-filter-count')).toHaveText('1 matching file');
+  await expect(page.locator('.shares-filter-count:visible')).toHaveText('1 matching file');
   await expect(page.locator('.share-tree-row.file .share-tree-name')).toHaveText(['sound.txt']);
   await expect(page.getByRole('button', { name: 'Download 1', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Download options', exact: true }).click();

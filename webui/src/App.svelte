@@ -18,6 +18,7 @@
   import { TransferTimelineController } from './domains/transfers/controller.svelte';
   import Dashboard from './domains/dashboard/Dashboard.svelte';
   import { userBrowserSession, loadUserBrowserSession, saveUserBrowserUsername, type UserBrowseView } from './domains/users/session';
+  import { soulseekLinkPath } from './domains/users/soulseek-link';
   import ConfigurationDialog from './domains/system/ConfigurationDialog.svelte';
   import type { SystemTab } from './domains/system/tabs';
   import { DaemonLiveClient, type LiveConnectionStatus } from './api/live';
@@ -206,6 +207,14 @@
     composer = null;
     cancelDeferredRender();
     routeRequest?.abort();
+    // A pasted link after the app's address, or after /shares/ or /users/
+    // (some proxies merge its '//').
+    const pasted = /^(?:\/(?:shares|users))?\/slsk:\/*(.*)$/i.exec(pathname);
+    const linked = pasted ? soulseekLinkPath(`slsk://${pasted[1]}`) : null;
+    if (linked) {
+      setPath(linked, true);
+      pathname = linked;
+    }
     const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
     const root = parts[0];
     if (root === 'jobs') {
@@ -234,6 +243,9 @@
       const mode = root === 'shares' ? 'shares' : 'user';
       if (parts[1]) selectBrowseUser(mode, decodeSegment(parts[1]));
       userBrowse = { query: userBrowsers[mode].username, mode };
+      // /shares/user/folder/file shows that folder or file, as its link does.
+      if (mode === 'shares' && parts.length > 2)
+        userBrowsers.shares.shares.focus = { path: parts.slice(2).map(decodeSegment).join('\\') };
       return;
     }
     if (root === 'chat') {
@@ -610,6 +622,24 @@
     setPath(`/${activePage}/${encodeURIComponent(username)}`);
   }
 
+  // Any slsk:// link in the app (chats, descriptions) opens its app address:
+  // a profile, or shares filtered to the linked folder or file. Modified clicks
+  // keep the browser's own handling.
+  function openSoulseekLink(event: MouseEvent): void {
+    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const link = event.target instanceof Element ? event.target.closest('a[href^="slsk://" i]') : null;
+    const path = link ? soulseekLinkPath(link.getAttribute('href') ?? '') : null;
+    if (!path) return;
+    event.preventDefault();
+    setPath(path);
+    applyPath(path);
+  }
+
+  // Editing a linked filter leaves the link; the address drops its path without a history entry.
+  function leaveSharesLink(): void {
+    if (activePage === 'shares' && activeUsername) setPath(`/shares/${encodeURIComponent(activeUsername)}`, true);
+  }
+
   const userActions: UserLinkActions = {
     profile: username => openUserView('user', username),
     shares: username => openUserView('shares', username),
@@ -654,6 +684,8 @@
   // briefly mount Dashboard and issue an analytics request only to abort it.
   applyPath(routePathname());
 </script>
+
+<svelte:document onclick={openSoulseekLink} />
 
 <AppShell activePage={navigationPage} {liveStatus} {liveState} {search} {userBrowse} {searchBusy} onnavigate={navigate} onsearchchange={(value) => (search = value)} onsearchsubmit={(value) => { if (!searchBusy) search = { ...value }; void submit(value); }} ondownloadrequest={composeSearchDownload} onuserbrowsechange={changeUserBrowse} onuserbrowsesubmit={submitUserBrowse}>
   {#if activePage === 'jobs' && pendingJobId && jobRouteError}
@@ -804,7 +836,7 @@
       {#key userBrowsers[userView]}
         <LazyView view={usersPage}>
           {#snippet children(UsersPage)}
-            <UsersPage {configurationRevision} session={userBrowsers[userView]} {documentVisible} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} {userActions} onopenjob={(id) => void openJob(id)} />
+            <UsersPage {configurationRevision} session={userBrowsers[userView]} {documentVisible} view={userView} {liveStatus} {liveClient} onviewchange={changeUserView} onmessageuser={userActions.message} {userActions} onopenjob={(id) => void openJob(id)} onleavelink={leaveSharesLink} />
           {/snippet}
         </LazyView>
       {/key}

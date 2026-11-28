@@ -1,5 +1,7 @@
 import { expect, test } from 'vitest';
 import { inheritedSelection, projectSelection } from '../src/app/tree-selection';
+import { formatSoulseekLink, parseSoulseekLink, soulseekLinkPath } from '../src/domains/users/soulseek-link';
+import { linkify } from '../src/lib/linkify';
 
 const parents = new Map<string, string | null>([
   ['d:1', null], ['d:2', 'd:1'], ['d:3', 'd:2'], ['f:4', 'd:3'],
@@ -56,4 +58,41 @@ test('keeps selected and downloadable counts distinct for locked descendants', (
   expect(projectSelection(included, excluded, parent, publicCount).total).toBe(1);
   expect(projectSelection(new Set(['f:locked']), new Set(), parent, total).total).toBe(1);
   expect(projectSelection(new Set(['f:locked']), new Set(), parent, publicCount).total).toBe(0);
+});
+
+test('reads a Soulseek link as a peer and the shared path it points to', () => {
+  expect(parseSoulseekLink('slsk://DJ%20Name/Music/Some%20Album/')).toEqual({ username: 'DJ Name', path: 'Music\\Some Album', profile: false });
+  expect(parseSoulseekLink('SLSK://peer/Music/01.flac')).toEqual({ username: 'peer', path: 'Music\\01.flac', profile: false });
+  // Without a slash a link is the user's profile; with one, the root of their shares.
+  expect(parseSoulseekLink('slsk://peer')).toEqual({ username: 'peer', path: '', profile: true });
+  expect(parseSoulseekLink('slsk://peer/')).toEqual({ username: 'peer', path: '', profile: false });
+  expect(formatSoulseekLink('DJ Name')).toBe('slsk://DJ%20Name');
+  expect(parseSoulseekLink('slsk:///Music')).toBeNull();
+  expect(parseSoulseekLink('slsk://peer/%E0%A4%A')).toBeNull();
+});
+
+test('formats share links that read back as the same folder or file', () => {
+  const folder = formatSoulseekLink('DJ Name', 'Music\\Some Album #1', true);
+  expect(folder).toBe('slsk://DJ%20Name/Music/Some%20Album%20%231/');
+  expect(parseSoulseekLink(folder)).toEqual({ username: 'DJ Name', path: 'Music\\Some Album #1', profile: false });
+  expect(parseSoulseekLink(formatSoulseekLink('peer', 'Music\\01.flac', false))).toEqual({ username: 'peer', path: 'Music\\01.flac', profile: false });
+});
+
+test('keeps apostrophes inside Soulseek links in text, and copies them escaped', () => {
+  const link = "slsk://some-peer/Music/Artist/02.%20Artist%20-%20I'm%20Here.flac";
+  const links = linkify(`see ${link}, or 'slsk://peer/A/'`).filter(part => part.kind === 'link');
+  expect(links.map(part => part.href)).toEqual([link, 'slsk://peer/A/']);
+  // Shown readably; the target stays exact, and escaped separators stay escaped.
+  expect(links[0]?.value).toBe("slsk://some-peer/Music/Artist/02. Artist - I'm Here.flac");
+  // Web links, and Soulseek links hiding direction overrides, show as written.
+  expect(linkify('https://example.com/a%20b')[0]).toMatchObject({ value: 'https://example.com/a%20b' });
+  expect(linkify('slsk://peer/a%E2%80%AEgpj.exe')[0]).toMatchObject({ value: 'slsk://peer/a%E2%80%AEgpj.exe' });
+  expect(formatSoulseekLink('peer', "Music\\I'm (Live).flac", false)).toBe('slsk://peer/Music/I%27m%20%28Live%29.flac');
+});
+
+test('opens a link at the app address with the same path, or a profile without one', () => {
+  expect(soulseekLinkPath('slsk://some%20peer/Music/I%27m%20Here/')).toBe('/shares/some%20peer/Music/I%27m%20Here/');
+  expect(soulseekLinkPath('slsk://some-peer/')).toBe('/shares/some-peer/');
+  expect(soulseekLinkPath('slsk://some-peer')).toBe('/users/some-peer');
+  expect(soulseekLinkPath('slsk:///Music')).toBeNull();
 });

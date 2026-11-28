@@ -19,6 +19,8 @@
   import SelectionToolbar from '../../components/SelectionToolbar.svelte';
   import LoadMoreButton from '../../components/LoadMoreButton.svelte';
   import { notify } from '../../lib/notifications.svelte';
+  import { anchoredMenu } from '../../lib/anchored-menu';
+  import { copySoulseekLink, formatSoulseekLink } from './soulseek-link';
   import { fileTypeIcon } from '../presentation/file-types';
   import { filteredTreeRows } from './filter-tree';
   import { inheritedSelection, projectSelection, type SelectionSize } from '../../app/tree-selection';
@@ -32,8 +34,10 @@
   interface TreeRowPage { kind: 'page'; parentKey: string; page: PageState; depth: number; }
   type TreeRow = TreeRowDirectory | TreeRowFile | TreeRowPage;
 
-  let { source: input, session = {}, position, connected = true, configurationRevision, userActions, onopenjob }: {
+  let { source: input, session = {}, position, connected = true, configurationRevision, userActions, onopenjob, onleavelink }: {
     source: ShareBrowserSource; session?: ShareBrowserSession; position?: ShareBrowserPosition; connected?: boolean; configurationRevision?: number;
+    /** The filter no longer shows the linked folder or file it was opened with. */
+    onleavelink?: () => void;
     /** Opens the job a download request created. */
     onopenjob?: (jobId: string) => void;
     /** Makes a peer's name the usual username link; the daemon's own shares have none. */
@@ -62,6 +66,70 @@
     // Wait for a pause in typing: phone keyboards space letters wider than a short debounce.
     const timer = setTimeout(() => (filterQuery = query), 300);
     return () => clearTimeout(timer);
+  });
+  // A link's address shows its folder or file by filtering to its path, once.
+  // Clearing the filter (or going back) undoes it.
+  let linkedFilter: string | undefined;
+  $effect(() => {
+    const focus = session.focus;
+    if (!focus) return;
+    session.focus = undefined;
+    filterText = filterQuery = linkedFilter = focus.path;
+  });
+  $effect(() => {
+    if (linkedFilter === undefined || filterText.trim() === linkedFilter) return;
+    linkedFilter = undefined;
+    untrack(() => onleavelink?.());
+  });
+  // One menu serves every row. Rows only carry a bare button; its row's key
+  // resolves the entry when clicked, so large trees pay no per-row state.
+  let rowMenu = $state<{ anchor: HTMLElement; path: string; folder: boolean }>();
+  function rowEntry(key: string): { path: string; folder: boolean } | null {
+    const id = key.slice(2), folder = key.startsWith('d:');
+    if (filterQuery) {
+      const item = filterItems.find(item => String(item.entryId) === id && (item.kind === 'directory') === folder);
+      if (item) return { path: item.displayPath, folder };
+    }
+    if (folder) {
+      const directory = directories.get(id);
+      return directory ? { path: directory.displayPath, folder } : null;
+    }
+    for (const [directoryId, files] of filesByDirectory) {
+      const file = files.find(file => String(file.fileId) === id);
+      if (file) return { path: `${directories.get(directoryId)?.displayPath ?? ''}\\${file.file.name}`, folder };
+    }
+    return null;
+  }
+  function openRowMenu(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const anchor = event.currentTarget as HTMLElement;
+    const key = anchor.closest<HTMLElement>('[data-keyboard-item]')?.dataset.keyboardItem;
+    const entry = key ? rowEntry(key) : null;
+    rowMenu = entry && rowMenu?.anchor !== anchor ? { anchor, ...entry } : undefined;
+  }
+  async function copyRowLink(): Promise<void> {
+    if (!rowMenu) return;
+    const link = formatSoulseekLink(browse.username, rowMenu.path, rowMenu.folder);
+    rowMenu = undefined;
+    await copySoulseekLink(link);
+  }
+  $effect(() => {
+    if (!rowMenu) return;
+    // Only the open row's button changes, imperatively, instead of every row tracking the menu.
+    const anchor = rowMenu.anchor;
+    anchor.setAttribute('aria-expanded', 'true');
+    const close = (event: Event) => {
+      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !(event.target instanceof Element && event.target.closest('.share-row-menu, .share-row-more')))
+        rowMenu = undefined;
+    };
+    window.addEventListener('pointerdown', close, true);
+    window.addEventListener('keydown', close, true);
+    return () => {
+      anchor.removeAttribute('aria-expanded');
+      window.removeEventListener('pointerdown', close, true);
+      window.removeEventListener('keydown', close, true);
+    };
   });
   let filterPage = $state.raw<BrowseSearchPageDto | null>(saved?.filterPage ?? null);
   let filterItems = $state.raw<BrowseSearchPageDto['items']>(saved?.filterItems ?? []);
@@ -613,13 +681,18 @@
             <span class:peer-identity={Boolean(userActions)} data-testid="shares-username">{#if userActions}<UsernameLink username={browse.username} actions={userActions} />{:else}<span class="shares-username">{browse.username}</span>{/if}</span>
             <strong>{formatBytes(browse.totalFileBytes)} shared</strong>
           </div>
+          <!-- The count sits left of the field when there is room, else inside it;
+               either way the field never changes size. -->
+          {#snippet matchCount(placement: string)}
+            {#if filterQuery && filterPage && !filterLoading}
+              {@const matchingCount = Number(filterPage.publicMatchingFileCount) + Number(filterPage.lockedMatchingFileCount)}
+              <span class={`shares-filter-count ${placement}`} data-testid={`shares-filter-count-${placement}`}>{formatCount(matchingCount)} matching {matchingCount === 1 ? 'file' : 'files'}</span>
+            {/if}
+          {/snippet}
           <div class="shares-filter">
+            {@render matchCount('beside')}
             <ResultFilterControl bind:value={filterText} placeholder="Filter shared files…" ariaLabel="Filter user shares">
-              <!-- The count lives inside the field so the field never changes size. -->
-              {#if filterQuery && filterPage && !filterLoading}
-                {@const matchingCount = Number(filterPage.publicMatchingFileCount) + Number(filterPage.lockedMatchingFileCount)}
-                <span class="shares-filter-count">{formatCount(matchingCount)} matching {matchingCount === 1 ? 'file' : 'files'}</span>
-              {/if}
+              {@render matchCount('inside')}
             </ResultFilterControl>
           </div>
         </div>
@@ -672,6 +745,7 @@
                       <span class="share-tree-folder-meta">{formatCount(count)} {item.totalSubtreeFileCount == null ? 'public ' : ''}{count === 1 ? 'file' : 'files'}</span>
                       <span class="share-tree-size">{formatBytes(item.totalSubtreeBytes ?? item.publicSubtreeBytes)}</span>
                     </button>
+                    <button type="button" class="share-row-more" tabindex="-1" aria-label="More actions" aria-haspopup="menu" data-action="share-row-menu" onclick={openRowMenu}></button>
                   </div>
                 {:else}
                   <label data-keyboard-item={key} data-range-toggle data-range-disabled={selectionCount(key) === 0 || undefined} tabindex="-1" class="share-tree-row file" style={`--share-depth:${depth}`} title={isInheritedSelection(key) && isSelectionChecked(key) ? 'Included by a selected parent folder' : undefined}>
@@ -681,6 +755,7 @@
                     <strong class="share-tree-name" title={item.displayPath}>{item.name}</strong>
                     {#if item.visibility === 'mixed'}<span class="share-visibility mixed">Mixed</span>{/if}
                     <span class="share-tree-size">{formatBytes(item.fileSize)}</span>
+                    <button type="button" class="share-row-more" tabindex="-1" aria-label="More actions" aria-haspopup="menu" data-action="share-row-menu" onclick={openRowMenu}></button>
                   </label>
                 {/if}
               {/each}
@@ -716,6 +791,7 @@
                     <span class="share-tree-folder-meta">{formatCount(count)} {row.entry.totalRecursiveFileCount == null ? 'public ' : ''}{count === 1 ? 'file' : 'files'}</span>
                     <span class="share-tree-size">{formatBytes(row.entry.totalRecursiveFileBytes ?? row.entry.recursiveFileBytes)}</span>
                   </button>
+                  <button type="button" class="share-row-more" tabindex="-1" aria-label="More actions" aria-haspopup="menu" data-action="share-row-menu" onclick={openRowMenu}></button>
                 </div>
               {:else if row.kind === 'page'}
                 <div data-keyboard-page={row.parentKey} data-loading={row.page.loading} data-failed={Boolean(row.page.error)} class="share-tree-page" style={`--share-depth:${row.depth}`}>
@@ -742,6 +818,7 @@
                   </span>
                   <strong class="share-tree-name" title={row.path}>{row.entry.file.name}</strong>
                   <span class="share-tree-size">{formatBytes(row.entry.file.size)}</span>
+                  <button type="button" class="share-row-more" tabindex="-1" aria-label="More actions" aria-haspopup="menu" data-action="share-row-menu" onclick={openRowMenu}></button>
                 </label>
               {/if}
             {/each}
@@ -755,6 +832,11 @@
     floatingLabel={requesting ? 'Requesting…' : retryAfterExpiry ? 'Retry download' : undefined} actionDisabled={downloadDisabled}
     optionsOpen={optionsOpen} optionsCustomized={Object.keys(downloadOptions).length > 0} onoptions={toggleOptions}
     onclear={clearSelection} onaction={() => void downloadSelection()}/>{/if}
+  {#if rowMenu}
+    <div class="popover-panel share-row-menu" role="menu" aria-label="Share item actions" use:anchoredMenu={{ anchor: rowMenu.anchor, align: 'end' }}>
+      <button type="button" role="menuitem" class="menu-item" data-action="copy-share-link" onclick={() => void copyRowLink()}><Icon name="link" />Copy link</button>
+    </div>
+  {/if}
 </div>
 
 <style>
