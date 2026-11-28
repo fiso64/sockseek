@@ -1,10 +1,12 @@
 # Changelog
 
-Notable changes in each Sockseek release. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/) (sometimes).
+Notable changes in each Sockseek release. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/) (kinda).
 
 ## [Unreleased]
 
-Sockseek 4.0 turns the daemon into a full Soulseek client with a WebUI. One-shot downloads from the CLI work as before. For config and script changes, see [Coming from 3.x](https://fiso64.github.io/sockseek/using-sockseek/coming-from-v3). The docs now live at https://fiso64.github.io/sockseek/.
+Sockseek 4.0 turns the daemon into a full Soulseek client with a WebUI! One-shot downloads from the CLI work as before. For config and script changes, see [Coming from 3.x](https://fiso64.github.io/sockseek/using-sockseek/coming-from-v3). 
+
+The docs now live at https://fiso64.github.io/sockseek/.
 
 ### Added
 

@@ -8,6 +8,14 @@
     <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
 
+    <!-- Every output folder links dependencies (natives for ~20 platforms
+         included) instead of copying them, so each NuGet file is stored once.
+         Falls back to copying across filesystems. -->
+    <CreateHardLinksForCopyLocalIfPossible>true</CreateHardLinksForCopyLocalIfPossible>
+    <CreateHardLinksForCopyFilesToOutputDirectoryIfPossible>true</CreateHardLinksForCopyFilesToOutputDirectoryIfPossible>
+    <CreateHardLinksForCopyAdditionalFilesIfPossible>true</CreateHardLinksForCopyAdditionalFilesIfPossible>
+    <CreateHardLinksForPublishFilesIfPossible>true</CreateHardLinksForPublishFilesIfPossible>
+
     <!-- Keep expensive qualification fixtures out of the fast default loop.
          An explicit command-line test filter replaces this default. -->
     <VSTestTestCaseFilter Condition="'$(VSTestTestCaseFilter)' == ''">TestCategory!=Load</VSTestTestCaseFilter>
